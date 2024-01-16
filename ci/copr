@@ -1,0 +1,5 @@
+[copr-cli]
+login =
+username = ndmspc
+token = 
+copr_url = https://copr.fedorainfracloud.org

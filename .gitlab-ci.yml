@@ -1,0 +1,47 @@
+stages:
+  - prerequisites
+  - build
+  - deploy
+
+image: docker:stable
+
+variables:
+  DOCKER_DRIVER: overlay2
+
+services:
+  - docker:dind
+
+dep-al9:
+  stage: prerequisites
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build --tag $CI_REGISTRY_IMAGE/dep/al9:latest -f ci/Dockerfile.dep.al9 .
+    - docker push $CI_REGISTRY_IMAGE/dep/al9:latest
+  when: manual
+  allow_failure: true
+  except:
+    - tags
+
+build-al9:
+  image: $CI_REGISTRY_IMAGE/dep/al9
+  stage: build
+  script: scripts/make.sh release
+  when: manual
+  except:
+    - main
+    - tags
+
+build-rpm-copr:
+  stage: deploy
+  image:
+    name: $CI_REGISTRY_IMAGE/dep/al9
+  script:
+    - export COPR_LOGIN COPR_TOKEN COPR_USER
+    - scripts/copr.sh $COPR_DEBUG
+    - export MY_PROJECT_VER=${CI_COMMIT_REF_NAME/v/}
+    - export MY_VER_RELEASE=$(echo $MY_PROJECT_VER | cut -sd '-' -f2)
+    - scripts/make.sh rpm
+    - if [ -z "$MY_VER_RELEASE" ];then copr-cli build ndmspc/stable build/SRPMS/*.src.rpm --nowait; fi
+    - if [ -n "$MY_VER_RELEASE" ];then copr-cli build ndmspc/testing build/SRPMS/*.src.rpm --nowait; fi
+  only:
+    - tags
