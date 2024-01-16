@@ -1,0 +1,40 @@
+%global debug_package %{nil}
+%global source_date_epoch_from_changelog %{nil}
+
+Name:       @PROJECT_NAME@
+Version:	@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@
+Release:	@PROJECT_VERSION_RELEASE@%{?dist}
+Summary:	@PROJECT_DESCRIPTION@
+Group:		System Environment/Libraries
+License:	LGPL v3+
+Source0:    %{name}-%{version}.tar.gz
+
+BuildRequires:  gcc-c++
+BuildRequires:  cmake, doxygen
+BuildRequires:  root
+Requires:       root
+
+%description
+@PROJECT_DESCRIPTION@
+
+%prep
+%setup -q
+
+%build
+mkdir build
+cd build
+cmake ../ -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENTATION=on
+make %{?_smp_mflags}
+cd ../
+
+%install
+rm -rf %{buildroot}
+cd build
+make install DESTDIR=%{buildroot}
+
+%files
+%{_bindir}/*
+%{_datadir}/%{name}/*
+%{_sysconfdir}/*
+
+%changelog
