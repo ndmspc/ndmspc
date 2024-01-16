@@ -36,6 +36,5 @@ function +() (
 trap cleanup EXIT
 
 echo "Running '$@' ..." > $LOG_FILE
-
 # $@ > $LOG_FILE 2>&1
 + $@
