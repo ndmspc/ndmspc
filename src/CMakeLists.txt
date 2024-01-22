@@ -1,8 +1,10 @@
 set (MY_INCLUDE_DIRS
+${CMAKE_SOURCE_DIR}/NDH
 )
 include_directories(${MY_INCLUDE_DIRS})
 
 set(MY_EXTERNAL_LIBS
+NdmspcNDH
 )
 
 file(GLOB EXEC_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.cxx" )

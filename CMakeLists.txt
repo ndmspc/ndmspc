@@ -9,10 +9,12 @@ set(PROJECT_VERSION_RELEASE 0.1.rc0)
 
 include(cmake/cmake_base.cmake)
 
-# find_package(ROOT REQUIRED)
-# include(ROOTMacros)
+find_package(Root REQUIRED)
+include(ROOTMacros)
 
-# add_subdirectory(src)
+add_subdirectory(NDH)
+add_subdirectory(src)
+add_subdirectory(doc)
 
 if (CMAKE_INSTALL_PREFIX STREQUAL "/usr")
 INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)

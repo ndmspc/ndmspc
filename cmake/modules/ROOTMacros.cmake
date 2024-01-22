@@ -946,7 +946,7 @@ function(RootLib PACKAGE SRCS DEPLIBS HEADER_PREFIX)
     include_directories(${ROOT_INCLUDE_DIR})
     link_directories( ${ROOT_LIBRARY_DIR} )
 
-    string(REPLACE ".cc" ".hh" HDRS "${SRCS}")
+    string(REPLACE ".cxx" ".h" HDRS "${SRCS}")
     ROOT_GENERATE_DICTIONARY( G__${PACKAGE} ${HDRS} MODULE ${PACKAGE} LINKDEF ${PACKAGE}LinkDef.h)
     list(APPEND SRCS G__${PACKAGE}.cxx)
 
