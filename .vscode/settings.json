@@ -3,7 +3,8 @@
     "**/*.yml": "ansible",
     "all": "ansible",
     "NdmspcRun.C": "cpp",
-    "*.in": "cpp"
+    "*.in": "cpp",
+    "iosfwd": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }

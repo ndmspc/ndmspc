@@ -71,9 +71,9 @@ foreach(_opt ${_root_options})
 endforeach()
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(ROOT DEFAULT_MSG ROOT_CONFIG_EXECUTABLE
+find_package_handle_standard_args(Root DEFAULT_MSG ROOT_CONFIG_EXECUTABLE
 	ROOTSYS ROOT_VERSION ROOT_INCLUDE_DIR ROOT_LIBRARIES ROOT_LIBRARY_DIR)
-message("-- ROOT version : ${ROOT_VERSION}")
+message("-- Found Root version : ${ROOT_VERSION}")
 mark_as_advanced(ROOT_CONFIG_EXECUTABLE)
 
 include(CMakeParseArguments)

@@ -1,32 +1,11 @@
 stages:
-  - prerequisites
   - build
   - deploy
 
-image: docker:stable
-
-variables:
-  DOCKER_DRIVER: overlay2
-
-services:
-  - docker:dind
-
-dep-al9:
-  stage: prerequisites
-  script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build --tag $CI_REGISTRY_IMAGE/dep/al9:latest -f ci/Dockerfile.dep.al9 .
-    - docker push $CI_REGISTRY_IMAGE/dep/al9:latest
-  when: manual
-  allow_failure: true
-  except:
-    - tags
-
 build-al9:
-  image: $CI_REGISTRY_IMAGE/dep/al9
+  image: $CI_REGISTRY/ndmspc/user/al9:dep
   stage: build
   script: scripts/make.sh release
-  when: manual
   except:
     - main
     - tags
@@ -34,7 +13,7 @@ build-al9:
 build-rpm-copr:
   stage: deploy
   image:
-    name: $CI_REGISTRY_IMAGE/dep/al9
+    name: $CI_REGISTRY/ndmspc/user/al9:dep
   script:
     - export COPR_LOGIN COPR_TOKEN COPR_USER
     - scripts/copr.sh $COPR_DEBUG

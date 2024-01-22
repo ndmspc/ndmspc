@@ -95,6 +95,10 @@ do
 			echo "Building rpm"
 			MY_MAKE_OPTS="${MY_MAKE_OPTS} rpm"
 			;;
+		"srpm")
+			echo "Building srpm"
+			MY_MAKE_OPTS="${MY_MAKE_OPTS} srpm"
+			;;
 		"test")
 			echo "Running tests"
 			RUNNING_TEST=true;
