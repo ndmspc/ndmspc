@@ -1,2 +1,3 @@
 #!/bin/bash
 export NDMSPC_ROOT="@CMAKE_INSTALL_PREFIX@/share/@PROJECT_NAME@"
+export NDMSPC_MACRO_DIR="$NDMSPC_ROOT"

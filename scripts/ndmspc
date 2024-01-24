@@ -5,20 +5,39 @@ NDMSPC_LOGFILE_XRD=${NDMSPC_LOGFILE_XRD-"ndmspc.log"}
 NDMSPC_LOG_TYPE=${NDMSPC_LOG_TYPE-"error-only"}
 
 
-# NDMSPC_LOGDIR_XRD="root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
-# NDMSPC_LOG_TYPE="always"
-if [ -z "$NDMSPC_LOG_XRD" ];then
-  [ -n "$NDMSPC_LOGDIR_XRD" ] &&  NDMSPC_LOG_XRD="$NDMSPC_LOGDIR_XRD"
-  [ -n "$SALSA_CLUSTER_ID" ] && NDMSPC_LOG_XRD="$NDMSPC_LOGDIR_XRD/$SALSA_CLUSTER_ID"
-  [ -n "$SALSA_JOB_ID" ] && NDMSPC_LOG_XRD="$NDMSPC_LOG_XRD/$SALSA_JOB_ID"
-  [ -n "$SALSA_TASK_ID" ] && NDMSPC_LOG_XRD="$NDMSPC_LOG_XRD/$SALSA_TASK_ID"
-  NDMSPC_LOG_XRD="$NDMSPC_LOG_XRD/$NDMSPC_LOGFILE_XRD"
+function help() {
+  echo "$0 <cmd> <arg1> <arg2> ... <argN>"
+  echo "$0 _run <arg1> <arg2> ... <argN>"
+}
+
+if [ -z "$1" ];then
+  help
+  exit 1
 fi
 
-[ -z "$NDMSPC_LOG_XRD" ] && NDMSPC_LOG_XRD="$NDMSPC_LOGFILE_XRD"
+MY_CMD=$@
+if [[ $1 == "_run" ]];then
+  shift
+  MY_CMD="root -b -q $NDMSPC_MACRO_DIR/NdmspcRun.C"
+  [ -n "$@" ] && MY_CMD="${MY_CMD}'($@)'"
+  # exit 1
+fi
+# NDMSPC_LOGDIR_XRD="root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
+# NDMSPC_LOG_TYPE="always"
+if [ -z "$NDMSPC_LOG_XRD" ] ;then
+  if [ -n "$NDMSPC_LOGDIR_XRD" ];then
+    [ -n "$NDMSPC_LOGDIR_XRD" ] &&  NDMSPC_LOG_XRD="$NDMSPC_LOGDIR_XRD"
+    [ -n "$SALSA_CLUSTER_ID" ] && NDMSPC_LOG_XRD="$NDMSPC_LOGDIR_XRD/$SALSA_CLUSTER_ID"
+    [ -n "$SALSA_JOB_ID" ] && NDMSPC_LOG_XRD="$NDMSPC_LOG_XRD/$SALSA_JOB_ID"
+    [ -n "$SALSA_TASK_ID" ] && NDMSPC_LOG_XRD="$NDMSPC_LOG_XRD/$SALSA_TASK_ID"
+    [ -n "$NDMSPC_LOG_XRD" ] && NDMSPC_LOG_XRD="$NDMSPC_LOG_XRD/$NDMSPC_LOGFILE_XRD"
+  fi
+fi
 
-
-echo $NDMSPC_LOG_XRD
+echo "NDMSPC_LOG_XRD=$NDMSPC_LOG_XRD"
+echo "NDMSPC_LOGDIR_XRD=$NDMSPC_LOGDIR_XRD"
+echo "NDMSPC_LOGFILE_XRD=$NDMSPC_LOGFILE_XRD"
+echo "NDMSPC_LOG_TYPE=$NDMSPC_LOG_TYPE"
 
 # the directory of the script
 # DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -47,16 +66,16 @@ fi
 
 # deletes the temp directory
 function cleanup {
-  cat $LOG_FILE
+  # cat $LOG_FILE
   rm -rf "$WORK_DIR"
   echo "Deleted temp working directory $WORK_DIR"
 }
 
 function +() (
   set -f  # no double expand
-  eval "$@" | tee >> $LOG_FILE
+  eval "$MY_CMD" | tee -a $LOG_FILE
   RC=${PIPESTATUS[0]}
-  echo "cmd='$@' rc=$RC" | tee >> $LOG_FILE
+  echo "cmd='$MY_CMD' rc=$RC" | tee -a $LOG_FILE
   # $@ | tee >> $LOG_FILE
   if [ -n "$NDMSPC_LOG_XRD" ];then
     
@@ -85,6 +104,6 @@ function +() (
 # register the cleanup function to be called on the EXIT signal
 trap cleanup EXIT
 
-echo "Running '$@' ..." > $LOG_FILE
+echo "Running '$MY_CMD' ..." | tee -a $LOG_FILE
 # $@ > $LOG_FILE 2>&1
-+ $@
++ $MY_CMD
