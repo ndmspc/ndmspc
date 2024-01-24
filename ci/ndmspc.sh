@@ -44,7 +44,7 @@ alibuild-generate-module --bin --lib > "$MODULEFILE"
 cat >> "$MODULEFILE" <<EoF
 # Our environment
 setenv NDMSPC_ROOT \$PKG_ROOT
-setenv NDMSPC_MACRO_DIR \$NDMSPC_ROOT/macros
-prepend-path ROOT_INCLUDE_PATH \$NDMSPC_ROOT/include
+setenv NDMSPC_MACRO_DIR \$PKG_ROOT/macros
+prepend-path ROOT_INCLUDE_PATH \$PKG_ROOT/include
 EoF
 mkdir -p $INSTALLROOT/etc/modulefiles && rsync -a --delete etc/modulefiles/ $INSTALLROOT/etc/modulefiles

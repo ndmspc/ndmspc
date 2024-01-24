@@ -14,17 +14,10 @@ configure_file (
   "${PROJECT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.h"
 )
 
-
 # Spec file
 configure_file (
   "${PROJECT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.spec.in"
   "${PROJECT_SOURCE_DIR}/${CMAKE_PROJECT_NAME}.spec"
-)
-
-# Spec file
-configure_file (
-  "${PROJECT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.sh.profile.d.in"
-  "${PROJECT_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh"
 )
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
