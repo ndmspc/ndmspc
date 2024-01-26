@@ -4,10 +4,9 @@ NDMSPC_LOGDIR_XRD=${NDMSPC_LOGDIR_XRD-""}
 NDMSPC_LOGFILE_XRD=${NDMSPC_LOGFILE_XRD-"ndmspc.log"}
 NDMSPC_LOG_TYPE=${NDMSPC_LOG_TYPE-"error-only"}
 
-
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
-  echo "$0 _run <arg1> <arg2> ... <argN>"
+  echo "$0 _run '\"test_single.json\"'"
 }
 
 if [ -z "$1" ];then
@@ -56,10 +55,10 @@ if [[ ! "$WORK_DIR" || ! -d "$WORK_DIR" ]]; then
   exit 1
 fi
 
-if [ -n "$NDMSPC_LOGDIR_XRD" ];then
+if [ -n "$NDMSPC_LOG_XRD" ];then
   if ! command -v xrdcp &> /dev/null; then
-      echo "Warning: 'xrdcp' is not installed !!! Please install it first (dnf install xrootd-client) to send logs to '$NDMSPC_LOGDIR_XRD' ..."
-      export NDMSPC_LOGDIR_XRD=""
+      echo "Warning: 'xrdcp' is not installed !!! Please install it first (dnf install xrootd-client) to send logs to '$NDMSPC_LOG_XRD' ..."
+      export NDMSPC_LOG_XRD=""
   fi
 fi
 
@@ -73,7 +72,7 @@ function cleanup {
 
 function +() (
   set -f  # no double expand
-  eval "$MY_CMD" | tee -a $LOG_FILE
+  eval "$MY_CMD" 2>&1 | tee -a $LOG_FILE
   RC=${PIPESTATUS[0]}
   echo "cmd='$MY_CMD' rc=$RC" | tee -a $LOG_FILE
   # $@ | tee >> $LOG_FILE
@@ -92,8 +91,9 @@ function +() (
     esac
     if [[ $NDMSPC_LOG_COPY == 1 ]];then
       echo "Copying logs (type=$NDMSPC_LOG_TYPE) to '$NDMSPC_LOG_XRD' ..."
-      NDMSPC_LOGFILE_HTTP=$(echo ${NDMSPC_LOG_XRD/root/https} | tr -s /)
-      xrdcp -f $LOG_FILE $NDMSPC_LOG_XRD && echo -e "Logs:\n\t$NDMSPC_LOGFILE_HTTP\n\t$NDMSPC_LOG_XRD\n" || { echo "Warning: Problem doing 'xrdcp -f "$LOG_FILE" "$NDMSPC_LOG_XRD" !!! Log is not produced at $NDMSPC_LOG_XRD ..."; true; }
+      NDMSPC_LOGFILE_HTTP=$(echo ${NDMSPC_LOG_XRD/root:\/\//} | tr -s /)
+      NDMSPC_LOGFILE_HTTP="https://$NDMSPC_LOGFILE_HTTP"
+      xrdcp -f $LOG_FILE $NDMSPC_LOG_XRD && echo -e "Logs:\n\tcurl -L $NDMSPC_LOGFILE_HTTP\n\txrdcp $NDMSPC_LOG_XRD /tmp/ndmspc.log\n" || { echo "Warning: Problem doing 'xrdcp -f "$LOG_FILE" "$NDMSPC_LOG_XRD" !!! Log is not produced at $NDMSPC_LOG_XRD ..."; true; }
     fi
     
   fi
@@ -102,8 +102,7 @@ function +() (
 )  
 
 # register the cleanup function to be called on the EXIT signal
-trap cleanup EXIT
+trap cleanup EXIT INT
 
-echo "Running '$MY_CMD' ..." | tee -a $LOG_FILE
-# $@ > $LOG_FILE 2>&1
+echo "Running '$MY_CMD' ..." 2>&1 | tee -a $LOG_FILE
 + $MY_CMD
