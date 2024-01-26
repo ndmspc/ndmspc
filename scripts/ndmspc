@@ -3,6 +3,8 @@ NDMSPC_LOG_XRD=${NDMSPC_LOG_XRD-""}
 NDMSPC_LOGDIR_XRD=${NDMSPC_LOGDIR_XRD-""}
 NDMSPC_LOGFILE_XRD=${NDMSPC_LOGFILE_XRD-"ndmspc.log"}
 NDMSPC_LOG_TYPE=${NDMSPC_LOG_TYPE-"error-only"}
+NDMSPC_MACRO_SRC=
+NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcMacro.C"}
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
@@ -14,13 +16,7 @@ if [ -z "$1" ];then
   exit 1
 fi
 
-MY_CMD=$@
-if [[ $1 == "_run" ]];then
-  shift
-  MY_CMD="root -b -q $NDMSPC_MACRO_DIR/NdmspcRun.C"
-  [ -n "$@" ] && MY_CMD="${MY_CMD}'($@)'"
-  # exit 1
-fi
+
 # NDMSPC_LOGDIR_XRD="root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
 # NDMSPC_LOG_TYPE="always"
 if [ -z "$NDMSPC_LOG_XRD" ] ;then
@@ -48,6 +44,71 @@ DIR=/tmp/ndmspc
 # omit the -p parameter to create a temporal directory in the default location
 WORK_DIR=`mktemp -d -p "$DIR"`
 LOG_FILE="$WORK_DIR/ndmspc.log"
+MY_PWD=$(pwd)
+cd $WORK_DIR
+
+MY_CMD=$@
+if [[ $1 == "_run" ]];then
+  shift
+  MY_CMD="root -b -q $NDMSPC_MACRO_DIR/NdmspcRun.C"
+  [ -n "$1" ] && MY_CMD="${MY_CMD}'($1)'"
+  shift
+
+  # ndmspc _run '"config.json"' "<next lines (multiple space separated)>"
+  # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcMacro.C" 
+  # "https://gitlab.science.upjs.sk/jf/students/phd/2023/veronika-barbasova/myo2/-/raw/main/macros/RsnFunctions.h|RsnFunctions.h" 
+  # "local|$(pwd)/test_single.json|config.json"
+  # "root://eos.ndmspc.io//eos/ndmspc/scratch/test/test_single.json|config.json"
+  # "dir|cp|$(pwd)/*"
+  # "dir|xrdcp|root://eos.ndmspc.io//eos/ndmspc/scratch/test/mvala/test/xxx"
+  for arg in $*;do
+    # echo $arg
+    if [[ $arg == local* ]];then
+      content=$(echo "$arg" | cut -d '|' -f2)
+      filename=$(echo "$arg" |cut -d '|' -f3)
+      cp -f $content $WORK_DIR/$filename
+      echo "Filename created : $WORK_DIR/$filename"
+    elif [[ $arg == dir* ]];then
+      type=$(echo "$arg" | cut -d '|' -f2)
+      dir=$(echo "$arg" |cut -d '|' -f3)
+      if [[ $type == cp* ]];then
+        echo "Doing 'cp -a $dir $WORK_DIR/'"
+        cp -a $dir $WORK_DIR/
+      elif [[ $type == xrdcp* ]];then
+        echo "Doing 'xrdcp -r $dir $WORK_DIR/'"
+        xrdcp -r $dir $WORK_DIR/
+        mv $WORK_DIR/$(basename $dir)/* .
+        rm -rf $WORK_DIR/$(basename $dir)
+      fi
+      
+    elif [[ $arg == base64* ]];then
+      content=$(echo "$arg" | cut -d '|' -f2)
+      filename=$(echo "$arg" |cut -d '|' -f3)
+      echo $content | base64 -d > $WORK_DIR/$filename
+      echo "Filename created : $WORK_DIR/$filename"
+    elif [[ $arg == root* ]];then
+      content=$(echo "$arg" | cut -d '|' -f1)
+      filename=$(echo "$arg" |cut -d '|' -f2)
+      xrdcp $content - > $WORK_DIR/$filename
+      echo "Filename created : $WORK_DIR/$filename"
+    elif [[ $arg == http* ]] || [[ $arg == https* ]];then
+      content=$(echo "$arg" | cut -d '|' -f1)
+      filename=$(echo "$arg" |cut -d '|' -f2)
+      curl -s $content -L > $WORK_DIR/$filename
+      echo "Filename created : $WORK_DIR/$filename"
+      
+    fi
+
+
+  done
+cat <<EOF > $WORK_DIR/rootlogoff.C
+void rootlogoff() {
+  gROOT->GetListOfCanvases()->Clear();
+}
+EOF
+fi
+echo "Working directory : $(pwd)"
+ls -al
 
 # check if tmp dir was created
 if [[ ! "$WORK_DIR" || ! -d "$WORK_DIR" ]]; then
@@ -65,6 +126,7 @@ fi
 
 # deletes the temp directory
 function cleanup {
+  cd $MY_PWD
   # cat $LOG_FILE
   rm -rf "$WORK_DIR"
   echo "Deleted temp working directory $WORK_DIR"
