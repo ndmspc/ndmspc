@@ -21,7 +21,7 @@ AlwaysBreakTemplateDeclarations: true
 BinPackArguments: true
 BinPackParameters: true
 BreakBeforeBraces: Stroustrup
-BreakConstructorInitializersBeforeComma: true
+# BreakConstructorInitializersBeforeComma: true
 BreakBeforeBinaryOperators: None
 BreakBeforeTernaryOperators: true
 BreakConstructorInitializersBeforeComma: false
