@@ -70,7 +70,9 @@
     "thread": "cpp",
     "typeinfo": "cpp",
     "valarray": "cpp",
-    "variant": "cpp"
+    "variant": "cpp",
+    "NdmspcMacro.C": "cpp",
+    "rootlogoff.C": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }
