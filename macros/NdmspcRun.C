@@ -327,7 +327,7 @@ int NdmspcRun(TString cfgFile = "", bool showConfig = true)
   if (type.empty()) {
     Printf("Warning: [ndmspc][process][type] is missing or is empty in configuration !!! Setting it ot 'single' ...");
     type                   = "single";
-    cfg["process"]["type"] = type;
+    cfg["ndmspc"]["process"]["type"] = type;
   }
 
   TList * inputList = NdmspcInit(cfg);
@@ -337,7 +337,7 @@ int NdmspcRun(TString cfgFile = "", bool showConfig = true)
     if (!NdmspcProcessSinglePoint(cfg)) return 3;
   }
   else if (!type.compare("all")) {
-    NdmspcProcessRecursive(cfg["cuts"].size() - 1, cfg);
+    NdmspcProcessRecursive(cfg["ndmspc"]["cuts"].size() - 1, cfg);
   }
   else {
     Printf("Error: Value [process][type]='%s' is not supported !!! Exiting ...", type.c_str());
