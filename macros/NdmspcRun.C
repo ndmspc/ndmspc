@@ -165,8 +165,6 @@ bool NdmspcApplyCuts(json & cfg)
         binMax = ((binMin - 1) + rebin * (binDiff + 1));
       }
 
-      Printf("binMin=%d binMax=%d", binMin, binMax);
-
       s->GetAxis(id)->SetRange(binMin, binMax);
 
       _currentPoint[iCut] = cut["bin"]["min"].get<int>();
@@ -326,7 +324,7 @@ int NdmspcRun(TString cfgFile = "", bool showConfig = true)
 
   if (type.empty()) {
     Printf("Warning: [ndmspc][process][type] is missing or is empty in configuration !!! Setting it ot 'single' ...");
-    type                   = "single";
+    type                             = "single";
     cfg["ndmspc"]["process"]["type"] = type;
   }
 
