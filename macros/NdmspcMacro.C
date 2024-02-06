@@ -37,7 +37,7 @@ void NdmspcDefaultConfig(json& cfg)
       "opt": "?remote=1"
     },
     "process": {
-      "type": "single"
+      "type": "all"
     },
     "verbose": 0
   },
