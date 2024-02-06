@@ -9,7 +9,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
-#include "NdmspcMacro.C"
+#include "./NdmspcMacro.C"
 
 using json = nlohmann::json;
 
