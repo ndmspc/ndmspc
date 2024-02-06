@@ -72,7 +72,8 @@
     "valarray": "cpp",
     "variant": "cpp",
     "NdmspcMacro.C": "cpp",
-    "rootlogoff.C": "cpp"
+    "rootlogoff.C": "cpp",
+    "NdmspcMacroRsnTest.C": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }
