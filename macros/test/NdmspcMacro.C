@@ -26,7 +26,7 @@ void NdmspcDefaultConfig(json & cfg)
       "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/cern.ch/user/a/alihyperloop/outputs/0013/138309/16826/AnalysisResults.root",
       "objects": ["phianalysis-t-hn-sparse_MC_analysis/unlike","phianalysis-t-hn-sparse_MC_analysis/likep+phianalysis-t-hn-sparse_MC_analysis/liken"]
     },
-    "cuts": [{"enabled": true,"axis": "axis1-pt","bin": {"min": 3 ,"max": 3, "rebin": 2}}],
+    "cuts": [{"enabled": true,"axis": "axis1-pt", "rebin": 2,"bin": {"min": 3 ,"max": 3}],
     "result": {
       "names": ["RawBC", "RawFnc", "Mass", "Width", "Sigma" , "Chi2", "Probability", "True", "Gen", "Eff"]
     },

@@ -117,7 +117,7 @@ TList * NdmspcInit(json cfg)
   return _currentInputObjects;
 }
 
-void NdmspcBins(int & min, int & max, int rebin = 1)
+void NdmspcRebinBins(int & min, int & max, int rebin = 1)
 {
   int binMin  = min;
   int binMax  = max;
@@ -149,7 +149,7 @@ bool NdmspcApplyCuts(json & cfg)
 
       if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
 
-      if (cut["bin"]["rebin"].is_number_integer()) rebin = cut["bin"]["rebin"].get<int>();
+      if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<int>();
 
       if (cut["axis"].is_string() && cut["axis"].get<std::string>().empty()) {
         std::cerr << "Error: Axis name is empty ('" << cut << "') !!! Exiting ..." << std::endl;
@@ -169,7 +169,7 @@ bool NdmspcApplyCuts(json & cfg)
       int binMin = cut["bin"]["min"].get<int>();
       int binMax = cut["bin"]["max"].get<int>();
 
-      NdmspcBins(binMin, binMax, rebin);
+      NdmspcRebinBins(binMin, binMax, rebin);
 
       s->GetAxis(id)->SetRange(binMin, binMax);
 
@@ -255,8 +255,8 @@ THnSparse * CreateResult(json & cfg)
     TAxis * a = (TAxis *)s->GetListOfAxes()->FindObject(cut["axis"].get<std::string>().c_str());
     if (a == nullptr) return nullptr;
 
-    if (cut["bin"]["rebin"].is_number_integer())
-      rebin = cut["bin"]["rebin"].get<int>();
+    if (cut["rebin"].is_number_integer())
+      rebin = cut["rebin"].get<int>();
     else
       rebin = 1;
 
@@ -319,8 +319,8 @@ bool NdmspcProcessRecursive(int i, json & cfg)
   Int_t start = 1;
   Int_t end   = a->GetNbins();
   int   rebin = 1;
-  if (cfg["ndmspc"]["cuts"][i]["bin"]["rebin"].is_number_integer())
-    rebin = cfg["ndmspc"]["cuts"][i]["bin"]["rebin"].get<int>();
+  if (cfg["ndmspc"]["cuts"][i]["rebin"].is_number_integer())
+    rebin = cfg["ndmspc"]["cuts"][i]["rebin"].get<int>();
 
   if (rebin > 1) end /= rebin;
 
