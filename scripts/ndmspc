@@ -5,6 +5,7 @@ NDMSPC_LOGFILE_XRD=${NDMSPC_LOGFILE_XRD-"ndmspc.log"}
 NDMSPC_LOG_TYPE=${NDMSPC_LOG_TYPE-"error-only"}
 NDMSPC_MACRO_SRC=
 NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcMacro.C"}
+NDMCPS_SANDBOX_BASE_DIR=/tmp/ndmspc
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
@@ -36,13 +37,13 @@ echo "NDMSPC_LOG_TYPE=$NDMSPC_LOG_TYPE"
 
 # the directory of the script
 # DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-DIR=/tmp/ndmspc
+# DIR=/tmp/ndmspc
 
-[ -d $DIR ] || mkdir -p $DIR
+[ -d $NDMCPS_SANDBOX_BASE_DIR ] || mkdir -p $NDMCPS_SANDBOX_BASE_DIR
 
 # the temp directory used, within $DIR
 # omit the -p parameter to create a temporal directory in the default location
-WORK_DIR=`mktemp -d -p "$DIR"`
+WORK_DIR=`mktemp -d -p "$NDMCPS_SANDBOX_BASE_DIR"`
 LOG_FILE="$WORK_DIR/ndmspc.log"
 MY_PWD=$(pwd)
 cd $WORK_DIR
@@ -66,58 +67,64 @@ if [[ $1 == "_run" ]];then
     if [[ $arg == local* ]];then
       content=$(echo "$arg" | cut -d '|' -f2)
       filename=$(echo "$arg" |cut -d '|' -f3)
-      cp -f $content $WORK_DIR/$filename
-      echo "Filename created : $WORK_DIR/$filename"
+      cp -f $content $WORK_DIR/$filename 2>&1 | tee -a $LOG_FILE
+      echo "Filename created : $WORK_DIR/$filename" 2>&1 | tee -a $LOG_FILE
     elif [[ $arg == dir* ]];then
       type=$(echo "$arg" | cut -d '|' -f2)
       dir=$(echo "$arg" |cut -d '|' -f3)
       if [[ $type == cp* ]];then
-        echo "Doing 'cp -a $dir $WORK_DIR/'"
-        cp -a $dir $WORK_DIR/
+        echo "Doing 'cp -a $dir $WORK_DIR/'" 2>&1 | tee -a $LOG_FILE
+        cp -a $dir $WORK_DIR/ 2>&1 | tee -a $LOG_FILE
       elif [[ $type == xrdcp* ]];then
-        echo "Doing 'xrdcp -r $dir $WORK_DIR/'"
-        xrdcp -r $dir $WORK_DIR/
-        mv $WORK_DIR/$(basename $dir)/* .
-        rm -rf $WORK_DIR/$(basename $dir)
+        echo "Doing 'xrdcp -r $dir $WORK_DIR/'" 2>&1 | tee -a $LOG_FILE
+        xrdcp -r $dir $WORK_DIR/ 2>&1 | tee -a $LOG_FILE
+        mv $WORK_DIR/$(basename $dir)/* . 2>&1 | tee -a $LOG_FILE
+        rm -rf $WORK_DIR/$(basename $dir) 2>&1 | tee -a $LOG_FILE
       fi
       
     elif [[ $arg == base64* ]];then
       content=$(echo "$arg" | cut -d '|' -f2)
       filename=$(echo "$arg" |cut -d '|' -f3)
-      echo $content | base64 -d > $WORK_DIR/$filename
-      echo "Filename created : $WORK_DIR/$filename"
+      echo $content | base64 -d > $WORK_DIR/$filename 
+      echo "Filename created : $WORK_DIR/$filename" 2>&1 | tee -a $LOG_FILE
     elif [[ $arg == root* ]];then
       content=$(echo "$arg" | cut -d '|' -f1)
       filename=$(echo "$arg" |cut -d '|' -f2)
       xrdcp $content - > $WORK_DIR/$filename
-      echo "Filename created : $WORK_DIR/$filename"
+      echo "Filename created : $WORK_DIR/$filename" 2>&1 | tee -a $LOG_FILE
     elif [[ $arg == http* ]] || [[ $arg == https* ]];then
       content=$(echo "$arg" | cut -d '|' -f1)
       filename=$(echo "$arg" |cut -d '|' -f2)
       curl -s $content -L > $WORK_DIR/$filename
-      echo "Filename created : $WORK_DIR/$filename"
+      echo "Filename created : $WORK_DIR/$filename" 2>&1 | tee -a $LOG_FILE
       
     fi
   done
   export ROOT_INCLUDE_PATH=".:$ROOT_INCLUDE_PATH"
+cat <<EOF > $WORK_DIR/rootlogon.C
+void rootlogon() {
+  gROOT->ProcessLine(".include .");
+}
+EOF
+
 cat <<EOF > $WORK_DIR/rootlogoff.C
 void rootlogoff() {
   gROOT->GetListOfCanvases()->Clear();
 }
 EOF
 fi
-echo "Working directory : $(pwd)"
-ls -al
+echo "Working directory : $(pwd)" 2>&1 | tee -a $LOG_FILE
+ls -al 2>&1 | tee -a $LOG_FILE
 
 # check if tmp dir was created
 if [[ ! "$WORK_DIR" || ! -d "$WORK_DIR" ]]; then
-  echo "Could not create temp dir"
+  echo "Could not create temp dir" 2>&1 | tee -a $LOG_FILE
   exit 1
 fi
 
 if [ -n "$NDMSPC_LOG_XRD" ];then
   if ! command -v xrdcp &> /dev/null; then
-      echo "Warning: 'xrdcp' is not installed !!! Please install it first (dnf install xrootd-client) to send logs to '$NDMSPC_LOG_XRD' ..."
+      echo "Warning: 'xrdcp' is not installed !!! Please install it first (dnf install xrootd-client) to send logs to '$NDMSPC_LOG_XRD' ..." 2>&1 | tee -a $LOG_FILE
       export NDMSPC_LOG_XRD=""
   fi
 fi
@@ -153,7 +160,7 @@ function +() (
       echo "Copying logs (type=$NDMSPC_LOG_TYPE) to '$NDMSPC_LOG_XRD' ..."
       NDMSPC_LOGFILE_HTTP=$(echo ${NDMSPC_LOG_XRD/root:\/\//} | tr -s /)
       NDMSPC_LOGFILE_HTTP="https://$NDMSPC_LOGFILE_HTTP"
-      xrdcp -f $LOG_FILE $NDMSPC_LOG_XRD && echo -e "Logs:\n\tcurl -L $NDMSPC_LOGFILE_HTTP\n\txrdcp $NDMSPC_LOG_XRD /tmp/ndmspc.log\n" || { echo "Warning: Problem doing 'xrdcp -f "$LOG_FILE" "$NDMSPC_LOG_XRD" !!! Log is not produced at $NDMSPC_LOG_XRD ..."; true; }
+      xrdcp -f $LOG_FILE $NDMSPC_LOG_XRD && echo -e "Logs:\n\tcurl -L $NDMSPC_LOGFILE_HTTP\n\txrdcp -f $NDMSPC_LOG_XRD /tmp/ndmspc.log\n" 2>&1 | tee -a $LOG_FILE || { echo "Warning: Problem doing 'xrdcp -f "$LOG_FILE" "$NDMSPC_LOG_XRD" !!! Log is not produced at $NDMSPC_LOG_XRD ..." 2>&1 | tee -a $LOG_FILE; true; }
     fi
     
   fi
@@ -166,3 +173,5 @@ trap cleanup EXIT INT
 
 echo "Running '$MY_CMD' ..." 2>&1 | tee -a $LOG_FILE
 + $MY_CMD
+
+exit $RC
