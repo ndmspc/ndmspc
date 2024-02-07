@@ -248,14 +248,22 @@ THnSparse * CreateResult(json & cfg)
   names.push_back("params");
   titles.push_back("Parameters");
 
-  int i = 1;
+  int i     = 1;
+  int rebin = 1;
   for (auto & cut : cfg["ndmspc"]["cuts"]) {
     if (_ndmspcVerbose >= 3) std::cout << "CreateResult() : " << cut.dump() << std::endl;
     TAxis * a = (TAxis *)s->GetListOfAxes()->FindObject(cut["axis"].get<std::string>().c_str());
     if (a == nullptr) return nullptr;
-    bins[i] = a->GetNbins();
+
+    if (cut["bin"]["rebin"].is_number_integer())
+      rebin = cut["bin"]["rebin"].get<int>();
+    else
+      rebin = 1;
+
+    bins[i] = a->GetNbins() / rebin;
     xmin[i] = a->GetXmin();
-    xmax[i] = a->GetXmax();
+    xmax[i] = a->GetXmax() - (a->GetNbins() % rebin);
+
     names.push_back(a->GetName());
     titles.push_back(a->GetTitle());
     i++;
@@ -290,10 +298,11 @@ bool NdmspcProcessSinglePoint(json & cfg)
 
   TList * outputList = NdmspcProcess(_currentInputObjects, cfg, _finalResults, _currentPoint);
 
-  if (outputList) NdmspcSaveFile(outputList, cfg);
+  if (outputList)
+    NdmspcSaveFile(outputList, cfg);
   else {
     if (_ndmspcVerbose >= 0) Printf("Skipping ...");
-    }
+  }
 
   return true;
 }
@@ -321,8 +330,8 @@ bool NdmspcProcessRecursive(int i, json & cfg)
   }
 
   for (Int_t iBin = start; iBin <= end; iBin++) {
-    int binMin = iBin;
-    int binMax = iBin;
+    int binMin                             = iBin;
+    int binMax                             = iBin;
     cfg["ndmspc"]["cuts"][i]["bin"]["min"] = binMin;
     cfg["ndmspc"]["cuts"][i]["bin"]["max"] = binMax;
     NdmspcProcessRecursive(i - 1, cfg);
