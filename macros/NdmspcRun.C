@@ -73,7 +73,7 @@ TList * NdmspcInit(json cfg)
     Printf("Error: Input file is empty !!! Aborting ...");
     return nullptr;
   }
-  if (_ndmspcVerbose >= 1) Printf("Opening file '%s' ...", cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+  if (_ndmspcVerbose >= 0) Printf("Opening file '%s' ...", cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
   _currentInputFile = TFile::Open(cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
   if (!_currentInputFile) {
     Printf("Error: Cannot open file '%s' !", cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
@@ -84,13 +84,13 @@ TList * NdmspcInit(json cfg)
 
   THnSparse *s, *stmp;
   for (auto & obj : cfg["ndmspc"]["data"]["objects"]) {
-    if (_ndmspcVerbose >= 3) Printf("obj=%s", obj.get<std::string>().c_str());
     if (obj.get<std::string>().empty()) continue;
     std::stringstream src(obj.get<std::string>().c_str());
 
     std::string item;
     s = nullptr;
     while (getline(src, item, '+')) {
+      if (_ndmspcVerbose >= 1) Printf("Opening obj='%s' ...", item.c_str());
       if (s == nullptr)
         s = (THnSparse *)_currentInputFile->Get(item.c_str());
       else {
@@ -319,8 +319,7 @@ bool NdmspcProcessRecursive(int i, json & cfg)
   Int_t start = 1;
   Int_t end   = a->GetNbins();
   int   rebin = 1;
-  if (cfg["ndmspc"]["cuts"][i]["rebin"].is_number_integer())
-    rebin = cfg["ndmspc"]["cuts"][i]["rebin"].get<int>();
+  if (cfg["ndmspc"]["cuts"][i]["rebin"].is_number_integer()) rebin = cfg["ndmspc"]["cuts"][i]["rebin"].get<int>();
 
   if (rebin > 1) end /= rebin;
 
