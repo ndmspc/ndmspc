@@ -9,7 +9,6 @@ set(PROJECT_VERSION_RELEASE 0.1.rc0)
 
 include(cmake/cmake_base.cmake)
 
-
 find_package(Root REQUIRED)
 include(ROOTMacros)
 
