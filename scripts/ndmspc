@@ -6,6 +6,7 @@ NDMSPC_LOG_TYPE=${NDMSPC_LOG_TYPE-"error-only"}
 NDMSPC_MACRO_SRC=
 NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcMacro.C"}
 NDMCPS_SANDBOX_BASE_DIR=/tmp/ndmspc
+NDMCPS_SANDBOX_CLEANUP=${NDMCPS_SANDBOX_CLEANUP-1}
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
@@ -133,8 +134,12 @@ fi
 function cleanup {
   cd $MY_PWD
   # cat $LOG_FILE
-  rm -rf "$WORK_DIR"
-  echo "Deleted temp working directory $WORK_DIR"
+  if [[ $NDMCPS_SANDBOX_CLEANUP == 1 ]];then
+    rm -rf "$WORK_DIR"
+    echo "Deleted temp working directory '$WORK_DIR'."
+  else
+    echo "Temp working directory '$WORK_DIR' was NOT deleted."
+  fi
 }
 
 function +() (
