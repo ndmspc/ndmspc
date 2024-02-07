@@ -9,7 +9,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
-#include "./NdmspcMacro.C"
+#include "NdmspcMacro.C"
 
 using json = nlohmann::json;
 
@@ -43,7 +43,8 @@ Int_t       _currentPoint[10];
 void NdmspcLoadConfig(TString configFile, json & cfg, bool show = true)
 {
   NdmspcDefaultConfig(cfg);
-  cfg.merge_patch(ndmspcBase);
+  ndmspcBase.merge_patch(cfg);
+  cfg = ndmspcBase;
 
   if (!configFile.IsNull() && !gSystem->AccessPathName(gSystem->ExpandPathName(configFile.Data()))) {
     std::ifstream f(configFile);
@@ -54,12 +55,7 @@ void NdmspcLoadConfig(TString configFile, json & cfg, bool show = true)
   if (!cfg["ndmspc"]["verbose"].is_null() && cfg["ndmspc"]["verbose"].is_number_integer())
     _ndmspcVerbose = cfg["ndmspc"]["verbose"].get<int>();
 
-  int verbose = 0;
-  if (!cfg["verbose"].is_null() && cfg["verbose"].is_number_integer()) {
-    verbose = cfg["verbose"].get<int>();
-  }
-
-  if (verbose >= 1) Printf("%s", cfg.dump(2).c_str());
+  if (show) Printf("%s", cfg.dump(2).c_str());
 
   // handle specific options
   if (cfg["ndmspc"]["file"]["cache"].is_string() && !cfg["ndmspc"]["file"]["cache"].get<std::string>().empty())
@@ -77,7 +73,7 @@ TList * NdmspcInit(json cfg)
     Printf("Error: Input file is empty !!! Aborting ...");
     return nullptr;
   }
-  if (_ndmspcVerbose >= 2) Printf("Opening file '%s' ...", cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+  if (_ndmspcVerbose >= 1) Printf("Opening file '%s' ...", cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
   _currentInputFile = TFile::Open(cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
   if (!_currentInputFile) {
     Printf("Error: Cannot open file '%s' !", cfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
@@ -121,6 +117,20 @@ TList * NdmspcInit(json cfg)
   return _currentInputObjects;
 }
 
+void NdmspcBins(int & min, int & max, int rebin = 1)
+{
+  int binMin  = min;
+  int binMax  = max;
+  int binDiff = binMax - binMin;
+
+  if (rebin > 1) {
+    binMin = 1 + ((binMin - 1) * rebin);
+    binMax = ((binMin - 1) + rebin * (binDiff + 1));
+  }
+  min = binMin;
+  max = binMax;
+}
+
 bool NdmspcApplyCuts(json & cfg)
 {
   TString     titlePostfix = "";
@@ -156,14 +166,10 @@ bool NdmspcApplyCuts(json & cfg)
         return false;
       }
 
-      int binMin  = cut["bin"]["min"].get<int>();
-      int binMax  = cut["bin"]["max"].get<int>();
-      int binDiff = binMax - binMin;
+      int binMin = cut["bin"]["min"].get<int>();
+      int binMax = cut["bin"]["max"].get<int>();
 
-      if (rebin > 1) {
-        binMin = 1 + ((binMin - 1) * rebin);
-        binMax = ((binMin - 1) + rebin * (binDiff + 1));
-      }
+      NdmspcBins(binMin, binMax, rebin);
 
       s->GetAxis(id)->SetRange(binMin, binMax);
 
@@ -285,6 +291,9 @@ bool NdmspcProcessSinglePoint(json & cfg)
   TList * outputList = NdmspcProcess(_currentInputObjects, cfg, _finalResults, _currentPoint);
 
   if (outputList) NdmspcSaveFile(outputList, cfg);
+  else {
+    if (_ndmspcVerbose >= 0) Printf("Skipping ...");
+    }
 
   return true;
 }
@@ -300,21 +309,28 @@ bool NdmspcProcessRecursive(int i, json & cfg)
   if (a == nullptr) return false;
   Int_t start = 1;
   Int_t end   = a->GetNbins();
+  int   rebin = 1;
+  if (cfg["ndmspc"]["cuts"][i]["bin"]["rebin"].is_number_integer())
+    rebin = cfg["ndmspc"]["cuts"][i]["bin"]["rebin"].get<int>();
+
+  if (rebin > 1) end /= rebin;
 
   if (cfg["process"]["ranges"].is_array()) {
     start = cfg["ndmspc"]["process"]["ranges"][i][0];
-    end   = cfg["ndmspc"]["process"]["ranges"][i][1];
+    if (cfg["ndmspc"]["process"]["ranges"][i][1] < end) end = cfg["ndmspc"]["process"]["ranges"][i][1];
   }
 
   for (Int_t iBin = start; iBin <= end; iBin++) {
-    cfg["ndmspc"]["cuts"][i]["bin"]["min"] = iBin;
-    cfg["ndmspc"]["cuts"][i]["bin"]["max"] = iBin;
+    int binMin = iBin;
+    int binMax = iBin;
+    cfg["ndmspc"]["cuts"][i]["bin"]["min"] = binMin;
+    cfg["ndmspc"]["cuts"][i]["bin"]["max"] = binMax;
     NdmspcProcessRecursive(i - 1, cfg);
   }
   return true;
 }
 
-int NdmspcRun(TString cfgFile = "", bool showConfig = true)
+int NdmspcRun(TString cfgFile = "", bool showConfig = false)
 {
 
   NdmspcLoadConfig(cfgFile.Data(), cfg, showConfig);
