@@ -60,9 +60,10 @@ MY_CMD=$@
 if [[ $1 == "_run" ]];then
   shift
   MY_CMD="root -b -q $NDMSPC_MACRO_DIR/NdmspcRun.C"
-  [ -n "$1" ] && MY_CMD="${MY_CMD}'($1)'"
+  [ -n "$1" ] && MY_CMD="${MY_CMD}'($(echo $1 | tr -d \'))'"
   shift
 
+  MY_EXTRA=$(echo $* | tr -d '"')
   # ndmspc _run '"config.json"' "<next lines (multiple space separated)>"
   # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcMacro.C" 
   # "https://gitlab.science.upjs.sk/jf/students/phd/2023/veronika-barbasova/myo2/-/raw/main/macros/RsnFunctions.h|RsnFunctions.h" 
@@ -70,7 +71,7 @@ if [[ $1 == "_run" ]];then
   # "root://eos.ndmspc.io//eos/ndmspc/scratch/test/test_single.json|config.json"
   # "dir|cp|$(pwd)/*"
   # "dir|xrdcp|root://eos.ndmspc.io//eos/ndmspc/scratch/test/mvala/test/xxx"
-  for arg in $*;do
+  for arg in $(echo $MY_EXTRA);do
     # echo $arg
     if [[ $arg == local* ]];then
       content=$(echo "$arg" | cut -d '|' -f2)
