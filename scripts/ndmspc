@@ -1,12 +1,13 @@
 #!/bin/bash
 NDMSPC_LOG_XRD=${NDMSPC_LOG_XRD-""}
-NDMSPC_LOGDIR_XRD=${NDMSPC_LOGDIR_XRD-""}
+NDMSPC_LOGDIR_XRD=${NDMSPC_LOGDIR_XRD-"root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"}
 NDMSPC_LOGFILE_XRD=${NDMSPC_LOGFILE_XRD-"ndmspc.log"}
 NDMSPC_LOG_TYPE=${NDMSPC_LOG_TYPE-"error-only"}
 NDMSPC_MACRO_SRC=
 NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcMacro.C"}
 NDMCPS_SANDBOX_BASE_DIR=${NDMCPS_SANDBOX_BASE_DIR-"/tmp/ndmspc"}
 NDMCPS_SANDBOX_CLEANUP=${NDMCPS_SANDBOX_CLEANUP-1}
+NDMSPC_MACRO_DIR=${NDMSPC_MACRO_DIR-"/usr/share/ndmspc/macros"}
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
@@ -31,10 +32,7 @@ if [ -z "$NDMSPC_LOG_XRD" ] ;then
   fi
 fi
 
-echo "NDMSPC_LOG_XRD=$NDMSPC_LOG_XRD"
-# echo "NDMSPC_LOGDIR_XRD=$NDMSPC_LOGDIR_XRD"
-# echo "NDMSPC_LOGFILE_XRD=$NDMSPC_LOGFILE_XRD"
-echo "NDMSPC_LOG_TYPE=$NDMSPC_LOG_TYPE"
+
 
 # the directory of the script
 # DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -47,6 +45,12 @@ NDMCPS_SANDBOX_BASE_DIR="$NDMCPS_SANDBOX_BASE_DIR/$(id -u)"
 # omit the -p parameter to create a temporal directory in the default location
 WORK_DIR=`mktemp -d -p "$NDMCPS_SANDBOX_BASE_DIR"`
 LOG_FILE="$WORK_DIR/ndmspc.log"
+
+echo "NDMSPC_LOG_XRD=$NDMSPC_LOG_XRD" 2>&1 | tee -a $LOG_FILE
+# echo "NDMSPC_LOGDIR_XRD=$NDMSPC_LOGDIR_XRD"
+# echo "NDMSPC_LOGFILE_XRD=$NDMSPC_LOGFILE_XRD"
+echo "NDMSPC_LOG_TYPE=$NDMSPC_LOG_TYPE" 2>&1 | tee -a $LOG_FILE
+
 MY_PWD=$(pwd)
 cd $WORK_DIR
 
