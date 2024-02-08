@@ -41,6 +41,8 @@ NDMCPS_SANDBOX_BASE_DIR="$NDMCPS_SANDBOX_BASE_DIR/$(id -u)"
 
 [ -d $NDMCPS_SANDBOX_BASE_DIR ] || mkdir -p $NDMCPS_SANDBOX_BASE_DIR
 
+export HOME={HOME-$NDMCPS_SANDBOX_BASE_DIR}
+
 # the temp directory used, within $DIR
 # omit the -p parameter to create a temporal directory in the default location
 WORK_DIR=`mktemp -d -p "$NDMCPS_SANDBOX_BASE_DIR"`
