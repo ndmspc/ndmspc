@@ -63,7 +63,7 @@ if [[ $1 == "_run" ]];then
   [ -n "$1" ] && MY_CMD="${MY_CMD}'($(echo $1 | tr -d \'))'"
   shift
 
-  MY_EXTRA=$(echo $* | tr -d '"')
+  MY_EXTRA=$(echo $* | tr -d \'\")
   # ndmspc _run '"config.json"' "<next lines (multiple space separated)>"
   # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcMacro.C" 
   # "https://gitlab.science.upjs.sk/jf/students/phd/2023/veronika-barbasova/myo2/-/raw/main/macros/RsnFunctions.h|RsnFunctions.h" 
