@@ -19,7 +19,6 @@ if [ -z "$1" ];then
   exit 1
 fi
 
-
 # NDMSPC_LOGDIR_XRD="root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
 # NDMSPC_LOG_TYPE="always"
 if [ -z "$NDMSPC_LOG_XRD" ] ;then
@@ -31,8 +30,6 @@ if [ -z "$NDMSPC_LOG_XRD" ] ;then
     [ -n "$NDMSPC_LOG_XRD" ] && NDMSPC_LOG_XRD="$NDMSPC_LOG_XRD/$NDMSPC_LOGFILE_XRD"
   fi
 fi
-
-
 
 # the directory of the script
 # DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -63,7 +60,6 @@ if [[ $1 == "_run" ]];then
   [ -n "$1" ] && MY_CMD="${MY_CMD}'($(echo $1 | tr -d \'))'"
   shift
 
-  MY_EXTRA=$(echo $* | tr -d \'\")
   # ndmspc _run '"config.json"' "<next lines (multiple space separated)>"
   # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcMacro.C" 
   # "https://gitlab.science.upjs.sk/jf/students/phd/2023/veronika-barbasova/myo2/-/raw/main/macros/RsnFunctions.h|RsnFunctions.h" 
@@ -71,6 +67,7 @@ if [[ $1 == "_run" ]];then
   # "root://eos.ndmspc.io//eos/ndmspc/scratch/test/test_single.json|config.json"
   # "dir|cp|$(pwd)/*"
   # "dir|xrdcp|root://eos.ndmspc.io//eos/ndmspc/scratch/test/mvala/test/xxx"
+  MY_EXTRA=$(echo $* | tr -d \'\")
   for arg in $(echo $MY_EXTRA);do
     # echo $arg
     if [[ $arg == local* ]];then

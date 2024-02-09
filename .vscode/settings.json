@@ -73,7 +73,11 @@
     "variant": "cpp",
     "NdmspcMacro.C": "cpp",
     "rootlogoff.C": "cpp",
-    "NdmspcMacroRsnTest.C": "cpp"
+    "NdmspcMacroRsnTest.C": "cpp",
+    "NdmspcCreateMap.C": "cpp",
+    "NdmspcCreateMapProjection.C": "cpp",
+    "NdmspcScanProjectionMap.C": "cpp",
+    "NdmspcExportParams.C": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }
