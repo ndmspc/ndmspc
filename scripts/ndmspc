@@ -8,6 +8,7 @@ NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcMacro.C"}
 NDMCPS_SANDBOX_BASE_DIR=${NDMCPS_SANDBOX_BASE_DIR-"/tmp/ndmspc"}
 NDMCPS_SANDBOX_CLEANUP=${NDMCPS_SANDBOX_CLEANUP-1}
 NDMSPC_MACRO_DIR=${NDMSPC_MACRO_DIR-"/usr/share/ndmspc/macros"}
+NDMSPC_MACRO=${NDMSPC_MACRO-"/usr/share/ndmspc/macros/NdmspcRun.C"}
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
@@ -54,13 +55,15 @@ MY_PWD=$(pwd)
 cd $WORK_DIR
 
 MY_CMD=$@
-if [[ $1 == "_run" ]];then
+if [[ $1 == "_macro" ]];then
   shift
-  MY_CMD="root -b -q $NDMSPC_MACRO_DIR/NdmspcRun.C"
+  [ -n "$1" ] && NDMSPC_MACRO=$1
+  shift
+  MY_CMD="root -b -q $NDMSPC_MACRO"
   [ -n "$1" ] && MY_CMD="${MY_CMD}'($(echo $1 | tr -d \'))'"
   shift
 
-  # ndmspc _run '"config.json"' "<next lines (multiple space separated)>"
+  # ndmspc _macro '/usr/share/ndmspc/macros/NdmspcRun.C' '"config.json"' "<next lines (multiple space separated)>"
   # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcMacro.C" 
   # "https://gitlab.science.upjs.sk/jf/students/phd/2023/veronika-barbasova/myo2/-/raw/main/macros/RsnFunctions.h|RsnFunctions.h" 
   # "local|$(pwd)/test_single.json|config.json"
