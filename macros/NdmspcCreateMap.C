@@ -31,8 +31,6 @@ Int_t NdmspcCreateMap(TString filename = "root://eos.ndmspc.io//eos/ndmspc/scrat
     return 1;
   }
 
-  if (!dir.EndsWith("/")) dir.Append("/");
-
   THnSparse * hIn = (THnSparse *)fIn->Get(dir.Data());
   if (!hIn) {
     Printf("Error: Could not open object '%s' !!!", dir.Data());
