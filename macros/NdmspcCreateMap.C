@@ -18,8 +18,7 @@ std::vector<std::string> GetListObObjects(const char * str, char token = ',')
 
 Int_t NdmspcCreateMap(TString filename = "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/cern.ch/user/a/alihyperloop/"
                                          "outputs/0013/138309/16826/AnalysisResults.root",
-                      TString dir = "phianalysis-t-hn-sparse_MC_analysis", TString object = "unlike",
-                      TString extra       = "",
+                      TString dir = "phianalysis-t-hn-sparse_MC_analysis/unlike", TString extra = "",
                       TString output      = "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/phi/hMap.root",
                       TString hMapObjName = "hMap", TString fileOpt = "?remote=1")
 {
@@ -34,7 +33,11 @@ Int_t NdmspcCreateMap(TString filename = "root://eos.ndmspc.io//eos/ndmspc/scrat
 
   if (!dir.EndsWith("/")) dir.Append("/");
 
-  THnSparse * hIn = (THnSparse *)fIn->Get(TString::Format("%s%s", dir.Data(), object.Data()).Data());
+  THnSparse * hIn = (THnSparse *)fIn->Get(dir.Data());
+  if (!hIn) {
+    Printf("Error: Could not open object '%s' !!!", dir.Data());
+    return 2;
+  }
   hIn->SetNameTitle("hMap", filename.Data());
   hIn->Reset();
 
@@ -43,7 +46,7 @@ Int_t NdmspcCreateMap(TString filename = "root://eos.ndmspc.io//eos/ndmspc/scrat
   TFile * fOut = TFile::Open(TString::Format("%s%s", output.Data(), fileOpt.Data()).Data(), "RECREATE");
   if (!fOut) {
     Printf("Error: Could not open output file '%s' !!!", output.Data());
-    return 2;
+    return 3;
   }
 
   hIn->Write();
