@@ -323,12 +323,13 @@ bool NdmspcProcessRecursive(int i, json & cfg)
 
   if (rebin > 1) end /= rebin;
 
-  if (cfg["process"]["ranges"].is_array()) {
+  if (cfg["ndmspc"]["process"]["ranges"].is_array()) {
     start = cfg["ndmspc"]["process"]["ranges"][i][0];
     if (cfg["ndmspc"]["process"]["ranges"][i][1] < end) end = cfg["ndmspc"]["process"]["ranges"][i][1];
   }
 
   for (Int_t iBin = start; iBin <= end; iBin++) {
+    Printf("ibin=%d", iBin);
     int binMin                             = iBin;
     int binMax                             = iBin;
     cfg["ndmspc"]["cuts"][i]["bin"]["min"] = binMin;
