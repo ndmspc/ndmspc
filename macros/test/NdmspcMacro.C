@@ -148,11 +148,23 @@ TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int
 
   // Doing fit
   Int_t nFit = 10;
+  Int_t fitStatus;
   for (Int_t iFit = 0; iFit < nFit; iFit++) {
-    peak->Fit(sigBgFnc, "QN MFC", "", fitMin, fitMax);
+    fitStatus = peak->Fit(sigBgFnc, "QN MFC", "", fitMin, fitMax);
+    // Printf("Error: Fit : %d ", fitStatus);
+    if (fitStatus<0) {
+      Printf("Error: Fit is not successfull !!!");
+      return nullptr;
+    }
   }
 
   TFitResultPtr fFitResult = peak->Fit(sigBgFnc, "QN MF S", "", fitMin, fitMax);
+  fitStatus = fFitResult;
+  // Printf("Error: Fit : %d ", fitStatus);
+  if (fitStatus<0) {
+    Printf("Error: Final fit is not successfull !!!");
+      return nullptr;
+  }
   Double_t      par[7];
   sigBgFnc->GetParameters(par);
   const Double_t * parErr = sigBgFnc->GetParErrors();
