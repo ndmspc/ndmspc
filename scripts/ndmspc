@@ -63,17 +63,29 @@ if [[ $1 == "_macro" ]];then
   [ -n "$1" ] && MY_CMD="${MY_CMD}'($(echo $1 | tr -d \'))'"
   shift
 
+cat <<EOF > $WORK_DIR/rootlogon.C
+void rootlogon() {
+  gROOT->ProcessLine(".include .");
+}
+EOF
+
+cat <<EOF > $WORK_DIR/rootlogoff.C
+void rootlogoff() {
+  gROOT->GetListOfCanvases()->Clear();
+}
+EOF
+
   # ndmspc _macro '/usr/share/ndmspc/macros/NdmspcRun.C' '"config.json"' "<next lines (multiple space separated)>"
   # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcMacro.C" 
   # "https://gitlab.science.upjs.sk/jf/students/phd/2023/veronika-barbasova/myo2/-/raw/main/macros/RsnFunctions.h|RsnFunctions.h" 
-  # "local|$(pwd)/test_single.json|config.json"
+  # "file|$(pwd)/test_single.json|config.json"
   # "root://eos.ndmspc.io//eos/ndmspc/scratch/test/test_single.json|config.json"
   # "dir|cp|$(pwd)/*"
   # "dir|xrdcp|root://eos.ndmspc.io//eos/ndmspc/scratch/test/mvala/test/xxx"
   MY_EXTRA=$(echo $* | tr -d \'\")
   for arg in $(echo $MY_EXTRA);do
     # echo $arg
-    if [[ $arg == local* ]];then
+    if [[ $arg == file* ]];then
       content=$(echo "$arg" | cut -d '|' -f2)
       filename=$(echo "$arg" |cut -d '|' -f3)
       cp -f $content $WORK_DIR/$filename 2>&1 | tee -a $LOG_FILE
@@ -90,7 +102,6 @@ if [[ $1 == "_macro" ]];then
         mv $WORK_DIR/$(basename $dir)/* . 2>&1 | tee -a $LOG_FILE
         rm -rf $WORK_DIR/$(basename $dir) 2>&1 | tee -a $LOG_FILE
       fi
-      
     elif [[ $arg == base64* ]];then
       content=$(echo "$arg" | cut -d '|' -f2)
       filename=$(echo "$arg" |cut -d '|' -f3)
@@ -110,17 +121,8 @@ if [[ $1 == "_macro" ]];then
     fi
   done
   export ROOT_INCLUDE_PATH=".:$ROOT_INCLUDE_PATH"
-cat <<EOF > $WORK_DIR/rootlogon.C
-void rootlogon() {
-  gROOT->ProcessLine(".include .");
-}
-EOF
 
-cat <<EOF > $WORK_DIR/rootlogoff.C
-void rootlogoff() {
-  gROOT->GetListOfCanvases()->Clear();
-}
-EOF
+
 fi
 echo "Working directory : $(pwd)" 2>&1 | tee -a $LOG_FILE
 ls -al 2>&1 | tee -a $LOG_FILE

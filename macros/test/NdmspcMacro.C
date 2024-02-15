@@ -1,5 +1,6 @@
 #include <TCanvas.h>
 #include <TF1.h>
+#include <TROOT.h>
 #include <TFitResult.h>
 #include <TFitResultPtr.h>
 #include <TH1.h>
@@ -17,16 +18,34 @@ using json = nlohmann::json;
 void NdmspcDefaultConfig(json & cfg)
 {
   cfg = R"({
-  "idAxis": [0],
-  "minEntries": -1,
-  "norm": {"min": 0.99,"max": 1.00},
-  "fit": {"fun": "VoigtPol2","min": 0.997,"max": 1.050, "default": [0.0, 1.019445, 0.00426, 0.001]},
+  "user": {
+    "idAxis": [
+      0
+    ],
+    "minEntries": -1,
+    "norm": {
+      "min": 0.99,
+      "max": 1.00
+    },
+    "fit": {
+      "fun": "VoigtPol2",
+      "min": 0.997,
+      "max": 1.050,
+      "default": [
+        0.0,
+        1.019445,
+        0.00426,
+        0.001
+      ]
+    },
+    "verbose": 0
+  },
   "ndmspc": {
     "data": {
       "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/cern.ch/user/a/alihyperloop/outputs/0013/138309/16826/AnalysisResults.root",
       "objects": ["phianalysis-t-hn-sparse_MC_analysis/unlike","phianalysis-t-hn-sparse_MC_analysis/likep+phianalysis-t-hn-sparse_MC_analysis/liken"]
     },
-    "cuts": [{"enabled": true,"axis": "axis1-pt", "rebin": 2,"bin": {"min": 3 ,"max": 3}],
+    "cuts": [{"enabled": true,"axis": "axis1-pt", "rebin": 2,"bin": {"min": 3 ,"max": 3}}],
     "result": {
       "names": ["RawBC", "RawFnc", "Mass", "Width", "Sigma" , "Chi2", "Probability", "True", "Gen", "Eff"]
     },
@@ -40,17 +59,21 @@ void NdmspcDefaultConfig(json & cfg)
       "type": "single"
     },
     "verbose": 0
-  },
-  "verbose" : 0
+  }
 })"_json;
+
+
+
+
+
 }
 
 TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t * point)
 {
 
   int verbose = 0;
-  if (!cfg["verbose"].is_null() && cfg["verbose"].is_number_integer()) {
-    verbose = cfg["verbose"].get<int>();
+  if (!cfg["user"]["verbose"].is_null() && cfg["user"]["verbose"].is_number_integer()) {
+    verbose = cfg["user"]["verbose"].get<int>();
   }
 
   if (inputList == nullptr) return nullptr;
@@ -58,7 +81,7 @@ TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int
   bool mc = false;
   if (inputList->At(2) != nullptr && inputList->At(3) != nullptr) mc = true;
 
-  int imAxis = cfg["idAxis"][0].get<int>();
+  int imAxis = cfg["user"]["idAxis"][0].get<int>();
 
   THnSparse * sigBgSparse = (THnSparse *)inputList->At(0);
   THnSparse * bgSparse    = (THnSparse *)inputList->At(1);
@@ -71,7 +94,7 @@ TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int
   sigBgProj->SetNameTitle("sigBg", TString::Format("sigBg %s", titlePostfix.Data()).Data());
   // sigBgProj->SetOption("E1");
 
-  if (sigBgProj->GetEntries() < cfg["minEntries"].get<int>()) return nullptr;
+  if (sigBgProj->GetEntries() < cfg["user"]["minEntries"].get<int>()) return nullptr;
 
   TH1 * bgProj = (TH1 *)bgSparse->Projection(imAxis);
   bgProj->SetNameTitle("bg", TString::Format("bg %s", titlePostfix.Data()).Data());
@@ -85,13 +108,13 @@ TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int
   // peak->UseCurrentStyle();
   // peak->SetOption("E1");
 
-  Int_t binNormMin = peak->GetXaxis()->FindBin(cfg["norm"]["min"].get<double>());
-  Int_t binNormMax = peak->GetXaxis()->FindBin(cfg["norm"]["max"].get<double>());
+  Int_t binNormMin = peak->GetXaxis()->FindBin(cfg["user"]["norm"]["min"].get<double>());
+  Int_t binNormMax = peak->GetXaxis()->FindBin(cfg["user"]["norm"]["max"].get<double>());
   // better norm : best for fitting is to have all points above 0(zero)
 
   // // Setting fitting range
-  Double_t fitMin  = cfg["fit"]["min"].get<double>();
-  Double_t fitMax  = cfg["fit"]["max"].get<double>();
+  Double_t fitMin  = cfg["user"]["fit"]["min"].get<double>();
+  Double_t fitMax  = cfg["user"]["fit"]["max"].get<double>();
   Int_t    bin_min = peak->GetXaxis()->FindBin(fitMin);
   Int_t    bin_max = peak->GetXaxis()->FindBin(fitMax);
   Double_t eps     = 1e-5;
@@ -103,14 +126,14 @@ TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int
   TH1 * sigBgProjClone = (TH1 *)sigBgProj->Clone();
 
   // Some initial values for fitting
-  Double_t       p0p       = cfg["fit"]["default"][0].get<double>();
-  const Double_t phi_mass  = cfg["fit"]["default"][1].get<double>();
-  const Double_t phi_width = cfg["fit"]["default"][2].get<double>();
-  const Double_t phi_sigma = cfg["fit"]["default"][3].get<double>();
+  Double_t       p0p       = cfg["user"]["fit"]["default"][0].get<double>();
+  const Double_t phi_mass  = cfg["user"]["fit"]["default"][1].get<double>();
+  const Double_t phi_width = cfg["user"]["fit"]["default"][2].get<double>();
+  const Double_t phi_sigma = cfg["user"]["fit"]["default"][3].get<double>();
 
-  TList * funs = RsnFunctions(cfg["fit"]["fun"].get<std::string>(), fitMin, fitMax);
+  TList * funs = RsnFunctions(cfg["user"]["fit"]["fun"].get<std::string>(), fitMin, fitMax);
   if (funs == nullptr) {
-    Printf("Error: Functions were not found for '%s' !!! Exiting ...", cfg["fit"]["fun"].get<std::string>().c_str());
+    Printf("Error: Functions were not found for '%s' !!! Exiting ...", cfg["user"]["fit"]["fun"].get<std::string>().c_str());
     return nullptr;
   }
   TF1 * sigBgFnc = (TF1 *)funs->At(0);
