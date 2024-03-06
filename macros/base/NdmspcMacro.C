@@ -38,6 +38,15 @@ void NdmspcDefaultConfig(json & cfg)
     "process": {
       "type": "single"
     },
+    "log": {
+      "type": "always",
+      "dir": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
+    },
+    "job":{
+      "inputs": [
+        "https://gitlab.com/ndmspc/ndmspc/-/raw/main/macros/base/NdmspcMacro.C|NdmspcMacro.C"
+      ]
+    },
     "verbose": 0
   }
 })"_json;
