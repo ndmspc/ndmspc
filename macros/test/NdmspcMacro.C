@@ -62,10 +62,6 @@ void NdmspcDefaultConfig(json & cfg)
   }
 })"_json;
 
-
-
-
-
 }
 
 TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t * point)
