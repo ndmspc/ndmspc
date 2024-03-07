@@ -1,11 +1,11 @@
 #include <TCanvas.h>
 #include <TF1.h>
-#include <TROOT.h>
 #include <TFitResult.h>
 #include <TFitResultPtr.h>
 #include <TH1.h>
 #include <THnSparse.h>
 #include <TList.h>
+#include <TROOT.h>
 #include <TString.h>
 // #include <TStyle.h>
 // #include "NdmspcUtils.h"
@@ -27,7 +27,7 @@ void NdmspcDefaultConfig(json & cfg)
     },
     "cuts": [{"enabled": true,"axis": "axis1", "rebin": 1,"bin": {"min": 3 ,"max": 3}}],
     "result": {
-      "names": ["param0"]
+      "names": ["p0"]
     },
     "output": {
       "host": "",
@@ -50,7 +50,6 @@ void NdmspcDefaultConfig(json & cfg)
     "verbose": 0
   }
 })"_json;
-
 }
 
 TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t * point)
@@ -64,17 +63,21 @@ TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int
   if (inputList == nullptr) return nullptr;
   int projId = cfg["user"]["proj"].get<int>();
 
-  THnSparse * sigBgSparse = (THnSparse *)inputList->At(0);
-  TH1D *h = sigBgSparse->Projection(projId);
-  h->SetName("h");
+  TString titlePostfix = "(no cuts)";
+  if (cfg["ndmspc"]["projection"]["title"].is_string())
+    titlePostfix = cfg["ndmspc"]["projection"]["title"].get<std::string>();
 
-  TList * outputList = new TList();
+  THnSparse * hs = (THnSparse *)inputList->At(0);
+  TH1D *      h  = hs->Projection(projId, "O");
+  h->SetNameTitle("h", TString::Format("h %s", titlePostfix.Data()).Data());
+
+  TList *  outputList = new TList();
   Long64_t binid;
   if (finalResults) {
     outputList->Add(finalResults);
     for (auto & name : cfg["ndmspc"]["result"]["names"]) {
       std::string n = name.get<std::string>();
-      if (!n.compare("param0")) {
+      if (!n.compare("p0")) {
         point[0] = 0;
         binid    = finalResults->GetBin(point);
         finalResults->SetBinContent(point, h->Integral());
