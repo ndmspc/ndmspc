@@ -58,6 +58,7 @@ Int_t NdmspcCreateMapProjection(
     if (fill > 0) {
       for (Int_t i = 0; i < h1D->GetXaxis()->GetNbins(); i++) {
         h1D->SetBinContent(i + 1, fill);
+        h1D->GetXaxis()->SetBinLabel(i + 1, hIn->GetAxis(ix)->GetBinLabel(i + 1));
       }
     }
     h1D->Write();
@@ -77,10 +78,15 @@ Int_t NdmspcCreateMapProjection(
     a = hIn->GetAxis(iy);
     h2D->GetYaxis()->SetNameTitle(a->GetName(), a->GetName());
     if (fill) {
-      for (Int_t i = 0; i < h2D->GetXaxis()->GetNbins(); i++)
+      for (Int_t i = 0; i < h2D->GetXaxis()->GetNbins(); i++) {
+        h2D->GetXaxis()->SetBinLabel(i + 1, hIn->GetAxis(ix)->GetBinLabel(i + 1));
         for (Int_t j = 0; j < h2D->GetYaxis()->GetNbins(); j++) {
           h2D->SetBinContent(i + 1, j + 1, fill);
+          if (i == 0) {
+            h2D->GetYaxis()->SetBinLabel(j + 1, hIn->GetAxis(iy)->GetBinLabel(j + 1));
+          }
         }
+      }
     }
     h2D->Write();
   }
@@ -105,11 +111,21 @@ Int_t NdmspcCreateMapProjection(
     h3D->GetZaxis()->SetNameTitle(a->GetName(), a->GetName());
 
     if (fill) {
-      for (Int_t i = 0; i < h3D->GetXaxis()->GetNbins(); i++)
-        for (Int_t j = 0; j < h3D->GetYaxis()->GetNbins(); j++)
+      for (Int_t i = 0; i < h3D->GetXaxis()->GetNbins(); i++) {
+        h3D->GetXaxis()->SetBinLabel(i + 1, hIn->GetAxis(ix)->GetBinLabel(i + 1));
+        for (Int_t j = 0; j < h3D->GetYaxis()->GetNbins(); j++) {
+          if (i == 0) {
+            h3D->GetYaxis()->SetBinLabel(j + 1, hIn->GetAxis(iy)->GetBinLabel(j + 1));
+          }
+
           for (Int_t k = 0; k < h3D->GetZaxis()->GetNbins(); k++) {
             h3D->SetBinContent(i + 1, j + 1, k + 1, fill);
+            if (i == 0 && j == 0) {
+              h3D->GetZaxis()->SetBinLabel(k + 1, hIn->GetAxis(iz)->GetBinLabel(k + 1));
+            }
           }
+        }
+      }
     }
 
     h3D->Write();
