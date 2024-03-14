@@ -43,7 +43,7 @@ Int_t NdmspcCreateMapProjection(
   TObjArray * names = projections.Tokenize("_");
 
   // Printf("%s", ((TObjString *)names->At(0))->GetString().Data());
-
+  std::string l;
   if (names->GetEntriesFast() == 1) {
     Int_t ix = hIn->GetListOfAxes()->IndexOf(
         hIn->GetListOfAxes()->FindObject(((TObjString *)names->At(0))->GetString().Data()));
@@ -58,7 +58,8 @@ Int_t NdmspcCreateMapProjection(
     if (fill > 0) {
       for (Int_t i = 0; i < h1D->GetXaxis()->GetNbins(); i++) {
         h1D->SetBinContent(i + 1, fill);
-        h1D->GetXaxis()->SetBinLabel(i + 1, hIn->GetAxis(ix)->GetBinLabel(i + 1));
+        l = hIn->GetAxis(ix)->GetBinLabel(i + 1);
+        if (!l.empty()) h1D->GetXaxis()->SetBinLabel(i + 1, l.c_str());
       }
     }
     h1D->Write();
@@ -79,11 +80,13 @@ Int_t NdmspcCreateMapProjection(
     h2D->GetYaxis()->SetNameTitle(a->GetName(), a->GetName());
     if (fill) {
       for (Int_t i = 0; i < h2D->GetXaxis()->GetNbins(); i++) {
-        h2D->GetXaxis()->SetBinLabel(i + 1, hIn->GetAxis(ix)->GetBinLabel(i + 1));
+        l = hIn->GetAxis(ix)->GetBinLabel(i + 1);
+        if (!l.empty()) h2D->GetXaxis()->SetBinLabel(i + 1, l.c_str());
         for (Int_t j = 0; j < h2D->GetYaxis()->GetNbins(); j++) {
           h2D->SetBinContent(i + 1, j + 1, fill);
           if (i == 0) {
-            h2D->GetYaxis()->SetBinLabel(j + 1, hIn->GetAxis(iy)->GetBinLabel(j + 1));
+            l = hIn->GetAxis(iy)->GetBinLabel(j + 1);
+            if (!l.empty()) h2D->GetYaxis()->SetBinLabel(j + 1, l.c_str());
           }
         }
       }
@@ -109,19 +112,21 @@ Int_t NdmspcCreateMapProjection(
     h3D->GetYaxis()->SetNameTitle(a->GetName(), a->GetName());
     a = hIn->GetAxis(iz);
     h3D->GetZaxis()->SetNameTitle(a->GetName(), a->GetName());
-
     if (fill) {
       for (Int_t i = 0; i < h3D->GetXaxis()->GetNbins(); i++) {
-        h3D->GetXaxis()->SetBinLabel(i + 1, hIn->GetAxis(ix)->GetBinLabel(i + 1));
+        l = hIn->GetAxis(ix)->GetBinLabel(i + 1);
+        if (!l.empty()) h3D->GetXaxis()->SetBinLabel(i + 1, l.c_str());
         for (Int_t j = 0; j < h3D->GetYaxis()->GetNbins(); j++) {
           if (i == 0) {
-            h3D->GetYaxis()->SetBinLabel(j + 1, hIn->GetAxis(iy)->GetBinLabel(j + 1));
+            l = hIn->GetAxis(iy)->GetBinLabel(j + 1);
+            if (!l.empty()) h3D->GetYaxis()->SetBinLabel(j + 1, l.c_str());
           }
 
           for (Int_t k = 0; k < h3D->GetZaxis()->GetNbins(); k++) {
             h3D->SetBinContent(i + 1, j + 1, k + 1, fill);
             if (i == 0 && j == 0) {
-              h3D->GetZaxis()->SetBinLabel(k + 1, hIn->GetAxis(iz)->GetBinLabel(k + 1));
+              l = hIn->GetAxis(iz)->GetBinLabel(k + 1);
+              if (!l.empty()) h3D->GetZaxis()->SetBinLabel(k + 1, l.c_str());
             }
           }
         }
