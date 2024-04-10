@@ -40,7 +40,7 @@ TList *     _currentInputObjects = nullptr;
 THnSparse * _finalResults        = nullptr;
 Int_t       _currentPoint[10];
 
-void NdmspcLoadConfig(TString configFile, json & cfg, bool show = true, TString ouputConfig = "")
+bool NdmspcLoadConfig(TString configFile, json & cfg, bool show = true, TString ouputConfig = "")
 {
   NdmspcDefaultConfig(cfg);
   ndmspcBase.merge_patch(cfg);
@@ -61,6 +61,7 @@ void NdmspcLoadConfig(TString configFile, json & cfg, bool show = true, TString 
     std::ofstream file(ouputConfig.Data());
     file << cfg;
     Printf("Config saved to file '%s' ...", ouputConfig.Data());
+    return false;
   }
 
   // handle specific options
@@ -68,6 +69,7 @@ void NdmspcLoadConfig(TString configFile, json & cfg, bool show = true, TString 
     TFile::SetCacheFileDir(gSystem->ExpandPathName(cfg["ndmspc"]["file"]["cache"].get<std::string>().c_str()), 1, 1);
 
   TH1::AddDirectory(kFALSE);
+  return true;
 }
 
 TList * NdmspcInit(json cfg)
@@ -348,7 +350,7 @@ bool NdmspcProcessRecursive(int i, json & cfg)
 int NdmspcRun(TString cfgFile = "", bool showConfig = false, TString ouputConfig = "")
 {
 
-  NdmspcLoadConfig(cfgFile.Data(), cfg, showConfig, ouputConfig);
+  if (!NdmspcLoadConfig(cfgFile.Data(), cfg, showConfig, ouputConfig)) return 0;
 
   std::string type;
   if (cfg["ndmspc"]["process"]["type"].is_string()) type = cfg["ndmspc"]["process"]["type"].get<std::string>();
