@@ -27,7 +27,7 @@ json cfg   = R"({
     "output": {
       "host": "",
       "dir": "",
-      "file": "out.root",
+      "file": "content.root",
       "opt": "?remote=1"
     },
     "process": {
@@ -99,7 +99,7 @@ int NdmspcInit(std::string inFile = "data.root", std::string inHnSparseName = "p
   cfg["ndmspc"]["data"]["objects"] = {inHnSparseName.c_str()};
   // cfg["ndmspc"]["cuts"][0]["axis"] = inCutAxisName.c_str();
 
-  std::string   outputMacro = "NdmspcMacro.C";
+  std::string   outputMacro = "NdmspcPointMacro.C";
   std::ofstream file(outputMacro.c_str());
   file << macroTemplateHeader.c_str();
   file << "  cfg = R\"(" << std::endl;

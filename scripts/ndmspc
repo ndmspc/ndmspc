@@ -5,11 +5,11 @@ NDMSPC_LOGDIR_XRD=${NDMSPC_LOGDIR_XRD-""}
 NDMSPC_LOGFILE_XRD=${NDMSPC_LOGFILE_XRD-"ndmspc.log"}
 NDMSPC_LOG_TYPE=${NDMSPC_LOG_TYPE-"error-only"}
 NDMSPC_MACRO_SRC=
-NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcMacro.C"}
+NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcPointMacro.C"}
 NDMCPS_SANDBOX_BASE_DIR=${NDMCPS_SANDBOX_BASE_DIR-"/tmp/ndmspc"}
 NDMCPS_SANDBOX_CLEANUP=${NDMCPS_SANDBOX_CLEANUP-1}
 NDMSPC_MACRO_DIR=${NDMSPC_MACRO_DIR-"/usr/share/ndmspc/macros"}
-NDMSPC_MACRO=${NDMSPC_MACRO-"/usr/share/ndmspc/macros/NdmspcRun.C"}
+NDMSPC_MACRO=${NDMSPC_MACRO-"/usr/share/ndmspc/macros/NdmspcPointRun.C"}
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
@@ -83,8 +83,8 @@ void rootlogoff() {
 }
 EOF
 
-  # ndmspc _macro '/usr/share/ndmspc/macros/NdmspcRun.C' '"config.json"' "<next lines (multiple space separated)>"
-  # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcMacro.C" 
+  # ndmspc _macro '/usr/share/ndmspc/macros/NdmspcPointRun.C' '"config.json"' "<next lines (multiple space separated)>"
+  # "base64|$(cat RsnBin.C | base64 -w 0)|NdmspcPointMacro.C" 
   # "https://gitlab.science.upjs.sk/jf/students/phd/2023/veronika-barbasova/myo2/-/raw/main/macros/RsnFunctions.h|RsnFunctions.h" 
   # "file|$(pwd)/test_single.json|config.json"
   # "root://eos.ndmspc.io//eos/ndmspc/scratch/test/test_single.json|config.json"
