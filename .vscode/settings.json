@@ -2,7 +2,7 @@
   "files.associations": {
     "**/*.yml": "ansible",
     "all": "ansible",
-    "NdmspcRun.C": "cpp",
+    "NdmspcPointRun.C": "cpp",
     "*.in": "cpp",
     "iosfwd": "cpp",
     "NdmspcMerge.C": "cpp",
@@ -71,7 +71,7 @@
     "typeinfo": "cpp",
     "valarray": "cpp",
     "variant": "cpp",
-    "NdmspcMacro.C": "cpp",
+    "NdmspcPointMacro.C": "cpp",
     "rootlogoff.C": "cpp",
     "NdmspcMacroRsnTest.C": "cpp",
     "NdmspcCreateMap.C": "cpp",

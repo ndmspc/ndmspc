@@ -52,7 +52,7 @@ void NdmspcDefaultConfig(json & cfg)
     "output": {
       "host": "",
       "dir": "",
-      "file": "out.root",
+      "file": "content.root",
       "opt": "?remote=1"
     },
     "process": {

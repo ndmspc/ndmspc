@@ -9,7 +9,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
-#include "NdmspcMacro.C"
+#include "NdmspcPointMacro.C"
 
 using json = nlohmann::json;
 
@@ -39,15 +39,12 @@ int NdmspcAnalysisCli(std::string name = "myAnalysis", std::string description =
   std::string output = name + ".ndmspc";
   if (projectDir.empty()) {
     std::string user = gSystem->GetUserInfo()->fUser.Data();
-    projectDir = "root://eos.ndmspc.io//eos/ndmspc/scratch/temp/" + user + "/" + name;
+    projectDir       = "root://eos.ndmspc.io//eos/ndmspc/scratch/temp/" + user + "/" + name;
   }
   TUrl        projectUrl(projectDir.c_str());
   std::string host = projectUrl.GetHost();
 
-  
-
-
-  json        cfgOutput;
+  json cfgOutput;
   cfgOutput["analysis"]                       = name.c_str();
   cfgOutput["analyses"][name]["name"]         = name.c_str();
   cfgOutput["analyses"][name]["description"]  = description.c_str();
@@ -59,22 +56,20 @@ int NdmspcAnalysisCli(std::string name = "myAnalysis", std::string description =
   cfgOutput["analyses"][name]["file"] = "https://" + host + projectUrl.GetFile() + "/" + "hMap.root";
   cfgOutput["analyses"][name]["obj"]  = "hMap";
 
+  std::string axis = "axis1-pt";
 
+  // if (cfg["ndmspc"]["cuts"].size()>0) {
+  //   for (auto & element : cfg["ndmspc"]["cuts"]) {
+  //   //   cfgOutput["analyses"][name]["projection"]                       = axis;
+  //   // cfgOutput["analyses"][name]["projections"][axis]["name"]        = axis;
+  //   // cfgOutput["analyses"][name]["projections"][axis]["description"] = axis;
+  //   // cfgOutput["analyses"][name]["projections"][axis]["file"] =
+  //   //     "https://" + host + "/" + projectUrl.GetFile() + "/" + axis + "/hProjMap.root";
+  //   // cfgOutput["analyses"][name]["projections"][axis]["obj"]     = "hProjMap";
+  //   // cfgOutput["analyses"][name]["projections"][axis]["axes"][0] = axis;
 
-std::string axis = "axis1-pt";
-
-// if (cfg["ndmspc"]["cuts"].size()>0) {
-//   for (auto & element : cfg["ndmspc"]["cuts"]) {
-//   //   cfgOutput["analyses"][name]["projection"]                       = axis;
-//   // cfgOutput["analyses"][name]["projections"][axis]["name"]        = axis;
-//   // cfgOutput["analyses"][name]["projections"][axis]["description"] = axis;
-//   // cfgOutput["analyses"][name]["projections"][axis]["file"] =
-//   //     "https://" + host + "/" + projectUrl.GetFile() + "/" + axis + "/hProjMap.root";
-//   // cfgOutput["analyses"][name]["projections"][axis]["obj"]     = "hProjMap";
-//   // cfgOutput["analyses"][name]["projections"][axis]["axes"][0] = axis;
-  
-//   }
-// }
+  //   }
+  // }
 
   cfgOutput["analyses"][name]["projection"]                       = axis;
   cfgOutput["analyses"][name]["projections"][axis]["name"]        = axis;
@@ -83,14 +78,11 @@ std::string axis = "axis1-pt";
       "https://" + host + "/" + projectUrl.GetFile() + "/" + axis + "/hProjMap.root";
   cfgOutput["analyses"][name]["projections"][axis]["obj"]     = "hProjMap";
   cfgOutput["analyses"][name]["projections"][axis]["axes"][0] = axis;
-  
-
 
   cfgOutput["analyses"][name]["plugin"]                                = "default";
   cfgOutput["analyses"][name]["plugins"]["NdmspcBinPlugin"]["current"] = "default";
 
-
-  std::string sw = projectDir + "/sw/NdmspcMacro.C|NdmspcMacro.C";
+  std::string sw = projectDir + "/sw/NdmspcPointMacro.C|NdmspcPointMacro.C";
 
   if (cfg["ndmspc"]["job"]["inputs"].is_null() || cfg["ndmspc"]["job"]["inputs"].is_array() ||
       cfg["ndmspc"]["job"]["inputs"].size() == 0) {
@@ -98,7 +90,7 @@ std::string axis = "axis1-pt";
   }
 
   std::string inputFileDefaltConfig = cfg["ndmspc"]["data"]["file"].get<std::string>();
-  json objectsDefaltConfig   = cfg["ndmspc"]["data"]["objects"];
+  json        objectsDefaltConfig   = cfg["ndmspc"]["data"]["objects"];
 
   std::string   cfgFileName = name + ".json";
   std::ifstream f(cfgFileName);
@@ -132,13 +124,17 @@ std::string axis = "axis1-pt";
     }
   }
 
+  cfgOutput["analyses"][name]["plugins"]["NdmspcBinPlugin"]["default"]["config"] = cfg;
+  cfgOutput["plugin"]                                                            = "NdmspcBinPlugin";
+
+  std::string binsDir = projectUrl.GetFile();
+  binsDir += "/" + axis + "/bins";
+  cfg["ndmspc"]["output"]["dir"]  = binsDir;
+  cfg["ndmspc"]["output"]["host"] = "root://" + host + "/";
+
   // Printf("%s", cfg.dump(2).c_str());
   std::ofstream fileCfg(cfgFileName.c_str());
   fileCfg << std::setw(2) << cfg << std::endl;
-
-  cfgOutput["analyses"][name]["plugins"]["NdmspcBinPlugin"]["default"]["config"] = cfg;
-
-  cfgOutput["plugin"] = "NdmspcBinPlugin";
 
   for (auto & element : cfg["ndmspc"]["job"]["inputs"]) {
     std::vector<std::string> e = tokenize(element.get<std::string>(), '|');

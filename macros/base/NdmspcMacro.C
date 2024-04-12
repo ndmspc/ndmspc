@@ -32,7 +32,7 @@ void NdmspcDefaultConfig(json & cfg)
     "output": {
       "host": "",
       "dir": "",
-      "file": "out.root",
+      "file": "content.root",
       "opt": "?remote=1"
     },
     "process": {
@@ -44,7 +44,7 @@ void NdmspcDefaultConfig(json & cfg)
     },
     "job":{
       "inputs": [
-        "https://gitlab.com/ndmspc/ndmspc/-/raw/main/macros/base/NdmspcMacro.C|NdmspcMacro.C"
+        "https://gitlab.com/ndmspc/ndmspc/-/raw/main/macros/base/NdmspcPointMacro.C|NdmspcPointMacro.C"
       ]
     },
     "verbose": 0

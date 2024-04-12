@@ -9,7 +9,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
-#include "NdmspcMacro.C"
+#include "NdmspcPointMacro.C"
 
 using json = nlohmann::json;
 
@@ -27,7 +27,7 @@ json ndmspcBase = R"({
     "output": {
       "host": "",
       "dir": "",
-      "file": "out.root",
+      "file": "content.root",
       "opt": "?remote=1"
     }
   },
@@ -347,7 +347,7 @@ bool NdmspcProcessRecursive(int i, json & cfg)
   return true;
 }
 
-int NdmspcRun(TString cfgFile = "", bool showConfig = false, TString ouputConfig = "")
+int NdmspcPointRun(TString cfgFile = "", bool showConfig = false, TString ouputConfig = "")
 {
 
   if (!NdmspcLoadConfig(cfgFile.Data(), cfg, showConfig, ouputConfig)) return 0;
