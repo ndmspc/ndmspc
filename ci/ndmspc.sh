@@ -1,10 +1,11 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v0.0.4"
+tag: "v0.20240422.0"
 requires:
   - ROOT
 build_requires:
   - CMake
+  - ninja
   - alibuild-recipe-tools
 source: https://gitlab.com/ndmspc/ndmspc.git
 incremental_recipe: |
@@ -26,7 +27,7 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"          \
       -G Ninja                                                    \
       ${CMAKE_BUILD_TYPE:+"-DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"} \
       ${CXXSTD:+"-DCMAKE_CXX_STANDARD=$CXXSTD"}                   \
-      -DCMAKE_EXPORT_COMPILE_COMMANDS=ON 
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build . -- ${JOBS+-j $JOBS} install
 
@@ -43,7 +44,6 @@ MODULEFILE="etc/modulefiles/$PKGNAME"
 alibuild-generate-module --bin --lib > "$MODULEFILE"
 cat >> "$MODULEFILE" <<EoF
 # Our environment
-setenv NDMSPC_ROOT \$PKG_ROOT
 setenv NDMSPC_MACRO_DIR \$PKG_ROOT/macros
 prepend-path ROOT_INCLUDE_PATH \$PKG_ROOT/include
 EoF
