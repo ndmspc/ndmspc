@@ -77,7 +77,8 @@
     "NdmspcCreateMap.C": "cpp",
     "NdmspcCreateMapProjection.C": "cpp",
     "NdmspcScanProjectionMap.C": "cpp",
-    "NdmspcExportParams.C": "cpp"
+    "NdmspcExportParams.C": "cpp",
+    "NdmspcInit.C": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }

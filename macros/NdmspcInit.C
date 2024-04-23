@@ -17,10 +17,10 @@ json cfg   = R"({
   },
   "ndmspc": {
     "data": {
-      "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/tutorial/rsn/data.root",
-      "objects": ["phianalysis-t-hn-sparse_std/unlike"]
+      "file": "input.root",
+      "objects": ["hNSparse"]
     },
-    "cuts": [],
+    "cuts": [{"enabled": false, "axis": "hNSparseAxisName", "min":3, "max": 3, "rebin":1}],
     "result": {
       "names": []
     },
@@ -97,7 +97,7 @@ int NdmspcInit(std::string inFile = "data.root", std::string inHnSparseName = "p
 {
   cfg["ndmspc"]["data"]["file"]    = inFile.c_str();
   cfg["ndmspc"]["data"]["objects"] = {inHnSparseName.c_str()};
-  // cfg["ndmspc"]["cuts"][0]["axis"] = inCutAxisName.c_str();
+  cfg["ndmspc"]["cuts"][0]["axis"] = inCutAxisName.c_str();
 
   std::string   outputMacro = "NdmspcPointMacro.C";
   std::ofstream file(outputMacro.c_str());
