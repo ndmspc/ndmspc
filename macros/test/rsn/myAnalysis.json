@@ -1,0 +1,156 @@
+{
+  "ndmspc": {
+    "cuts": [
+      {
+        "axis": "axis0-im",
+        "bin": {
+          "max": 1,
+          "min": 1
+        },
+        "enabled": false,
+        "rebin": 1
+      },
+      {
+        "axis": "axis1-pt",
+        "bin": {
+          "max": 5,
+          "min": 5
+        },
+        "enabled": true,
+        "rebin": 1
+      },
+      {
+        "axis": "axis2-mu1",
+        "bin": {
+          "max": 1,
+          "min": 1
+        },
+        "enabled": true,
+        "rebin": 1
+      },
+      {
+        "axis": "axis3-ns1",
+        "bin": {
+          "max": 1,
+          "min": 1
+        },
+        "enabled": false,
+        "rebin": 1
+      },
+      {
+        "axis": "axis4-ns2",
+        "bin": {
+          "max": 1,
+          "min": 1
+        },
+        "enabled": false,
+        "rebin": 1
+      },
+      {
+        "axis": "axis5-y",
+        "bin": {
+          "max": 1,
+          "min": 1
+        },
+        "enabled": false,
+        "rebin": 1
+      },
+      {
+        "axis": "axis6-zv1",
+        "bin": {
+          "max": 1,
+          "min": 1
+        },
+        "enabled": false,
+        "rebin": 1
+      }
+    ],
+    "data": {
+      "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/192541/AnalysisResults.root",
+      "directory": "phianalysis-t-hn-sparse_default",
+      "objects": [
+        "unlikepm:sigBg",
+        "likepp+likemm:bgLike",
+        "mixingpm+mixingmp:bgMixing",
+        "unliketrue:mcTrue",
+        "unlikegen:mcGen"
+      ]
+    },
+    "job": {
+      "inputs": [
+        "root://eos.ndmspc.io//eos/ndmspc/scratch/temp/mvala/myAnalysis/sw/NdmspcPointMacro.C|NdmspcPointMacro.C"
+      ]
+    },
+    "log": {
+      "dir": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs",
+      "type": "error-only"
+    },
+    "output": {
+      "dir": "/eos/ndmspc/scratch/temp/mvala/myAnalysis",
+      "file": "content.root",
+      "host": "root://eos.ndmspc.io/",
+      "opt": "?remote=1"
+    },
+    "process": {
+      "type": "all"
+    },
+    "result": {
+      "parameters": {
+        "labels": [
+          "RawBC",
+          "RawFnc",
+          "RawBCNorm",
+          "RawFncNorm",
+          "Mass",
+          "Width",
+          "Sigma",
+          "Chi2",
+          "Probability",
+          "True",
+          "Gen",
+          "Eff"
+        ],
+        "draw": {
+          "Mass" : { "min": 1.015, "max": 1.022}
+        },
+        "default": 2
+      },
+      "axes": [
+        { "name": "bg", "labels": ["like", "mixing"], "default": 0 },
+        {
+          "name": "norm",
+          "ranges": [
+            { "name": "normOne", "range": [0.99, 1.0] },
+            { "name": "normTwo", "range": [1.05, 1.06] }
+          ],
+          "default": 0
+        },
+        {
+          "name": "fitFun",
+          "labels": ["VoigtPol1", "VoigtPol2"],
+          "default": 1
+        },
+        {
+          "name": "fitRange",
+          "ranges": [
+            { "name": "frOne", "range": [0.997, 1.05] },
+            { "name": "frTwo", "range": [0.995, 1.06] }
+          ],
+          "default": 0
+        }
+      ]
+    },
+    "file": {
+      "cache": "$HOME"
+    },
+    "verbose": 0
+  },
+  "user": {
+    "fit": {
+      "default": [0.0, 1.019445, 0.00426, 0.001]
+    },
+    "minEntries": 1000,
+    "proj": 0,
+    "verbose": 0
+  }
+}

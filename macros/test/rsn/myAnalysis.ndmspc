@@ -1,0 +1,169 @@
+{
+  "analyses": {
+    "myAnalysis": {
+      "base": {
+        "http": "https://eos.ndmspc.io",
+        "path": "/eos/ndmspc/scratch/temp/mvala/myAnalysis",
+        "root": "root://eos.ndmspc.io/"
+      },
+      "description": "",
+      "file": "https://eos.ndmspc.io/eos/ndmspc/scratch/temp/mvala/myAnalysis/hMap.root",
+      "name": "myAnalysis",
+      "obj": "hMap",
+      "plugin": "default",
+      "plugins": {
+        "NdmspcBinPlugin": {
+          "current": "default",
+          "default": {
+            "config": {
+              "ndmspc": {
+                "cuts": [
+                  {
+                    "axis": "axis0-im",
+                    "bin": {
+                      "max": 1,
+                      "min": 1
+                    },
+                    "enabled": false,
+                    "rebin": 1
+                  },
+                  {
+                    "axis": "axis1-pt",
+                    "bin": {
+                      "max": 1,
+                      "min": 1
+                    },
+                    "enabled": true,
+                    "rebin": 1
+                  },
+                  {
+                    "axis": "axis2-mu1",
+                    "bin": {
+                      "max": 1,
+                      "min": 1
+                    },
+                    "enabled": false,
+                    "rebin": 1
+                  },
+                  {
+                    "axis": "axis3-ns1",
+                    "bin": {
+                      "max": 1,
+                      "min": 1
+                    },
+                    "enabled": false,
+                    "rebin": 1
+                  },
+                  {
+                    "axis": "axis4-ns2",
+                    "bin": {
+                      "max": 1,
+                      "min": 1
+                    },
+                    "enabled": false,
+                    "rebin": 1
+                  },
+                  {
+                    "axis": "axis5-y",
+                    "bin": {
+                      "max": 1,
+                      "min": 1
+                    },
+                    "enabled": false,
+                    "rebin": 1
+                  },
+                  {
+                    "axis": "axis6-zv1",
+                    "bin": {
+                      "max": 1,
+                      "min": 1
+                    },
+                    "enabled": false,
+                    "rebin": 1
+                  }
+                ],
+                "data": {
+                  "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/192541/AnalysisResults.root",
+                  "objects": [
+                    "phianalysis-t-hn-sparse_default/unlikepm:sigBg",
+                    "phianalysis-t-hn-sparse_default/likepp+phianalysis-t-hn-sparse_default/likemm:bgLike",
+                    "phianalysis-t-hn-sparse_default/mixingpm+phianalysis-t-hn-sparse_default/mixingmp:bgMixing",
+                    "phianalysis-t-hn-sparse_default/unliketrue:mcTrue",
+                    "phianalysis-t-hn-sparse_default/unlikegen:mcGen"
+                  ]
+                },
+                "job": {
+                  "inputs": [
+                    "root://eos.ndmspc.io//eos/ndmspc/scratch/temp/mvala/myAnalysis/sw/NdmspcPointMacro.C|NdmspcPointMacro.C"
+                  ]
+                },
+                "log": {
+                  "dir": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs",
+                  "type": "error-only"
+                },
+                "output": {
+                  "dir": "",
+                  "file": "content.root",
+                  "host": "",
+                  "opt": "?remote=1"
+                },
+                "process": {
+                  "type": "single"
+                },
+                "result": {
+                  "names": [
+                    "RawBC",
+                    "RawFnc",
+                    "Mass",
+                    "Width",
+                    "Sigma",
+                    "Chi2",
+                    "Probability",
+                    "True",
+                    "Gen",
+                    "Eff"
+                  ]
+                },
+                "verbose": 0
+              },
+              "user": {
+                "fit": {
+                  "default": [
+                    0.0,
+                    1.019445,
+                    0.00426,
+                    0.001
+                  ],
+                  "fun": "VoigtPol2",
+                  "max": 1.05,
+                  "min": 0.997
+                },
+                "minEntries": 1,
+                "norm": {
+                  "max": 1.0,
+                  "min": 0.99
+                },
+                "proj": 0,
+                "verbose": 0
+              }
+            }
+          }
+        }
+      },
+      "projection": "axis1-pt",
+      "projections": {
+        "axis1-pt": {
+          "axes": [
+            "axis1-pt"
+          ],
+          "description": "axis1-pt",
+          "file": "https://eos.ndmspc.io//eos/ndmspc/scratch/temp/mvala/myAnalysis/axis1-pt/hProjMap.root",
+          "name": "axis1-pt",
+          "obj": "hProjMap"
+        }
+      }
+    }
+  },
+  "analysis": "myAnalysis",
+  "plugin": "NdmspcBinPlugin"
+}
