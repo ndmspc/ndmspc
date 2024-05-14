@@ -13,7 +13,7 @@ NDMSPC_MACRO=${NDMSPC_MACRO-"/usr/share/ndmspc/macros/NdmspcPointRun.C"}
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
-  echo "$0 _run '\"test_single.json\"'"
+  # echo "$0 _run '\"test_single.json\"'"
 }
 
 if [ -z "$1" ];then
@@ -65,6 +65,7 @@ cd $WORK_DIR
 MY_CMD=$@
 if [[ $1 == "_macro" ]];then
   shift
+  echo $*
   [ -n "$1" ] && NDMSPC_MACRO=$1
   shift
   MY_CMD="root -b -q $NDMSPC_MACRO"

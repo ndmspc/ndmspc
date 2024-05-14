@@ -78,7 +78,20 @@
     "NdmspcCreateMapProjection.C": "cpp",
     "NdmspcScanProjectionMap.C": "cpp",
     "NdmspcExportParams.C": "cpp",
-    "NdmspcInit.C": "cpp"
+    "NdmspcInit.C": "cpp",
+    "NdmspcAnalysisCli.C": "cpp",
+    "charconv": "cpp",
+    "format": "cpp",
+    "text_encoding": "cpp",
+    "NdmspcMacro.C": "cpp",
+    "NdmspcConvert.C": "cpp",
+    "NdmspcConvertStrangeness.C": "cpp",
+    "NdmspcFileToDirectory.C": "cpp",
+    "NdmspcDirectoryToFile.C": "cpp",
+    "m.C": "cpp",
+    "NdmspcAnalysisCli copy.C": "cpp",
+    "NdmspcDrawResult.C": "cpp",
+    "chrono": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }

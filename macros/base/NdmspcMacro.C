@@ -75,7 +75,7 @@ TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int
   Long64_t binid;
   if (finalResults) {
     outputList->Add(finalResults);
-    for (auto & name : cfg["ndmspc"]["result"]["names"]) {
+    for (auto & name : cfg["ndmspc"]["result"]["parameters"]["labels"]) {
       std::string n = name.get<std::string>();
       if (!n.compare("p0")) {
         point[0] = 0;
