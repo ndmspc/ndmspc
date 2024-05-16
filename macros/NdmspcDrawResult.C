@@ -97,104 +97,78 @@ int              NdmspcDrawResult(std::string configFile = "myAnalysis.json", st
 
   Printf("Axis: %d [parameters] SetRange(%d,%d)", id, idBin, idBin);
   parameterPoint[id] = idBin;
-
   rh->GetAxis(id)->SetRange(idBin, idBin);
 
-  mapTitle = " " + currentParameterName + " [";
-  for (auto & value : cfg["ndmspc"]["result"]["axes"]) {
-    a = (TAxis *)rh->GetListOfAxes()->FindObject(value["name"].get<std::string>().c_str());
-    if (a == nullptr) {
-      return 6;
-    }
-    id = rh->GetListOfAxes()->IndexOf(a);
 
-    int         idxDefault = value["default"].get<int>();
-    std::string l;
-    if (!value["labels"].is_null()) l = value["labels"][idxDefault].get<std::string>();
-    if (!value["ranges"].is_null()) l = value["ranges"][idxDefault]["name"].get<std::string>();
-    idBin = a->FindBin(l.c_str());
-    if (idBin < 0) {
-      Printf("Could not find bin label '%s' in '%s' axis !!!", value["name"].get<std::string>().c_str(), l.c_str());
-      return 7;
-    }
-
-    Printf("Axis: %d [%s] SetRange(%d,%d)", id, value["name"].get<std::string>().c_str(), idBin, idBin);
-    parameterPoint[id] = idBin;
-    rh->GetAxis(id)->SetRange(idBin, idBin);
-    mapTitle += l + " ";
-  }
-
-  mapTitle += "]";
-
-  // auto c1 = new TCanvas("CanvasMap", "CanvasMap", 505, 0, 600, 500);
-  // c1->HighlightConnect("HighlightProj(TVirtualPad*,TObject*,Int_t,Int_t)");
-
-  // if (nDimCuts == 1) {
-  //   // c1->cd();
-  //   hMap               = rh->Projection(1);
-  //   std::string htitle = hMap->GetTitle();
-  //   htitle += mapTitle;
-  //   hMap->SetTitle(htitle.c_str());
-  //   hMap->SetStats(0);
-  //   hMap->Draw();
-  //   hMap->SetHighlight();
-  // }
-  // else if (nDimCuts == 2) {
-  //   // c1->cd();
-  //   hMap               = rh->Projection(2, 1);
-  //   std::string htitle = hMap->GetTitle();
-  //   htitle += mapTitle;
-  //   hMap->SetTitle(htitle.c_str());
-  //   hMap->SetStats(0);
-  //   hMap->Draw("colz");
-  //   hMap->SetHighlight();
-  // }
-
-  auto c2 = new TCanvas("CanvasParams", "CanvasParams", 0, 0, 500, 500);
-  c2->HighlightConnect("HighlightParam(TVirtualPad*,TObject*,Int_t,Int_t)");
 
   int nAxisX     = rh->GetNdimensions() - nDimCuts;
-  int nAxisY     = cfg["ndmspc"]["result"]["parameters"]["labels"].size();
-  int pointsSize = cfg["ndmspc"]["result"]["axes"].size() + 1;
+  int nAxisY     = rh->GetAxis(0)->GetNbins();
+  int pointsSize = cfg["ndmspc"]["result"]["axes"].size() + cfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
   int points[pointsSize];
   int iPoint       = 0;
   points[iPoint++] = nAxisY;
 
-  // for (auto & [key, value] : cfg["ndmspc"]["result"].items()) {
-  for (auto & value : cfg["ndmspc"]["result"]["axes"]) {
-    // iPar++;
-    // i = 1;
-    if (!value["labels"].is_null()) {
-      points[iPoint++] = value["labels"].size();
-      if (nAxisY < value["labels"].size()) nAxisY = value["labels"].size();
-    }
-    // i = 1;
-    if (!value["ranges"].is_null()) {
-      points[iPoint++] = value["ranges"].size();
-      if (nAxisY < value["ranges"].size()) nAxisY = value["ranges"].size();
-      for (auto & n : value["ranges"]) {
-      }
-    }
-  }
+  int iAxisStart = nDimCuts + 1;
+  mapTitle       = currentParameterName + " [";
+  json axesArray = cfg["ndmspc"]["result"]["axes"];
+  int  idTmp;
+  for (int iAxis = iAxisStart; iAxis < rh->GetNdimensions(); iAxis++) {
+    idBin = 1;
 
-  Printf("Axisy %d", nAxisY);
+    if (iAxis - iAxisStart < cfg["ndmspc"]["result"]["axes"].size()) {
+      idTmp = iAxis - iAxisStart;
+      idBin = cfg["ndmspc"]["result"]["axes"][idTmp]["default"].get<int>() + 1;
+    }
+    else if (iAxis - iAxisStart - cfg["ndmspc"]["result"]["axes"].size() <
+             cfg["ndmspc"]["result"]["data"]["defaults"].size()) {
+      idTmp = iAxis - iAxisStart - cfg["ndmspc"]["result"]["axes"].size();
+      idBin = cfg["ndmspc"]["result"]["data"]["defaults"][idTmp].get<int>();
+    }
+    a = (TAxis *)rh->GetAxis(iAxis);
+    Printf("Axis: %d [%s] SetRange(%d,%d)", iAxis, a->GetName(), idBin, idBin);
+    points[iAxis - nDimCuts] = a->GetNbins();
+    parameterPoint[iAxis] = idBin;
+    rh->GetAxis(iAxis)->SetRange(idBin, idBin);
+    std::string l = a->GetBinLabel(idBin);
+    if (l.empty()) {
+      mapTitle += std::to_string(a->GetBinLowEdge(idBin));
+    }
+    else {
+      mapTitle += l;
+    }
+    mapTitle += " ";
+  }
+  mapTitle[mapTitle.size() - 1] = ']';
+
+  for (auto & p : parameterPoint) {
+    printf("%d ", p);
+  }
+  printf("\n");
+
+  Printf("mapTitle='%s'", mapTitle.c_str());
+
+  auto c2 = new TCanvas("CanvasParams", "CanvasParams", 0, 0, 500, 500);
+  c2->HighlightConnect("HighlightParam(TVirtualPad*,TObject*,Int_t,Int_t)");
+
+  // handle systematics
+  // Printf("nAxisX=%d nAxisY=%d", nAxisX, nAxisY);
 
   TH2D * hParamMain = new TH2D("hParamMain", "Param Main", nAxisX, 0, nAxisX, nAxisY, 0, nAxisY);
   for (int i = 0; i < nAxisX; i++) {
     if (i == 0)
-      hParamMain->GetXaxis()->SetBinLabel(i + 1, "parameters");
-    else
-      hParamMain->GetXaxis()->SetBinLabel(i + 1,
-                                          cfg["ndmspc"]["result"]["axes"][i - 1]["name"].get<std::string>().c_str());
+    hParamMain->GetXaxis()->SetBinLabel(i + 1, rh->GetAxis(i)->GetName());
+    else 
+    hParamMain->GetXaxis()->SetBinLabel(i + 1, rh->GetAxis(i+nDimCuts)->GetName());
     for (int j = 0; j < points[i]; j++) {
-
       hParamMain->SetBinContent(i + 1, j + 1, 1);
     }
   }
+  hParamMain->SetStats(0);
+  hParamMain->Print();
   hParamMain->Draw("colz");
   hParamMain->SetHighlight();
 
-  // fIn->Close();
+  // // fIn->Close();
 
   return 0;
 }

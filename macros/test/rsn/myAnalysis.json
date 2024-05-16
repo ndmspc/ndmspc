@@ -4,8 +4,8 @@
       {
         "axis": "axis0-im",
         "bin": {
-          "max": 1,
-          "min": 1
+          "max": 10,
+          "min": 10
         },
         "enabled": false,
         "rebin": 1
@@ -26,7 +26,7 @@
           "min": 1
         },
         "enabled": true,
-        "rebin": 1
+        "rebin": 50
       },
       {
         "axis": "axis3-ns1",
@@ -67,6 +67,17 @@
     ],
     "data": {
       "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/192541/AnalysisResults.root",
+      "histogram": {
+        "enabled": true,
+        "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/hDataMap.root",
+        "obj": "hDataMap",
+        "base": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/bins",
+        "filename": "AnalysisResults.root",
+        "bins": [
+          [4, 1, 6],
+          [1, 5, 6]
+        ]
+      },
       "directory": "phianalysis-t-hn-sparse_default",
       "objects": [
         "unlikepm:sigBg",
@@ -111,7 +122,7 @@
           "Eff"
         ],
         "draw": {
-          "Mass" : { "min": 1.015, "max": 1.022}
+          "Mass": { "min": 1.015, "max": 1.022 }
         },
         "default": 2
       },
@@ -138,7 +149,8 @@
           ],
           "default": 0
         }
-      ]
+      ],
+      "data": { "defaults": [1, 5, 6] }
     },
     "file": {
       "cache": "$HOME"
@@ -149,7 +161,7 @@
     "fit": {
       "default": [0.0, 1.019445, 0.00426, 0.001]
     },
-    "minEntries": 1000,
+    "minEntries": 1,
     "proj": 0,
     "verbose": 0
   }
