@@ -342,13 +342,19 @@ bool NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t 
     trueIntegral = hMcTrue->IntegralAndError(0, -1, trueErr);
     genIntegral  = hMcGen->IntegralAndError(0, -1, genErr);
 
+    
+
     hTrue->SetBinContent(1, trueIntegral);
     hTrue->SetBinError(1, trueErr);
     hGen->SetBinContent(1, genIntegral);
     hGen->SetBinError(1, genErr);
 
     pEff = (TH1 *)hTrue->Clone();
+    pEff->Reset();
     pEff->Divide(hTrue, hGen, 1, 1, "b");
+
+
+    Printf("true=%.3f gen=%.3f eff=%.3f", hTrue->GetBinContent(1),hGen->GetBinContent(1), pEff->GetBinContent(1));
   }
 
   // ["RawBC", "RawFnc", "Mass", "Width", "Sigma" , "Chi2", "Probability", "True", "Gen", "Eff"]
@@ -364,8 +370,8 @@ bool NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t 
     SetResultValueError(cfg, finalResults, "Sigma", point, sigBgFnc->GetParameter(3), sigBgFnc->GetParError(3),false, true);
     SetResultValueError(cfg, finalResults, "Chi2", point, sigBgFnc->GetChisquare(),0.0, false, true);
     SetResultValueError(cfg, finalResults, "Probability", point, sigBgFnc->GetProb(), 0.0,false, true, 10);
-    if (hTrue) SetResultValueError(cfg, finalResults, "True", point, hTrue->GetBinContent(1), hTrue->GetBinError(1),false, true);
-    if (hGen) SetResultValueError(cfg, finalResults, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1),false, true);
+    if (hTrue) SetResultValueError(cfg, finalResults, "True", point, hTrue->GetBinContent(1), hTrue->GetBinError(1),true, true);
+    if (hGen) SetResultValueError(cfg, finalResults, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1),true, true);
     if (pEff) SetResultValueError(cfg, finalResults, "Eff", point, pEff->GetBinContent(1), pEff->GetBinError(1),false, true);
   }
   else {

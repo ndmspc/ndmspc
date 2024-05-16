@@ -91,7 +91,10 @@
     "m.C": "cpp",
     "NdmspcAnalysisCli copy.C": "cpp",
     "NdmspcDrawResult.C": "cpp",
-    "chrono": "cpp"
+    "chrono": "cpp",
+    "NdmspcCreateDataMap.C": "cpp",
+    "FillProcessHistogram.C": "cpp",
+    "CreateDataMap.C": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }
