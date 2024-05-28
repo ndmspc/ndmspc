@@ -94,7 +94,9 @@
     "chrono": "cpp",
     "NdmspcCreateDataMap.C": "cpp",
     "FillProcessHistogram.C": "cpp",
-    "CreateDataMap.C": "cpp"
+    "CreateDataMap.C": "cpp",
+    "NdmspcDrawResult copy.C": "cpp",
+    "NdmspcGenerateJobs.C": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }
