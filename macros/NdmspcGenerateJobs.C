@@ -16,7 +16,7 @@
 using json = nlohmann::json;
 json cfg;
 int  NdmspcGenerateJobs(std::string configFileName = "myAnalysis.json",
-                        std::string outputFileName = "/tmp/ndmspc-jobs.txt")
+                        std::string outputFileName = "/tmp/ndmspc-jobs.txt", std::string ndmscpRunScript = "ndmspc")
 {
   std::ifstream configFile(configFileName);
   if (configFile.is_open()) {
@@ -36,14 +36,6 @@ int  NdmspcGenerateJobs(std::string configFileName = "myAnalysis.json",
   std::string inputs;
   for (auto & ji : cfg["ndmspc"]["job"]["inputs"]) {
     inputs += "'" + ji.get<std::string>() + "' ";
-  }
-
-  std::string ndmscpRunScript = gSystem->Getenv("NDMSPC_DIR");
-  if (ndmscpRunScript.empty()) {
-    ndmscpRunScript += "/usr/bin/ndmspc";
-  }
-  else {
-    ndmscpRunScript += "/bin/ndmspc";
   }
 
   json dataHistogramBins = cfg["ndmspc"]["data"]["histogram"]["bins"];
