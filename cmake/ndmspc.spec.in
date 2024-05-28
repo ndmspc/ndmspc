@@ -17,15 +17,6 @@ Requires:       root, root-netx, xrootd-client
 %description
 @PROJECT_DESCRIPTION@
 
-%package devel
-Summary:  Development files and static library for the @PROJECT_NAME@
-Group:    Development/Libraries
-Requires: %{name} = %{version}-%{release}, pkgconfig
-
-
-%description devel
-This package contains @PROJECT_NAME@ related development libraries and header files.
-
 %package doc
 Summary:  Documentation
 Group:    Documentation
@@ -33,7 +24,6 @@ Requires: %{name} = %{version}-%{release}, pkgconfig
 
 %description doc
 This package contains @PROJECT_NAME@ documentation.
-
 
 %prep
 %setup -q
@@ -55,9 +45,6 @@ make install DESTDIR=%{buildroot}
 %{_libdir}/*
 %{_datadir}/%{name}/*
 %{_sysconfdir}/*
-
-%files devel
-%defattr(-,root,root,-)
 %{_includedir}/*
 
 %files doc

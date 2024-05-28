@@ -25,9 +25,9 @@ Int_t CreateDataMap(TString output = "hDataMap.root")
 
   std::vector<TAxis *> axes;
   TAxis *              axis = nullptr;
-  // axis = new TAxis(100, 0., 100.);
-  // axis->SetNameTitle("rev", "Revision number");
-  // axes.push_back(axis);
+  axis = new TAxis(10, 0., 10.);
+  axis->SetNameTitle("rev", "Revision number");
+  axes.push_back(axis);
   axis = new TAxis(8, 65., 73.);
   axis->SetNameTitle("ncls", "TPC N clusters");
   axes.push_back(axis);

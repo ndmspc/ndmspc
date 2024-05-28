@@ -17,7 +17,7 @@
           "min": 5
         },
         "enabled": true,
-        "rebin": 1
+        "rebin": 10
       },
       {
         "axis": "axis2-mu1",
@@ -25,7 +25,7 @@
           "max": 1,
           "min": 1
         },
-        "enabled": true,
+        "enabled": false,
         "rebin": 50
       },
       {
@@ -74,8 +74,8 @@
         "base": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/bins",
         "filename": "AnalysisResults.root",
         "bins": [
-          [4, 1, 6],
-          [1, 5, 6]
+          [6, 1, 2, 6],
+          [1, 6, 2, 6]
         ]
       },
       "directory": "phianalysis-t-hn-sparse_default",
@@ -100,7 +100,8 @@
       "dir": "/eos/ndmspc/scratch/temp/mvala/myAnalysis",
       "file": "content.root",
       "host": "root://eos.ndmspc.io/",
-      "opt": "?remote=1"
+      "opt": "?remote=1",
+      "delete": "onInit"
     },
     "process": {
       "type": "all"
@@ -150,7 +151,7 @@
           "default": 0
         }
       ],
-      "data": { "defaults": [1, 5, 6] }
+      "data": { "defaults": [6, 1, 2, 6] }
     },
     "file": {
       "cache": "$HOME"
@@ -161,7 +162,7 @@
     "fit": {
       "default": [0.0, 1.019445, 0.00426, 0.001]
     },
-    "minEntries": 1,
+    "minEntries": 1000,
     "proj": 0,
     "verbose": 0
   }

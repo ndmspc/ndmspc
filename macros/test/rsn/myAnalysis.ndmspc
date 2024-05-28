@@ -21,8 +21,8 @@
                   {
                     "axis": "axis0-im",
                     "bin": {
-                      "max": 1,
-                      "min": 1
+                      "max": 10,
+                      "min": 10
                     },
                     "enabled": false,
                     "rebin": 1
@@ -30,8 +30,8 @@
                   {
                     "axis": "axis1-pt",
                     "bin": {
-                      "max": 1,
-                      "min": 1
+                      "max": 5,
+                      "min": 5
                     },
                     "enabled": true,
                     "rebin": 1
@@ -42,8 +42,8 @@
                       "max": 1,
                       "min": 1
                     },
-                    "enabled": false,
-                    "rebin": 1
+                    "enabled": true,
+                    "rebin": 50
                   },
                   {
                     "axis": "axis3-ns1",
@@ -83,14 +83,37 @@
                   }
                 ],
                 "data": {
+                  "directory": "phianalysis-t-hn-sparse_default",
                   "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/192541/AnalysisResults.root",
+                  "histogram": {
+                    "base": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/bins",
+                    "bins": [
+                      [
+                        4,
+                        1,
+                        6
+                      ],
+                      [
+                        1,
+                        5,
+                        6
+                      ]
+                    ],
+                    "enabled": true,
+                    "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/hDataMap.root",
+                    "filename": "AnalysisResults.root",
+                    "obj": "hDataMap"
+                  },
                   "objects": [
-                    "phianalysis-t-hn-sparse_default/unlikepm:sigBg",
-                    "phianalysis-t-hn-sparse_default/likepp+phianalysis-t-hn-sparse_default/likemm:bgLike",
-                    "phianalysis-t-hn-sparse_default/mixingpm+phianalysis-t-hn-sparse_default/mixingmp:bgMixing",
-                    "phianalysis-t-hn-sparse_default/unliketrue:mcTrue",
-                    "phianalysis-t-hn-sparse_default/unlikegen:mcGen"
+                    "unlikepm:sigBg",
+                    "likepp+likemm:bgLike",
+                    "mixingpm+mixingmp:bgMixing",
+                    "unliketrue:mcTrue",
+                    "unlikegen:mcGen"
                   ]
+                },
+                "file": {
+                  "cache": "$HOME"
                 },
                 "job": {
                   "inputs": [
@@ -102,27 +125,103 @@
                   "type": "error-only"
                 },
                 "output": {
-                  "dir": "",
+                  "dir": "/eos/ndmspc/scratch/temp/mvala/myAnalysis",
                   "file": "content.root",
-                  "host": "",
+                  "host": "root://eos.ndmspc.io/",
                   "opt": "?remote=1"
                 },
                 "process": {
-                  "type": "single"
+                  "type": "all"
                 },
                 "result": {
-                  "names": [
-                    "RawBC",
-                    "RawFnc",
-                    "Mass",
-                    "Width",
-                    "Sigma",
-                    "Chi2",
-                    "Probability",
-                    "True",
-                    "Gen",
-                    "Eff"
-                  ]
+                  "axes": [
+                    {
+                      "default": 0,
+                      "labels": [
+                        "like",
+                        "mixing"
+                      ],
+                      "name": "bg"
+                    },
+                    {
+                      "default": 0,
+                      "name": "norm",
+                      "ranges": [
+                        {
+                          "name": "normOne",
+                          "range": [
+                            0.99,
+                            1.0
+                          ]
+                        },
+                        {
+                          "name": "normTwo",
+                          "range": [
+                            1.05,
+                            1.06
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "default": 1,
+                      "labels": [
+                        "VoigtPol1",
+                        "VoigtPol2"
+                      ],
+                      "name": "fitFun"
+                    },
+                    {
+                      "default": 0,
+                      "name": "fitRange",
+                      "ranges": [
+                        {
+                          "name": "frOne",
+                          "range": [
+                            0.997,
+                            1.05
+                          ]
+                        },
+                        {
+                          "name": "frTwo",
+                          "range": [
+                            0.995,
+                            1.06
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "data": {
+                    "defaults": [
+                      1,
+                      5,
+                      6
+                    ]
+                  },
+                  "parameters": {
+                    "default": 2,
+                    "draw": {
+                      "Mass": {
+                        "max": 1.022,
+                        "min": 1.015
+                      }
+                    },
+                    "labels": [
+                      "RawBC",
+                      "RawFnc",
+                      "RawBCNorm",
+                      "RawFncNorm",
+                      "Mass",
+                      "Width",
+                      "Sigma",
+                      "Chi2",
+                      "Probability",
+                      "True",
+                      "Gen",
+                      "Eff"
+                    ]
+                  }
                 },
                 "verbose": 0
               },
@@ -133,16 +232,9 @@
                     1.019445,
                     0.00426,
                     0.001
-                  ],
-                  "fun": "VoigtPol2",
-                  "max": 1.05,
-                  "min": 0.997
+                  ]
                 },
                 "minEntries": 1,
-                "norm": {
-                  "max": 1.0,
-                  "min": 0.99
-                },
                 "proj": 0,
                 "verbose": 0
               }
@@ -150,7 +242,7 @@
           }
         }
       },
-      "projection": "axis1-pt",
+      "projection": "axis1-pt_axis2-mu1",
       "projections": {
         "axis1-pt": {
           "axes": [
@@ -159,6 +251,16 @@
           "description": "axis1-pt",
           "file": "https://eos.ndmspc.io//eos/ndmspc/scratch/temp/mvala/myAnalysis/axis1-pt/hProjMap.root",
           "name": "axis1-pt",
+          "obj": "hProjMap"
+        },
+        "axis1-pt_axis2-mu1": {
+          "axes": [
+            "axis1-pt",
+            "axis2-mu1"
+          ],
+          "description": "axis1-pt_axis2-mu1",
+          "file": "https://eos.ndmspc.io//eos/ndmspc/scratch/temp/mvala/myAnalysis/axis1-pt_axis2-mu1/hProjMap.root",
+          "name": "axis1-pt_axis2-mu1",
           "obj": "hProjMap"
         }
       }

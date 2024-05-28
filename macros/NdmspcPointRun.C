@@ -45,6 +45,7 @@ TList *                  _currentInputObjects          = nullptr;
 TFile *                  _currentOutputFile            = nullptr;
 std::string              _currentOutputFileName        = {};
 TDirectory *             _currentOutputRootDirectory   = nullptr;
+TH1S *                   _mapAxesType                  = nullptr;
 THnSparse *              _finalResults                 = nullptr;
 Int_t                    _currentPoint[20];
 std::vector<std::string> _currentPointLabels;
@@ -250,7 +251,7 @@ bool NdmspcApplyCuts(json & cfg)
 
       s->GetAxis(id)->SetRange(binMin, binMax);
 
-      _currentPoint[iCut] = cut["bin"]["min"].get<Int_t>();
+      _currentPoint[iCut + _currentProcessHistogramPoint.size()] = cut["bin"]["min"].get<Int_t>();
 
       if (i == 0)
         titlePostfix += TString::Format("%s[%.2f,%.2f] ", s->GetAxis(id)->GetName(),
@@ -294,17 +295,19 @@ void NdmspcOutputFileOpen(json cfg)
       _currentOutputFileName += TString::Format("%s", axisName.c_str());
       _currentOutputFileName += "/";
       _currentOutputFileName += "bins";
+
+      if (cfg["ndmspc"]["output"]["post"].is_string()) {
+        std::string post = cfg["ndmspc"]["output"]["post"].get<std::string>();
+        if (!post.empty()) {
+          // _currentOutputFileName += "/bins/" + post;
+          _currentOutputFileName += "/" + post;
+        }
+      }
+
       for (auto & cut : cfg["ndmspc"]["cuts"]) {
         if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-        _currentOutputFileName += TString::Format("/%d", cut["bin"]["min"].get<Int_t>());
+        _currentOutputFileName += std::to_string(cut["bin"]["min"].get<Int_t>()) + "/";
       }
-    }
-  }
-
-  if (cfg["ndmspc"]["output"]["post"].is_string()) {
-    std::string post = cfg["ndmspc"]["output"]["post"].get<std::string>();
-    if (!post.empty()) {
-      _currentOutputFileName += "/bins/" + post;
     }
   }
 
@@ -335,6 +338,7 @@ void NdmspcOutputFileClose()
 
   _currentOutputFile->cd();
   _finalResults->Write();
+  _mapAxesType->Write();
   _currentOutputFile->Close();
 
   _currentOutputFile          = nullptr;
@@ -385,16 +389,44 @@ THnSparse * CreateResult(json & cfg)
   std::vector<std::string> names;
   std::vector<std::string> titles;
   std::vector<TAxis *>     cutAxes;
-  Int_t                    nParameters = cfg["ndmspc"]["result"]["parameters"]["labels"].size();
+  _mapAxesType = new TH1S("mapAxesType", "Type Axes Map", ndims, 0, ndims);
+  // _currentOutputRootDirectory->Add
+
+  Int_t nParameters = cfg["ndmspc"]["result"]["parameters"]["labels"].size();
   if (nParameters <= 0) return nullptr;
 
-  bins[0] = nParameters;
-  xmin[0] = 0;
-  xmax[0] = nParameters;
+  Int_t i = 0;
+
+  bins[i] = nParameters;
+  xmin[i] = 0;
+  xmax[i] = nParameters;
   names.push_back("parameters");
   titles.push_back("parameters");
+  _mapAxesType->GetXaxis()->SetBinLabel(i + 1, "par");
 
-  Int_t i     = 1;
+  i++;
+
+  // cfg["ndmspc"]["output"]["post"]
+  int iTmp = 0;
+  for (auto & a : _currentProcessHistogramAxes) {
+    // a->Print();
+    bins[i] = a->GetNbins();
+    xmin[i] = a->GetXmin();
+    xmax[i] = a->GetXmax();
+    // todo handle variable binning
+
+    names.push_back(a->GetName());
+    std::string t = a->GetTitle();
+    if (t.empty()) t = a->GetName();
+    titles.push_back(t);
+    if (iTmp < 2)
+      _mapAxesType->GetXaxis()->SetBinLabel(i + 1, "data");
+    else
+      _mapAxesType->GetXaxis()->SetBinLabel(i + 1, "sys");
+    iTmp++;
+    i++;
+  }
+
   Int_t rebin = 1;
   for (auto & cut : cfg["ndmspc"]["cuts"]) {
     if (_ndmspcVerbose >= 3) std::cout << "CreateResult() : " << cut.dump() << std::endl;
@@ -418,6 +450,7 @@ THnSparse * CreateResult(json & cfg)
     std::string t = a->GetTitle();
     if (t.empty()) t = a->GetName();
     titles.push_back(t);
+    _mapAxesType->GetXaxis()->SetBinLabel(i + 1, "proj");
     i++;
   }
 
@@ -439,21 +472,7 @@ THnSparse * CreateResult(json & cfg)
 
     names.push_back(value["name"].get<std::string>().c_str());
     titles.push_back(value["name"].get<std::string>().c_str());
-    i++;
-  }
-
-  // cfg["ndmspc"]["output"]["post"]
-  for (auto & a : _currentProcessHistogramAxes) {
-    // a->Print();
-    bins[i] = a->GetNbins();
-    xmin[i] = a->GetXmin();
-    xmax[i] = a->GetXmax();
-    // todo handle variable binning
-
-    names.push_back(a->GetName());
-    std::string t = a->GetTitle();
-    if (t.empty()) t = a->GetName();
-    titles.push_back(t);
+    _mapAxesType->GetXaxis()->SetBinLabel(i + 1, "sys");
     i++;
   }
 
@@ -464,61 +483,64 @@ THnSparse * CreateResult(json & cfg)
     Printf("Error: Could not create 'results' THnSparse object !!!");
     return nullptr;
   }
-  i = 1;
+  int     iAxis = 0;
+  TAxis * a     = fres->GetAxis(iAxis);
+  if (!a) {
+    Printf("Error: 'parameters' axis was not found !!!");
+    return nullptr;
+  }
+  int iLablel = 1;
   for (auto & n : cfg["ndmspc"]["result"]["parameters"]["labels"]) {
-    TAxis * a = fres->GetAxis(0);
-    if (!a) {
-      Printf("Error: 'parameters' axis was not found !!!");
-      return nullptr;
-    }
-    a->SetNameTitle(names.at(0).c_str(), titles.at(0).c_str());
-    a->SetBinLabel(i++, n.get<std::string>().c_str());
+    a->SetNameTitle(names.at(iAxis).c_str(), titles.at(iAxis).c_str());
+    a->SetBinLabel(iLablel++, n.get<std::string>().c_str());
   }
 
-  i = 1;
+  iAxis++;
+
+  // cfg["ndmspc"]["output"]["post"]
+  // i         = nDimsCuts + iPar + 1;
+  int iLabel;
+  int iPIdx = 0;
+  for (auto & axis : _currentProcessHistogramAxes) {
+    if (axis->GetXbins()->GetArray()) fres->GetAxis(iAxis)->Set(axis->GetNbins(), axis->GetXbins()->GetArray());
+    fres->GetAxis(iAxis)->SetNameTitle(names.at(iAxis).c_str(), titles.at(iAxis).c_str());
+
+    for (iLabel = 1; iLabel < _currentProccessHistogram->GetAxis(iPIdx)->GetNbins() + 1; iLabel++) {
+      std::string l = _currentProccessHistogram->GetAxis(iPIdx)->GetBinLabel(iLabel);
+      if (!l.empty()) fres->GetAxis(iAxis)->SetBinLabel(iLabel, l.c_str());
+    }
+    _currentPoint[iAxis] = _currentProcessHistogramPoint[iPIdx];
+    iPIdx++;
+    iAxis++;
+  }
+
+  // i = 1;
   for (auto & a : cutAxes) {
     // Printf("%s", )
-    if (a->GetXbins()->GetArray()) fres->GetAxis(i)->Set(a->GetNbins(), a->GetXbins()->GetArray());
-    fres->GetAxis(i)->SetNameTitle(names.at(i).c_str(), titles.at(i).c_str());
-    i++;
+    if (a->GetXbins()->GetArray()) fres->GetAxis(iAxis)->Set(a->GetNbins(), a->GetXbins()->GetArray());
+    fres->GetAxis(iAxis)->SetNameTitle(names.at(iAxis).c_str(), titles.at(iAxis).c_str());
+    iAxis++;
   }
   int iPar = 0;
-  int iLabel;
+  // int iLabel;
   // for (auto & [key, value] : cfg["ndmspc"]["result"].items()) {
   for (auto & value : cfg["ndmspc"]["result"]["axes"]) {
     iPar++;
     iLabel = 1;
     if (!value["labels"].is_null()) {
       for (auto & n : value["labels"]) {
-        fres->GetAxis(nDimsCuts + iPar)
-            ->SetNameTitle(names.at(nDimsCuts + iPar).c_str(), titles.at(nDimsCuts + iPar).c_str());
-        fres->GetAxis(nDimsCuts + iPar)->SetBinLabel(iLabel++, n.get<std::string>().c_str());
+        fres->GetAxis(iAxis)->SetNameTitle(names.at(iAxis).c_str(), titles.at(iAxis).c_str());
+        fres->GetAxis(iAxis)->SetBinLabel(iLabel++, n.get<std::string>().c_str());
       }
     }
     iLabel = 1;
     if (!value["ranges"].is_null()) {
       for (auto & n : value["ranges"]) {
-        fres->GetAxis(nDimsCuts + iPar)
-            ->SetNameTitle(names.at(nDimsCuts + iPar).c_str(), titles.at(nDimsCuts + iPar).c_str());
-        fres->GetAxis(nDimsCuts + iPar)->SetBinLabel(iLabel++, n["name"].get<std::string>().c_str());
+        fres->GetAxis(iAxis)->SetNameTitle(names.at(iAxis).c_str(), titles.at(iAxis).c_str());
+        fres->GetAxis(iAxis)->SetBinLabel(iLabel++, n["name"].get<std::string>().c_str());
       }
     }
-  }
-
-  // cfg["ndmspc"]["output"]["post"]
-  i         = nDimsCuts + iPar + 1;
-  int iPIdx = 0;
-  for (auto & a : _currentProcessHistogramAxes) {
-    if (a->GetXbins()->GetArray()) fres->GetAxis(i)->Set(a->GetNbins(), a->GetXbins()->GetArray());
-    fres->GetAxis(i)->SetNameTitle(names.at(i).c_str(), titles.at(i).c_str());
-
-    for (int iLabel = 1;iLabel< _currentProccessHistogram->GetAxis(iPIdx)->GetNbins()+1;iLabel++) {
-      std::string l = _currentProccessHistogram->GetAxis(iPIdx)->GetBinLabel(iLabel);
-      if (!l.empty()) fres->GetAxis(i)->SetBinLabel(iLabel, l.c_str());
-    }
-    _currentPoint[i] = _currentProcessHistogramPoint[iPIdx];
-    iPIdx++;
-    i++;
+    iAxis++;
   }
 
   if (_ndmspcVerbose >= 1) fres->Print("all");
@@ -682,7 +704,7 @@ bool NdmspcProcessRecursive(Int_t i, json & cfg)
   return true;
 }
 
-bool NdmspcHandleInit(json & cfg)
+bool NdmspcHandleInit(json & cfg, std::string extraPath = "")
 {
   if (!cfg["ndmspc"]["process"]["type"].get<std::string>().compare("all") &&
       cfg["ndmspc"]["process"]["range"].is_null() &&
@@ -700,6 +722,11 @@ bool NdmspcHandleInit(json & cfg)
       }
       outFileName[outFileName.size() - 1] = '/';
       outFileName += "bins";
+
+      if (!extraPath.empty()) {
+        outFileName += "/" + extraPath;
+        outFileName.pop_back();
+      }
     }
     if (!outFileName.empty()) {
       Printf("Deleting output directory '%s' ...", outFileName.c_str());
@@ -759,8 +786,6 @@ Int_t NdmspcPointRun(TString cfgFile = "", bool showConfig = false, TString oupu
 {
 
   if (!NdmspcLoadConfig(cfgFile.Data(), cfg, showConfig, ouputConfig)) return 1;
-
-  NdmspcHandleInit(cfg);
 
   if (!cfg["ndmspc"]["data"]["histogram"].is_null() && !cfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
       cfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>() == true) {
@@ -824,7 +849,7 @@ Int_t NdmspcPointRun(TString cfgFile = "", bool showConfig = false, TString oupu
         cfg["ndmspc"]["output"]["post"] = path;
 
         // return 0;
-
+        NdmspcHandleInit(cfg, path);
         Int_t rc = NdmspcProccessFile(cfg);
         if (rc) {
           return rc;
@@ -837,6 +862,7 @@ Int_t NdmspcPointRun(TString cfgFile = "", bool showConfig = false, TString oupu
     }
   }
   else {
+    NdmspcHandleInit(cfg);
     return NdmspcProccessFile(cfg);
   }
 
