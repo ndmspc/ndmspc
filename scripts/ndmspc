@@ -9,7 +9,7 @@ NDMSPC_MACRO_FILENAME=${NDMSPC_MACRO_FILENAME-"NdmspcPointMacro.C"}
 NDMCPS_SANDBOX_BASE_DIR=${NDMCPS_SANDBOX_BASE_DIR-"/tmp/ndmspc"}
 NDMCPS_SANDBOX_CLEANUP=${NDMCPS_SANDBOX_CLEANUP-1}
 NDMSPC_MACRO_DIR=${NDMSPC_MACRO_DIR-"/usr/share/ndmspc/macros"}
-NDMSPC_MACRO=${NDMSPC_MACRO-"/usr/share/ndmspc/macros/NdmspcPointRun.C"}
+NDMSPC_POINT_RUN_MACRO=${NDMSPC_POINT_RUN_MACRO-"/usr/share/ndmspc/macros/NdmspcPointRun.C"}
 
 function help() {
   echo "$0 <cmd> <arg1> <arg2> ... <argN>"
@@ -66,9 +66,9 @@ MY_CMD=$@
 if [[ $1 == "_macro" ]];then
   shift
   echo $*
-  [ -n "$1" ] && NDMSPC_MACRO=$1
-  shift
-  MY_CMD="root -b -q $NDMSPC_MACRO"
+  # [ -n "$1" ] && NDMSPC_POINT_RUN_MACRO=$1
+  # shift
+  MY_CMD="root -b -q $NDMSPC_POINT_RUN_MACRO"
   [ -n "$1" ] && MY_CMD="${MY_CMD}'($(echo $1 | tr -d \'))'"
   shift
 

@@ -707,7 +707,7 @@ bool NdmspcProcessRecursive(Int_t i, json & cfg)
 bool NdmspcHandleInit(json & cfg, std::string extraPath = "")
 {
   if (!cfg["ndmspc"]["process"]["type"].get<std::string>().compare("all") &&
-      cfg["ndmspc"]["process"]["range"].is_null() &&
+      cfg["ndmspc"]["process"]["ranges"].is_null() &&
       !cfg["ndmspc"]["output"]["delete"].get<std::string>().compare("onInit")) {
     std::string outFileName;
     if (!cfg["ndmspc"]["output"]["host"].get<std::string>().empty() &&
