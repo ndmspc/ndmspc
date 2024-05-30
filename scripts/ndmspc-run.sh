@@ -8,16 +8,13 @@ NDMSPC_SALSA_ARGS=${NDMSPC_SALSA_ARGS-""}
 NDMSPC_JOB_FILE=${NDMSPC_JOB_FILE-"/tmp/ndmspc-jobs-$$.txt"}
 NDMSPC_RUN_SCRIPT=${NDMSPC_RUN_SCRIPT-"ndmspc"}
 NDMSPC_RUN_CONFIG=${1-"myAnalysis.json"}
-export SALSA_ENV_NAMES="ROOT_INCLUDE_PATH NDMSPC_MACRO_DIR NDMSPC_LOGDIR_XRD NDMSPC_LOG_TYPE"
-for e in $SALSA_ENV_NAMES;do
-#   echo "exporting $e ..."
-  export $e
-done
+
+NDMSPC_POINT_RUN_MACRO=${NDMSPC_POINT_RUN_MACRO-"$NDMSPC_MACRO_DIR/NdmspcPointRun.C"}
 
 # env
 
 # Generate multiple jobs to jobs.txt
-root -b -q -l $NDMSPC_MACRO_DIR/NdmspcGenerateJobs.C'("'$NDMSPC_RUN_CONFIG'","'$NDMSPC_JOB_FILE'" )'
+root -b -q -l $NDMSPC_MACRO_DIR/NdmspcGenerateJobs.C'("'$NDMSPC_RUN_CONFIG'","'$NDMSPC_JOB_FILE'","'$NDMSPC_DIR/scripts/ndmspc'" )'
 NLINES=$(cat $NDMSPC_JOB_FILE | wc -l)
 
 if [[ $NLINES == 0 ]];then
@@ -30,7 +27,19 @@ fi
 
 # Run
 
-[[ $NDMSPC_SALSA_URL == "tcp://localhost:41000" ]] || NDMSPC_SALSA_ARGS="$NDMSPC_SALSA_ARGS --batch"
+if [[ $NDMSPC_SALSA_URL != "tcp://localhost:41000" ]];then
+  NDMSPC_SALSA_ARGS="$NDMSPC_SALSA_ARGS --batch"
+  export NDMSPC_POINT_RUN_MACRO="/usr/share/ndmspc/macros/NdmspcPointRun.C"
+fi
+
+# echo "NDMSPC_MACRO_DIR=$NDMSPC_MACRO_DIR"
+export SALSA_ENV_NAMES="ROOT_INCLUDE_PATH NDMSPC_POINT_RUN_MACRO NDMSPC_LOGDIR_XRD NDMSPC_LOG_TYPE"
+# export SALSA_ENV_NAMES="NDMSPC_LOGDIR_XRD NDMSPC_LOG_TYPE"
+for e in $SALSA_ENV_NAMES;do
+#   echo "exporting $e ..."
+  export $e
+done
+
 
 salsa-feeder -s $NDMSPC_SALSA_URL -f $NDMSPC_JOB_FILE $NDMSPC_SALSA_ARGS
 

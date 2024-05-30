@@ -20,13 +20,13 @@
         "rebin": 10
       },
       {
-        "axis": "axis2-mu1",
+        "axis": "axis2-mu",
         "bin": {
           "max": 1,
           "min": 1
         },
-        "enabled": false,
-        "rebin": 50
+        "enabled": true,
+        "rebin": 10
       },
       {
         "axis": "axis3-ns1",
