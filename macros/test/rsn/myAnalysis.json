@@ -47,7 +47,7 @@
         "rebin": 1
       },
       {
-        "axis": "axis5-y",
+        "axis": "axis5-eta",
         "bin": {
           "max": 1,
           "min": 1
@@ -104,7 +104,8 @@
       "delete": "onInit"
     },
     "process": {
-      "type": "all"
+      "type": "all",
+      "split": [2, 10, 10]
     },
     "result": {
       "parameters": {
