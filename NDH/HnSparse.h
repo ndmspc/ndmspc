@@ -94,7 +94,11 @@ class HnSparseT : public HnSparse {
 
 typedef HnSparseT<TArrayD>   HnSparseD;
 typedef HnSparseT<TArrayF>   HnSparseF;
+#if ROOT_VERSION_CODE >= ROOT_VERSION(6,32,0)
 typedef HnSparseT<TArrayL64> HnSparseL;
+ #else
+typedef HnSparseT<TArrayL> HnSparseL;
+#endif
 typedef HnSparseT<TArrayI>   HnSparseI;
 typedef HnSparseT<TArrayS>   HnSparseS;
 typedef HnSparseT<TArrayC>   HnSparseC;
