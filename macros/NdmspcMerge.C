@@ -38,7 +38,7 @@ int NdmspcMerge(std::string configFile = "myAnalysis.json", TString fileOpt = "?
     nDimsCuts++;
   }
   path[path.size() - 1] = '/';
-  std::string outFile = path + "results.root";
+  std::string outFile   = path + "results.root";
 
   path += "bins";
 

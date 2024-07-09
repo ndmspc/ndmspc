@@ -122,6 +122,8 @@ then
 	MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DBUILD_DOCUMENTATION:bool=ON"
 fi
 
+MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"
+
 if [[ ! -d $PROJECT_DIR/build ]]
 then
 	echo "Creating build directory"
