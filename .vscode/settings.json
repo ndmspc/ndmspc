@@ -96,7 +96,19 @@
     "FillProcessHistogram.C": "cpp",
     "CreateDataMap.C": "cpp",
     "NdmspcDrawResult copy.C": "cpp",
-    "NdmspcGenerateJobs.C": "cpp"
+    "NdmspcGenerateJobs.C": "cpp",
+    "NdmspcAxisBrowser.C": "cpp",
+    "__bit_reference": "cpp",
+    "__config": "cpp",
+    "__locale": "cpp",
+    "__threading_support": "cpp",
+    "__verbose_abort": "cpp",
+    "bitset": "cpp",
+    "complex": "cpp",
+    "execution": "cpp",
+    "ios": "cpp",
+    "locale": "cpp",
+    "axes.C": "cpp"
   },
   "ansible.python.interpreterPath": "/bin/python3"
 }
