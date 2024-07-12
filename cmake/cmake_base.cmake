@@ -31,12 +31,19 @@ find_package(Threads REQUIRED)
 
 
 message("-- Found C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
-if (NOT (CMAKE_CXX_STANDARD_DEFAULT STREQUAL "14" OR
+if (CMAKE_CXX_STANDARD_DEFAULT STREQUAL "14" OR
          CMAKE_CXX_STANDARD_DEFAULT STREQUAL "17" OR
-         CMAKE_CXX_STANDARD_DEFAULT STREQUAL "20"))
+         CMAKE_CXX_STANDARD_DEFAULT STREQUAL "20" OR
+         CMAKE_CXX_STANDARD_DEFAULT STREQUAL "23" OR
+         CMAKE_CXX_STANDARD_DEFAULT STREQUAL "26")
+
+message("-- Setting C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
+set(CMAKE_CXX_STANDARD ${CMAKE_CXX_STANDARD_DEFAULT})
+else()
 message("-- Setting C++ standard: 11")
 set(CMAKE_CXX_STANDARD 11)
 endif()
+# set(CMAKE_CXX_STANDARD 20)
 # # c++11 support
 # # add_compile_options("-std=c++1y")
 # add_compile_options("-std=c++17")
