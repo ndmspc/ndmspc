@@ -12,6 +12,7 @@ find_package(Root REQUIRED)
 find_package(nlohmann_json REQUIRED)
 include(ROOTMacros)
 
+add_subdirectory(Core)
 add_subdirectory(NDH)
 add_subdirectory(src)
 add_subdirectory(doc)

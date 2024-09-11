@@ -9,15 +9,15 @@
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
-
-#include "NdmspcPointMacro.C"
 using json = nlohmann::json;
+
+// #include "NdmspcPointMacro.C"
 
 json cfg;
 void NdmspcDefaultConfig(json & cfg);
-bool NdmspcProcess(TList * inputList = nullptr, json cfg = R"()"_json, THnSparse * finalResults = nullptr,
-                   Int_t * point = nullptr, std::vector<std::string> pointLabels = {}, json pointValue = {},
-                   TList * outputList = nullptr);
+bool NdmspcPointMacro(TList * inputList, json cfg, THnSparse * finalResults, Int_t * point,
+                      std::vector<std::string> pointLabels, json pointValue, TList * outputList, bool & skipCurrentBin,
+                      bool & processExit);
 
 json ndmspcBase = R"({
   "ndmspc": {
@@ -566,8 +566,8 @@ bool NdmspcProcessRecursiveInner(Int_t i, json & cfg, std::vector<std::string> &
 
     if (_currentBinCount == 1 && _ndmspcVerbose >= 0) Printf("\t%s", _currentPointValue.dump().c_str());
 
-    bool ok = NdmspcProcess(_currentInputObjects, cfg, _finalResults, _currentPoint, _currentPointLabels,
-                            _currentPointValue, outputList, _currentSkipBin, _currentProcessExit);
+    bool ok = NdmspcPointMacro(_currentInputObjects, cfg, _finalResults, _currentPoint, _currentPointLabels,
+                               _currentPointValue, outputList, _currentSkipBin, _currentProcessExit);
     if (ok && _ndmspcVerbose >= 5) outputList->Print();
     if (ok) {
       _currentProcessOk = true;
