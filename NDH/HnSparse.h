@@ -6,7 +6,6 @@
 #include <TTree.h>
 #include <THnSparse.h>
 
-
 namespace NDH {
 
 ///
@@ -92,16 +91,16 @@ class HnSparseT : public HnSparse {
   ClassDefOverride(HnSparseT, 1); // Sparse n-dimensional histogram with templated content
 };
 
-typedef HnSparseT<TArrayD>   HnSparseD;
-typedef HnSparseT<TArrayF>   HnSparseF;
-#if ROOT_VERSION_CODE >= ROOT_VERSION(6,32,0)
+typedef HnSparseT<TArrayD> HnSparseD;
+typedef HnSparseT<TArrayF> HnSparseF;
+#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 32, 0)
 typedef HnSparseT<TArrayL64> HnSparseL;
- #else
+#else
 typedef HnSparseT<TArrayL> HnSparseL;
 #endif
-typedef HnSparseT<TArrayI>   HnSparseI;
-typedef HnSparseT<TArrayS>   HnSparseS;
-typedef HnSparseT<TArrayC>   HnSparseC;
+typedef HnSparseT<TArrayI> HnSparseI;
+typedef HnSparseT<TArrayS> HnSparseS;
+typedef HnSparseT<TArrayC> HnSparseC;
 
 } // namespace NDH
 

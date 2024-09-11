@@ -1,11 +1,13 @@
 set (MY_INCLUDE_DIRS
-${CMAKE_SOURCE_DIR}/NDH
+  ${CMAKE_SOURCE_DIR}/Core
+  ${CMAKE_SOURCE_DIR}/NDH
 )
 include_directories(${MY_INCLUDE_DIRS})
 
 set(MY_EXTERNAL_LIBS
-NdmspcNDH
-nlohmann_json::nlohmann_json
+  NdmspcCore
+  NdmspcNDH
+  nlohmann_json::nlohmann_json
 )
 
 file(GLOB EXEC_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.cxx" )

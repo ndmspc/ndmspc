@@ -51,6 +51,10 @@ void NdmspcDefaultConfig(json & cfg)
   }
 })"_json;
 }
+void NdmspcMacro()
+{
+  Printf("Inside NdmspcMacro.C !!!");
+}
 
 TList * NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t * point)
 {

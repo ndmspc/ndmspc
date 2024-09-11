@@ -10,6 +10,7 @@
 #include <TString.h>
 
 #include "NdmspcUtils.h"
+#include "PointRun.h"
 
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
@@ -20,7 +21,10 @@ TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFun
 bool    ProcessFit(json & cfg, TH1 * peak, int verbose = 0);
 // int     SetResultValueError(THnSparse * finalResults, std::string name, Int_t * point, double val, double err, bool
 // onlyPositive = false);
-
+void NdmspcPointMacro()
+{
+  Printf("Inside NdmspcPointMacro !!!");
+}
 void NdmspcDefaultConfig(json & cfg)
 {
   cfg = R"(
@@ -112,10 +116,16 @@ void NdmspcDefaultConfig(json & cfg)
 }
 )"_json;
 }
-bool NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t * point,
-                   std::vector<std::string> pointLabels, json pointValue, TList * outputList, bool & skipCurrentBin,
-                   bool & processExit)
+bool NdmspcPointMacro(NdmSpc::PointRun * pr)
 {
+
+  json                     cfg          = pr->Cfg();
+  TList *                  inputList    = pr->InputObjects();
+  THnSparse *              finalResults = pr->FinalResults();
+  Int_t *                  point        = pr->CurrentPoint();
+  std::vector<std::string> pointLabels  = pr->CurrentPointLabels();
+  json                     pointValue   = pr->GetCurrentPointValue();
+  TList *                  outputList   = pr->GetOutputList();
 
   int projectionId = cfg["user"]["proj"].get<int>();
 
@@ -143,13 +153,15 @@ bool NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t 
     hSigBg = sSigBg->Projection(projectionId, "O");
     // Skip bin (do not save any output)
     if (hSigBg->GetEntries() < cfg["user"]["minEntries"].get<int>()) {
-      skipCurrentBin = true;
+      /*skipCurrentBin = true;*/
+      pr->SetSkipCurrentBin(true);
       return false;
     }
   }
   else {
     Printf("Error: Object 'sigBg' was not found !!!");
-    processExit = true;
+    /*processExit = true;*/
+    pr->SetProcessExit(true);
     return false;
   }
 
@@ -342,8 +354,6 @@ bool NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t 
     trueIntegral = hMcTrue->IntegralAndError(0, -1, trueErr);
     genIntegral  = hMcGen->IntegralAndError(0, -1, genErr);
 
-    
-
     hTrue->SetBinContent(1, trueIntegral);
     hTrue->SetBinError(1, trueErr);
     hGen->SetBinContent(1, genIntegral);
@@ -353,26 +363,31 @@ bool NdmspcProcess(TList * inputList, json cfg, THnSparse * finalResults, Int_t 
     pEff->Reset();
     pEff->Divide(hTrue, hGen, 1, 1, "b");
 
-
-    Printf("true=%.3f gen=%.3f eff=%.3f", hTrue->GetBinContent(1),hGen->GetBinContent(1), pEff->GetBinContent(1));
+    Printf("true=%.3f gen=%.3f eff=%.3f", hTrue->GetBinContent(1), hGen->GetBinContent(1), pEff->GetBinContent(1));
   }
 
   // ["RawBC", "RawFnc", "Mass", "Width", "Sigma" , "Chi2", "Probability", "True", "Gen", "Eff"]
   // Int_t nCuts=   pointLabels.size()
 
   if (finalResults) {
-    SetResultValueError(cfg, finalResults, "RawBC", point, integral, err, false,true);
+    SetResultValueError(cfg, finalResults, "RawBC", point, integral, err, false, true);
     SetResultValueError(cfg, finalResults, "RawFnc", point, integralFnc, errFnc, false, true);
     SetResultValueError(cfg, finalResults, "RawBCNorm", point, integral, err, true, true);
     SetResultValueError(cfg, finalResults, "RawFncNorm", point, integralFnc, errFnc, true, true);
-    SetResultValueError(cfg, finalResults, "Mass", point, sigBgFnc->GetParameter(1), sigBgFnc->GetParError(1),false, true);
-    SetResultValueError(cfg, finalResults, "Width", point, sigBgFnc->GetParameter(2), sigBgFnc->GetParError(2),false, true);
-    SetResultValueError(cfg, finalResults, "Sigma", point, sigBgFnc->GetParameter(3), sigBgFnc->GetParError(3),false, true);
-    SetResultValueError(cfg, finalResults, "Chi2", point, sigBgFnc->GetChisquare(),0.0, false, true);
-    SetResultValueError(cfg, finalResults, "Probability", point, sigBgFnc->GetProb(), 0.0,false, true, 10);
-    if (hTrue) SetResultValueError(cfg, finalResults, "True", point, hTrue->GetBinContent(1), hTrue->GetBinError(1),true, true);
-    if (hGen) SetResultValueError(cfg, finalResults, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1),true, true);
-    if (pEff) SetResultValueError(cfg, finalResults, "Eff", point, pEff->GetBinContent(1), pEff->GetBinError(1),false, true);
+    SetResultValueError(cfg, finalResults, "Mass", point, sigBgFnc->GetParameter(1), sigBgFnc->GetParError(1), false,
+                        true);
+    SetResultValueError(cfg, finalResults, "Width", point, sigBgFnc->GetParameter(2), sigBgFnc->GetParError(2), false,
+                        true);
+    SetResultValueError(cfg, finalResults, "Sigma", point, sigBgFnc->GetParameter(3), sigBgFnc->GetParError(3), false,
+                        true);
+    SetResultValueError(cfg, finalResults, "Chi2", point, sigBgFnc->GetChisquare(), 0.0, false, true);
+    SetResultValueError(cfg, finalResults, "Probability", point, sigBgFnc->GetProb(), 0.0, false, true, 10);
+    if (hTrue)
+      SetResultValueError(cfg, finalResults, "True", point, hTrue->GetBinContent(1), hTrue->GetBinError(1), true, true);
+    if (hGen)
+      SetResultValueError(cfg, finalResults, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1), true, true);
+    if (pEff)
+      SetResultValueError(cfg, finalResults, "Eff", point, pEff->GetBinContent(1), pEff->GetBinError(1), false, true);
   }
   else {
     Printf("Error: 'finalResults' was not found !!!");

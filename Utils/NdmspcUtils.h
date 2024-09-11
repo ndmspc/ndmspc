@@ -3,8 +3,8 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-int SetResultValueError(json cfg, THnSparse * finalResults, std::string name, Int_t * point, double val, double err,
-                        bool normalizeToWidth = false, bool onlyPositive = false, double times = 1)
+inline int SetResultValueError(json cfg, THnSparse * finalResults, std::string name, Int_t * point, double val,
+                               double err, bool normalizeToWidth = false, bool onlyPositive = false, double times = 1)
 {
 
   bool isValNan = TMath::IsNaN(val);
