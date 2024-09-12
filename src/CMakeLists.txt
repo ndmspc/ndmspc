@@ -1,12 +1,12 @@
 set (MY_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/Core
-  ${CMAKE_SOURCE_DIR}/NDH
+  ${CMAKE_SOURCE_DIR}/Ndh
 )
 include_directories(${MY_INCLUDE_DIRS})
 
 set(MY_EXTERNAL_LIBS
   NdmspcCore
-  NdmspcNDH
+  NdmspcNdh
   nlohmann_json::nlohmann_json
 )
 
