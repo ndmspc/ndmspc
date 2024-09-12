@@ -6,7 +6,8 @@
 #include <TTree.h>
 #include <THnSparse.h>
 
-namespace NDH {
+namespace NdmSpc {
+namespace Ndh {
 
 ///
 /// \class HnSparse
@@ -102,6 +103,7 @@ typedef HnSparseT<TArrayI> HnSparseI;
 typedef HnSparseT<TArrayS> HnSparseS;
 typedef HnSparseT<TArrayC> HnSparseC;
 
-} // namespace NDH
+} // namespace Ndh
+} // namespace NdmSpc
 
 #endif /* HNSPARSE_H */
