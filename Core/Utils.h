@@ -1,10 +1,15 @@
+#ifndef NdmspcCoreUtils_H
+#define NdmspcCoreUtils_H
+
 #include <TAxis.h>
 #include <THnSparse.h>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-inline int SetResultValueError(json cfg, THnSparse * finalResults, std::string name, Int_t * point, double val,
-                               double err, bool normalizeToWidth = false, bool onlyPositive = false, double times = 1)
+namespace NdmSpc {
+namespace Utils {
+inline int SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,
+                               bool normalizeToWidth = false, bool onlyPositive = false, double times = 1)
 {
 
   bool isValNan = TMath::IsNaN(val);
@@ -34,21 +39,24 @@ inline int SetResultValueError(json cfg, THnSparse * finalResults, std::string n
     }
     // Printf("1 %f %f", val, err);
     for (int iCut = 0; iCut < nDimsCuts; iCut++) {
-      double w = finalResults->GetAxis(iCut + 1)->GetBinWidth(point[iCut + 1]);
+      double w = output->GetAxis(iCut + 1)->GetBinWidth(point[iCut + 1]);
       val /= w;
       err /= w;
       // Printf("%d %f %f w=%f", iCut + 1, val, err, w);
     }
   }
 
-  int idx = finalResults->GetAxis(0)->FindBin(name.c_str());
+  int idx = output->GetAxis(0)->FindBin(name.c_str());
   if (idx <= 0) {
     return idx;
   }
   point[0]       = idx;
-  Long64_t binId = finalResults->GetBin(point);
-  finalResults->SetBinContent(binId, val);
-  finalResults->SetBinError(binId, err);
+  Long64_t binId = output->GetBin(point);
+  output->SetBinContent(binId, val);
+  output->SetBinError(binId, err);
 
   return idx;
 }
+} // namespace Utils
+} // namespace NdmSpc
+#endif

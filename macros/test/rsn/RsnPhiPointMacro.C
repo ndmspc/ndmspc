@@ -1,4 +1,3 @@
-
 #include <TCanvas.h>
 #include <TF1.h>
 #include <TFitResult.h>
@@ -8,9 +7,8 @@
 #include <TList.h>
 #include <TROOT.h>
 #include <TString.h>
-
-#include "NdmspcUtils.h"
-#include "PointRun.h"
+#include <ndmspc/PointRun.h>
+#include <ndmspc/Utils.h>
 
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
@@ -19,12 +17,7 @@ TList * _currentFunctions = nullptr;
 
 TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFunctions = false);
 bool    ProcessFit(json & cfg, TH1 * peak, int verbose = 0);
-// int     SetResultValueError(THnSparse * finalResults, std::string name, Int_t * point, double val, double err, bool
-// onlyPositive = false);
-void NdmspcPointMacro()
-{
-  Printf("Inside NdmspcPointMacro !!!");
-}
+
 void NdmspcDefaultConfig(json & cfg)
 {
   cfg = R"(
@@ -116,14 +109,14 @@ void NdmspcDefaultConfig(json & cfg)
 }
 )"_json;
 }
-bool NdmspcPointMacro(NdmSpc::PointRun * pr)
+bool RsnPhiPointMacro(NdmSpc::PointRun * pr)
 {
 
   json                     cfg          = pr->Cfg();
-  TList *                  inputList    = pr->InputObjects();
-  THnSparse *              finalResults = pr->FinalResults();
-  Int_t *                  point        = pr->CurrentPoint();
-  std::vector<std::string> pointLabels  = pr->CurrentPointLabels();
+  TList *                  inputList    = pr->GetInputList();
+  THnSparse *              resultObject = pr->GetResultObject();
+  Int_t *                  point        = pr->GetCurrentPoint();
+  std::vector<std::string> pointLabels  = pr->GetCurrentPointLabels();
   json                     pointValue   = pr->GetCurrentPointValue();
   TList *                  outputList   = pr->GetOutputList();
 
@@ -369,28 +362,32 @@ bool NdmspcPointMacro(NdmSpc::PointRun * pr)
   // ["RawBC", "RawFnc", "Mass", "Width", "Sigma" , "Chi2", "Probability", "True", "Gen", "Eff"]
   // Int_t nCuts=   pointLabels.size()
 
-  if (finalResults) {
-    SetResultValueError(cfg, finalResults, "RawBC", point, integral, err, false, true);
-    SetResultValueError(cfg, finalResults, "RawFnc", point, integralFnc, errFnc, false, true);
-    SetResultValueError(cfg, finalResults, "RawBCNorm", point, integral, err, true, true);
-    SetResultValueError(cfg, finalResults, "RawFncNorm", point, integralFnc, errFnc, true, true);
-    SetResultValueError(cfg, finalResults, "Mass", point, sigBgFnc->GetParameter(1), sigBgFnc->GetParError(1), false,
-                        true);
-    SetResultValueError(cfg, finalResults, "Width", point, sigBgFnc->GetParameter(2), sigBgFnc->GetParError(2), false,
-                        true);
-    SetResultValueError(cfg, finalResults, "Sigma", point, sigBgFnc->GetParameter(3), sigBgFnc->GetParError(3), false,
-                        true);
-    SetResultValueError(cfg, finalResults, "Chi2", point, sigBgFnc->GetChisquare(), 0.0, false, true);
-    SetResultValueError(cfg, finalResults, "Probability", point, sigBgFnc->GetProb(), 0.0, false, true, 10);
+  if (resultObject) {
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawBC", point, integral, err, false, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawFnc", point, integralFnc, errFnc, false, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawBCNorm", point, integral, err, true, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawFncNorm", point, integralFnc, errFnc, true, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Mass", point, sigBgFnc->GetParameter(1),
+                                       sigBgFnc->GetParError(1), false, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Width", point, sigBgFnc->GetParameter(2),
+                                       sigBgFnc->GetParError(2), false, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Sigma", point, sigBgFnc->GetParameter(3),
+                                       sigBgFnc->GetParError(3), false, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Chi2", point, sigBgFnc->GetChisquare(), 0.0, false, true);
+    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Probability", point, sigBgFnc->GetProb(), 0.0, false, true,
+                                       10);
     if (hTrue)
-      SetResultValueError(cfg, finalResults, "True", point, hTrue->GetBinContent(1), hTrue->GetBinError(1), true, true);
+      NdmSpc::Utils::SetResultValueError(cfg, resultObject, "True", point, hTrue->GetBinContent(1),
+                                         hTrue->GetBinError(1), true, true);
     if (hGen)
-      SetResultValueError(cfg, finalResults, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1), true, true);
+      NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1),
+                                         true, true);
     if (pEff)
-      SetResultValueError(cfg, finalResults, "Eff", point, pEff->GetBinContent(1), pEff->GetBinError(1), false, true);
+      NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Eff", point, pEff->GetBinContent(1), pEff->GetBinError(1),
+                                         false, true);
   }
   else {
-    Printf("Error: 'finalResults' was not found !!!");
+    Printf("Error: 'resultObject' was not found !!!");
   }
 
   // if (!gROOT->IsBatch() && !cfg["ndmspc"]["process"]["type"].get<std::string>().compare("single")) {
@@ -463,7 +460,7 @@ Double_t GausPol2(double * x, double * par)
   return par[0] * TMath::Gaus(x[0], par[1], par[2]) + Pol2(x, &par[3]);
 }
 
-TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFunctions = false)
+TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFunctions)
 {
   if (_currentFunctions && reuseFunctions) {
     return _currentFunctions;
@@ -519,40 +516,3 @@ TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFun
 
   return _currentFunctions;
 }
-
-// int SetResultValueError(THnSparse * finalResults, std::string name, Int_t * point, double val, double err, bool
-// onlyPositive = false)
-// {
-
-//   bool isValNan = TMath::IsNaN(val);
-//   bool isErrNaN = TMath::IsNaN(err);
-
-//   if (isValNan || isErrNaN) {
-//     Printf("Error: SetResultValueError %s val=%f[isNaN=%d] err=%f[isNan=%d]", name.c_str(), val, isValNan, err,
-//            isErrNaN);
-//     return -2;
-//   }
-
-//   if (onlyPositive && val < 0) {
-//     return -3;
-//     }
-
-//   double times = 3;
-
-//   if (times * std::abs(val) < err) {
-//     Printf("Warning: Skipping '%s' because 'times * val < err' (  %f * %f < %f ) ...", name.c_str(), times,
-//            std::abs(val), err);
-//     return -4;
-//   }
-
-//   int idx = finalResults->GetAxis(0)->FindBin(name.c_str());
-//   if (idx <= 0) {
-//     return idx;
-//   }
-//   point[0]       = idx;
-//   Long64_t binId = finalResults->GetBin(point);
-//   finalResults->SetBinContent(binId, val);
-//   finalResults->SetBinError(binId, err);
-
-//   return idx;
-// }
