@@ -12,6 +12,7 @@ find_package(Root REQUIRED)
 find_package(nlohmann_json REQUIRED)
 include(ROOTMacros)
 
+include_directories(${PROJECT_SOURCE_DIR}/Utils)
 add_subdirectory(Core)
 add_subdirectory(Event)
 add_subdirectory(Ndh)
@@ -31,7 +32,6 @@ INSTALL(FILES ${PROJECT_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh DESTI
 else ()
 INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS)
 endif ()
-INSTALL(FILES ${PROJECT_SOURCE_DIR}/Utils/NdmspcUtils.h DESTINATION ${CMAKE_INSTALL_PREFIX}/include/${CMAKE_PROJECT_NAME}/)
 INSTALL(FILES scripts/ndmspc PERMISSIONS 
 OWNER_EXECUTE OWNER_WRITE OWNER_READ
 GROUP_EXECUTE GROUP_READ 

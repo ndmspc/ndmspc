@@ -107,7 +107,7 @@ TList * PointRun::OpenInputs()
 
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::OpenInputs");
 
-  if (fInputFile && fInputObjects) return fInputObjects;
+  if (fInputFile && fInputList) return fInputList;
 
   if (fCfg["ndmspc"]["data"]["file"].get<std::string>().empty()) {
     Printf("Error: Input file is empty !!! Aborting ...");
@@ -120,7 +120,7 @@ TList * PointRun::OpenInputs()
     return nullptr;
   }
 
-  if (!fInputObjects) fInputObjects = new TList();
+  if (!fInputList) fInputList = new TList();
 
   THnSparse *s, *stmp;
   for (auto & obj : fCfg["ndmspc"]["data"]["objects"]) {
@@ -169,7 +169,7 @@ TList * PointRun::OpenInputs()
       }
     }
     if (s) {
-      fInputObjects->Add(s);
+      fInputList->Add(s);
     }
     else {
       if (fVerbose >= 1)
@@ -181,16 +181,16 @@ TList * PointRun::OpenInputs()
     if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::OpenInputs");
   }
 
-  return fInputObjects;
+  return fInputList;
 }
 
 THnSparse * PointRun::CreateResult()
 {
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::CreateResult fFinalResults=%p", (void *)fFinalResults);
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::CreateResult fResultObject=%p", (void *)fResultObject);
 
-  if (fFinalResults) return fFinalResults;
+  if (fResultObject) return fResultObject;
 
-  THnSparse * s = (THnSparse *)fInputObjects->At(0);
+  THnSparse * s = (THnSparse *)fInputList->At(0);
 
   int nDimsParams   = 0;
   int nDimsCuts     = 0;
@@ -369,8 +369,8 @@ THnSparse * PointRun::CreateResult()
   if (fVerbose >= 2) fres->Print("all");
   // return nullptr;
 
-  // TODO! port fres to fFinalResults
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::CreateResult fFinalResults=%p", (void *)fres);
+  // TODO! port fres to fResultObject
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::CreateResult fResultObject=%p", (void *)fres);
   return fres;
 }
 
@@ -391,9 +391,9 @@ void PointRun::NdmspcRebinBins(int & min, int & max, int rebin)
 
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcRebinBins");
 }
-bool PointRun::NdmspcApplyCuts()
+bool PointRun::ApplyCuts()
 {
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::NdmspcApplyCuts");
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ApplyCuts");
 
   /// TODO! port it to std::string
   TString     titlePostfix = "";
@@ -403,8 +403,8 @@ bool PointRun::NdmspcApplyCuts()
   Int_t rebin = 1;
 
   fCurrentPoint[iCut] = 0;
-  for (size_t i = 0; i < fInputObjects->GetEntries(); i++) {
-    s    = (THnSparse *)fInputObjects->At(i);
+  for (size_t i = 0; i < fInputList->GetEntries(); i++) {
+    s    = (THnSparse *)fInputList->At(i);
     iCut = 1;
     for (auto & cut : fCfg["ndmspc"]["cuts"]) {
 
@@ -451,25 +451,25 @@ bool PointRun::NdmspcApplyCuts()
     fCfg["ndmspc"]["projection"]["title"] = titlePostfix.Data();
   }
 
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcApplyCuts");
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ApplyCuts");
   return true;
 }
-bool PointRun::NdmspcProcessSinglePoint()
+bool PointRun::ProcessSinglePoint()
 {
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::NdmspcProcessSinglePoint");
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ProcessSinglePoint");
 
   fIsProcessOk = false;
 
-  if (!NdmspcApplyCuts()) return false;
+  if (!ApplyCuts()) return false;
 
   fIsSkipBin = false;
 
-  if (fFinalResults != nullptr) {
-    delete fFinalResults;
-    fFinalResults = nullptr;
+  if (fResultObject != nullptr) {
+    delete fResultObject;
+    fResultObject = nullptr;
   }
-  fFinalResults = CreateResult();
-  // fFinalResults->Print();
+  fResultObject = CreateResult();
+  // fResultObject->Print();
 
   json resultAxes = fCfg["ndmspc"]["result"]["axes"];
 
@@ -479,33 +479,33 @@ bool PointRun::NdmspcProcessSinglePoint()
     names.push_back(n.c_str());
   }
 
-  // NdmspcOutputFileOpen(cfg);
+  // OutputFileOpen(cfg);
 
-  if (fVerbose >= 1) Printf("Starting User NdmspcProcess() ...");
+  if (fVerbose >= 1) Printf("Starting User Process() ...");
   fBinCount++;
-  bool ok = NdmspcProcessRecursiveInner(resultAxes.size() - 1, names);
+  bool ok = ProcessRecursiveInner(resultAxes.size() - 1, names);
 
-  if (fVerbose >= 1) Printf("User NdmspcProcess() done ...");
+  if (fVerbose >= 1) Printf("User Process() done ...");
 
-  // Store add fFinalResults to final file
-  NdmspcOutputFileClose();
+  // Store add fResultObject to final file
+  OutputFileClose();
 
   if (!fIsProcessOk) {
     if (fVerbose >= 0) Printf("Skipping ...");
   }
 
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcProcessSinglePoint");
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessSinglePoint");
   return true;
 }
-bool PointRun::NdmspcProcessRecursive(int i)
+bool PointRun::ProcessRecursive(int i)
 {
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::NdmspcProcessRecursive[%d]", i);
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ProcessRecursive[%d]", i);
 
   if (i < 0) {
-    return NdmspcProcessSinglePoint();
+    return ProcessSinglePoint();
   }
 
-  THnSparse * s = (THnSparse *)fInputObjects->At(0);
+  THnSparse * s = (THnSparse *)fInputList->At(0);
   TAxis *     a = (TAxis *)s->GetListOfAxes()->FindObject(fCfg["ndmspc"]["cuts"][i]["axis"].get<std::string>().c_str());
   if (a == nullptr) {
     Printf("Error: Axis canot be found");
@@ -529,20 +529,20 @@ bool PointRun::NdmspcProcessRecursive(int i)
     Int_t binMax                            = iBin;
     fCfg["ndmspc"]["cuts"][i]["bin"]["min"] = binMin;
     fCfg["ndmspc"]["cuts"][i]["bin"]["max"] = binMax;
-    NdmspcProcessRecursive(i - 1);
+    ProcessRecursive(i - 1);
   }
 
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcProcessRecursive[%d]", i);
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessRecursive[%d]", i);
 
   return true;
 }
-bool PointRun::NdmspcProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
+bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
 {
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::NdmspcProcessRecursiveInner[%d]", i);
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ProcessRecursiveInner[%d]", i);
 
   if (fIsSkipBin) return false;
 
-  if (!fFinalResults) {
+  if (!fResultObject) {
     fIsProcessExit = true;
     return false;
   }
@@ -558,15 +558,15 @@ bool PointRun::NdmspcProcessRecursiveInner(Int_t i, std::vector<std::string> & n
     if (fVerbose >= 2) Printf("Running point macro '%s.C' ...", fMacro.GetName());
     /*fMacro.Exec();*/
     Longptr_t ok = fMacro.Exec(TString::Format("(NdmSpc::PointRun*)%p", this));
-    /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputObjects, &fCfg));*/
+    /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputList, &fCfg));*/
 
     /*fMacro.Exec(TString::Format("(TList*)%ld,(json&)%p,(THnSparse "*/
     /*                            "*)%ld,(int*)%ld,(std::vector<std::string>*)%ld,(json*)%ld,(TList*)%ld,0,0",*/
-    /*                            (Longptr_t)fInputObjects, &fCfg, (Longptr_t)fFinalResults,*/
+    /*                            (Longptr_t)fInputList, &fCfg, (Longptr_t)fResultObject,*/
     /*                            (Longptr_t)fCurrentPoint, (Longptr_t)&fCurrentPointLabels,*/
     /*                            (Longptr_t)&fCurrentPointValue, (Longptr_t)outputList)*/
     /*                .Data());*/
-    /*bool ok = NdmspcPointMacro(_currentInputObjects, cfg, fFinalResults, _currentPoint, _currentPointLabels,*/
+    /*bool ok = NdmspcPointMacro(_currentInputList, cfg, fResultObject, _currentPoint, _currentPointLabels,*/
     /*                           _currentPointValue, outputList, _currentSkipBin, _currentProcessExit);*/
     /*gSystem->Exit(0);*/
     if (ok && fVerbose >= 5) outputList->Print();
@@ -578,14 +578,14 @@ bool PointRun::NdmspcProcessRecursiveInner(Int_t i, std::vector<std::string> & n
     }
 
     if (fCurrentOutputFile == nullptr) {
-      NdmspcOutputFileOpen();
+      OutputFileOpen();
     }
 
     TDirectory * outputDir = fCurrentOutputRootDirectory;
 
     int         iPoint = 1;
     std::string path;
-    for (int iPoint = 1; iPoint < fFinalResults->GetNdimensions(); iPoint++) {
+    for (int iPoint = 1; iPoint < fResultObject->GetNdimensions(); iPoint++) {
       path += std::to_string(fCurrentPoint[iPoint]) + "/";
     }
 
@@ -609,37 +609,37 @@ bool PointRun::NdmspcProcessRecursiveInner(Int_t i, std::vector<std::string> & n
   std::string axisName = fCfg["ndmspc"]["result"]["axes"][i]["name"].get<std::string>();
   if (!fCfg["ndmspc"]["result"]["axes"][i]["labels"].is_null()) {
     for (auto & v : fCfg["ndmspc"]["result"]["axes"][i]["labels"]) {
-      TAxis * a                    = (TAxis *)fFinalResults->GetListOfAxes()->FindObject(axisName.c_str());
-      Int_t   id                   = fFinalResults->GetListOfAxes()->IndexOf(a);
+      TAxis * a                    = (TAxis *)fResultObject->GetListOfAxes()->FindObject(axisName.c_str());
+      Int_t   id                   = fResultObject->GetListOfAxes()->IndexOf(a);
       fCurrentPoint[id]            = a->FindBin(v.get<std::string>().c_str());
       fCurrentPointValue[axisName] = v;
       fCurrentPointLabels[id]      = v.get<std::string>().c_str();
-      NdmspcProcessRecursiveInner(i - 1, n);
+      ProcessRecursiveInner(i - 1, n);
     }
   }
   else if (!fCfg["ndmspc"]["result"]["axes"][i]["ranges"].is_null()) {
     for (auto & v : fCfg["ndmspc"]["result"]["axes"][i]["ranges"]) {
-      TAxis * a                    = (TAxis *)fFinalResults->GetListOfAxes()->FindObject(axisName.c_str());
-      Int_t   id                   = fFinalResults->GetListOfAxes()->IndexOf(a);
+      TAxis * a                    = (TAxis *)fResultObject->GetListOfAxes()->FindObject(axisName.c_str());
+      Int_t   id                   = fResultObject->GetListOfAxes()->IndexOf(a);
       fCurrentPoint[id]            = a->FindBin(v["name"].get<std::string>().c_str());
       fCurrentPointValue[axisName] = v;
       fCurrentPointLabels[id]      = v["name"].get<std::string>().c_str();
-      NdmspcProcessRecursiveInner(i - 1, n);
+      ProcessRecursiveInner(i - 1, n);
     }
   }
   else {
-    Printf("Error: NdmspcProcessRecursiveInner : No 'labels' or 'ranges' !!!");
+    Printf("Error: ProcessRecursiveInner : No 'labels' or 'ranges' !!!");
     return false;
   }
   return true;
 
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcProcessRecursiveInner[%d]", i);
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessRecursiveInner[%d]", i);
   return true;
 }
-void PointRun::NdmspcOutputFileOpen()
+void PointRun::OutputFileOpen()
 {
 
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::NdmspcNdmspcOutputFileOpen");
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::OutputFileOpen");
 
   // TString outputFileName;
 
@@ -699,11 +699,11 @@ void PointRun::NdmspcOutputFileOpen()
   fCurrentOutputRootDirectory = fCurrentOutputFile->GetDirectory("content");
   fCurrentOutputRootDirectory->cd();
 
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcNdmspcOutputFileOpen");
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::OutputFileOpen");
 }
-void PointRun::NdmspcOutputFileClose()
+void PointRun::OutputFileClose()
 {
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::NdmspcNdmspcOutputFileClose");
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::OutputFileClose");
 
   if (fCurrentOutputFile == nullptr) return;
 
@@ -711,7 +711,7 @@ void PointRun::NdmspcOutputFileClose()
   fCurrentOutputRootDirectory->Write();
 
   fCurrentOutputFile->cd();
-  fFinalResults->Write();
+  fResultObject->Write();
   fMapAxesType->Write();
   fCurrentOutputFile->Close();
 
@@ -720,16 +720,16 @@ void PointRun::NdmspcOutputFileClose()
 
   if (fVerbose >= 0) Printf("Objects stored in '%s'", fCurrentOutputFileName.c_str());
 
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcNdmspcOutputFileClose");
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::OutputFileClose");
 }
 bool PointRun::Finish()
 {
 
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Finish");
-  if (fInputObjects) {
-    fInputObjects->Clear();
-    delete fInputObjects;
-    fInputObjects = nullptr;
+  if (fInputList) {
+    fInputList->Clear();
+    delete fInputList;
+    fInputList = nullptr;
   }
 
   if (fInputFile) {
@@ -757,7 +757,7 @@ int PointRun::ProcessSingleFile()
   if (inputList == nullptr) return 1;
 
   if (!type.compare("single")) {
-    if (!NdmspcProcessSinglePoint()) return 3;
+    if (!ProcessSinglePoint()) return 3;
   }
   else if (!type.compare("all")) {
     json cuts;
@@ -768,7 +768,7 @@ int PointRun::ProcessSingleFile()
     }
     fCfg["ndmspc"]["cuts"] = cuts;
 
-    NdmspcProcessRecursive(fCfg["ndmspc"]["cuts"].size() - 1);
+    ProcessRecursive(fCfg["ndmspc"]["cuts"].size() - 1);
   }
   else {
     Printf("Error: Value [process][type]='%s' is not supported !!! Exiting ...", type.c_str());
@@ -785,9 +785,9 @@ int PointRun::ProcessSingleFile()
   /*fMacro.Exec();*/
   return 0;
 }
-int PointRun::NdmspcProcessHistogramRun()
+int PointRun::ProcessHistogramRun()
 {
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcProcessHistogramRun");
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
 
   std::string fileNameHistogram = fCfg["ndmspc"]["data"]["histogram"]["file"].get<std::string>();
   std::string objName           = fCfg["ndmspc"]["data"]["histogram"]["obj"].get<std::string>();
@@ -861,7 +861,7 @@ int PointRun::NdmspcProcessHistogramRun()
     return 1;
   }
 
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcProcessHistogramRun");
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
   return 0;
 }
 bool PointRun::Run(std::string filename, bool show, std::string outfilename)
@@ -871,7 +871,7 @@ bool PointRun::Run(std::string filename, bool show, std::string outfilename)
 
   if (!fCfg["ndmspc"]["data"]["histogram"].is_null() && !fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
       fCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>() == true) {
-    NdmspcProcessHistogramRun();
+    ProcessHistogramRun();
   }
   else {
     ProcessSingleFile();

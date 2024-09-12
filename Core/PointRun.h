@@ -1,5 +1,5 @@
-#ifndef PointRun_H
-#define PointRun_H
+#ifndef NdmspcCorePointRun_H
+#define NdmspcCorePointRun_H
 
 #include <TObject.h>
 #include <TMacro.h>
@@ -26,10 +26,10 @@ class PointRun : public TObject {
 
   bool                     Run(std::string filename, bool show = false, std::string outfilename = "");
   json &                   Cfg() { return fCfg; }
-  TList *                  InputObjects() const { return fInputObjects; }
-  THnSparse *              FinalResults() const { return fFinalResults; }
-  Int_t *                  CurrentPoint() { return fCurrentPoint; }
-  std::vector<std::string> CurrentPointLabels() { return fCurrentPointLabels; }
+  TList *                  GetInputList() const { return fInputList; }
+  THnSparse *              GetResultObject() const { return fResultObject; }
+  Int_t *                  GetCurrentPoint() { return fCurrentPoint; }
+  std::vector<std::string> GetCurrentPointLabels() { return fCurrentPointLabels; }
   json                     GetCurrentPointValue() { return fCurrentPointValue; }
   TList *                  GetOutputList() const { return fOutputList; }
   void                     SetOutputList(TList * outList) { fOutputList = outList; }
@@ -57,8 +57,8 @@ class PointRun : public TObject {
   int                      fVerbose{0}; /// Verbose level
   int                      fBinCount;   /// Bin Count (TODO! rename to axis level maybe)
   TFile *                  fInputFile{nullptr};
-  TList *                  fInputObjects{nullptr};
-  THnSparse *              fFinalResults{nullptr};
+  TList *                  fInputList{nullptr};
+  THnSparse *              fResultObject{nullptr};
   TFile *                  fCurrentOutputFile{nullptr};
   std::string              fCurrentOutputFileName{};
   TDirectory *             fCurrentOutputRootDirectory{nullptr};
@@ -79,16 +79,16 @@ class PointRun : public TObject {
   bool        Finish();
   TList *     OpenInputs();
   THnSparse * CreateResult();
-  bool        NdmspcApplyCuts();
+  bool        ApplyCuts();
   void        NdmspcRebinBins(int & min, int & max, int rebin = 1);
 
   int  ProcessSingleFile();
-  bool NdmspcProcessSinglePoint();
-  bool NdmspcProcessRecursive(int i);
-  bool NdmspcProcessRecursiveInner(Int_t i, std::vector<std::string> & n);
-  void NdmspcOutputFileOpen();
-  void NdmspcOutputFileClose();
-  int  NdmspcProcessHistogramRun();
+  bool ProcessSinglePoint();
+  bool ProcessRecursive(int i);
+  bool ProcessRecursiveInner(Int_t i, std::vector<std::string> & n);
+  void OutputFileOpen();
+  void OutputFileClose();
+  int  ProcessHistogramRun();
 
   /// \cond CLASSIMP
   ClassDef(PointRun, 1);
