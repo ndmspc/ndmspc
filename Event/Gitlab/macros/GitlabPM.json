@@ -43,15 +43,13 @@
           "max": 1,
           "min": 1
         },
-        "enabled": false,
+        "enabled": true,
         "rebin": 1
       }
     ],
     "data": {
       "file": "gitlab_hist.root",
-      "objects": [
-        "hGitlabData"
-      ]
+      "objects": ["hGitlabData"]
     },
     "job": {
       "inputs": []
@@ -61,27 +59,25 @@
       "type": "error-only"
     },
     "output": {
-      "dir": "",
+      "dir": "/eos/ndmspc/scratch/temp/mvala/gitlab",
       "file": "content.root",
-      "host": "",
+      "host": "root://eos.ndmspc.io/",
       "opt": "?remote=1"
     },
     "process": {
-      "type": "single"
+      "type": "all"
     },
     "result": {
       "parameters": {
         "default": "Integral",
-        "labels": [
-          "Integral"
-        ]
+        "labels": ["Integral"]
       }
     },
     "verbose": 0
   },
   "user": {
     "minEntries": 1,
-    "proj": 0,
+    "proj": 2,
     "verbose": 0
   }
 }
