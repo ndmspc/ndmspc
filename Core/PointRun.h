@@ -38,6 +38,7 @@ class PointRun : public TObject {
 
   static bool Generate(std::string name = "myAnalysis", std::string inFile = "myFile.root",
                        std::string inObjectName = "myNDHistogram");
+  static bool Merge(std::string name = "myAnalysis", std::string fileOpt = "?remote=1");
 
   private:
   json                     fCfg{R"({

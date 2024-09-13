@@ -44,6 +44,9 @@ int main(int argc, char ** argv)
   point_run->add_option("-c,--config", configFileName, "Config file name");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
 
+  CLI::App * point_merge = point->add_subcommand("merge", "Point merge");
+  point_merge->add_option("-c,--config", configFileName, "Config file name");
+
   CLI11_PARSE(app, argc, argv);
 
   // std::cout << "Working on --file from start: " << file << '\n';
@@ -55,12 +58,14 @@ int main(int argc, char ** argv)
 
       for (auto * subsubcom : subcom->get_subcommands()) {
         if (!subsubcom->get_name().compare("gen")) {
-          Printf("Doing '%s' with name '%s'...", subsubcom->get_name().c_str(), name.c_str());
           NdmSpc::PointRun::Generate(name, fileName, objectName);
         }
         if (!subsubcom->get_name().compare("run")) {
           NdmSpc::PointRun pr(macroFileName);
           pr.Run(configFileName, false);
+        }
+        if (!subsubcom->get_name().compare("merge")) {
+          NdmSpc::PointRun::Merge(configFileName);
         }
       }
     }
