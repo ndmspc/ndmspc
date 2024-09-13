@@ -1,13 +1,10 @@
 #include <fstream>
+#include <iostream>
 #include <TMacro.h>
 #include <TH1.h>
 #include <TSystem.h>
-#include "PointRun.h"
-#include <iostream>
-#include <nlohmann/json.hpp>
-#include "RtypesCore.h"
 #include <THnSparse.h>
-using json = nlohmann::json;
+#include "PointRun.h"
 
 /// \cond CLASSIMP
 ClassImp(NdmSpc::PointRun);
@@ -30,6 +27,151 @@ PointRun::~PointRun()
   ///
 }
 
+bool PointRun::Generate(std::string name, std::string inFile, std::string inObjectName)
+{
+  Printf("Genrating point run with name '%s' ...", name.c_str());
+  json cfg = R"({
+
+  "user": {
+    "proj": 0,
+    "minEntries": 1,
+    "verbose": 0
+  },
+  "ndmspc": {
+    "data": {
+      "file": "input.root",
+      "objects": ["hNSparse"]
+    },
+    "cuts": [],
+    "result": {
+      "parameters": { "labels": ["Integral"], "default": "Integral" }
+    },
+    "output": {
+      "host": "",
+      "dir": "",
+      "file": "content.root",
+      "opt": "?remote=1"
+    },
+    "process": {
+      "type": "single"
+    },
+    "log": {
+      "type": "error-only",
+      "dir": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
+    },
+    "job":{
+      "inputs": []
+    },
+    "verbose": 0
+  }
+})"_json;
+
+  std::string macroTemplateHeader = R""""(
+#include <TROOT.h>
+#include <TList.h>
+#include <THnSparse.h>
+#include <TH1D.h>
+#include <ndmspc/PointRun.h>
+#include <ndmspc/Utils.h>
+)"""";
+
+  std::string macroTemplate = R""""(
+{
+  json                     cfg          = pr->Cfg();
+  TList *                  inputList    = pr->GetInputList();
+  THnSparse *              resultObject = pr->GetResultObject();
+  Int_t *                  point        = pr->GetCurrentPoint();
+  std::vector<std::string> pointLabels  = pr->GetCurrentPointLabels();
+  json                     pointValue   = pr->GetCurrentPointValue();
+  TList *                  outputList   = pr->GetOutputList();
+  
+  int verbose = 0;
+  if (!cfg["user"]["verbose"].is_null() && cfg["user"]["verbose"].is_number_integer()) {
+    verbose = cfg["user"]["verbose"].get<int>();
+  }
+  
+  THnSparse * hs = (THnSparse *)inputList->At(0);
+
+  int projId = cfg["user"]["proj"].get<int>();
+  TH1D *      h  = hs->Projection(projId, "O");
+  
+  TString titlePostfix = "(no cuts)";
+  if (cfg["ndmspc"]["projection"]["title"].is_string())
+    titlePostfix = cfg["ndmspc"]["projection"]["title"].get<std::string>();  
+  h->SetNameTitle("h", TString::Format("h - %s", titlePostfix.Data()).Data());
+  outputList->Add(h);
+
+  // Skip bin (do not save any output)
+  if (h->GetEntries() < cfg["user"]["minEntries"].get<int>()) 
+    return false; 
+
+  Double_t integral = h->Integral();
+  if (verbose >= 0)
+    Printf("Integral = %f ", integral);
+
+
+  if (resultObject) {
+     NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Integral", point, integral, TMath::Sqrt(integral), false, true);
+  }
+
+  if (!gROOT->IsBatch() && !cfg["ndmspc"]["process"]["type"].get<std::string>().compare("single")) {
+    h->DrawCopy();
+  }
+
+  return true;
+}
+
+)"""";
+
+  cfg["ndmspc"]["data"]["file"]    = inFile.c_str();
+  cfg["ndmspc"]["data"]["objects"] = {inObjectName.c_str()};
+
+  if (cfg["ndmspc"]["cuts"].size() == 0) {
+    // Generate all axis
+    // {"enabled": false, "axis": "hNSparseAxisName", "bin" : {"min":3, "max": 3}, "rebin":1}
+    TFile * tmpFile = TFile::Open(inFile.c_str());
+    if (!tmpFile) {
+      Printf("Error: Problem opening file '%s' !!! Exiting ...", inFile.c_str());
+      return 1;
+    }
+
+    THnSparse * tmpSparse = (THnSparse *)tmpFile->Get(inObjectName.c_str());
+    if (!tmpSparse) {
+      Printf("Error: Problem opening object '%s' !!! Exiting ...", inObjectName.c_str());
+      return 1;
+    }
+    tmpSparse->ls();
+    TObjArray * axes = tmpSparse->GetListOfAxes();
+    TAxis *     a;
+    for (int i = 0; i < axes->GetEntries(); i++) {
+      a = (TAxis *)axes->At(i);
+      if (!a) continue;
+      // a->Print();
+      Printf("Init axis '%s' with enabled=false", a->GetName());
+      cfg["ndmspc"]["cuts"][i]["enabled"]    = false;
+      cfg["ndmspc"]["cuts"][i]["axis"]       = a->GetName();
+      cfg["ndmspc"]["cuts"][i]["bin"]["min"] = 1;
+      cfg["ndmspc"]["cuts"][i]["bin"]["max"] = 1;
+      cfg["ndmspc"]["cuts"][i]["rebin"]      = 1;
+    }
+
+    tmpFile->Close();
+  }
+
+  std::string   outputConfig = name + ".json";
+  std::ofstream fileConfig(outputConfig.c_str());
+  fileConfig << std::setw(2) << cfg << std::endl;
+
+  std::string   outputMacro = name + ".C";
+  std::ofstream file(outputMacro.c_str());
+  file << macroTemplateHeader.c_str();
+  file << "bool " << name.c_str() << "(NdmSpc::PointRun *pr)";
+  file << macroTemplate.c_str();
+
+  Printf("File '%s.C' and '%s.json' were generated ...", name.c_str(), name.c_str());
+  return true;
+}
+
 bool PointRun::LoadConfig(std::string filename, bool show, std::string outfilename)
 {
   if (!filename.empty()) {
@@ -40,7 +182,7 @@ bool PointRun::LoadConfig(std::string filename, bool show, std::string outfilena
       Printf("Using config file '%s' ...", filename.c_str());
     }
     else {
-      Printf("Error: Problem opening file '%s' !!!", filename.c_str());
+      Printf("Error: Problem opening config file '%s' !!! Exiting ...", filename.c_str());
       return false;
     }
   }
@@ -552,7 +694,8 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
   if (i < 0) {
     TList * outputList = new TList();
     SetOutputList(outputList);
-    if (fBinCount == 1 && fVerbose >= 0) Printf("\t%s", fCurrentPointValue.dump().c_str());
+    if (fBinCount == 1 && fVerbose >= 0 && !fCurrentPointValue.is_null())
+      Printf("\tPoint: %s", fCurrentPointValue.dump().c_str());
 
     // TODO! Apply TMacro
     if (fVerbose >= 2) Printf("Running point macro '%s.C' ...", fMacro.GetName());
@@ -787,6 +930,7 @@ int PointRun::ProcessSingleFile()
 }
 int PointRun::ProcessHistogramRun()
 {
+
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
 
   std::string fileNameHistogram = fCfg["ndmspc"]["data"]["histogram"]["file"].get<std::string>();
@@ -866,7 +1010,12 @@ int PointRun::ProcessHistogramRun()
 }
 bool PointRun::Run(std::string filename, bool show, std::string outfilename)
 {
-  LoadConfig(filename, show, outfilename);
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Run");
+  if (fMacro.GetListOfLines()->IsEmpty()) {
+    Printf("Problem openning macro '%s.C' !!! Exiting ...", fMacro.GetName());
+    return 1;
+  }
+  if (!LoadConfig(filename, show, outfilename)) return false;
   /*fVerbose = 2;*/
 
   if (!fCfg["ndmspc"]["data"]["histogram"].is_null() && !fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
@@ -876,6 +1025,7 @@ bool PointRun::Run(std::string filename, bool show, std::string outfilename)
   else {
     ProcessSingleFile();
   }
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::Run");
   return true;
 }
 } // namespace NdmSpc

@@ -36,6 +36,9 @@ class PointRun : public TObject {
   void                     SetSkipCurrentBin(bool scb = true) { fIsSkipBin = scb; }
   void                     SetProcessExit(bool pe = true) { fIsProcessExit = pe; }
 
+  static bool Generate(std::string name = "myAnalysis", std::string inFile = "myFile.root",
+                       std::string inObjectName = "myNDHistogram");
+
   private:
   json                     fCfg{R"({
   "ndmspc": {
