@@ -7,6 +7,7 @@
 #include <GitlabTrack.h>
 #endif
 
+void ShrinkHistogram(const char * name, TH1 * h, bool verbose = true);
 void import(std::string basedir = "./data/gitlab/6534672/day", std::string filename = "gitlab.root", int refresh = 100)
 {
   TH1::AddDirectory(false);
@@ -16,15 +17,8 @@ void import(std::string basedir = "./data/gitlab/6534672/day", std::string filen
     return;
   }
 
-  TH1S * authors  = new TH1S("authors", "Authors", 0, 0, 0);
-  TH1S * projects = new TH1S("projects", "Projects", 0, 0, 0);
-  /*authors->SetNameTitle("authors", "Authors");*/
-  /*projects->SetNameTitle("projects", "Projects");*/
-
   NdmSpc::Gitlab::Track * t;
   NdmSpc::Gitlab::Event * ev = new NdmSpc::Gitlab::Event(0);
-  ev->SetListOfAuthors(authors);
-  ev->SetListOfProjects(projects);
 
   TTree tree("gitlabTree", "Ndhep Gitlab Tree");
   tree.Branch("Event", &ev);
@@ -64,43 +58,32 @@ void import(std::string basedir = "./data/gitlab/6534672/day", std::string filen
     }
   }
 
-  if (authors->GetXaxis()->GetNbins() > 0 && projects->GetXaxis()->GetNbins() > 0) {
-    int         count = 0;
-    std::string s;
-    for (Int_t i = 1; i < authors->GetXaxis()->GetNbins(); i++) {
-      s = authors->GetXaxis()->GetBinLabel(i);
-      if (!s.empty()) {
-        count++;
-      }
-      else {
-        break;
-      }
-    }
-    authors->GetXaxis()->Set(count, 0, count);
-    count = 0;
-    for (int i = 1; i < projects->GetXaxis()->GetNbins(); i++) {
-      s = projects->GetXaxis()->GetBinLabel(i);
-      if (!s.empty()) {
-        count++;
-      }
-      else {
-        break;
-      }
-    }
-    projects->GetXaxis()->Set(count, 0, count);
+  ev->ShrinkMappingHistograms(true);
 
-    tree.GetUserInfo()->Add(authors->Clone());
-    tree.GetUserInfo()->Add(projects->Clone());
-    for (Int_t i = 1; i < authors->GetXaxis()->GetNbins(); i++) {
-      Printf("author label [%d] : %s", i, authors->GetXaxis()->GetBinLabel(i));
-    }
-    for (Int_t i = 1; i < projects->GetXaxis()->GetNbins(); i++) {
-      Printf("project label [%d] : %s", i, projects->GetXaxis()->GetBinLabel(i));
-    }
-  }
+  tree.GetUserInfo()->Add(ev->GetListOfAuthors()->Clone());
+  tree.GetUserInfo()->Add(ev->GetListOfProjects()->Clone());
+  tree.GetUserInfo()->Add(ev->GetListOfMilestones()->Clone());
 
   // f->Write("", TObject::kOverwrite);
   tree.Write();
   f->Close();
   delete ev;
+}
+void ShrinkHistogram(const char * name, TH1 * h, bool verbose)
+{
+  if (!h) return;
+  if (h->GetXaxis()->GetNbins() <= 0) return;
+  int         count = 0;
+  std::string s;
+  for (int i = 1; i < h->GetXaxis()->GetNbins(); i++) {
+    s = h->GetXaxis()->GetBinLabel(i);
+    if (!s.empty()) {
+      count++;
+      Printf("%s label [%d] : %s", name, count, h->GetXaxis()->GetBinLabel(i));
+    }
+    else {
+      break;
+    }
+  }
+  h->GetXaxis()->Set(count, 0, count);
 }

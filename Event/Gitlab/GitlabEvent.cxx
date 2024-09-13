@@ -1,6 +1,4 @@
 #include <fstream>
-#include <iostream>
-#include <bits/stdc++.h>
 #include <TString.h>
 #include <TRandom.h>
 #include "GitlabEvent.h"
@@ -26,6 +24,10 @@ Event::Event(Long64_t id) : TObject(), fID(id), fNIssues(0), fNMergeRequests(0),
   ///
   fIssues        = new TClonesArray("NdmSpc::Gitlab::Track");
   fMergeRequests = new TClonesArray("NdmSpc::Gitlab::Track");
+  fAuthors       = new TH1S("authors", "Authors", 0, 0, 0);
+  fProjects      = new TH1S("projects", "Projects", 0, 0, 0);
+  fMilestones    = new TH1S("milestones", "Milestones", 0, 0, 0);
+  fMilestones->GetXaxis()->FindBin("none");
   gRandom->SetSeed(0);
 }
 
@@ -35,14 +37,11 @@ Event::~Event()
   /// A destructor
   ///
 
-  delete fIssues;
-  fIssues = 0;
-  delete fMergeRequests;
-  fMergeRequests = 0;
-  delete fAuthors;
-  fAuthors = nullptr;
-  delete fProjects;
-  fProjects = nullptr;
+  SafeDelete(fIssues);
+  SafeDelete(fMergeRequests);
+  SafeDelete(fAuthors);
+  SafeDelete(fProjects);
+  SafeDelete(fMilestones);
 }
 
 Track * Event::AddIssue()
@@ -109,7 +108,17 @@ bool Event::FillIssuesFromJson(const json root)
     t->SetAuthorID(jv["author"]["id"].get<int>());
     t->SetProject(ParseProjectName(jv["references"]["full"].get<std::string>(), '#'));
     t->SetAuthor(jv["author"]["username"].get<std::string>());
-    FillAuthorProjectAxis(t->GetAuthor(), t->GetProject());
+    if (!jv["milestone"].is_null()) {
+      t->SetMilestoneID(jv["milestone"]["id"].get<int>());
+      t->SetMilestone(jv["milestone"]["title"].get<std::string>());
+    }
+    else {
+      t->SetMilestoneID(-1);
+      t->SetMilestone("none");
+    }
+    fAuthors->GetXaxis()->FindBin(t->GetAuthor().c_str());
+    fProjects->GetXaxis()->FindBin(t->GetProject().c_str());
+    fMilestones->GetXaxis()->FindBin(t->GetMilestone().c_str());
     Printf("Issue %d project [%s] author [%s] state [%s]", jv["iid"].get<int>(), t->GetProject().data(),
            t->GetAuthor().data(), t->GetState().c_str());
   }
@@ -129,8 +138,17 @@ bool Event::FillMergeRequestsFromJson(const json root)
     t->SetAuthorID(jv["author"]["id"].get<int>());
     t->SetProject(ParseProjectName(jv["references"]["full"].get<std::string>(), '!'));
     t->SetAuthor(jv["author"]["username"].get<std::string>());
-
-    FillAuthorProjectAxis(t->GetAuthor(), t->GetProject());
+    if (!jv["milestone"].is_null()) {
+      t->SetMilestoneID(jv["milestone"]["id"].get<int>());
+      t->SetMilestone(jv["milestone"]["title"].get<std::string>());
+    }
+    else {
+      t->SetMilestoneID(-1);
+      t->SetMilestone("none");
+    }
+    fAuthors->GetXaxis()->FindBin(t->GetAuthor().c_str());
+    fProjects->GetXaxis()->FindBin(t->GetProject().c_str());
+    fMilestones->GetXaxis()->FindBin(t->GetMilestone().c_str());
     Printf("MR %d project [%s] author [%s] state [%s]", jv["iid"].get<int>(), t->GetProject().data(),
            t->GetAuthor().data(), t->GetState().c_str());
   }
@@ -156,6 +174,15 @@ void Event::Print(Option_t * option) const
   //         t->Print();
   //     }
   // }
+}
+void Event::ShrinkMappingHistograms(bool verbose)
+{
+  ///
+  /// Shrink mapping histograms
+  ///
+  ShrinkHistogram("autors", fAuthors, verbose);
+  ShrinkHistogram("projects", fProjects, verbose);
+  ShrinkHistogram("milestoness", fMilestones, verbose);
 }
 
 void Event::Clear(Option_t *)
@@ -191,35 +218,25 @@ std::string Event::ParseProjectName(std::string in, char d) const
 
   return std::move(s);
 }
-
-void Event::FillAuthorProjectAxis(std::string author, std::string project)
+void Event::ShrinkHistogram(const char * name, TH1 * h, bool verbose)
 {
-  ///
-  /// Fill Author and project axis
-  ///
-  if (!fAuthors || !fProjects) return;
 
-  /*Printf("%s %s", author.c_str(), project.c_str());*/
-  /*fAuthors->Dump();*/
-  Int_t b = fAuthors->GetXaxis()->FindBin(author.data());
-  b       = fProjects->GetXaxis()->FindBin(project.data());
-  /*Printf("%d", b);*/
-  /*return;*/
-  /*if (b == -1 && !author.empty()) {*/
-  /*  Printf("%s %s %d", author.c_str(), project.c_str(), fAuthors->GetNbins());*/
-  /*  fAuthors->Set(fAuthors->GetNbins() + 1, 0, fAuthors->GetNbins() + 1);*/
-  /*  fAuthors->Dump();*/
-  /*  fAuthors->SetBinLabel(fAuthors->GetNbins(), author.data());*/
-  /*}*/
-  /*return;*/
-  /**/
-  /*b = fProjects->FindBin(project.data());*/
-  /*if (b == -1 && !project.empty()) {*/
-  /*  fProjects->SetBinLabel(fProjects->GetNbins(), project.data());*/
-  /*  fProjects->Set(fProjects->GetNbins() + 1, 0, fProjects->GetNbins() + 1);*/
-  /*}*/
+  if (!h) return;
+  if (h->GetXaxis()->GetNbins() <= 0) return;
+  int         count = 0;
+  std::string s;
+  for (int i = 1; i < h->GetXaxis()->GetNbins(); i++) {
+    s = h->GetXaxis()->GetBinLabel(i);
+    if (!s.empty()) {
+      count++;
+      Printf("%s label [%d] : %s", name, count, h->GetXaxis()->GetBinLabel(i));
+    }
+    else {
+      break;
+    }
+  }
+  h->GetXaxis()->Set(count, 0, count);
 }
-
 } // namespace Gitlab
 
 } // namespace NdmSpc

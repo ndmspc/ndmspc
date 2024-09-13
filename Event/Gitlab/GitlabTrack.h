@@ -58,12 +58,20 @@ class Track : public TObject {
   /// \param name Project name
   ///
 
-  /// \fn Int_t GetWip() const
-  /// Returns Wip status
-  /// \return b flag if is wip
+  /// \fn Int_t GetMilestoneID() const
+  /// Returns Milestone ID
+  /// \return id Milestone id
   ///
-  /// \fn void SetWip(Bool_t b)
-  /// \param b flag if is wip
+  /// \fn void SetMilestoneID(Int_t id)
+  /// \param id Milestone ID
+  ///
+
+  /// \fn std::string GetMilestone() const
+  /// Returns Milestone
+  /// \return fMilestone Milestone name
+  ///
+  /// \fn void SetMilestone(std::string name)
+  /// \param name Milestone name
   ///
 
   std::string GetState() const { return fState; }
@@ -76,6 +84,10 @@ class Track : public TObject {
   void        SetProjectID(Int_t id) { fProjectID = id; }
   std::string GetProject() const { return fProject; }
   void        SetProject(std::string name) { fProject = name; }
+  Int_t       GetMilestoneID() const { return fMilestoneID; }
+  void        SetMilestoneID(Int_t id) { fMilestoneID = id; }
+  std::string GetMilestone() const { return fMilestone; }
+  void        SetMilestone(std::string name) { fMilestone = name; }
 
   virtual void Print(Option_t * option = "") const;
   virtual void Clear(Option_t * option = "");
@@ -83,11 +95,13 @@ class Track : public TObject {
   void BuildRandom();
 
   private:
-  std::string fState;     ///< State of track
-  Int_t       fAuthorID;  ///< Author id
-  std::string fAuthor;    ///! Author name
-  Int_t       fProjectID; ///< Project ID
-  std::string fProject;   ///! Project name
+  std::string fState;       ///< State of track
+  Int_t       fAuthorID;    ///< Author id
+  std::string fAuthor;      ///! Author name
+  Int_t       fProjectID;   ///< Project ID
+  std::string fProject;     ///! Project name
+  Int_t       fMilestoneID; ///< Milestone ID
+  std::string fMilestone;   ///! Milestone name
 
   // TODO
   /// Copy constructor
