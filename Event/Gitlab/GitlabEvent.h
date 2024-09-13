@@ -97,11 +97,10 @@ class Event : public TObject {
   Track *  GetMergeRequest(Long64_t id) { return (Track *)fMergeRequests->At(id); }
   Track *  AddMergeRequest();
 
-  void SetListOfAuthors(TH1S * a) { fAuthors = a; }
-  void SetListOfProjects(TH1S * a) { fProjects = a; }
-
   TH1S * GetListOfAuthors() const { return fAuthors; }
   TH1S * GetListOfProjects() const { return fProjects; }
+  TH1S * GetListOfMilestones() const { return fMilestones; }
+  void   ShrinkMappingHistograms(bool verbose = true);
 
   bool FillGitlabFromJson(std::string issues, std::string mergrerequests);
   bool FillIssuesFromJson(const json root);
@@ -121,8 +120,9 @@ class Event : public TObject {
   /// Array with all merge requests
   TClonesArray * fMergeRequests; //->
 
-  TH1S * fAuthors{nullptr};  ///! List of authors in current event
-  TH1S * fProjects{nullptr}; ///! List of projects in current event
+  TH1S * fAuthors{nullptr};    ///! List of authors in current event
+  TH1S * fProjects{nullptr};   ///! List of projects in current event
+  TH1S * fMilestones{nullptr}; ///! List of milestones in current event
 
   // TODO
   /// Copy constructor
@@ -131,6 +131,7 @@ class Event : public TObject {
 
   std::string ParseProjectName(std::string in, char d = '!') const;
   void        FillAuthorProjectAxis(std::string author, std::string project);
+  void        ShrinkHistogram(const char * name, TH1 * h, bool verbose);
 
   /// \cond CLASSIMP
   ClassDef(Event, 1);
