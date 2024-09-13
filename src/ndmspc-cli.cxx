@@ -19,17 +19,30 @@ std::string app_description()
 int main(int argc, char ** argv)
 {
   CLI::App app{app_description()};
+  app.require_subcommand(); // 1 or more
   argv = app.ensure_utf8(argv);
   app.set_help_all_flag("--help-all", "Expand all help");
 
-  std::string configFileName = "";
-  app.add_option("-c,--config", configFileName, "Config file name");
+  std::string name           = "myPointMacro";
+  std::string fileName       = "gitlab_hist.root";
+  std::string objectName     = "hGitlabData";
+  std::string configFileName = name + ".json";
+  std::string macroFileName  = name + ".C";
+  /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
-  CLI::App * point = app.add_subcommand("point", "Point run");
-  app.require_subcommand(); // 1 or more
-  std::string macroFileName = "NdmspcPointMacro.C";
-  point->add_option("-c,--config", configFileName, "Config file name");
-  point->add_option("-m,--macro", macroFileName, "Macro path");
+  CLI::App * point = app.add_subcommand("point", "Point");
+  point->require_subcommand(); // 1 or more
+  /*point->add_option("-c,--config", configFileName, "Config file name");*/
+  /*point->add_option("-m,--macro", macroFileName, "Macro path");*/
+
+  CLI::App * point_gen = point->add_subcommand("gen", "Point generate");
+  point_gen->add_option("-n,--name", name, "Name");
+  point_gen->add_option("-f,--file", fileName, "Input file");
+  point_gen->add_option("-o,--object", objectName, "Input object");
+
+  CLI::App * point_run = point->add_subcommand("run", "Point run");
+  point_run->add_option("-c,--config", configFileName, "Config file name");
+  point_run->add_option("-m,--macro", macroFileName, "Macro path");
 
   CLI11_PARSE(app, argc, argv);
 
@@ -39,8 +52,17 @@ int main(int argc, char ** argv)
   for (auto * subcom : app.get_subcommands()) {
     std::cout << "Subcommand: " << subcom->get_name() << std::endl;
     if (!subcom->get_name().compare("point")) {
-      NdmSpc::PointRun pr(macroFileName);
-      pr.Run(configFileName, false);
+
+      for (auto * subsubcom : subcom->get_subcommands()) {
+        if (!subsubcom->get_name().compare("gen")) {
+          Printf("Doing '%s' with name '%s'...", subsubcom->get_name().c_str(), name.c_str());
+          NdmSpc::PointRun::Generate(name, fileName, objectName);
+        }
+        if (!subsubcom->get_name().compare("run")) {
+          NdmSpc::PointRun pr(macroFileName);
+          pr.Run(configFileName, false);
+        }
+      }
     }
   };
 
