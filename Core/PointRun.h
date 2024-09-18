@@ -56,10 +56,10 @@ class PointRun : public TObject {
     }
   },
   "verbose" : 0
-  })"_json};        /// Config
-  TMacro                   fMacro{};    /// Macro
-  int                      fVerbose{0}; /// Verbose level
-  int                      fBinCount;   /// Bin Count (TODO! rename to axis level maybe)
+  })"_json};            /// Config
+  TMacro *                 fMacro{nullptr}; /// Macro
+  int                      fVerbose{0};     /// Verbose level
+  int                      fBinCount;       /// Bin Count (TODO! rename to axis level maybe)
   TFile *                  fInputFile{nullptr};
   TList *                  fInputList{nullptr};
   THnSparse *              fResultObject{nullptr};
