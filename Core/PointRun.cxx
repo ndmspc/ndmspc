@@ -191,14 +191,14 @@ bool PointRun::Merge(std::string config, std::string fileOpt)
     Printf("Error: Config filename is empty !!! Exiting ...");
     return false;
   }
-  json          cfg;
-  std::ifstream f(config.c_str());
-  if (f.is_open()) {
-    cfg = json::parse(f);
+  json        cfg;
+  std::string fileContent = NdmSpc::Utils::OpenRawFile(config);
+  if (!fileContent.empty()) {
+    cfg = json::parse(fileContent);
     Printf("Using config file '%s' ...", config.c_str());
   }
   else {
-    Printf("Error: Problem opeing config file '%s' !!! Exiting ...", config.c_str());
+    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
     return false;
   }
 
