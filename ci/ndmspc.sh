@@ -44,7 +44,7 @@ MODULEFILE="etc/modulefiles/$PKGNAME"
 alibuild-generate-module --bin --lib > "$MODULEFILE"
 cat >> "$MODULEFILE" <<EoF
 # Our environment
-prepend-path DYLD_LIBRARY_PATH \$PKG_ROOT/lib
+prepend-path ROOT_DYN_PATH \$PKG_ROOT/lib
 prepend-path ROOT_INCLUDE_PATH \$PKG_ROOT/include/ndmspc
 EoF
 mkdir -p $INSTALLROOT/etc/modulefiles && rsync -a --delete etc/modulefiles/ $INSTALLROOT/etc/modulefiles
