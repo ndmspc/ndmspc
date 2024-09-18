@@ -1,4 +1,5 @@
 #include <getopt.h>
+#include <cstdlib>
 #include <string>
 #include <TString.h>
 #include <CLI11.hpp>
@@ -23,11 +24,13 @@ int main(int argc, char ** argv)
   argv = app.ensure_utf8(argv);
   app.set_help_all_flag("--help-all", "Expand all help");
 
-  std::string name           = "myPointMacro";
+  std::string name           = "";
+  std::string basedir        = "";
   std::string fileName       = "gitlab_hist.root";
   std::string objectName     = "hGitlabData";
-  std::string configFileName = name + ".json";
-  std::string macroFileName  = name + ".C";
+  std::string configFileName = "";
+  std::string macroFileName  = "";
+
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
   CLI::App * point = app.add_subcommand("point", "Point");
@@ -41,19 +44,48 @@ int main(int argc, char ** argv)
   point_gen->add_option("-o,--object", objectName, "Input object");
 
   CLI::App * point_run = point->add_subcommand("run", "Point run");
+  point_run->add_option("-n,--name", name, "Name");
+  point_run->add_option("-b,--base", basedir, "Base dir");
   point_run->add_option("-c,--config", configFileName, "Config file name");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
 
   CLI::App * point_merge = point->add_subcommand("merge", "Point merge");
+  point_merge->add_option("-n,--name", name, "Name");
+  point_merge->add_option("-b,--base", basedir, "Base dir");
   point_merge->add_option("-c,--config", configFileName, "Config file name");
 
   CLI11_PARSE(app, argc, argv);
+  if (getenv("NDMSPC_POINT_NAME")) {
+    if (name.empty()) name = getenv("NDMSPC_POINT_NAME");
+  }
+  if (getenv("NDMSPC_POINT_BASEDIR")) {
+    if (basedir.empty()) basedir = getenv("NDMSPC_POINT_BASEDIR");
+  }
+  if (getenv("NDMSPC_POINT_CONFIG")) {
+    if (configFileName.empty()) configFileName = getenv("NDMSPC_POINT_CONFIG");
+  }
+  if (getenv("NDMSPC_POINT_MACRO")) {
+    if (macroFileName.empty()) macroFileName = getenv("NDMSPC_POINT_MACRO");
+  }
+  Printf("%s", basedir.c_str());
+
+  if (!basedir.empty()) {
+    if (basedir[basedir.size() - 1] != '/') basedir += "/";
+    if (!name.empty()) {
+      if (configFileName.empty()) configFileName = basedir + name + ".json";
+      if (macroFileName.empty()) macroFileName = basedir + name + ".C";
+    }
+    else {
+      configFileName = basedir + configFileName;
+      macroFileName  = basedir + macroFileName;
+    }
+  }
 
   // std::cout << "Working on --file from start: " << file << '\n';
   // std::cout << "Working on --count from stop: " << s->count() << ", direct count: " << stop->count("--count") <<
   // '\n'; std::cout << "Count of --random flag: " << app.count("--random") << '\n';
   for (auto * subcom : app.get_subcommands()) {
-    std::cout << "Subcommand: " << subcom->get_name() << std::endl;
+    // std::cout << "Subcommand: " << subcom->get_name() << std::endl;
     if (!subcom->get_name().compare("point")) {
 
       for (auto * subsubcom : subcom->get_subcommands()) {

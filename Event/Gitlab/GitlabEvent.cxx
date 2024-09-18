@@ -1,4 +1,5 @@
 #include <fstream>
+#include <sstream>
 #include <TString.h>
 #include <TRandom.h>
 #include "GitlabEvent.h"

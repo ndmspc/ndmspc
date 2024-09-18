@@ -1,7 +1,9 @@
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include "TFileMerger.h"
 #include "TString.h"
+#include "Utils.h"
 #include <TMacro.h>
 #include <TH1.h>
 #include <TSystem.h>
@@ -13,13 +15,14 @@ ClassImp(NdmSpc::PointRun);
 /// \endcond
 
 namespace NdmSpc {
-PointRun::PointRun(std::string macro) : TObject(), fMacro(macro.c_str())
+PointRun::PointRun(std::string macro) : TObject()
 {
   ///
   /// Default constructor
   ///
 
   TH1::AddDirectory(kFALSE);
+  fMacro = Utils::OpenMacro(macro.c_str());
 }
 
 PointRun::~PointRun()
@@ -315,9 +318,9 @@ bool PointRun::Merge(std::string config, std::string fileOpt)
 bool PointRun::LoadConfig(std::string filename, bool show, std::string outfilename)
 {
   if (!filename.empty()) {
-    std::ifstream f(filename.c_str());
-    if (f.is_open()) {
-      json cfgJson = json::parse(f);
+    std::string fileContent = NdmSpc::Utils::OpenRawFile(filename);
+    if (!fileContent.empty()) {
+      json cfgJson = json::parse(fileContent);
       fCfg.merge_patch(cfgJson);
       Printf("Using config file '%s' ...", filename.c_str());
     }
@@ -838,9 +841,9 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
       Printf("\tPoint: %s", fCurrentPointValue.dump().c_str());
 
     // TODO! Apply TMacro
-    if (fVerbose >= 2) Printf("Running point macro '%s.C' ...", fMacro.GetName());
+    if (fVerbose >= 2) Printf("Running point macro '%s.C' ...", fMacro->GetName());
     /*fMacro.Exec();*/
-    Longptr_t ok = fMacro.Exec(TString::Format("(NdmSpc::PointRun*)%p", this));
+    Longptr_t ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));
     /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputList, &fCfg));*/
 
     /*fMacro.Exec(TString::Format("(TList*)%ld,(json&)%p,(THnSparse "*/
@@ -1151,10 +1154,9 @@ int PointRun::ProcessHistogramRun()
 bool PointRun::Run(std::string filename, bool show, std::string outfilename)
 {
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Run");
-  if (fMacro.GetListOfLines()->IsEmpty()) {
-    Printf("Problem openning macro '%s.C' !!! Exiting ...", fMacro.GetName());
-    return 1;
-  }
+
+  if (!fMacro) return 1;
+
   if (!LoadConfig(filename, show, outfilename)) return false;
   /*fVerbose = 2;*/
 

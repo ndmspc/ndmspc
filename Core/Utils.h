@@ -2,61 +2,18 @@
 #define NdmspcCoreUtils_H
 
 #include <TAxis.h>
+#include <TMacro.h>
 #include <THnSparse.h>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
 namespace NdmSpc {
-namespace Utils {
-inline int SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,
-                               bool normalizeToWidth = false, bool onlyPositive = false, double times = 1)
-{
-
-  bool isValNan = TMath::IsNaN(val);
-  bool isErrNaN = TMath::IsNaN(err);
-
-  if (isValNan || isErrNaN) {
-    Printf("Error: SetResultValueError %s val=%f[isNaN=%d] err=%f[isNan=%d]", name.c_str(), val, isValNan, err,
-           isErrNaN);
-    return -2;
-  }
-
-  if (onlyPositive && val < 0) {
-    return -3;
-  }
-
-  if (times > 0 && times * std::abs(val) < err) {
-    Printf("Warning: Skipping '%s' because 'times * val < err' (  %f * %f < %f ) ...", name.c_str(), times,
-           std::abs(val), err);
-    return -4;
-  }
-
-  if (normalizeToWidth) {
-    int nDimsCuts = 0;
-    for (auto & cut : cfg["ndmspc"]["cuts"]) {
-      if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-      nDimsCuts++;
-    }
-    // Printf("1 %f %f", val, err);
-    for (int iCut = 0; iCut < nDimsCuts; iCut++) {
-      double w = output->GetAxis(iCut + 1)->GetBinWidth(point[iCut + 1]);
-      val /= w;
-      err /= w;
-      // Printf("%d %f %f w=%f", iCut + 1, val, err, w);
-    }
-  }
-
-  int idx = output->GetAxis(0)->FindBin(name.c_str());
-  if (idx <= 0) {
-    return idx;
-  }
-  point[0]       = idx;
-  Long64_t binId = output->GetBin(point);
-  output->SetBinContent(binId, val);
-  output->SetBinError(binId, err);
-
-  return idx;
-}
-} // namespace Utils
+class Utils {
+  public:
+  static std::string OpenRawFile(std::string filename);
+  static TMacro *    OpenMacro(std::string filename);
+  static int SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,
+                                 bool normalizeToWidth = false, bool onlyPositive = false, double times = 1);
+}; // namespace Utils
 } // namespace NdmSpc
 #endif
