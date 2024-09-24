@@ -7,5 +7,6 @@
 #pragma link C++ class NdmSpc::Utils + ;
 #pragma link C++ class NdmSpc::PointRun + ;
 #pragma link C++ class NdmSpc::PointDraw + ;
+#pragma link C++ class NdmSpc::HnSparseBrowser + ;
 
 #endif
