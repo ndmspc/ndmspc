@@ -24,11 +24,11 @@ class PointRun : public TObject {
   PointRun(std::string macro = "NdmspcPointRun.C");
   virtual ~PointRun();
 
-  bool                     Run(std::string filename, bool show = false, std::string outfilename = "");
-  json &                   Cfg() { return fCfg; }
-  TList *                  GetInputList() const { return fInputList; }
-  THnSparse *              GetResultObject() const { return fResultObject; }
-  Int_t *                  GetCurrentPoint() { return fCurrentPoint; }
+  bool        Run(std::string filename, std::string userConfig = "", bool show = false, std::string outfilename = "");
+  json &      Cfg() { return fCfg; }
+  TList *     GetInputList() const { return fInputList; }
+  THnSparse * GetResultObject() const { return fResultObject; }
+  Int_t *     GetCurrentPoint() { return fCurrentPoint; }
   std::vector<std::string> GetCurrentPointLabels() { return fCurrentPointLabels; }
   json                     GetCurrentPointValue() { return fCurrentPointValue; }
   TList *                  GetOutputList() const { return fOutputList; }
@@ -38,7 +38,8 @@ class PointRun : public TObject {
 
   static bool Generate(std::string name = "myAnalysis", std::string inFile = "myFile.root",
                        std::string inObjectName = "myNDHistogram");
-  static bool Merge(std::string name = "myAnalysis", std::string fileOpt = "?remote=1");
+  static bool Merge(std::string name = "myAnalysis.json", std::string userConfig = "",
+                    std::string fileOpt = "?remote=1");
 
   private:
   json                     fCfg{R"({
@@ -78,10 +79,10 @@ class PointRun : public TObject {
   bool                     fIsProcessExit{false};
   TList *                  fOutputList{nullptr};
 
-  bool        LoadConfig(std::string filename, bool show = false, std::string outfilename = "");
-  bool        Init(std::string extraPath = "");
-  bool        Finish();
-  TList *     OpenInputs();
+  bool    LoadConfig(std::string config, std::string userConfig = "", bool show = false, std::string outfilename = "");
+  bool    Init(std::string extraPath = "");
+  bool    Finish();
+  TList * OpenInputs();
   THnSparse * CreateResult();
   bool        ApplyCuts();
   void        NdmspcRebinBins(int & min, int & max, int rebin = 1);

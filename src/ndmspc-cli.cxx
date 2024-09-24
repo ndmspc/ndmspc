@@ -25,12 +25,13 @@ int main(int argc, char ** argv)
   argv = app.ensure_utf8(argv);
   app.set_help_all_flag("--help-all", "Expand all help");
 
-  std::string name           = "";
-  std::string basedir        = "";
-  std::string fileName       = "gitlab_hist.root";
-  std::string objectName     = "hGitlabData";
-  std::string configFileName = "";
-  std::string macroFileName  = "";
+  std::string name               = "";
+  std::string basedir            = "";
+  std::string fileName           = "gitlab_hist.root";
+  std::string objectName         = "hGitlabData";
+  std::string configFileName     = "";
+  std::string userConfigFileName = "";
+  std::string macroFileName      = "";
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
@@ -46,19 +47,22 @@ int main(int argc, char ** argv)
 
   CLI::App * point_run = point->add_subcommand("run", "Point run");
   point_run->add_option("-n,--name", name, "Name");
-  point_run->add_option("-b,--base", basedir, "Base dir");
+  point_run->add_option("-d,--basedir", basedir, "Base dir");
   point_run->add_option("-c,--config", configFileName, "Config file name");
+  point_run->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
 
   CLI::App * point_merge = point->add_subcommand("merge", "Point merge");
   point_merge->add_option("-n,--name", name, "Name");
-  point_merge->add_option("-b,--base", basedir, "Base dir");
+  point_merge->add_option("-d,--basedir", basedir, "Base dir");
   point_merge->add_option("-c,--config", configFileName, "Config file name");
+  point_merge->add_option("-u,--user-config", userConfigFileName, "User config file name");
 
   CLI::App * point_draw = point->add_subcommand("draw", "Point draw");
   point_draw->add_option("-n,--name", name, "Name");
-  point_draw->add_option("-b,--base", basedir, "Base dir");
+  point_draw->add_option("-d,--basedir", basedir, "Base dir");
   point_draw->add_option("-c,--config", configFileName, "Config file name");
+  point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
 
   CLI11_PARSE(app, argc, argv);
   if (getenv("NDMSPC_POINT_NAME")) {
@@ -69,6 +73,9 @@ int main(int argc, char ** argv)
   }
   if (getenv("NDMSPC_POINT_CONFIG")) {
     if (configFileName.empty()) configFileName = getenv("NDMSPC_POINT_CONFIG");
+  }
+  if (getenv("NDMSPC_POINT_CONFIG_USER")) {
+    if (userConfigFileName.empty()) userConfigFileName = getenv("NDMSPC_POINT_CONFIG_USER");
   }
   if (getenv("NDMSPC_POINT_MACRO")) {
     if (macroFileName.empty()) macroFileName = getenv("NDMSPC_POINT_MACRO");
@@ -100,14 +107,14 @@ int main(int argc, char ** argv)
         }
         if (!subsubcom->get_name().compare("run")) {
           NdmSpc::PointRun pr(macroFileName);
-          pr.Run(configFileName, false);
+          pr.Run(configFileName, userConfigFileName, false);
         }
         if (!subsubcom->get_name().compare("merge")) {
-          NdmSpc::PointRun::Merge(configFileName);
+          NdmSpc::PointRun::Merge(configFileName, userConfigFileName);
         }
         if (!subsubcom->get_name().compare("draw")) {
           NdmSpc::PointDraw pd;
-          pd.Draw(configFileName);
+          pd.Draw(configFileName, userConfigFileName);
         }
       }
     }

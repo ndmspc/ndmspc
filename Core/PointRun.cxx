@@ -184,7 +184,7 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   return true;
 }
 
-bool PointRun::Merge(std::string config, std::string fileOpt)
+bool PointRun::Merge(std::string config, std::string userConfig, std::string fileOpt)
 {
   ///
   /// Merge specific projection
@@ -198,6 +198,19 @@ bool PointRun::Merge(std::string config, std::string fileOpt)
   if (!fileContent.empty()) {
     cfg = json::parse(fileContent);
     Printf("Using config file '%s' ...", config.c_str());
+
+    if (!userConfig.empty()) {
+      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
+      if (!fileContentUser.empty()) {
+        json userCfg = json::parse(fileContentUser);
+        cfg.merge_patch(userCfg);
+        Printf("Merging user config file '%s' ...", userConfig.c_str());
+      }
+      else {
+        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
+        return false;
+      }
+    }
   }
   else {
     Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
@@ -317,17 +330,30 @@ bool PointRun::Merge(std::string config, std::string fileOpt)
   return true;
 }
 
-bool PointRun::LoadConfig(std::string filename, bool show, std::string outfilename)
+bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show, std::string outfilename)
 {
-  if (!filename.empty()) {
-    std::string fileContent = NdmSpc::Utils::OpenRawFile(filename);
+  if (!config.empty()) {
+    std::string fileContent = NdmSpc::Utils::OpenRawFile(config);
     if (!fileContent.empty()) {
       json cfgJson = json::parse(fileContent);
       fCfg.merge_patch(cfgJson);
-      Printf("Using config file '%s' ...", filename.c_str());
+      Printf("Using config file '%s' ...", config.c_str());
+
+      if (!userConfig.empty()) {
+        std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
+        if (!fileContentUser.empty()) {
+          json userCfg = json::parse(fileContentUser);
+          fCfg.merge_patch(userCfg);
+          Printf("Merging user config file '%s' ...", userConfig.c_str());
+        }
+        else {
+          Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
+          return false;
+        }
+      }
     }
     else {
-      Printf("Error: Problem opening config file '%s' !!! Exiting ...", filename.c_str());
+      Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
       return false;
     }
   }
@@ -1164,13 +1190,13 @@ int PointRun::ProcessHistogramRun()
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
   return 0;
 }
-bool PointRun::Run(std::string filename, bool show, std::string outfilename)
+bool PointRun::Run(std::string filename, std::string userConfig, bool show, std::string outfilename)
 {
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Run");
 
   if (!fMacro) return 1;
 
-  if (!LoadConfig(filename, show, outfilename)) return false;
+  if (!LoadConfig(filename, userConfig, show, outfilename)) return false;
   /*fVerbose = 2;*/
 
   if (!fCfg["ndmspc"]["data"]["histogram"].is_null() && !fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&

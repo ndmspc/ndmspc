@@ -29,7 +29,7 @@ PointDraw::~PointDraw()
   ///
 }
 
-int PointDraw::Draw(std::string config)
+int PointDraw::Draw(std::string config, std::string userConfig)
 {
   ///
   /// Draw
@@ -50,10 +50,22 @@ int PointDraw::Draw(std::string config)
   if (!fileContent.empty()) {
     fCfg = json::parse(fileContent);
     Printf("Using config file '%s' ...", config.c_str());
+    if (!userConfig.empty()) {
+      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
+      if (!fileContentUser.empty()) {
+        json userCfg = json::parse(fileContentUser);
+        fCfg.merge_patch(userCfg);
+        Printf("Merging user config file '%s' ...", userConfig.c_str());
+      }
+      else {
+        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
+        return 1;
+      }
+    }
   }
   else {
     Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
-    return false;
+    return 1;
   }
 
   std::string hostUrl = fCfg["ndmspc"]["output"]["host"].get<std::string>();
@@ -323,8 +335,10 @@ void PointDraw::DrawProjections()
   Printf("DrawProjections %zu", fProjectionAxes.size());
   UpdateRanges();
 
+  if (fParameterPoint.size() == 0) return;
+
   int    xBin = fParameterPoint[fProjectionAxes[0]];
-  int    yBin = fParameterPoint[fProjectionAxes[1]];
+  int    yBin = fProjectionAxes.size() > 1 ? fParameterPoint[fProjectionAxes[1]] : -1;
   double min  = 1;
   double max  = 0;
 
@@ -394,8 +408,8 @@ void PointDraw::DrawProjections()
   }
   if (fProjectionAxes.size() == 2) {
     CanvasProjections->cd(2);
-    fResultHnSparse->GetAxis(fProjectionAxes[1])->SetRange();
-    fResultHnSparse->GetAxis(fProjectionAxes[0])->SetRange(yBin, yBin);
+    if (fProjectionAxes.size() > 1) fResultHnSparse->GetAxis(fProjectionAxes[1])->SetRange();
+    if (yBin > 0) fResultHnSparse->GetAxis(fProjectionAxes[0])->SetRange(yBin, yBin);
     py = fResultHnSparse->Projection(fProjectionAxes[1], "O");
     if (py) {
       if (min < max) {
