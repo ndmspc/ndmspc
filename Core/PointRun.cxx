@@ -1,10 +1,11 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include "TFileMerger.h"
-#include "TString.h"
-#include "Utils.h"
+#include <TFileMerger.h>
+#include <TString.h>
+#include <Utils.h>
 #include <TMacro.h>
+#include <TROOT.h>
 #include <TH1.h>
 #include <TSystem.h>
 #include <THnSparse.h>
@@ -23,6 +24,7 @@ PointRun::PointRun(std::string macro) : TObject()
 
   TH1::AddDirectory(kFALSE);
   fMacro = Utils::OpenMacro(macro.c_str());
+  if (fMacro) fMacro->Load();
 }
 
 PointRun::~PointRun()
@@ -723,10 +725,16 @@ bool PointRun::ApplyCuts()
 
       fCurrentPoint[iCut + fCurrentProcessHistogramPoint.size()] = cut["bin"]["min"].get<int>();
 
-      if (i == 0)
-        titlePostfix += TString::Format("%s[%.2f,%.2f] ", s->GetAxis(id)->GetName(),
-                                        s->GetAxis(id)->GetBinLowEdge(binMin), s->GetAxis(id)->GetBinUpEdge(binMax));
-
+      if (i == 0) {
+        if (s->GetAxis(id)->IsAlphanumeric()) {
+          titlePostfix +=
+              TString::Format("%s[%s bin=%d] ", s->GetAxis(id)->GetName(), s->GetAxis(id)->GetBinLabel(binMin), binMin);
+        }
+        else {
+          titlePostfix += TString::Format("%s[%.2f,%.2f] ", s->GetAxis(id)->GetName(),
+                                          s->GetAxis(id)->GetBinLowEdge(binMin), s->GetAxis(id)->GetBinUpEdge(binMax));
+        }
+      }
       iCut++;
     }
   }
@@ -843,26 +851,31 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
     // TODO! Apply TMacro
     if (fVerbose >= 2) Printf("Running point macro '%s.C' ...", fMacro->GetName());
     /*fMacro.Exec();*/
-    Longptr_t ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));
-    /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputList, &fCfg));*/
 
-    /*fMacro.Exec(TString::Format("(TList*)%ld,(json&)%p,(THnSparse "*/
-    /*                            "*)%ld,(int*)%ld,(std::vector<std::string>*)%ld,(json*)%ld,(TList*)%ld,0,0",*/
-    /*                            (Longptr_t)fInputList, &fCfg, (Longptr_t)fResultObject,*/
-    /*                            (Longptr_t)fCurrentPoint, (Longptr_t)&fCurrentPointLabels,*/
-    /*                            (Longptr_t)&fCurrentPointValue, (Longptr_t)outputList)*/
-    /*                .Data());*/
-    /*bool ok = NdmspcPointMacro(_currentInputList, cfg, fResultObject, _currentPoint, _currentPointLabels,*/
-    /*                           _currentPointValue, outputList, _currentSkipBin, _currentProcessExit);*/
-    /*gSystem->Exit(0);*/
-    if (ok && fVerbose >= 5) outputList->Print();
-    if (ok) {
-      fIsProcessOk = true;
-    }
-    else {
-      return false;
-    }
+    {
+      /*TRedirectOutputGuard g{"/dev/null"};*/
+      /*Longptr_t            ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));*/
+      /*Longptr_t ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));*/
+      Longptr_t ok = gROOT->ProcessLine(TString::Format("%s((NdmSpc::PointRun*)%p);", fMacro->GetName(), this));
+      /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputList, &fCfg));*/
 
+      /*fMacro.Exec(TString::Format("(TList*)%ld,(json&)%p,(THnSparse "*/
+      /*                            "*)%ld,(int*)%ld,(std::vector<std::string>*)%ld,(json*)%ld,(TList*)%ld,0,0",*/
+      /*                            (Longptr_t)fInputList, &fCfg, (Longptr_t)fResultObject,*/
+      /*                            (Longptr_t)fCurrentPoint, (Longptr_t)&fCurrentPointLabels,*/
+      /*                            (Longptr_t)&fCurrentPointValue, (Longptr_t)outputList)*/
+      /*                .Data());*/
+      /*bool ok = NdmspcPointMacro(_currentInputList, cfg, fResultObject, _currentPoint, _currentPointLabels,*/
+      /*                           _currentPointValue, outputList, _currentSkipBin, _currentProcessExit);*/
+      /*gSystem->Exit(0);*/
+      if (ok && fVerbose >= 5) outputList->Print();
+      if (ok) {
+        fIsProcessOk = true;
+      }
+      else {
+        return false;
+      }
+    }
     if (fCurrentOutputFile == nullptr) {
       OutputFileOpen();
     }

@@ -14,6 +14,7 @@ class Utils {
   static TMacro *    OpenMacro(std::string filename);
   static int SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,
                                  bool normalizeToWidth = false, bool onlyPositive = false, double times = 1);
+  static std::vector<std::string> Tokenize(std::string_view input, const char delim);
 }; // namespace Utils
 } // namespace NdmSpc
 #endif

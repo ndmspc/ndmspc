@@ -43,8 +43,9 @@ i
 # VS
 .vscode/*
 !.vscode/settings.json
-!.vscode/c_cpp_properties.json
-
+#!.vscode/c_cpp_properties.json
+!.vscode/launch.json
+!.vscode/tasks.json
 runs
 #*.txt
 compile_commands.json

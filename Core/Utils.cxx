@@ -102,4 +102,17 @@ int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, I
 
   return idx;
 }
+std::vector<std::string> Utils::Tokenize(std::string_view input, const char delim)
+{
+  std::vector<std::string> out;
+
+  for (auto found = input.find(delim); found != std::string_view::npos; found = input.find(delim)) {
+    out.emplace_back(input, 0, found);
+    input.remove_prefix(found + 1);
+  }
+
+  if (not input.empty()) out.emplace_back(input);
+
+  return out;
+}
 } // namespace NdmSpc

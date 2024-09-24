@@ -6,6 +6,7 @@
 
 #include "ndmspc.h"
 #include "PointRun.h"
+#include "PointDraw.h"
 
 std::string app_description()
 {
@@ -54,6 +55,11 @@ int main(int argc, char ** argv)
   point_merge->add_option("-b,--base", basedir, "Base dir");
   point_merge->add_option("-c,--config", configFileName, "Config file name");
 
+  CLI::App * point_draw = point->add_subcommand("draw", "Point draw");
+  point_draw->add_option("-n,--name", name, "Name");
+  point_draw->add_option("-b,--base", basedir, "Base dir");
+  point_draw->add_option("-c,--config", configFileName, "Config file name");
+
   CLI11_PARSE(app, argc, argv);
   if (getenv("NDMSPC_POINT_NAME")) {
     if (name.empty()) name = getenv("NDMSPC_POINT_NAME");
@@ -98,6 +104,10 @@ int main(int argc, char ** argv)
         }
         if (!subsubcom->get_name().compare("merge")) {
           NdmSpc::PointRun::Merge(configFileName);
+        }
+        if (!subsubcom->get_name().compare("draw")) {
+          NdmSpc::PointDraw pd;
+          pd.Draw(configFileName);
         }
       }
     }

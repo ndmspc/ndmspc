@@ -17,16 +17,16 @@
           "min": 5
         },
         "enabled": true,
-        "rebin": 1
+        "rebin": 10
       },
       {
-        "axis": "axis2-mu",
+        "axis": "axis2-ce",
         "bin": {
           "max": 1,
           "min": 1
         },
         "enabled": false,
-        "rebin": 10
+        "rebin": 1
       },
       {
         "axis": "axis3-ns1",
@@ -54,27 +54,19 @@
         },
         "enabled": false,
         "rebin": 1
-      },
-      {
-        "axis": "axis6-zv1",
-        "bin": {
-          "max": 1,
-          "min": 1
-        },
-        "enabled": false,
-        "rebin": 1
       }
     ],
     "data": {
-      "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/192541/AnalysisResults.root",
+      "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/222580/AnalysisResults.root",
       "histogram": {
-        "enabled": false,
+        "enabled": true,
         "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/hDataMap.root",
         "obj": "hDataMap",
         "base": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/bins",
         "filename": "AnalysisResults.root",
         "bins": [
           [6, 1, 2, 6],
+          [6, 1, 3, 6],
           [1, 6, 2, 6]
         ]
       },
@@ -88,23 +80,21 @@
       ]
     },
     "job": {
-      "inputs": [
-        "root://eos.ndmspc.io//eos/ndmspc/scratch/temp/mvala/myAnalysis/sw/NdmspcPointMacro.C|NdmspcPointMacro.C"
-      ]
+      "inputs": []
     },
     "log": {
       "dir": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs",
       "type": "error-only"
     },
     "output": {
-      "dir": "/eos/ndmspc/scratch/temp/mvala/myAnalysis",
+      "dir": "/eos/ndmspc/scratch/temp/ndmspc/myAnalysis",
       "file": "content.root",
       "host": "root://eos.ndmspc.io/",
       "opt": "?remote=1",
       "delete": "onInit"
     },
     "process": {
-      "type": "single",
+      "type": "all",
       "split": [2, 10, 10]
     },
     "result": {

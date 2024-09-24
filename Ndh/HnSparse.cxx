@@ -5,7 +5,6 @@
 #include <THnSparse.h>
 
 #include "HnSparse.h"
-#include "ndmspc.h"
 
 /// \cond CLASSIMP
 ClassImp(NdmSpc::Ndh::HnSparse);

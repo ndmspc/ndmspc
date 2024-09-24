@@ -1,9 +1,7 @@
 #include <TAxis.h>
 #include <TRandom.h>
 
-#include "ndmspc.h"
 #include "HnSparse.h"
-
 #include "HnSparseStress.h"
 
 /// \cond CLASSIMP
