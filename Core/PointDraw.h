@@ -23,7 +23,7 @@ class PointDraw : public TObject {
   PointDraw();
   virtual ~PointDraw();
 
-  int Draw(std::string macro = "NdmspcPointRun.C");
+  int Draw(std::string config = "myAnalysis.json", std::string userConfig = "");
 
   protected:
   json                     fCfg;

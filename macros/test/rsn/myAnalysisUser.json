@@ -1,0 +1,17 @@
+{
+  "ndmspc": {
+    "data": {
+      "histogram": {
+        "bins": [
+          [6, 1, 2, 6],
+          [6, 1, 3, 6],
+          [1, 6, 2, 6]
+        ]
+      }
+    },
+    "process": {
+      "type": "all"
+    },
+    "verbose": 0
+  }
+}
