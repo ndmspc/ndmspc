@@ -7,6 +7,7 @@
 #include "ndmspc.h"
 #include "PointRun.h"
 #include "PointDraw.h"
+#include "HnSparseBrowser.h"
 
 std::string app_description()
 {
@@ -27,11 +28,12 @@ int main(int argc, char ** argv)
 
   std::string name               = "";
   std::string basedir            = "";
-  std::string fileName           = "gitlab_hist.root";
-  std::string objectName         = "hGitlabData";
+  std::string fileName           = "";
+  std::string objectName         = "";
   std::string configFileName     = "";
   std::string userConfigFileName = "";
   std::string macroFileName      = "";
+  std::string directoryToken     = "";
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
@@ -64,6 +66,14 @@ int main(int argc, char ** argv)
   point_draw->add_option("-c,--config", configFileName, "Config file name");
   point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
 
+  CLI::App * browser = app.add_subcommand("browser", "Object browser");
+  browser->require_subcommand(); // 1 or more
+
+  CLI::App * browser_hnsparse = browser->add_subcommand("hnsparse", "HnSparse browser");
+  browser_hnsparse->add_option("-f,--file", fileName, "Input file");
+  browser_hnsparse->add_option("-o,--object", objectName, "Input objects");
+  browser_hnsparse->add_option("-t,--token", directoryToken, "Directory token");
+
   CLI11_PARSE(app, argc, argv);
   if (getenv("NDMSPC_POINT_NAME")) {
     if (name.empty()) name = getenv("NDMSPC_POINT_NAME");
@@ -80,7 +90,17 @@ int main(int argc, char ** argv)
   if (getenv("NDMSPC_POINT_MACRO")) {
     if (macroFileName.empty()) macroFileName = getenv("NDMSPC_POINT_MACRO");
   }
-  Printf("%s", basedir.c_str());
+
+  if (getenv("NDMSPC_BROWSER_FILE")) {
+    if (fileName.empty()) fileName = getenv("NDMSPC_BROWSER_FILE");
+  }
+  if (getenv("NDMSPC_BROWSER_OBJECTS")) {
+    if (objectName.empty()) objectName = getenv("NDMSPC_BROWSER_OBJECTS");
+  }
+
+  if (getenv("NDMSPC_BROWSER_DIRECTORY_TOKEN")) {
+    if (directoryToken.empty()) directoryToken = getenv("NDMSPC_BROWSER_DIRECTORY_TOKEN");
+  }
 
   if (!basedir.empty()) {
     if (basedir[basedir.size() - 1] != '/') basedir += "/";
@@ -93,6 +113,8 @@ int main(int argc, char ** argv)
       macroFileName  = basedir + macroFileName;
     }
   }
+
+  if (directoryToken.empty()) directoryToken = "/";
 
   // std::cout << "Working on --file from start: " << file << '\n';
   // std::cout << "Working on --count from stop: " << s->count() << ", direct count: " << stop->count("--count") <<
@@ -115,6 +137,14 @@ int main(int argc, char ** argv)
         if (!subsubcom->get_name().compare("draw")) {
           NdmSpc::PointDraw pd;
           pd.Draw(configFileName, userConfigFileName);
+        }
+      }
+    }
+    if (!subcom->get_name().compare("browser")) {
+      for (auto * subsubcom : subcom->get_subcommands()) {
+        if (!subsubcom->get_name().compare("hnsparse")) {
+          NdmSpc::HnSparseBrowser browser;
+          browser.Draw(fileName, objectName, directoryToken);
         }
       }
     }
