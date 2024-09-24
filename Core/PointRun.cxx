@@ -34,302 +34,6 @@ PointRun::~PointRun()
   ///
 }
 
-bool PointRun::Generate(std::string name, std::string inFile, std::string inObjectName)
-{
-
-  ///
-  /// Generate point macro and config
-  ///
-
-  Printf("Genrating point run with name '%s' ...", name.c_str());
-  json cfg = R"({
-
-  "user": {
-    "proj": 0,
-    "minEntries": 1,
-    "verbose": 0
-  },
-  "ndmspc": {
-    "data": {
-      "file": "input.root",
-      "objects": ["hNSparse"]
-    },
-    "cuts": [],
-    "result": {
-      "parameters": { "labels": ["Integral"], "default": "Integral" }
-    },
-    "output": {
-      "host": "",
-      "dir": "",
-      "file": "content.root",
-      "opt": "?remote=1"
-    },
-    "process": {
-      "type": "single"
-    },
-    "log": {
-      "type": "error-only",
-      "dir": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
-    },
-    "job":{
-      "inputs": []
-    },
-    "verbose": 0
-  }
-})"_json;
-
-  std::string macroTemplateHeader = R""""(
-#include <TROOT.h>
-#include <TList.h>
-#include <THnSparse.h>
-#include <TH1D.h>
-#include <ndmspc/PointRun.h>
-#include <ndmspc/Utils.h>
-)"""";
-
-  std::string macroTemplate = R""""(
-{
-  json                     cfg          = pr->Cfg();
-  TList *                  inputList    = pr->GetInputList();
-  THnSparse *              resultObject = pr->GetResultObject();
-  Int_t *                  point        = pr->GetCurrentPoint();
-  std::vector<std::string> pointLabels  = pr->GetCurrentPointLabels();
-  json                     pointValue   = pr->GetCurrentPointValue();
-  TList *                  outputList   = pr->GetOutputList();
-  
-  int verbose = 0;
-  if (!cfg["user"]["verbose"].is_null() && cfg["user"]["verbose"].is_number_integer()) {
-    verbose = cfg["user"]["verbose"].get<int>();
-  }
-  
-  THnSparse * hs = (THnSparse *)inputList->At(0);
-
-  int projId = cfg["user"]["proj"].get<int>();
-  TH1D *      h  = hs->Projection(projId, "O");
-  
-  TString titlePostfix = "(no cuts)";
-  if (cfg["ndmspc"]["projection"]["title"].is_string())
-    titlePostfix = cfg["ndmspc"]["projection"]["title"].get<std::string>();  
-  h->SetNameTitle("h", TString::Format("h - %s", titlePostfix.Data()).Data());
-  outputList->Add(h);
-
-  // Skip bin (do not save any output)
-  if (h->GetEntries() < cfg["user"]["minEntries"].get<int>()) 
-    return false; 
-
-  Double_t integral = h->Integral();
-  if (verbose >= 0)
-    Printf("Integral = %f ", integral);
-
-
-  if (resultObject) {
-     NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Integral", point, integral, TMath::Sqrt(integral), false, true);
-  }
-
-  if (!gROOT->IsBatch() && !cfg["ndmspc"]["process"]["type"].get<std::string>().compare("single")) {
-    h->DrawCopy();
-  }
-
-  return true;
-}
-
-)"""";
-
-  cfg["ndmspc"]["data"]["file"]    = inFile.c_str();
-  cfg["ndmspc"]["data"]["objects"] = {inObjectName.c_str()};
-
-  if (cfg["ndmspc"]["cuts"].size() == 0) {
-    // Generate all axis
-    // {"enabled": false, "axis": "hNSparseAxisName", "bin" : {"min":3, "max": 3}, "rebin":1}
-    TFile * tmpFile = TFile::Open(inFile.c_str());
-    if (!tmpFile) {
-      Printf("Error: Problem opening file '%s' !!! Exiting ...", inFile.c_str());
-      return 1;
-    }
-
-    THnSparse * tmpSparse = (THnSparse *)tmpFile->Get(inObjectName.c_str());
-    if (!tmpSparse) {
-      Printf("Error: Problem opening object '%s' !!! Exiting ...", inObjectName.c_str());
-      return 1;
-    }
-    tmpSparse->ls();
-    TObjArray * axes = tmpSparse->GetListOfAxes();
-    TAxis *     a;
-    for (int i = 0; i < axes->GetEntries(); i++) {
-      a = (TAxis *)axes->At(i);
-      if (!a) continue;
-      // a->Print();
-      Printf("Init axis '%s' with enabled=false", a->GetName());
-      cfg["ndmspc"]["cuts"][i]["enabled"]    = false;
-      cfg["ndmspc"]["cuts"][i]["axis"]       = a->GetName();
-      cfg["ndmspc"]["cuts"][i]["bin"]["min"] = 1;
-      cfg["ndmspc"]["cuts"][i]["bin"]["max"] = 1;
-      cfg["ndmspc"]["cuts"][i]["rebin"]      = 1;
-    }
-
-    tmpFile->Close();
-  }
-
-  std::string   outputConfig = name + ".json";
-  std::ofstream fileConfig(outputConfig.c_str());
-  fileConfig << std::setw(2) << cfg << std::endl;
-
-  std::string   outputMacro = name + ".C";
-  std::ofstream file(outputMacro.c_str());
-  file << macroTemplateHeader.c_str();
-  file << "bool " << name.c_str() << "(NdmSpc::PointRun *pr)";
-  file << macroTemplate.c_str();
-
-  Printf("File '%s.C' and '%s.json' were generated ...", name.c_str(), name.c_str());
-  return true;
-}
-
-bool PointRun::Merge(std::string config, std::string userConfig, std::string fileOpt)
-{
-  ///
-  /// Merge specific projection
-  ///
-  if (config.empty()) {
-    Printf("Error: Config filename is empty !!! Exiting ...");
-    return false;
-  }
-  json        cfg;
-  std::string fileContent = NdmSpc::Utils::OpenRawFile(config);
-  if (!fileContent.empty()) {
-    cfg = json::parse(fileContent);
-    Printf("Using config file '%s' ...", config.c_str());
-
-    if (!userConfig.empty()) {
-      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
-      if (!fileContentUser.empty()) {
-        json userCfg = json::parse(fileContentUser);
-        cfg.merge_patch(userCfg);
-        Printf("Merging user config file '%s' ...", userConfig.c_str());
-      }
-      else {
-        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
-        return false;
-      }
-    }
-  }
-  else {
-    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
-    return false;
-  }
-
-  std::string hostUrl = cfg["ndmspc"]["output"]["host"].get<std::string>();
-  if (hostUrl.empty()) {
-    Printf("Error:  cfg[ndmspc][output][host] is empty!!!");
-    return 2;
-  }
-
-  std::string path = hostUrl + "/" + cfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
-
-  int nDimsCuts = 0;
-  for (auto & cut : cfg["ndmspc"]["cuts"]) {
-    if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-    path += cut["axis"].get<std::string>() + "_";
-    nDimsCuts++;
-  }
-  path[path.size() - 1] = '/';
-  std::string outFile   = path + "results.root";
-
-  path += "bins";
-
-  TUrl        url(path.c_str());
-  std::string outHost        = url.GetHost();
-  std::string inputDirectory = url.GetFile();
-
-  Printf("Doing eos find -f %s", path.c_str());
-
-  std::string contentFile = cfg["ndmspc"]["output"]["file"].get<std::string>();
-  TString     findUrl;
-
-  // Vector of string to save tokens
-  std::vector<std::string> tokens;
-
-  if (!inputDirectory.empty()) {
-    findUrl = TString::Format(
-        "root://%s//proc/user/?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
-        outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
-
-    TFile * f = TFile::Open(findUrl.Data());
-    if (!f) return 1;
-
-    // Printf("%lld", f->GetSize());
-
-    int  buffsize = 4096;
-    char buff[buffsize + 1];
-
-    Long64_t    buffread = 0;
-    std::string content;
-    while (buffread < f->GetSize()) {
-
-      if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
-
-      // Printf("Buff %lld %d", buffread, buffsize);
-      f->ReadBuffer(buff, buffread, buffsize);
-      buff[buffsize] = '\0';
-      content += buff;
-      buffread += buffsize;
-    }
-
-    f->Close();
-
-    std::string ss  = "mgm.proc.stdout=";
-    size_t      pos = ss.size() + 1;
-    content         = content.substr(pos);
-
-    // stringstream class check1
-    std::stringstream check1(content);
-
-    std::string intermediate;
-
-    // Tokenizing w.r.t. space '&'
-    while (getline(check1, intermediate, '&')) {
-      tokens.push_back(intermediate);
-    }
-  }
-  else {
-    tokens.push_back(contentFile.c_str());
-  }
-
-  std::stringstream check2(tokens[0]);
-  std::string       line;
-  std::string       outFileLocal = "/tmp/ndmspc-merged-" + std::to_string(gSystem->GetPid()) + ".root";
-
-  TFileMerger m(kFALSE);
-  m.OutputFile(TString::Format("%s%s", outFileLocal.c_str(), fileOpt.c_str()));
-  // m.AddObjectNames("results");
-  // m.AddObjectNames("content");
-  // Int_t default_mode = TFileMerger::kAll | TFileMerger::kIncremental;
-  // Int_t mode         = default_mode | TFileMerger::kOnlyListed;
-  while (std::getline(check2, line)) {
-
-    Printf("Adding file '%s' ...", line.data());
-    if (!outHost.empty()) {
-      m.AddFile(TString::Format("root://%s/%s", outHost.c_str(), line.c_str()).Data());
-    }
-    else {
-      m.AddFile(line.c_str());
-    }
-  }
-
-  Printf("Merging ...");
-  m.Merge();
-  // m.PartialMerge(mode);
-
-  Printf("Copy '%s' to '%s' ...", outFileLocal.c_str(), outFile.c_str());
-  TFile::Cp(outFileLocal.c_str(), outFile.c_str());
-  std::string rm = "rm -f " + outFileLocal;
-  Printf("Doing '%s' ...", rm.c_str());
-  gSystem->Exec(rm.c_str());
-  Printf("Output: '%s'", outFile.c_str());
-  Printf("Done ...");
-
-  return true;
-}
-
 bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show, std::string outfilename)
 {
   if (!config.empty()) {
@@ -361,6 +65,14 @@ bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show,
   if (!fCfg["ndmspc"]["verbose"].is_null() && fCfg["ndmspc"]["verbose"].is_number_integer())
     fVerbose = fCfg["ndmspc"]["verbose"].get<int>();
 
+  if (!fCfg["ndmspc"]["file"]["cache"].is_null() && fCfg["ndmspc"]["file"]["cache"].is_string()) {
+    std::string cacheDir = fCfg["ndmspc"]["file"]["cache"].get<std::string>();
+    if (!cacheDir.empty()) {
+      Printf("Setting cache directory to '%s' ...", gSystem->ExpandPathName(cacheDir.c_str()));
+      TFile::SetCacheFileDir(gSystem->ExpandPathName(cacheDir.c_str()), 1, 1);
+    }
+  }
+
   if (show) Printf("%s", fCfg.dump(2).c_str());
   if (!outfilename.empty()) {
     std::ofstream file(outfilename.c_str());
@@ -370,6 +82,7 @@ bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show,
   }
   return true;
 }
+
 bool PointRun::Init(std::string extraPath)
 {
   if (fVerbose >= 2) Printf("Ndmspc::PointRun::Init ...");
@@ -1209,4 +922,301 @@ bool PointRun::Run(std::string filename, std::string userConfig, bool show, std:
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::Run");
   return true;
 }
+
+bool PointRun::Generate(std::string name, std::string inFile, std::string inObjectName)
+{
+
+  ///
+  /// Generate point macro and config
+  ///
+
+  Printf("Genrating point run with name '%s' ...", name.c_str());
+  json cfg = R"({
+
+  "user": {
+    "proj": 0,
+    "minEntries": 1,
+    "verbose": 0
+  },
+  "ndmspc": {
+    "data": {
+      "file": "input.root",
+      "objects": ["hNSparse"]
+    },
+    "cuts": [],
+    "result": {
+      "parameters": { "labels": ["Integral"], "default": "Integral" }
+    },
+    "output": {
+      "host": "",
+      "dir": "",
+      "file": "content.root",
+      "opt": "?remote=1"
+    },
+    "process": {
+      "type": "single"
+    },
+    "log": {
+      "type": "error-only",
+      "dir": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/logs"
+    },
+    "job":{
+      "inputs": []
+    },
+    "verbose": 0
+  }
+})"_json;
+
+  std::string macroTemplateHeader = R""""(
+#include <TROOT.h>
+#include <TList.h>
+#include <THnSparse.h>
+#include <TH1D.h>
+#include <ndmspc/PointRun.h>
+#include <ndmspc/Utils.h>
+)"""";
+
+  std::string macroTemplate = R""""(
+{
+  json                     cfg          = pr->Cfg();
+  TList *                  inputList    = pr->GetInputList();
+  THnSparse *              resultObject = pr->GetResultObject();
+  Int_t *                  point        = pr->GetCurrentPoint();
+  std::vector<std::string> pointLabels  = pr->GetCurrentPointLabels();
+  json                     pointValue   = pr->GetCurrentPointValue();
+  TList *                  outputList   = pr->GetOutputList();
+  
+  int verbose = 0;
+  if (!cfg["user"]["verbose"].is_null() && cfg["user"]["verbose"].is_number_integer()) {
+    verbose = cfg["user"]["verbose"].get<int>();
+  }
+  
+  THnSparse * hs = (THnSparse *)inputList->At(0);
+
+  int projId = cfg["user"]["proj"].get<int>();
+  TH1D *      h  = hs->Projection(projId, "O");
+  
+  TString titlePostfix = "(no cuts)";
+  if (cfg["ndmspc"]["projection"]["title"].is_string())
+    titlePostfix = cfg["ndmspc"]["projection"]["title"].get<std::string>();  
+  h->SetNameTitle("h", TString::Format("h - %s", titlePostfix.Data()).Data());
+  outputList->Add(h);
+
+  // Skip bin (do not save any output)
+  if (h->GetEntries() < cfg["user"]["minEntries"].get<int>()) 
+    return false; 
+
+  Double_t integral = h->Integral();
+  if (verbose >= 0)
+    Printf("Integral = %f ", integral);
+
+
+  if (resultObject) {
+     NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Integral", point, integral, TMath::Sqrt(integral), false, true);
+  }
+
+  if (!gROOT->IsBatch() && !cfg["ndmspc"]["process"]["type"].get<std::string>().compare("single")) {
+    h->DrawCopy();
+  }
+
+  return true;
+}
+
+)"""";
+
+  cfg["ndmspc"]["data"]["file"]    = inFile.c_str();
+  cfg["ndmspc"]["data"]["objects"] = {inObjectName.c_str()};
+
+  if (cfg["ndmspc"]["cuts"].size() == 0) {
+    // Generate all axis
+    // {"enabled": false, "axis": "hNSparseAxisName", "bin" : {"min":3, "max": 3}, "rebin":1}
+    TFile * tmpFile = TFile::Open(inFile.c_str());
+    if (!tmpFile) {
+      Printf("Error: Problem opening file '%s' !!! Exiting ...", inFile.c_str());
+      return 1;
+    }
+
+    THnSparse * tmpSparse = (THnSparse *)tmpFile->Get(inObjectName.c_str());
+    if (!tmpSparse) {
+      Printf("Error: Problem opening object '%s' !!! Exiting ...", inObjectName.c_str());
+      return 1;
+    }
+    tmpSparse->ls();
+    TObjArray * axes = tmpSparse->GetListOfAxes();
+    TAxis *     a;
+    for (int i = 0; i < axes->GetEntries(); i++) {
+      a = (TAxis *)axes->At(i);
+      if (!a) continue;
+      // a->Print();
+      Printf("Init axis '%s' with enabled=false", a->GetName());
+      cfg["ndmspc"]["cuts"][i]["enabled"]    = false;
+      cfg["ndmspc"]["cuts"][i]["axis"]       = a->GetName();
+      cfg["ndmspc"]["cuts"][i]["bin"]["min"] = 1;
+      cfg["ndmspc"]["cuts"][i]["bin"]["max"] = 1;
+      cfg["ndmspc"]["cuts"][i]["rebin"]      = 1;
+    }
+
+    tmpFile->Close();
+  }
+
+  std::string   outputConfig = name + ".json";
+  std::ofstream fileConfig(outputConfig.c_str());
+  fileConfig << std::setw(2) << cfg << std::endl;
+
+  std::string   outputMacro = name + ".C";
+  std::ofstream file(outputMacro.c_str());
+  file << macroTemplateHeader.c_str();
+  file << "bool " << name.c_str() << "(NdmSpc::PointRun *pr)";
+  file << macroTemplate.c_str();
+
+  Printf("File '%s.C' and '%s.json' were generated ...", name.c_str(), name.c_str());
+  return true;
+}
+
+bool PointRun::Merge(std::string config, std::string userConfig, std::string fileOpt)
+{
+  ///
+  /// Merge specific projection
+  ///
+  if (config.empty()) {
+    Printf("Error: Config filename is empty !!! Exiting ...");
+    return false;
+  }
+  json        cfg;
+  std::string fileContent = NdmSpc::Utils::OpenRawFile(config);
+  if (!fileContent.empty()) {
+    cfg = json::parse(fileContent);
+    Printf("Using config file '%s' ...", config.c_str());
+
+    if (!userConfig.empty()) {
+      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
+      if (!fileContentUser.empty()) {
+        json userCfg = json::parse(fileContentUser);
+        cfg.merge_patch(userCfg);
+        Printf("Merging user config file '%s' ...", userConfig.c_str());
+      }
+      else {
+        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
+        return false;
+      }
+    }
+  }
+  else {
+    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
+    return false;
+  }
+
+  std::string hostUrl = cfg["ndmspc"]["output"]["host"].get<std::string>();
+  if (hostUrl.empty()) {
+    Printf("Error:  cfg[ndmspc][output][host] is empty!!!");
+    return 2;
+  }
+
+  std::string path = hostUrl + "/" + cfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
+
+  int nDimsCuts = 0;
+  for (auto & cut : cfg["ndmspc"]["cuts"]) {
+    if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+    path += cut["axis"].get<std::string>() + "_";
+    nDimsCuts++;
+  }
+  path[path.size() - 1] = '/';
+  std::string outFile   = path + "results.root";
+
+  path += "bins";
+
+  TUrl        url(path.c_str());
+  std::string outHost        = url.GetHost();
+  std::string inputDirectory = url.GetFile();
+
+  Printf("Doing eos find -f %s", path.c_str());
+
+  std::string contentFile = cfg["ndmspc"]["output"]["file"].get<std::string>();
+  TString     findUrl;
+
+  // Vector of string to save tokens
+  std::vector<std::string> tokens;
+
+  if (!inputDirectory.empty()) {
+    findUrl = TString::Format(
+        "root://%s//proc/user/?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
+        outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
+
+    TFile * f = TFile::Open(findUrl.Data());
+    if (!f) return 1;
+
+    // Printf("%lld", f->GetSize());
+
+    int  buffsize = 4096;
+    char buff[buffsize + 1];
+
+    Long64_t    buffread = 0;
+    std::string content;
+    while (buffread < f->GetSize()) {
+
+      if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
+
+      // Printf("Buff %lld %d", buffread, buffsize);
+      f->ReadBuffer(buff, buffread, buffsize);
+      buff[buffsize] = '\0';
+      content += buff;
+      buffread += buffsize;
+    }
+
+    f->Close();
+
+    std::string ss  = "mgm.proc.stdout=";
+    size_t      pos = ss.size() + 1;
+    content         = content.substr(pos);
+
+    // stringstream class check1
+    std::stringstream check1(content);
+
+    std::string intermediate;
+
+    // Tokenizing w.r.t. space '&'
+    while (getline(check1, intermediate, '&')) {
+      tokens.push_back(intermediate);
+    }
+  }
+  else {
+    tokens.push_back(contentFile.c_str());
+  }
+
+  std::stringstream check2(tokens[0]);
+  std::string       line;
+  std::string       outFileLocal = "/tmp/ndmspc-merged-" + std::to_string(gSystem->GetPid()) + ".root";
+
+  TFileMerger m(kFALSE);
+  m.OutputFile(TString::Format("%s%s", outFileLocal.c_str(), fileOpt.c_str()));
+  // m.AddObjectNames("results");
+  // m.AddObjectNames("content");
+  // Int_t default_mode = TFileMerger::kAll | TFileMerger::kIncremental;
+  // Int_t mode         = default_mode | TFileMerger::kOnlyListed;
+  while (std::getline(check2, line)) {
+
+    Printf("Adding file '%s' ...", line.data());
+    if (!outHost.empty()) {
+      m.AddFile(TString::Format("root://%s/%s", outHost.c_str(), line.c_str()).Data());
+    }
+    else {
+      m.AddFile(line.c_str());
+    }
+  }
+
+  Printf("Merging ...");
+  m.Merge();
+  // m.PartialMerge(mode);
+
+  Printf("Copy '%s' to '%s' ...", outFileLocal.c_str(), outFile.c_str());
+  TFile::Cp(outFileLocal.c_str(), outFile.c_str());
+  std::string rm = "rm -f " + outFileLocal;
+  Printf("Doing '%s' ...", rm.c_str());
+  gSystem->Exec(rm.c_str());
+  Printf("Output: '%s'", outFile.c_str());
+  Printf("Done ...");
+
+  return true;
+}
+
 } // namespace NdmSpc
