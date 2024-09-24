@@ -8,7 +8,7 @@ BEING_STRICT=false
 BUILDING_DOC=false
 RUNNING_TEST=false
 
-PRINT_DEBUG=false
+PRINT_DEBUG=${PRINT_DEBUG-false}
 MY_CMAKE_OPTS=""
 MY_MAKE_OPTS=""
 MY_BUILDSYS="make"
@@ -115,6 +115,7 @@ then
 	echo "Cannot use strict mode without Clang compiler! Exiting..."
 	exit 2
 fi
+[ -z $MY_CMAKE_OPTS ] && MY_CMAKE_OPTS="-DCMAKE_BUILD_TYPE=Debug"
 
 if [[ $BUILDING_DOC == true ]]
 then

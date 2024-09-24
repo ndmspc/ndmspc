@@ -87,7 +87,9 @@ WARN_FORMAT = "$file:$line: $text"
 WARN_LOGFILE =
 WARN_AS_ERROR = @DOXYGEN_WARN_AS_ERROR@
 INPUT = @doxy_main_page@ \
-        @PROJECT_SOURCE_DIR@/NDH \
+        @PROJECT_SOURCE_DIR@/Core \
+        @PROJECT_SOURCE_DIR@/Event \
+        @PROJECT_SOURCE_DIR@/Ndh \
         @PROJECT_SOURCE_DIR@/src
 INPUT_ENCODING = UTF-8
 FILE_PATTERNS = *.h *.hh *.c *.cc *.cpp *.cxx
