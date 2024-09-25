@@ -85,7 +85,6 @@ class PointRun : public TObject {
   TList * OpenInputs();
   THnSparse * CreateResult();
   bool        ApplyCuts();
-  void        NdmspcRebinBins(int & min, int & max, int rebin = 1);
 
   int  ProcessSingleFile();
   bool ProcessSinglePoint();

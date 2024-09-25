@@ -1,0 +1,13 @@
+{
+  "ndmspc": {
+    "data": {
+      "histogram": {
+        "enabled": false
+      }
+    },
+    "process": {
+      "type": "all"
+    },
+    "verbose": 0
+  }
+}

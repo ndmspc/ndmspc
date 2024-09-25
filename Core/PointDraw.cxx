@@ -45,28 +45,12 @@ int PointDraw::Draw(std::string config, std::string userConfig)
 
   TH1::AddDirectory(kFALSE);
 
-  json        fCfg;
-  std::string fileContent = NdmSpc::Utils::OpenRawFile(config);
-  if (!fileContent.empty()) {
-    fCfg = json::parse(fileContent);
-    Printf("Using config file '%s' ...", config.c_str());
-    if (!userConfig.empty()) {
-      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
-      if (!fileContentUser.empty()) {
-        json userCfg = json::parse(fileContentUser);
-        fCfg.merge_patch(userCfg);
-        Printf("Merging user config file '%s' ...", userConfig.c_str());
-      }
-      else {
-        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
-        return 1;
-      }
-    }
-  }
-  else {
-    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
-    return 1;
-  }
+  json fCfg = Utils::LoadConfig(config, userConfig);
+
+  bool histogramEnabled = false;
+  if (!fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() ||
+      fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_boolean())
+    histogramEnabled = fCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>();
 
   std::string hostUrl = fCfg["ndmspc"]["output"]["host"].get<std::string>();
   if (hostUrl.empty()) {
@@ -106,7 +90,6 @@ int PointDraw::Draw(std::string config, std::string userConfig)
     Printf("Error: 'mapAxesType' histogram was not found !!!");
     return 4;
   }
-
   for (int iDim = 0; iDim < fResultHnSparse->GetNdimensions(); iDim++) fParameterPoint.push_back(-1);
 
   if (fCurrentParameterName.empty()) {
@@ -132,7 +115,8 @@ int PointDraw::Draw(std::string config, std::string userConfig)
 
   int nAxisX     = fResultHnSparse->GetNdimensions();
   int nAxisY     = fResultHnSparse->GetAxis(0)->GetNbins();
-  int pointsSize = fCfg["ndmspc"]["result"]["axes"].size() + fCfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
+  int pointsSize = fCfg["ndmspc"]["result"]["axes"].size() + 1;
+  if (histogramEnabled) pointsSize += fCfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
   int points[pointsSize];
   int iPoint       = 0;
   points[iPoint++] = nAxisY;
@@ -141,7 +125,7 @@ int PointDraw::Draw(std::string config, std::string userConfig)
   fMapTitle      = fCurrentParameterName + " [";
   json axesArray = fCfg["ndmspc"]["result"]["axes"];
   int  idTmp;
-  bool isDataSys = true;
+  bool isDataSys = false;
   bool hasDataMc = false;
   for (int iAxis = iAxisStart; iAxis < fResultHnSparse->GetNdimensions(); iAxis++) {
     idBin                = 1;
@@ -157,7 +141,8 @@ int PointDraw::Draw(std::string config, std::string userConfig)
         idBin = fCfg["ndmspc"]["result"]["data"]["defaults"][idTmp].get<int>();
       }
       else {
-        idTmp = iAxis - iAxisStart - fCfg["ndmspc"]["result"]["data"]["defaults"].size() - fNDimCuts;
+        idTmp = iAxis - iAxisStart - fNDimCuts;
+        if (histogramEnabled) idTmp -= fCfg["ndmspc"]["result"]["data"]["defaults"].size();
         idBin = axesArray[idTmp]["default"].get<int>() + 1;
       }
     }

@@ -8,6 +8,7 @@
 namespace NdmSpc {
 using std::ifstream;
 
+json        Utils::fCfg;
 std::string Utils::OpenRawFile(std::string filename)
 {
   std::string content;
@@ -51,6 +52,50 @@ TMacro * Utils::OpenMacro(std::string filename)
   m->SetName(basefilename.c_str());
   m->AddLine(content.c_str());
   return m;
+}
+json & Utils::LoadConfig(std::string config, std::string userConfig)
+{
+  std::string fileContent = OpenRawFile(config);
+  if (!fileContent.empty()) {
+    fCfg = json::parse(fileContent);
+    Printf("Using config file '%s' ...", config.c_str());
+    if (!userConfig.empty()) {
+      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
+      if (!fileContentUser.empty()) {
+        json userCfg = json::parse(fileContentUser);
+        fCfg.merge_patch(userCfg);
+        Printf("Merging user config file '%s' ...", userConfig.c_str());
+      }
+      else {
+        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
+        return fCfg;
+      }
+    }
+  }
+  else {
+    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
+    return fCfg;
+  }
+
+  return fCfg;
+}
+void Utils::RebinBins(int & min, int & max, int rebin)
+
+{
+  ///
+  /// Rebin bins
+  ///
+
+  Int_t binMin  = min;
+  Int_t binMax  = max;
+  Int_t binDiff = binMax - binMin;
+
+  if (rebin > 1) {
+    binMin = 1 + ((binMin - 1) * rebin);
+    binMax = ((binMin - 1) + rebin * (binDiff + 1));
+  }
+  min = binMin;
+  max = binMax;
 }
 
 int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,
