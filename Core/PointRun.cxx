@@ -3,12 +3,12 @@
 #include <sstream>
 #include <TFileMerger.h>
 #include <TString.h>
-#include <Utils.h>
 #include <TMacro.h>
 #include <TROOT.h>
 #include <TH1.h>
 #include <TSystem.h>
 #include <THnSparse.h>
+#include "Utils.h"
 #include "PointRun.h"
 
 /// \cond CLASSIMP
@@ -36,31 +36,11 @@ PointRun::~PointRun()
 
 bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show, std::string outfilename)
 {
-  if (!config.empty()) {
-    std::string fileContent = NdmSpc::Utils::OpenRawFile(config);
-    if (!fileContent.empty()) {
-      json cfgJson = json::parse(fileContent);
-      fCfg.merge_patch(cfgJson);
-      Printf("Using config file '%s' ...", config.c_str());
+  ///
+  /// Load config and set default PointRun parameters
+  ///
 
-      if (!userConfig.empty()) {
-        std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
-        if (!fileContentUser.empty()) {
-          json userCfg = json::parse(fileContentUser);
-          fCfg.merge_patch(userCfg);
-          Printf("Merging user config file '%s' ...", userConfig.c_str());
-        }
-        else {
-          Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
-          return false;
-        }
-      }
-    }
-    else {
-      Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
-      return false;
-    }
-  }
+  fCfg = Utils::LoadConfig(config, userConfig);
 
   if (!fCfg["ndmspc"]["verbose"].is_null() && fCfg["ndmspc"]["verbose"].is_number_integer())
     fVerbose = fCfg["ndmspc"]["verbose"].get<int>();
@@ -74,6 +54,7 @@ bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show,
   }
 
   if (show) Printf("%s", fCfg.dump(2).c_str());
+
   if (!outfilename.empty()) {
     std::ofstream file(outfilename.c_str());
     file << fCfg;
@@ -85,6 +66,10 @@ bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show,
 
 bool PointRun::Init(std::string extraPath)
 {
+  ///
+  /// Init
+  ///
+
   if (fVerbose >= 2) Printf("Ndmspc::PointRun::Init ...");
   if (!fCfg["ndmspc"]["process"]["type"].get<std::string>().compare("all") &&
       fCfg["ndmspc"]["process"]["ranges"].is_null() &&
@@ -130,6 +115,9 @@ bool PointRun::Init(std::string extraPath)
 
 TList * PointRun::OpenInputs()
 {
+  ///
+  /// Open Input objects
+  ///
 
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::OpenInputs");
 
@@ -212,6 +200,10 @@ TList * PointRun::OpenInputs()
 
 THnSparse * PointRun::CreateResult()
 {
+  ///
+  /// Create result object
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::CreateResult fResultObject=%p", (void *)fResultObject);
 
   if (fResultObject) return fResultObject;
@@ -400,23 +392,6 @@ THnSparse * PointRun::CreateResult()
   return fres;
 }
 
-void PointRun::NdmspcRebinBins(int & min, int & max, int rebin)
-{
-
-  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::NdmspcRebinBins");
-  Int_t binMin  = min;
-  Int_t binMax  = max;
-  Int_t binDiff = binMax - binMin;
-
-  if (rebin > 1) {
-    binMin = 1 + ((binMin - 1) * rebin);
-    binMax = ((binMin - 1) + rebin * (binDiff + 1));
-  }
-  min = binMin;
-  max = binMax;
-
-  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::NdmspcRebinBins");
-}
 bool PointRun::ApplyCuts()
 {
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ApplyCuts");
@@ -458,7 +433,7 @@ bool PointRun::ApplyCuts()
       Int_t binMin = cut["bin"]["min"].get<Int_t>();
       Int_t binMax = cut["bin"]["max"].get<Int_t>();
 
-      NdmspcRebinBins(binMin, binMax, rebin);
+      NdmSpc::Utils::RebinBins(binMin, binMax, rebin);
 
       s->GetAxis(id)->SetRange(binMin, binMax);
 
