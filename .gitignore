@@ -32,6 +32,7 @@
 *.par
 
 build
+out
 include
 bin
 lib

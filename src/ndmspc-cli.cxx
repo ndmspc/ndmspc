@@ -90,7 +90,6 @@ int main(int argc, char ** argv)
   if (getenv("NDMSPC_POINT_MACRO")) {
     if (macroFileName.empty()) macroFileName = getenv("NDMSPC_POINT_MACRO");
   }
-
   if (getenv("NDMSPC_BROWSER_FILE")) {
     if (fileName.empty()) fileName = getenv("NDMSPC_BROWSER_FILE");
   }
