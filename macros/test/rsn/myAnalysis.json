@@ -154,6 +154,7 @@
     },
     "minEntries": 1000,
     "proj": 0,
+    "events": -1,
     "verbose": 0
   }
 }

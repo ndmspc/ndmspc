@@ -14,10 +14,14 @@
 using json = nlohmann::json;
 
 TList * _currentFunctions = nullptr;
-// void    NdmspcOpenInputsUser(json * cfg, TFile * inputFile)
-// {
-//   Printf("Executing NdmspcOpenInputsUser ...");
-// }
+void    NdmspcOpenInputsUser(NdmSpc::PointRun * pr)
+{
+  json &  cfg = *pr->CfgPtr();
+  TFile * fIn = pr->GetInputFile();
+
+  // Printf("Executing NdmspcOpenInputsUser ...");
+  // cfg["user"]["events"] = 1000;
+}
 
 TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFunctions = false);
 bool    ProcessFit(json & cfg, TH1 * peak, int verbose = 0);
@@ -31,6 +35,8 @@ bool    RsnPhiPointMacro(NdmSpc::PointRun * pr)
   std::vector<std::string> pointLabels  = pr->GetCurrentPointLabels();
   json                     pointValue   = pr->GetCurrentPointValue();
   TList *                  outputList   = pr->GetOutputList();
+
+  // Printf("Events: %d", cfg["user"]["events"].get<int>());
 
   int projectionId = cfg["user"]["proj"].get<int>();
 

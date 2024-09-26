@@ -195,7 +195,7 @@ TList * PointRun::OpenInputs()
 
   TFunction * fun = gROOT->GetGlobalFunction("NdmspcOpenInputsUser", nullptr, kTRUE);
   if (fun) {
-    gROOT->ProcessLine(TString::Format("NdmspcOpenInputsUser((json*)%p,(TFile*)%p),", &fCfg, fInputFile));
+    gROOT->ProcessLine(TString::Format("NdmspcOpenInputsUser((NdmSpc::PointRun*)%p),", this));
   }
 
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::OpenInputs");
