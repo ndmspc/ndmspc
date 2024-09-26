@@ -71,8 +71,8 @@ int main(int argc, char ** argv)
 
   CLI::App * browser_hnsparse = browser->add_subcommand("hnsparse", "HnSparse browser");
   browser_hnsparse->add_option("-f,--file", fileName, "Input file");
-  browser_hnsparse->add_option("-o,--object", objectName, "Input objects");
-  browser_hnsparse->add_option("-t,--token", directoryToken, "Directory token");
+  browser_hnsparse->add_option("-o,--objects", objectName, "Input objects");
+  browser_hnsparse->add_option("-t,--token", directoryToken, "Directory token (default: '/')");
 
   CLI11_PARSE(app, argc, argv);
   if (getenv("NDMSPC_POINT_NAME")) {
