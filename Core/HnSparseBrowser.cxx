@@ -1,3 +1,4 @@
+<sstream>
 #include <TString.h>
 #include <TApplication.h>
 #include <TCanvas.h>
@@ -8,7 +9,6 @@
 #include <TCanvas.h>
 #include <TGrid.h>
 #include <THnSparse.h>
-#include "ROOT/RConfig.hxx"
 #include "HnSparseBrowser.h"
 
 /// \cond CLASSIMP
