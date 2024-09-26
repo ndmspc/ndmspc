@@ -101,7 +101,7 @@ bool PointRun::Init(std::string extraPath)
               .Data();
 
       if (fVerbose >= 2) Printf("rmUrl '%s' ...", rmUrl.c_str());
-      TFile * f = TFile::Open(rmUrl.c_str());
+      TFile * f = NdmSpc::Utils::OpenFile(rmUrl.c_str());
       if (!f) return 1;
       Printf("Directory '%s' deleted", outFileName.c_str());
       f->Close();
@@ -128,7 +128,7 @@ TList * PointRun::OpenInputs()
     return nullptr;
   }
   if (fVerbose >= 0) Printf("Opening file '%s' ...", fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
-  fInputFile = TFile::Open(fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+  fInputFile = NdmSpc::Utils::OpenFile(fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
   if (!fInputFile) {
     Printf("Error: Cannot open file '%s' !", fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
     return nullptr;
@@ -702,7 +702,7 @@ void PointRun::OutputFileOpen()
   if (!fCfg["ndmspc"]["output"]["file"].get<std::string>().empty())
     fCurrentOutputFileName += fCfg["ndmspc"]["output"]["file"].get<std::string>().c_str();
 
-  fCurrentOutputFile = TFile::Open(TString::Format("%s%s", fCurrentOutputFileName.c_str(),
+  fCurrentOutputFile = NdmSpc::Utils::OpenFile(TString::Format("%s%s", fCurrentOutputFileName.c_str(),
                                                    fCfg["ndmspc"]["output"]["opt"].get<std::string>().c_str())
                                        .Data(),
                                    "RECREATE");
@@ -806,7 +806,7 @@ int PointRun::ProcessHistogramRun()
   std::string fileNameHistogram = fCfg["ndmspc"]["data"]["histogram"]["file"].get<std::string>();
   std::string objName           = fCfg["ndmspc"]["data"]["histogram"]["obj"].get<std::string>();
 
-  TFile * fProccessHistogram = TFile::Open(fileNameHistogram.c_str());
+  TFile * fProccessHistogram = NdmSpc::Utils::OpenFile(fileNameHistogram.c_str());
   if (!fProccessHistogram) {
     Printf("Error: Proccess input histogram file '%s' could not opened !!!", fileNameHistogram.c_str());
     return 1;
@@ -1005,7 +1005,7 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   if (cfg["ndmspc"]["cuts"].size() == 0) {
     // Generate all axis
     // {"enabled": false, "axis": "hNSparseAxisName", "bin" : {"min":3, "max": 3}, "rebin":1}
-    TFile * tmpFile = TFile::Open(inFile.c_str());
+    TFile * tmpFile = NdmSpc::Utils::OpenFile(inFile.c_str());
     if (!tmpFile) {
       Printf("Error: Problem opening file '%s' !!! Exiting ...", inFile.c_str());
       return 1;
@@ -1117,7 +1117,7 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string fil
         "root://%s//proc/user/?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
         outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
 
-    TFile * f = TFile::Open(findUrl.Data());
+    TFile * f = NdmSpc::Utils::OpenFile(findUrl.Data());
     if (!f) return 1;
 
     // Printf("%lld", f->GetSize());

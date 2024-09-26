@@ -1,6 +1,7 @@
 #ifndef NdmspcCoreUtils_H
 #define NdmspcCoreUtils_H
 
+#include <TFile.h>
 #include <TAxis.h>
 #include <TMacro.h>
 #include <THnSparse.h>
@@ -11,6 +12,7 @@ using json = nlohmann::json;
 namespace NdmSpc {
 class Utils {
   public:
+  static TFile *     OpenFile(std::string filename, std::string mode = "READ", bool createLocalDir = true);
   static std::string OpenRawFile(std::string filename);
   static TMacro *    OpenMacro(std::string filename);
   static json &      LoadConfig(std::string config, std::string userConfig);
