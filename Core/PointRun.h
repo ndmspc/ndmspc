@@ -26,6 +26,8 @@ class PointRun : public TObject {
 
   bool        Run(std::string filename, std::string userConfig = "", bool show = false, std::string outfilename = "");
   json &      Cfg() { return fCfg; }
+  json *      CfgPtr() { return &fCfg; }
+  TFile *     GetInputFile() const { return fInputFile; }
   TList *     GetInputList() const { return fInputList; }
   THnSparse * GetResultObject() const { return fResultObject; }
   Int_t *     GetCurrentPoint() { return fCurrentPoint; }
