@@ -1,0 +1,21 @@
+{
+  "ndmspc": {
+    "data": {
+      "histogram": {
+        "enabled": false
+      }
+    },
+    "process": {
+      "type": "all"
+    },
+    "output": {
+      "dir": "/tmp/eos/ndmspc/scratch/temp/ndmspc/myAnalysis",
+      "file": "content.root",
+      "host": "",
+      "opt": "",
+      "delete": "onInit"
+    },
+
+    "verbose": 0
+  }
+}

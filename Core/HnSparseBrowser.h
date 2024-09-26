@@ -16,7 +16,7 @@ namespace NdmSpc {
 ///
 /// \class PointRun
 ///
-/// \brief PointRun fInputObjects
+/// \brief PointRun objects
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
@@ -25,11 +25,10 @@ class HnSparseBrowser : public TObject {
   HnSparseBrowser();
   virtual ~HnSparseBrowser();
 
-  int Draw(
-      std::string fInputFileName =
-          "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/222580/AnalysisResults.root",
-      std::string fInputObjects   = "phianalysis-t-hn-sparse_default/unlikepm,phianalysis-t-hn-sparse_default/likepp",
-      std::string fDirectoryToken = "/");
+  int Draw(std::string filename =
+               "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/222580/AnalysisResults.root",
+           std::string objects  = "phianalysis-t-hn-sparse_default/unlikepm,phianalysis-t-hn-sparse_default/likepp",
+           std::string dirtoken = "/");
 
   protected:
   THnSparse * fInputHnSparse{nullptr};

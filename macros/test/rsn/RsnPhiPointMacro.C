@@ -14,6 +14,10 @@
 using json = nlohmann::json;
 
 TList * _currentFunctions = nullptr;
+// void    NdmspcOpenInputsUser(json * cfg, TFile * inputFile)
+// {
+//   Printf("Executing NdmspcOpenInputsUser ...");
+// }
 
 TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFunctions = false);
 bool    ProcessFit(json & cfg, TH1 * peak, int verbose = 0);
