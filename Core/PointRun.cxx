@@ -191,9 +191,14 @@ TList * PointRun::OpenInputs()
                fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
       // return nullptr;
     }
-
-    if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::OpenInputs");
   }
+
+  TFunction * fun = gROOT->GetGlobalFunction("NdmspcOpenInputsUser", nullptr, kTRUE);
+  if (fun) {
+    gROOT->ProcessLine(TString::Format("NdmspcOpenInputsUser((json*)%p,(TFile*)%p),", &fCfg, fInputFile));
+  }
+
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::OpenInputs");
 
   return fInputList;
 }
@@ -702,10 +707,11 @@ void PointRun::OutputFileOpen()
   if (!fCfg["ndmspc"]["output"]["file"].get<std::string>().empty())
     fCurrentOutputFileName += fCfg["ndmspc"]["output"]["file"].get<std::string>().c_str();
 
-  fCurrentOutputFile = NdmSpc::Utils::OpenFile(TString::Format("%s%s", fCurrentOutputFileName.c_str(),
-                                                   fCfg["ndmspc"]["output"]["opt"].get<std::string>().c_str())
-                                       .Data(),
-                                   "RECREATE");
+  fCurrentOutputFile =
+      NdmSpc::Utils::OpenFile(TString::Format("%s%s", fCurrentOutputFileName.c_str(),
+                                              fCfg["ndmspc"]["output"]["opt"].get<std::string>().c_str())
+                                  .Data(),
+                              "RECREATE");
   // _currentOutputFile->cd();
 
   fCurrentOutputFile->mkdir("content");

@@ -34,7 +34,7 @@ HnSparseBrowser::~HnSparseBrowser()
   SafeDelete(fListOfHnSparses);
 }
 
-int HnSparseBrowser::Draw(std::string fInputFileName, std::string fInputObjects, std::string fDirectoryToken)
+int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string dirtoken)
 {
   ///
   /// Draw
@@ -43,47 +43,47 @@ int HnSparseBrowser::Draw(std::string fInputFileName, std::string fInputObjects,
   TApplication app("app", nullptr, nullptr);
   TH1::AddDirectory(false);
 
-  std::vector<std::string> objects;
+  std::vector<std::string> objectList;
   std::vector<std::string> labels;
-  std::stringstream        ss(fInputObjects);
+  std::stringstream        ss(objects);
   std::string              label;
   char                     delimiter = ',';
 
-  if (fInputFileName.rfind("alien://", 0) == 0) {
+  if (filename.rfind("alien://", 0) == 0) {
     TGrid::Connect("alien://");
   }
   while (std::getline(ss, label, delimiter)) {
-    objects.push_back(label);
+    objectList.push_back(label);
   }
 
   // for (const auto & o : objects) {
   //   Printf("%s", o.c_str());
   // }
 
-  Printf("Opening file '%s' ...", fInputFileName.c_str());
-  TFile * inputFile = NdmSpc::Utils::OpenFile(fInputFileName.c_str());
+  Printf("Opening file '%s' ...", filename.c_str());
+  TFile * inputFile = NdmSpc::Utils::OpenFile(filename.c_str());
   if (!inputFile) {
-    Printf("Error: Cannot open fInputFileName %s!", fInputFileName.c_str());
+    Printf("Error: Cannot open filename %s!", filename.c_str());
     return 2;
   }
 
-  for (int i = 0; i < objects.size(); i++) {
-    std::string objTemp = objects[i].c_str();
+  for (int i = 0; i < objectList.size(); i++) {
+    std::string objTemp = objectList[i].c_str();
     Printf("Object : %s", objTemp.c_str());
-    size_t pos = objTemp.find(fDirectoryToken);
-    labels.push_back(objTemp.substr(pos + fDirectoryToken.length()));
+    size_t pos = objTemp.find(dirtoken);
+    labels.push_back(objTemp.substr(pos + dirtoken.length()));
   }
 
-  fInputHnSparse = (THnSparse *)inputFile->Get(objects[0].c_str());
+  fInputHnSparse = (THnSparse *)inputFile->Get(objectList[0].c_str());
   if (!fInputHnSparse) {
-    Printf("Error: Cannot find fInputObjects %s!", objects[0].c_str());
+    Printf("Error: Cannot find objects %s!", objectList[0].c_str());
     return 3;
   }
 
   TObjArray * listOfAxes = fInputHnSparse->GetListOfAxes();
   int         nDim       = listOfAxes->GetEntries();
 
-  TH2 * hAxes = new TH2D("hAxes", "Sparse Axes", nDim, 0., nDim, objects.size(), 0., objects.size());
+  TH2 * hAxes = new TH2D("hAxes", "Sparse Axes", nDim, 0., nDim, objectList.size(), 0., objectList.size());
   hAxes->SetMinimum(0);
   hAxes->SetMaximum(1);
 
@@ -96,8 +96,8 @@ int HnSparseBrowser::Draw(std::string fInputFileName, std::string fInputObjects,
   }
 
   for (int i = 0; i < objects.size(); i++) {
-    if (fDirectoryToken.empty())
-      hAxes->GetYaxis()->SetBinLabel(i + 1, objects[i].c_str());
+    if (dirtoken.empty())
+      hAxes->GetYaxis()->SetBinLabel(i + 1, objectList[i].c_str());
     else
       hAxes->GetYaxis()->SetBinLabel(i + 1, labels[i].c_str());
   }
@@ -107,9 +107,9 @@ int HnSparseBrowser::Draw(std::string fInputFileName, std::string fInputObjects,
   hAxes->SetStats(0);
   THnSparse * sparseTmp = nullptr;
   for (int i = 0; i < objects.size(); i++) {
-    sparseTmp = (THnSparse *)inputFile->Get(objects[i].c_str());
+    sparseTmp = (THnSparse *)inputFile->Get(objectList[i].c_str());
     if (!sparseTmp) {
-      Printf("Error: Cannot find fInputObjects %s!", objects[i].c_str());
+      Printf("Error: Cannot find objects %s!", objectList[i].c_str());
       continue;
     }
     fListOfHnSparses->Add(sparseTmp);
