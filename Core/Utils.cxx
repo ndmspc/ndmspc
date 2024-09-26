@@ -8,7 +8,37 @@
 namespace NdmSpc {
 using std::ifstream;
 
-json        Utils::fCfg;
+/// Global configuration
+json Utils::fCfg;
+
+TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocalDir)
+{
+  ///
+  /// Open root file and create directory when needed in local case
+  ///
+
+  if (createLocalDir) {
+    if (!mode.compare("RECREATE") || !mode.compare("UPDATE") || !mode.compare("WRITE")) {
+
+      TString filenameT(filename.c_str());
+      bool    isLocalFile = filenameT.BeginsWith("file://");
+      if (isLocalFile)
+        // Remove file:// prefix
+        filenameT.Remove(0, 7);
+      else {
+        isLocalFile = !filenameT.Contains("://");
+      }
+
+      if (isLocalFile) {
+        std::string filenameLocal = gSystem->ExpandPathName(filename.c_str());
+        Printf("NdmSpc::Utils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
+        gSystem->mkdir(gSystem->ExpandPathName(filenameLocal.c_str()), kTRUE);
+      }
+    }
+  }
+  return TFile::Open(filename.c_str(), mode.c_str());
+}
+
 std::string Utils::OpenRawFile(std::string filename)
 {
   std::string content;
@@ -160,4 +190,5 @@ std::vector<std::string> Utils::Tokenize(std::string_view input, const char deli
 
   return out;
 }
+
 } // namespace NdmSpc

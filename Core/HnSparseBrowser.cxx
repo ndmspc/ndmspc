@@ -9,6 +9,7 @@
 #include <TCanvas.h>
 #include <TGrid.h>
 #include <THnSparse.h>
+#include "Utils.h"
 #include "HnSparseBrowser.h"
 
 /// \cond CLASSIMP
@@ -60,7 +61,7 @@ int HnSparseBrowser::Draw(std::string fInputFileName, std::string fInputObjects,
   // }
 
   Printf("Opening file '%s' ...", fInputFileName.c_str());
-  TFile * inputFile = TFile::Open(fInputFileName.c_str());
+  TFile * inputFile = NdmSpc::Utils::OpenFile(fInputFileName.c_str());
   if (!inputFile) {
     Printf("Error: Cannot open fInputFileName %s!", fInputFileName.c_str());
     return 2;
