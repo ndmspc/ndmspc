@@ -30,9 +30,11 @@ TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocal
       }
 
       if (isLocalFile) {
-        std::string filenameLocal = gSystem->ExpandPathName(filename.c_str());
+        TUrl url(filenameT);
+
+        std::string filenameLocal = gSystem->ExpandPathName(gSystem->GetDirName(url.GetFile()));
         Printf("NdmSpc::Utils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
-        gSystem->mkdir(gSystem->ExpandPathName(filenameLocal.c_str()), kTRUE);
+        gSystem->mkdir(filenameLocal.c_str(), kTRUE);
       }
     }
   }

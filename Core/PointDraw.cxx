@@ -14,6 +14,7 @@ ClassImp(NdmSpc::PointDraw);
 /// \endcond
 
 namespace NdmSpc {
+std::string PointDraw::fgEnvironment = "";
 PointDraw::PointDraw() : TObject()
 
 {
@@ -52,13 +53,27 @@ int PointDraw::Draw(std::string config, std::string userConfig)
       fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_boolean())
     histogramEnabled = fCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>();
 
-  std::string hostUrl = fCfg["ndmspc"]["output"]["host"].get<std::string>();
-  if (hostUrl.empty()) {
-    Printf("Error:  fCfg[ndmspc][output][host] is empty!!!");
-    return 2;
+  if (!fgEnvironment.empty()) fCfg["ndmspc"]["output"]["environment"] = fgEnvironment;
+  if (fCfg["ndmspc"]["output"]["environment"].is_string() &&
+      !fCfg["ndmspc"]["output"]["environment"].get<std::string>().empty()) {
+    std::string              environment = fCfg["ndmspc"]["output"]["environment"].get<std::string>();
+    std::vector<std::string> keys        = {"host", "dir", "file", "opt", "delete"};
+    for (auto & key : keys) {
+      if (fCfg["ndmspc"]["output"]["environments"][environment][key].is_string()) {
+        fCfg["ndmspc"]["output"][key] = fCfg["ndmspc"]["output"]["environments"][environment][key];
+      }
+    }
   }
 
-  std::string path = hostUrl + "/" + fCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
+  std::string hostUrl = fCfg["ndmspc"]["output"]["host"].get<std::string>();
+  // if (hostUrl.empty()) {
+  //   Printf("Error:  fCfg[ndmspc][output][host] is empty!!!");
+  //   return 2;
+  // }
+
+  std::string path;
+  if (!hostUrl.empty()) path = hostUrl + "/";
+  path += fCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
 
   for (auto & cut : fCfg["ndmspc"]["cuts"]) {
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
@@ -125,11 +140,12 @@ int PointDraw::Draw(std::string config, std::string userConfig)
   fMapTitle      = fCurrentParameterName + " [";
   json axesArray = fCfg["ndmspc"]["result"]["axes"];
   int  idTmp;
-  bool isDataSys = false;
+  bool isDataSys = true;
   bool hasDataMc = false;
   for (int iAxis = iAxisStart; iAxis < fResultHnSparse->GetNdimensions(); iAxis++) {
     idBin                = 1;
     std::string axisType = fMapAxesType->GetXaxis()->GetBinLabel(iAxis + 1);
+    // Printf("Axis: %d [%s]", iAxis, axisType.c_str());
     if (!hasDataMc) hasDataMc = !axisType.compare("data");
     if (!axisType.compare("proj")) {
       isDataSys = false;
@@ -143,6 +159,7 @@ int PointDraw::Draw(std::string config, std::string userConfig)
       else {
         idTmp = iAxis - iAxisStart - fNDimCuts;
         if (histogramEnabled) idTmp -= fCfg["ndmspc"]["result"]["data"]["defaults"].size();
+        // Printf("%s %d", axesArray.dump().c_str(), idTmp);
         idBin = axesArray[idTmp]["default"].get<int>() + 1;
       }
     }

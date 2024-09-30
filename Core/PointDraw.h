@@ -41,15 +41,17 @@ class PointDraw : public TObject {
   std::vector<int>         fDataId{};
   std::vector<std::string> fMc{};
   std::vector<int>         fMcId{};
+  static std::string       fgEnvironment;
 
   public:
-  void HighlightMain(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
-  void HighlightParam(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
-  void HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
-  void HighlightProjectionPoint(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
-  void UpdateRanges();
-  void DrawProjections();
-  void DrawUser();
+  void        HighlightMain(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
+  void        HighlightParam(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
+  void        HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
+  void        HighlightProjectionPoint(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
+  void        UpdateRanges();
+  void        DrawProjections();
+  void        DrawUser();
+  static void SetEnvironment(std::string env) { fgEnvironment = env; }
 
   /// \cond CLASSIMP
   ClassDef(PointDraw, 1);

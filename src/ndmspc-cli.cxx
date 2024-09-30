@@ -34,6 +34,7 @@ int main(int argc, char ** argv)
   std::string userConfigFileName = "";
   std::string macroFileName      = "";
   std::string directoryToken     = "";
+  std::string environement       = "";
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
@@ -53,18 +54,21 @@ int main(int argc, char ** argv)
   point_run->add_option("-c,--config", configFileName, "Config file name");
   point_run->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
+  point_run->add_option("-e,--environement", environement, "environement");
 
   CLI::App * point_merge = point->add_subcommand("merge", "Point merge");
   point_merge->add_option("-n,--name", name, "Name");
   point_merge->add_option("-d,--basedir", basedir, "Base dir");
   point_merge->add_option("-c,--config", configFileName, "Config file name");
   point_merge->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  point_merge->add_option("-e,--environement", environement, "environement");
 
   CLI::App * point_draw = point->add_subcommand("draw", "Point draw");
   point_draw->add_option("-n,--name", name, "Name");
   point_draw->add_option("-d,--basedir", basedir, "Base dir");
   point_draw->add_option("-c,--config", configFileName, "Config file name");
   point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  point_draw->add_option("-e,--environement", environement, "environement");
 
   CLI::App * browser = app.add_subcommand("browser", "Object browser");
   browser->require_subcommand(); // 1 or more
@@ -89,6 +93,9 @@ int main(int argc, char ** argv)
   }
   if (getenv("NDMSPC_POINT_MACRO")) {
     if (macroFileName.empty()) macroFileName = getenv("NDMSPC_POINT_MACRO");
+  }
+  if (getenv("NDMSPC_POINT_ENVIRONMENT")) {
+    if (environement.empty()) environement = getenv("NDMSPC_POINT_ENVIRONMENT");
   }
   if (getenv("NDMSPC_BROWSER_FILE")) {
     if (fileName.empty()) fileName = getenv("NDMSPC_BROWSER_FILE");
@@ -127,13 +134,16 @@ int main(int argc, char ** argv)
           NdmSpc::PointRun::Generate(name, fileName, objectName);
         }
         if (!subsubcom->get_name().compare("run")) {
+          if (!environement.empty()) NdmSpc::PointRun::SetEnvironment(environement);
           NdmSpc::PointRun pr(macroFileName);
           pr.Run(configFileName, userConfigFileName, false);
         }
         if (!subsubcom->get_name().compare("merge")) {
+          if (!environement.empty()) NdmSpc::PointRun::SetEnvironment(environement);
           NdmSpc::PointRun::Merge(configFileName, userConfigFileName);
         }
         if (!subsubcom->get_name().compare("draw")) {
+          if (!environement.empty()) NdmSpc::PointDraw::SetEnvironment(environement);
           NdmSpc::PointDraw pd;
           pd.Draw(configFileName, userConfigFileName);
         }

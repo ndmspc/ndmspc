@@ -1,6 +1,8 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <vector>
 #include <TFileMerger.h>
 #include <TString.h>
 #include <TMacro.h>
@@ -16,6 +18,7 @@ ClassImp(NdmSpc::PointRun);
 /// \endcond
 
 namespace NdmSpc {
+std::string PointRun::fgEnvironment = "";
 PointRun::PointRun(std::string macro) : TObject()
 {
   ///
@@ -74,9 +77,27 @@ bool PointRun::Init(std::string extraPath)
   if (!fCfg["ndmspc"]["process"]["type"].get<std::string>().compare("all") &&
       fCfg["ndmspc"]["process"]["ranges"].is_null() &&
       !fCfg["ndmspc"]["output"]["delete"].get<std::string>().compare("onInit")) {
+
+    if (!fgEnvironment.empty()) fCfg["ndmspc"]["output"]["environment"] = fgEnvironment;
+    if (fCfg["ndmspc"]["output"]["environment"].is_string() &&
+        !fCfg["ndmspc"]["output"]["environment"].get<std::string>().empty()) {
+      std::string              environment = fCfg["ndmspc"]["output"]["environment"].get<std::string>();
+      std::vector<std::string> keys        = {"host", "dir", "file", "opt", "delete"};
+      for (auto & key : keys) {
+        if (fCfg["ndmspc"]["output"]["environments"][environment][key].is_string()) {
+          fCfg["ndmspc"]["output"][key] = fCfg["ndmspc"]["output"]["environments"][environment][key];
+        }
+      }
+      if (fVerbose >= 0) Printf("Using environment '%s' ...", environment.c_str());
+      if (fVerbose >= 1) Printf("%s", fCfg["ndmspc"]["output"].dump(2).c_str());
+    }
+
+    if (fCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
+      fCfg["ndmspc"]["output"]["opt"] = "";
+    }
+
     std::string outFileName;
-    if (!fCfg["ndmspc"]["output"]["host"].get<std::string>().empty() &&
-        !fCfg["ndmspc"]["output"]["dir"].get<std::string>().empty()) {
+    if (!fCfg["ndmspc"]["output"]["dir"].get<std::string>().empty()) {
       // outFileName = fCfg["ndmspc"]["output"]["host"].get<std::string>() + "/";
 
       outFileName += fCfg["ndmspc"]["output"]["dir"].get<std::string>();
@@ -93,20 +114,29 @@ bool PointRun::Init(std::string extraPath)
         outFileName.pop_back();
       }
     }
-    if (!outFileName.empty()) {
-      Printf("Deleting output directory '%s' ...", outFileName.c_str());
-      std::string rmUrl =
-          TString::Format("%s/proc/user/?mgm.cmd=rm&mgm.path=%s&mgm.option=rf&mgm.format=json&filetype=raw",
-                          fCfg["ndmspc"]["output"]["host"].get<std::string>().c_str(), outFileName.c_str())
-              .Data();
 
-      if (fVerbose >= 2) Printf("rmUrl '%s' ...", rmUrl.c_str());
-      TFile * f = NdmSpc::Utils::OpenFile(rmUrl.c_str());
-      if (!f) return 1;
-      Printf("Directory '%s' deleted", outFileName.c_str());
-      f->Close();
+    if (!outFileName.empty()) {
+      if (fCfg["ndmspc"]["output"]["host"].is_string() &&
+          !fCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
+
+        Printf("Deleting output eos directory '%s' ...", outFileName.c_str());
+        std::string rmUrl =
+            TString::Format("%s/proc/user/?mgm.cmd=rm&mgm.path=%s&mgm.option=rf&mgm.format=json&filetype=raw",
+                            fCfg["ndmspc"]["output"]["host"].get<std::string>().c_str(), outFileName.c_str())
+                .Data();
+
+        if (fVerbose >= 2) Printf("rmUrl '%s' ...", rmUrl.c_str());
+        TFile * f = NdmSpc::Utils::OpenFile(rmUrl.c_str());
+        if (!f) return 1;
+        Printf("Directory '%s' deleted", outFileName.c_str());
+        f->Close();
+      }
+      else {
+        Printf("Directory '%s' deleted", outFileName.c_str());
+        gSystem->Exec(TString::Format("rm -rf %s", outFileName.c_str()));
+      }
     }
-    fCfg["ndmspc"]["output"]["delete"] = "";
+    // fCfg["ndmspc"]["output"]["delete"] = "";
   }
   if (fVerbose >= 2) Printf("Ndmspc::PointRun::Init done ...");
 
@@ -1087,13 +1117,32 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string fil
     return false;
   }
 
-  std::string hostUrl = cfg["ndmspc"]["output"]["host"].get<std::string>();
-  if (hostUrl.empty()) {
-    Printf("Error:  cfg[ndmspc][output][host] is empty!!!");
-    return 2;
+  if (!fgEnvironment.empty()) cfg["ndmspc"]["output"]["environment"] = fgEnvironment;
+  if (cfg["ndmspc"]["output"]["environment"].is_string() &&
+      !cfg["ndmspc"]["output"]["environment"].get<std::string>().empty()) {
+    std::string              environment = cfg["ndmspc"]["output"]["environment"].get<std::string>();
+    std::vector<std::string> keys        = {"host", "dir", "file", "opt", "delete"};
+    for (auto & key : keys) {
+      if (cfg["ndmspc"]["output"]["environments"][environment][key].is_string()) {
+        cfg["ndmspc"]["output"][key] = cfg["ndmspc"]["output"]["environments"][environment][key];
+      }
+    }
+    Printf("Using environment '%s' ...", environment.c_str());
   }
 
-  std::string path = hostUrl + "/" + cfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
+  if (cfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
+    cfg["ndmspc"]["output"]["opt"] = "";
+  }
+
+  std::string hostUrl = cfg["ndmspc"]["output"]["host"].get<std::string>();
+  // if (hostUrl.empty()) {
+  //   Printf("Error:  cfg[ndmspc][output][host] is empty!!!");
+  //   return 2;
+  // }
+
+  std::string path;
+  if (!hostUrl.empty()) path = hostUrl + "/";
+  path += cfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
 
   int nDimsCuts = 0;
   for (auto & cut : cfg["ndmspc"]["cuts"]) {
@@ -1109,64 +1158,81 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string fil
   TUrl        url(path.c_str());
   std::string outHost        = url.GetHost();
   std::string inputDirectory = url.GetFile();
+  std::string linesMerge     = "";
 
-  Printf("Doing eos find -f %s", path.c_str());
-
-  std::string contentFile = cfg["ndmspc"]["output"]["file"].get<std::string>();
-  TString     findUrl;
-
-  // Vector of string to save tokens
-  std::vector<std::string> tokens;
-
-  if (!inputDirectory.empty()) {
-    findUrl = TString::Format(
-        "root://%s//proc/user/?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
-        outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
-
-    TFile * f = NdmSpc::Utils::OpenFile(findUrl.Data());
-    if (!f) return 1;
-
-    // Printf("%lld", f->GetSize());
-
-    int  buffsize = 4096;
-    char buff[buffsize + 1];
-
-    Long64_t    buffread = 0;
-    std::string content;
-    while (buffread < f->GetSize()) {
-
-      if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
-
-      // Printf("Buff %lld %d", buffread, buffsize);
-      f->ReadBuffer(buff, buffread, buffsize);
-      buff[buffsize] = '\0';
-      content += buff;
-      buffread += buffsize;
-    }
-
-    f->Close();
-
-    std::string ss  = "mgm.proc.stdout=";
-    size_t      pos = ss.size() + 1;
-    content         = content.substr(pos);
-
-    // stringstream class check1
-    std::stringstream check1(content);
-
-    std::string intermediate;
-
-    // Tokenizing w.r.t. space '&'
-    while (getline(check1, intermediate, '&')) {
-      tokens.push_back(intermediate);
-    }
+  if (outHost.empty()) {
+    linesMerge = gSystem->GetFromPipe(TString::Format("find %s -name %s",
+                                                      cfg["ndmspc"]["output"]["dir"].get<std::string>().c_str(),
+                                                      cfg["ndmspc"]["output"]["file"].get<std::string>().c_str())
+                                          .Data());
+    // Printf("%s", linesMerge.c_str());
+    // gSystem->Exit(1);
   }
   else {
-    tokens.push_back(contentFile.c_str());
-  }
 
-  std::stringstream check2(tokens[0]);
+    Printf("Doing eos find -f %s", path.c_str());
+
+    std::string contentFile = cfg["ndmspc"]["output"]["file"].get<std::string>();
+    TString     findUrl;
+
+    // Vector of string to save tokens
+    std::vector<std::string> tokens;
+
+    if (!inputDirectory.empty()) {
+      findUrl = TString::Format(
+          "root://%s//proc/user/?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
+          outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
+
+      TFile * f = NdmSpc::Utils::OpenFile(findUrl.Data());
+      if (!f) return 1;
+
+      // Printf("%lld", f->GetSize());
+
+      int  buffsize = 4096;
+      char buff[buffsize + 1];
+
+      Long64_t    buffread = 0;
+      std::string content;
+      while (buffread < f->GetSize()) {
+
+        if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
+
+        // Printf("Buff %lld %d", buffread, buffsize);
+        f->ReadBuffer(buff, buffread, buffsize);
+        buff[buffsize] = '\0';
+        content += buff;
+        buffread += buffsize;
+      }
+
+      f->Close();
+
+      std::string ss  = "mgm.proc.stdout=";
+      size_t      pos = ss.size() + 1;
+      content         = content.substr(pos);
+
+      // stringstream class check1
+      std::stringstream check1(content);
+
+      std::string intermediate;
+
+      // Tokenizing w.r.t. space '&'
+      while (getline(check1, intermediate, '&')) {
+        tokens.push_back(intermediate);
+      }
+    }
+    else {
+      tokens.push_back(contentFile.c_str());
+    }
+    linesMerge = tokens[0];
+  }
+  std::stringstream check2(linesMerge);
   std::string       line;
   std::string       outFileLocal = "/tmp/ndmspc-merged-" + std::to_string(gSystem->GetPid()) + ".root";
+  bool              copy         = true;
+  if (hostUrl.empty()) {
+    outFileLocal = outFile;
+    copy         = false;
+  }
 
   TFileMerger m(kFALSE);
   m.OutputFile(TString::Format("%s%s", outFileLocal.c_str(), fileOpt.c_str()));
@@ -1188,12 +1254,13 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string fil
   Printf("Merging ...");
   m.Merge();
   // m.PartialMerge(mode);
-
-  Printf("Copy '%s' to '%s' ...", outFileLocal.c_str(), outFile.c_str());
-  TFile::Cp(outFileLocal.c_str(), outFile.c_str());
-  std::string rm = "rm -f " + outFileLocal;
-  Printf("Doing '%s' ...", rm.c_str());
-  gSystem->Exec(rm.c_str());
+  if (copy) {
+    Printf("Copy '%s' to '%s' ...", outFileLocal.c_str(), outFile.c_str());
+    TFile::Cp(outFileLocal.c_str(), outFile.c_str());
+    std::string rm = "rm -f " + outFileLocal;
+    Printf("Doing '%s' ...", rm.c_str());
+    gSystem->Exec(rm.c_str());
+  }
   Printf("Output: '%s'", outFile.c_str());
   Printf("Done ...");
 

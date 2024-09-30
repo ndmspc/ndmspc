@@ -37,6 +37,7 @@ class PointRun : public TObject {
   void                     SetOutputList(TList * outList) { fOutputList = outList; }
   void                     SetSkipCurrentBin(bool scb = true) { fIsSkipBin = scb; }
   void                     SetProcessExit(bool pe = true) { fIsProcessExit = pe; }
+  static void              SetEnvironment(std::string env) { fgEnvironment = env; }
 
   static bool Generate(std::string name = "myAnalysis", std::string inFile = "myFile.root",
                        std::string inObjectName = "myNDHistogram");
@@ -80,6 +81,7 @@ class PointRun : public TObject {
   bool                     fIsProcessOk{false};
   bool                     fIsProcessExit{false};
   TList *                  fOutputList{nullptr};
+  static std::string       fgEnvironment; /// Environment
 
   bool    LoadConfig(std::string config, std::string userConfig = "", bool show = false, std::string outfilename = "");
   bool    Init(std::string extraPath = "");
