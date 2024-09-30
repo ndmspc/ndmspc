@@ -86,9 +86,20 @@
       "type": "error-only"
     },
     "output": {
-      "dir": "/eos/ndmspc/scratch/temp/ndmspc/myAnalysis",
+      "environments": {
+        "local": {
+          "dir": "/tmp/myAnalysis",
+          "host": ""
+        },
+        "prod": {
+          "dir": "/eos/ndmspc/scratch/temp/ndmspc/myAnalysis",
+          "host": "root://eos.ndmspc.io/"
+        }
+      },
+      "environment": "local",
+      "dir": "",
+      "host": "",
       "file": "content.root",
-      "host": "root://eos.ndmspc.io/",
       "opt": "?remote=1",
       "delete": "onInit"
     },
