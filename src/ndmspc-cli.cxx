@@ -4,6 +4,7 @@
 #include <TString.h>
 #include <CLI11.hpp>
 
+#include "Results.h"
 #include "ndmspc.h"
 #include "PointRun.h"
 #include "PointDraw.h"
@@ -40,8 +41,10 @@ int main(int argc, char ** argv)
 
   CLI::App * point = app.add_subcommand("point", "Point");
   point->require_subcommand(); // 1 or more
-  /*point->add_option("-c,--config", configFileName, "Config file name");*/
-  /*point->add_option("-m,--macro", macroFileName, "Macro path");*/
+  point->add_option("-c,--config", configFileName, "Config file name");
+  point->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  point->add_option("-m,--macro", macroFileName, "Macro path");
+  point->add_option("-e,--environement", environement, "environement");
 
   CLI::App * point_gen = point->add_subcommand("gen", "Point generate");
   point_gen->add_option("-n,--name", name, "Name");
@@ -77,6 +80,11 @@ int main(int argc, char ** argv)
   browser_hnsparse->add_option("-f,--file", fileName, "Input file");
   browser_hnsparse->add_option("-o,--objects", objectName, "Input objects");
   browser_hnsparse->add_option("-t,--token", directoryToken, "Directory token (default: '/')");
+
+  CLI::App * browser_result = browser->add_subcommand("result", "NdmSpc result browser");
+  browser_result->add_option("-c,--config", configFileName, "Config file name");
+  browser_result->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  browser_result->add_option("-e,--environement", environement, "environement");
 
   CLI11_PARSE(app, argc, argv);
   if (getenv("NDMSPC_POINT_NAME")) {
@@ -122,6 +130,8 @@ int main(int argc, char ** argv)
 
   if (directoryToken.empty()) directoryToken = "/";
 
+  if (environement.empty()) environement = "default";
+
   // std::cout << "Working on --file from start: " << file << '\n';
   // std::cout << "Working on --count from stop: " << s->count() << ", direct count: " << stop->count("--count") <<
   // '\n'; std::cout << "Count of --random flag: " << app.count("--random") << '\n';
@@ -134,18 +144,15 @@ int main(int argc, char ** argv)
           NdmSpc::PointRun::Generate(name, fileName, objectName);
         }
         if (!subsubcom->get_name().compare("run")) {
-          if (!environement.empty()) NdmSpc::PointRun::SetEnvironment(environement);
           NdmSpc::PointRun pr(macroFileName);
-          pr.Run(configFileName, userConfigFileName, false);
+          pr.Run(configFileName, userConfigFileName, environement, false);
         }
         if (!subsubcom->get_name().compare("merge")) {
-          if (!environement.empty()) NdmSpc::PointRun::SetEnvironment(environement);
-          NdmSpc::PointRun::Merge(configFileName, userConfigFileName);
+          NdmSpc::PointRun::Merge(configFileName, userConfigFileName, environement);
         }
         if (!subsubcom->get_name().compare("draw")) {
-          if (!environement.empty()) NdmSpc::PointDraw::SetEnvironment(environement);
           NdmSpc::PointDraw pd;
-          pd.Draw(configFileName, userConfigFileName);
+          pd.Draw(configFileName, userConfigFileName, environement);
         }
       }
     }
@@ -154,6 +161,11 @@ int main(int argc, char ** argv)
         if (!subsubcom->get_name().compare("hnsparse")) {
           NdmSpc::HnSparseBrowser browser;
           browser.Draw(fileName, objectName, directoryToken);
+        }
+        if (!subsubcom->get_name().compare("result")) {
+          NdmSpc::Results result;
+          result.LoadConfig(configFileName, userConfigFileName, environement);
+          result.Draw();
         }
       }
     }

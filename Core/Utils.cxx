@@ -4,12 +4,16 @@
 #include <TString.h>
 #include <cstring>
 #include <fstream>
+#include <string>
 #include "Utils.h"
-namespace NdmSpc {
+
 using std::ifstream;
 
-/// Global configuration
-json Utils::fCfg;
+/// \cond CLASSIMP
+ClassImp(NdmSpc::Utils);
+/// \endcond
+
+namespace NdmSpc {
 
 TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocalDir)
 {
@@ -17,22 +21,31 @@ TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocal
   /// Open root file and create directory when needed in local case
   ///
 
+  filename = gSystem->ExpandPathName(filename.c_str());
   if (createLocalDir) {
+    // Printf("%s", filename.c_str());
     if (!mode.compare("RECREATE") || !mode.compare("UPDATE") || !mode.compare("WRITE")) {
 
       TString filenameT(filename.c_str());
       bool    isLocalFile = filenameT.BeginsWith("file://");
-      if (isLocalFile)
+      if (isLocalFile) {
         // Remove file:// prefix
-        filenameT.Remove(0, 7);
+        filenameT.ReplaceAll("file://", "");
+      }
       else {
         isLocalFile = !filenameT.Contains("://");
       }
 
       if (isLocalFile) {
-        TUrl url(filenameT);
 
-        std::string filenameLocal = gSystem->ExpandPathName(gSystem->GetDirName(url.GetFile()));
+        std::string pwd = gSystem->pwd();
+        if (filenameT[0] != '/') filenameT = pwd + "/" + filenameT;
+        filenameT.ReplaceAll("?remote=1&", "?");
+        filenameT.ReplaceAll("?remote=1", "");
+        filenameT.ReplaceAll("&remote=1", "");
+        TUrl url(filenameT.Data());
+
+        std::string filenameLocal = gSystem->GetDirName(url.GetFile()).Data();
         Printf("NdmSpc::Utils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
         gSystem->mkdir(filenameLocal.c_str(), kTRUE);
       }
@@ -85,32 +98,7 @@ TMacro * Utils::OpenMacro(std::string filename)
   m->AddLine(content.c_str());
   return m;
 }
-json & Utils::LoadConfig(std::string config, std::string userConfig)
-{
-  std::string fileContent = OpenRawFile(config);
-  if (!fileContent.empty()) {
-    fCfg = json::parse(fileContent);
-    Printf("Using config file '%s' ...", config.c_str());
-    if (!userConfig.empty()) {
-      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
-      if (!fileContentUser.empty()) {
-        json userCfg = json::parse(fileContentUser);
-        fCfg.merge_patch(userCfg);
-        Printf("Merging user config file '%s' ...", userConfig.c_str());
-      }
-      else {
-        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
-        return fCfg;
-      }
-    }
-  }
-  else {
-    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
-    return fCfg;
-  }
 
-  return fCfg;
-}
 void Utils::RebinBins(int & min, int & max, int rebin)
 
 {

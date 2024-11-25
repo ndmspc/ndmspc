@@ -23,10 +23,9 @@ class PointDraw : public TObject {
   PointDraw();
   virtual ~PointDraw();
 
-  int Draw(std::string config = "myAnalysis.json", std::string userConfig = "");
+  int Draw(std::string config = "myAnalysis.json", std::string userConfig = "", std::string environment = "");
 
   protected:
-  json                     fCfg;
   TFile *                  fIn             = nullptr;
   THnSparse *              fResultHnSparse = nullptr;
   std::string              fCurrentParameterName;

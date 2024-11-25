@@ -8,6 +8,7 @@
 #include <TH1S.h>
 #include <THnSparse.h>
 #include <nlohmann/json.hpp>
+#include "Core.h"
 using json = nlohmann::json;
 
 namespace NdmSpc {
@@ -24,9 +25,10 @@ class PointRun : public TObject {
   PointRun(std::string macro = "NdmspcPointRun.C");
   virtual ~PointRun();
 
-  bool        Run(std::string filename, std::string userConfig = "", bool show = false, std::string outfilename = "");
-  json &      Cfg() { return fCfg; }
-  json *      CfgPtr() { return &fCfg; }
+  bool        Run(std::string filename, std::string userConfig = "", std::string environment = "", bool show = false,
+                  std::string outfilename = "");
+  json &      Cfg() { return gCfg; }
+  json *      CfgPtr() { return &gCfg; }
   TFile *     GetInputFile() const { return fInputFile; }
   TList *     GetInputList() const { return fInputList; }
   THnSparse * GetResultObject() const { return fResultObject; }
@@ -41,26 +43,10 @@ class PointRun : public TObject {
 
   static bool Generate(std::string name = "myAnalysis", std::string inFile = "myFile.root",
                        std::string inObjectName = "myNDHistogram");
-  static bool Merge(std::string name = "myAnalysis.json", std::string userConfig = "",
+  static bool Merge(std::string name = "myAnalysis.json", std::string userConfig = "", std::string environment = "",
                     std::string fileOpt = "?remote=1");
 
   private:
-  json                     fCfg{R"({
-  "ndmspc": {
-    "verbose": 0,
-    "result": {
-      "parameters": { "labels": ["p0", "p1"], "default": 0 }
-    },
-    "output": {
-      "host": "",
-      "dir": "",
-      "file": "content.root",
-      "delete": "onInit",
-      "opt": "?remote=1"
-    }
-  },
-  "verbose" : 0
-  })"_json};            /// Config
   TMacro *                 fMacro{nullptr}; /// Macro
   int                      fVerbose{0};     /// Verbose level
   int                      fBinCount{0};    /// Bin Count (TODO! rename to axis level maybe)
@@ -83,7 +69,8 @@ class PointRun : public TObject {
   TList *                  fOutputList{nullptr};
   static std::string       fgEnvironment; /// Environment
 
-  bool    LoadConfig(std::string config, std::string userConfig = "", bool show = false, std::string outfilename = "");
+  bool    LoadConfig(std::string config, std::string userConfig = "", std::string environment = "", bool show = false,
+                     std::string outfilename = "");
   bool    Init(std::string extraPath = "");
   bool    Finish();
   TList * OpenInputs();
