@@ -34,6 +34,10 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string en
     return false;
   }
 
+  for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+    if (!cut["rebin"].is_number_integer()) gCfg["ndmspc"]["cuts"][cut["axis"].get<std::string>()] = 1;
+  }
+
   if (!environment.empty()) {
     gCfg["ndmspc"]["environment"] = environment;
     LoadEnvironment(environment);

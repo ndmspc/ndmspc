@@ -6,6 +6,7 @@
 #include <TH2.h>
 #include <TH1D.h>
 #include <TCanvas.h>
+#include <string>
 #include "PointDraw.h"
 #include "Core.h"
 #include "Utils.h"
@@ -67,15 +68,19 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
   if (!hostUrl.empty()) path = hostUrl + "/";
   path += gCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
 
+  path += environment + "/";
+
+  std::string rebinStr = "";
   for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
     path += cut["axis"].get<std::string>() + "_";
+    rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
     fNDimCuts++;
   }
 
   path[path.size() - 1] = '/';
-
-  path += environment + "/";
+  path += rebinStr;
+  path[path.size() - 1] = '/';
 
   if (inputFile.empty()) inputFile = path + "results.root";
 
