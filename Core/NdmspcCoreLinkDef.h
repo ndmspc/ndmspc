@@ -5,6 +5,8 @@
 #pragma link off all functions;
 
 #pragma link C++ class NdmSpc::Utils + ;
+#pragma link C++ class NdmSpc::Core + ;
+#pragma link C++ class NdmSpc::Results + ;
 #pragma link C++ class NdmSpc::PointRun + ;
 #pragma link C++ class NdmSpc::PointDraw + ;
 #pragma link C++ class NdmSpc::HnSparseBrowser + ;

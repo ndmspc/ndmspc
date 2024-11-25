@@ -2,21 +2,16 @@
 #define NdmspcCoreHnSparseBrowser_H
 
 #include <TObject.h>
-#include <TFile.h>
 #include <THnSparse.h>
-#include <TH1.h>
+#include <TList.h>
 #include <TVirtualPad.h>
-#include <TObject.h>
-
-#include <nlohmann/json.hpp>
-using json = nlohmann::json;
 
 namespace NdmSpc {
 
 ///
-/// \class PointRun
+/// \class HnSparseBrowser
 ///
-/// \brief PointRun objects
+/// \brief HnSparseBrowser object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 

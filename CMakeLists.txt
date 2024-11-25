@@ -21,18 +21,18 @@ add_subdirectory(src)
 add_subdirectory(doc)
 
 # profile.d
-configure_file (
+configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.sh.profile.d.in"
   "${PROJECT_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh"
 )
 
 
-if (CMAKE_INSTALL_PREFIX STREQUAL "/usr")
+if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
   INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)
   INSTALL(FILES ${PROJECT_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh DESTINATION /etc/profile.d/)
-else ()
+else()
   INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS)
-endif ()
+endif()
 INSTALL(FILES scripts/ndmspc PERMISSIONS
 OWNER_EXECUTE OWNER_WRITE OWNER_READ
 GROUP_EXECUTE GROUP_READ

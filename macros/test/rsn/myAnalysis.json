@@ -1,5 +1,44 @@
 {
   "ndmspc": {
+    "environments": {
+      "local": {
+        "ndmspc": {
+          "output": { "dir": "$HOME/.ndmspc/analyses/myAnalysis", "host": "" }
+        }
+      },
+      "local-hist": {
+        "ndmspc": {
+          "data": {
+            "histogram": {
+              "enabled": true
+            }
+          },
+          "output": { "dir": "$HOME/.ndmspc/analyses/myAnalysis", "host": "" }
+        }
+      },
+      "prod": {
+        "ndmspc": {
+          "output": {
+            "dir": "/eos/ndmspc/scratch/temp/ndmspc/myAnalysis",
+            "host": "root://eos.ndmspc.io/"
+          }
+        }
+      },
+      "prod-hist": {
+        "ndmspc": {
+          "data": {
+            "histogram": {
+              "enabled": true
+            }
+          },
+          "output": {
+            "dir": "/eos/ndmspc/scratch/temp/ndmspc/myAnalysis",
+            "host": "root://eos.ndmspc.io/"
+          }
+        }
+      }
+    },
+    "environment": "local",
     "cuts": [
       {
         "axis": "axis0-im",
@@ -86,18 +125,7 @@
       "type": "error-only"
     },
     "output": {
-      "environments": {
-        "local": {
-          "dir": "/tmp/myAnalysis",
-          "host": ""
-        },
-        "prod": {
-          "dir": "/eos/ndmspc/scratch/temp/ndmspc/myAnalysis",
-          "host": "root://eos.ndmspc.io/"
-        }
-      },
-      "environment": "local",
-      "dir": "",
+      "dir": "$HOME/.ndmspc/analyses/myAnalysis",
       "host": "",
       "file": "content.root",
       "opt": "?remote=1",

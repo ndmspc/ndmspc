@@ -10,6 +10,7 @@
 #include <TH1.h>
 #include <TSystem.h>
 #include <THnSparse.h>
+#include "Core.h"
 #include "Utils.h"
 #include "PointRun.h"
 
@@ -37,30 +38,31 @@ PointRun::~PointRun()
   ///
 }
 
-bool PointRun::LoadConfig(std::string config, std::string userConfig, bool show, std::string outfilename)
+bool PointRun::LoadConfig(std::string config, std::string userConfig, std::string environment, bool show,
+                          std::string outfilename)
 {
   ///
   /// Load config and set default PointRun parameters
   ///
 
-  fCfg = Utils::LoadConfig(config, userConfig);
+  if (!Core::LoadConfig(config, userConfig, environment)) return 1;
 
-  if (!fCfg["ndmspc"]["verbose"].is_null() && fCfg["ndmspc"]["verbose"].is_number_integer())
-    fVerbose = fCfg["ndmspc"]["verbose"].get<int>();
+  if (!gCfg["ndmspc"]["verbose"].is_null() && gCfg["ndmspc"]["verbose"].is_number_integer())
+    fVerbose = gCfg["ndmspc"]["verbose"].get<int>();
 
-  if (!fCfg["ndmspc"]["file"]["cache"].is_null() && fCfg["ndmspc"]["file"]["cache"].is_string()) {
-    std::string cacheDir = fCfg["ndmspc"]["file"]["cache"].get<std::string>();
+  if (!gCfg["ndmspc"]["file"]["cache"].is_null() && gCfg["ndmspc"]["file"]["cache"].is_string()) {
+    std::string cacheDir = gCfg["ndmspc"]["file"]["cache"].get<std::string>();
     if (!cacheDir.empty()) {
       Printf("Setting cache directory to '%s' ...", gSystem->ExpandPathName(cacheDir.c_str()));
       TFile::SetCacheFileDir(gSystem->ExpandPathName(cacheDir.c_str()), 1, 1);
     }
   }
 
-  if (show) Printf("%s", fCfg.dump(2).c_str());
+  if (show) Printf("%s", gCfg.dump(2).c_str());
 
   if (!outfilename.empty()) {
     std::ofstream file(outfilename.c_str());
-    file << fCfg;
+    file << gCfg;
     Printf("Config saved to file '%s' ...", outfilename.c_str());
     return false;
   }
@@ -74,39 +76,29 @@ bool PointRun::Init(std::string extraPath)
   ///
 
   if (fVerbose >= 2) Printf("Ndmspc::PointRun::Init ...");
-  if (!fCfg["ndmspc"]["process"]["type"].get<std::string>().compare("all") &&
-      fCfg["ndmspc"]["process"]["ranges"].is_null() &&
-      !fCfg["ndmspc"]["output"]["delete"].get<std::string>().compare("onInit")) {
+  if (!gCfg["ndmspc"]["process"]["type"].get<std::string>().compare("all") &&
+      gCfg["ndmspc"]["process"]["ranges"].is_null() &&
+      !gCfg["ndmspc"]["output"]["delete"].get<std::string>().compare("onInit")) {
 
-    if (!fgEnvironment.empty()) fCfg["ndmspc"]["output"]["environment"] = fgEnvironment;
-    if (fCfg["ndmspc"]["output"]["environment"].is_string() &&
-        !fCfg["ndmspc"]["output"]["environment"].get<std::string>().empty()) {
-      std::string              environment = fCfg["ndmspc"]["output"]["environment"].get<std::string>();
-      std::vector<std::string> keys        = {"host", "dir", "file", "opt", "delete"};
-      for (auto & key : keys) {
-        if (fCfg["ndmspc"]["output"]["environments"][environment][key].is_string()) {
-          fCfg["ndmspc"]["output"][key] = fCfg["ndmspc"]["output"]["environments"][environment][key];
-        }
-      }
-      if (fVerbose >= 0) Printf("Using environment '%s' ...", environment.c_str());
-      if (fVerbose >= 1) Printf("%s", fCfg["ndmspc"]["output"].dump(2).c_str());
-    }
-
-    if (fCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
-      fCfg["ndmspc"]["output"]["opt"] = "";
+    if (gCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
+      gCfg["ndmspc"]["output"]["opt"] = "";
     }
 
     std::string outFileName;
-    if (!fCfg["ndmspc"]["output"]["dir"].get<std::string>().empty()) {
-      // outFileName = fCfg["ndmspc"]["output"]["host"].get<std::string>() + "/";
+    if (!gCfg["ndmspc"]["output"]["dir"].get<std::string>().empty()) {
+      // outFileName = gCfg["ndmspc"]["output"]["host"].get<std::string>() + "/";
 
-      outFileName += fCfg["ndmspc"]["output"]["dir"].get<std::string>();
+      outFileName += gCfg["ndmspc"]["output"]["dir"].get<std::string>();
       outFileName += "/";
-      for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+      for (auto & cut : gCfg["ndmspc"]["cuts"]) {
         if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
         outFileName += cut["axis"].get<std::string>() + "_";
       }
       outFileName[outFileName.size() - 1] = '/';
+
+      std::string environment = gCfg["ndmspc"]["environment"].get<std::string>();
+      outFileName += environment + "/";
+
       outFileName += "bins";
 
       if (!extraPath.empty()) {
@@ -116,13 +108,13 @@ bool PointRun::Init(std::string extraPath)
     }
 
     if (!outFileName.empty()) {
-      if (fCfg["ndmspc"]["output"]["host"].is_string() &&
-          !fCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
+      if (gCfg["ndmspc"]["output"]["host"].is_string() &&
+          !gCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
 
         Printf("Deleting output eos directory '%s' ...", outFileName.c_str());
         std::string rmUrl =
             TString::Format("%s/proc/user/?mgm.cmd=rm&mgm.path=%s&mgm.option=rf&mgm.format=json&filetype=raw",
-                            fCfg["ndmspc"]["output"]["host"].get<std::string>().c_str(), outFileName.c_str())
+                            gCfg["ndmspc"]["output"]["host"].get<std::string>().c_str(), outFileName.c_str())
                 .Data();
 
         if (fVerbose >= 2) Printf("rmUrl '%s' ...", rmUrl.c_str());
@@ -136,7 +128,7 @@ bool PointRun::Init(std::string extraPath)
         gSystem->Exec(TString::Format("rm -rf %s", outFileName.c_str()));
       }
     }
-    // fCfg["ndmspc"]["output"]["delete"] = "";
+    // gCfg["ndmspc"]["output"]["delete"] = "";
   }
   if (fVerbose >= 2) Printf("Ndmspc::PointRun::Init done ...");
 
@@ -153,26 +145,26 @@ TList * PointRun::OpenInputs()
 
   if (fInputFile && fInputList) return fInputList;
 
-  if (fCfg["ndmspc"]["data"]["file"].get<std::string>().empty()) {
+  if (gCfg["ndmspc"]["data"]["file"].get<std::string>().empty()) {
     Printf("Error: Input file is empty !!! Aborting ...");
     return nullptr;
   }
-  if (fVerbose >= 0) Printf("Opening file '%s' ...", fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
-  fInputFile = NdmSpc::Utils::OpenFile(fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+  if (fVerbose >= 0) Printf("Opening file '%s' ...", gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+  fInputFile = NdmSpc::Utils::OpenFile(gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
   if (!fInputFile) {
-    Printf("Error: Cannot open file '%s' !", fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+    Printf("Error: Cannot open file '%s' !", gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
     return nullptr;
   }
 
   if (!fInputList) fInputList = new TList();
 
   THnSparse *s, *stmp;
-  for (auto & obj : fCfg["ndmspc"]["data"]["objects"]) {
+  for (auto & obj : gCfg["ndmspc"]["data"]["objects"]) {
     if (obj.get<std::string>().empty()) continue;
 
     std::string dirName;
-    if (!fCfg["ndmspc"]["data"]["directory"].is_null() && fCfg["ndmspc"]["data"]["directory"].is_string())
-      dirName = fCfg["ndmspc"]["data"]["directory"].get<std::string>();
+    if (!gCfg["ndmspc"]["data"]["directory"].is_null() && gCfg["ndmspc"]["data"]["directory"].is_string())
+      dirName = gCfg["ndmspc"]["data"]["directory"].get<std::string>();
 
     std::stringstream srcfull(obj.get<std::string>().c_str());
 
@@ -218,7 +210,7 @@ TList * PointRun::OpenInputs()
     else {
       if (fVerbose >= 1)
         Printf("Warning : Could not open '%s' from file '%s' !!! Skipping ...", obj.get<std::string>().c_str(),
-               fCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+               gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
       // return nullptr;
     }
   }
@@ -249,12 +241,12 @@ THnSparse * PointRun::CreateResult()
   int nDimsCuts     = 0;
   int nDimsProccess = fCurrentProcessHistogramAxes.size();
 
-  for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+  for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
     nDimsCuts++;
   }
 
-  for (auto & value : fCfg["ndmspc"]["result"]["axes"]) {
+  for (auto & value : gCfg["ndmspc"]["result"]["axes"]) {
     nDimsParams++;
   }
 
@@ -268,7 +260,7 @@ THnSparse * PointRun::CreateResult()
   fMapAxesType = new TH1S("mapAxesType", "Type Axes Map", ndims, 0, ndims);
   // _currentOutputRootDirectory->Add
 
-  Int_t nParameters = fCfg["ndmspc"]["result"]["parameters"]["labels"].size();
+  Int_t nParameters = gCfg["ndmspc"]["result"]["parameters"]["labels"].size();
   if (nParameters <= 0) return nullptr;
 
   Int_t i = 0;
@@ -298,13 +290,13 @@ THnSparse * PointRun::CreateResult()
     if (iTmp < 2)
       fMapAxesType->GetXaxis()->SetBinLabel(i + 1, "data");
     else
-      fMapAxesType->GetXaxis()->SetBinLabel(i + 1, "sys");
+      fMapAxesType->GetXaxis()->SetBinLabel(i + 1, "sys-out");
     iTmp++;
     i++;
   }
 
   Int_t rebin = 1;
-  for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+  for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (fVerbose >= 3) std::cout << "CreateResult() : " << cut.dump() << std::endl;
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
 
@@ -330,7 +322,7 @@ THnSparse * PointRun::CreateResult()
     i++;
   }
 
-  for (auto & value : fCfg["ndmspc"]["result"]["axes"]) {
+  for (auto & value : gCfg["ndmspc"]["result"]["axes"]) {
     if (!value["labels"].is_null()) {
       bins[i] = value["labels"].size();
       xmin[i] = 0;
@@ -348,7 +340,7 @@ THnSparse * PointRun::CreateResult()
 
     names.push_back(value["name"].get<std::string>().c_str());
     titles.push_back(value["name"].get<std::string>().c_str());
-    fMapAxesType->GetXaxis()->SetBinLabel(i + 1, "sys");
+    fMapAxesType->GetXaxis()->SetBinLabel(i + 1, "sys-in");
     i++;
   }
 
@@ -366,7 +358,7 @@ THnSparse * PointRun::CreateResult()
     return nullptr;
   }
   int iLablel = 1;
-  for (auto & n : fCfg["ndmspc"]["result"]["parameters"]["labels"]) {
+  for (auto & n : gCfg["ndmspc"]["result"]["parameters"]["labels"]) {
     a->SetNameTitle(names.at(iAxis).c_str(), titles.at(iAxis).c_str());
     a->SetBinLabel(iLablel++, n.get<std::string>().c_str());
   }
@@ -400,7 +392,7 @@ THnSparse * PointRun::CreateResult()
   int iPar = 0;
   // int iLabel;
   // for (auto & [key, value] : cfg["ndmspc"]["result"].items()) {
-  for (auto & value : fCfg["ndmspc"]["result"]["axes"]) {
+  for (auto & value : gCfg["ndmspc"]["result"]["axes"]) {
     iPar++;
     iLabel = 1;
     if (!value["labels"].is_null()) {
@@ -442,7 +434,7 @@ bool PointRun::ApplyCuts()
   for (size_t i = 0; i < fInputList->GetEntries(); i++) {
     s    = (THnSparse *)fInputList->At(i);
     iCut = 1;
-    for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+    for (auto & cut : gCfg["ndmspc"]["cuts"]) {
 
       if (cut.is_null()) continue;
 
@@ -490,7 +482,7 @@ bool PointRun::ApplyCuts()
   if (!titlePostfix.IsNull()) {
     titlePostfix.Remove(titlePostfix.Length() - 1);
     Printf("Processing '%s' ...", titlePostfix.Data());
-    fCfg["ndmspc"]["projection"]["title"] = titlePostfix.Data();
+    gCfg["ndmspc"]["projection"]["title"] = titlePostfix.Data();
   }
 
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ApplyCuts");
@@ -513,7 +505,7 @@ bool PointRun::ProcessSinglePoint()
   fResultObject = CreateResult();
   // fResultObject->Print();
 
-  json resultAxes = fCfg["ndmspc"]["result"]["axes"];
+  json resultAxes = gCfg["ndmspc"]["result"]["axes"];
 
   std::vector<std::string> names;
   for (auto & value : resultAxes) {
@@ -548,7 +540,7 @@ bool PointRun::ProcessRecursive(int i)
   }
 
   THnSparse * s = (THnSparse *)fInputList->At(0);
-  TAxis *     a = (TAxis *)s->GetListOfAxes()->FindObject(fCfg["ndmspc"]["cuts"][i]["axis"].get<std::string>().c_str());
+  TAxis *     a = (TAxis *)s->GetListOfAxes()->FindObject(gCfg["ndmspc"]["cuts"][i]["axis"].get<std::string>().c_str());
   if (a == nullptr) {
     Printf("Error: Axis canot be found");
     return false;
@@ -556,21 +548,21 @@ bool PointRun::ProcessRecursive(int i)
   Int_t start = 1;
   Int_t end   = a->GetNbins();
   Int_t rebin = 1;
-  if (fCfg["ndmspc"]["cuts"][i]["rebin"].is_number_integer()) rebin = fCfg["ndmspc"]["cuts"][i]["rebin"].get<Int_t>();
+  if (gCfg["ndmspc"]["cuts"][i]["rebin"].is_number_integer()) rebin = gCfg["ndmspc"]["cuts"][i]["rebin"].get<Int_t>();
 
   if (rebin > 1) end /= rebin;
 
-  if (fCfg["ndmspc"]["process"]["ranges"].is_array()) {
-    start = fCfg["ndmspc"]["process"]["ranges"][i][0];
-    if (fCfg["ndmspc"]["process"]["ranges"][i][1] < end) end = fCfg["ndmspc"]["process"]["ranges"][i][1];
+  if (gCfg["ndmspc"]["process"]["ranges"].is_array()) {
+    start = gCfg["ndmspc"]["process"]["ranges"][i][0];
+    if (gCfg["ndmspc"]["process"]["ranges"][i][1] < end) end = gCfg["ndmspc"]["process"]["ranges"][i][1];
   }
 
   for (Int_t iBin = start; iBin <= end; iBin++) {
     // Printf("ibin=%d", iBin);
     Int_t binMin                            = iBin;
     Int_t binMax                            = iBin;
-    fCfg["ndmspc"]["cuts"][i]["bin"]["min"] = binMin;
-    fCfg["ndmspc"]["cuts"][i]["bin"]["max"] = binMax;
+    gCfg["ndmspc"]["cuts"][i]["bin"]["min"] = binMin;
+    gCfg["ndmspc"]["cuts"][i]["bin"]["max"] = binMax;
     ProcessRecursive(i - 1);
   }
 
@@ -606,11 +598,11 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
       /*Longptr_t            ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));*/
       /*Longptr_t ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));*/
       Longptr_t ok = gROOT->ProcessLine(TString::Format("%s((NdmSpc::PointRun*)%p);", fMacro->GetName(), this));
-      /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputList, &fCfg));*/
+      /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputList, &gCfg));*/
 
       /*fMacro.Exec(TString::Format("(TList*)%ld,(json&)%p,(THnSparse "*/
       /*                            "*)%ld,(int*)%ld,(std::vector<std::string>*)%ld,(json*)%ld,(TList*)%ld,0,0",*/
-      /*                            (Longptr_t)fInputList, &fCfg, (Longptr_t)fResultObject,*/
+      /*                            (Longptr_t)fInputList, &gCfg, (Longptr_t)fResultObject,*/
       /*                            (Longptr_t)fCurrentPoint, (Longptr_t)&fCurrentPointLabels,*/
       /*                            (Longptr_t)&fCurrentPointValue, (Longptr_t)outputList)*/
       /*                .Data());*/
@@ -637,8 +629,8 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
       path += std::to_string(fCurrentPoint[iPoint]) + "/";
     }
 
-    // if (fCfg["ndmspc"]["output"]["post"].is_string()) {
-    //   std::string post = fCfg["ndmspc"]["output"]["post"].get<std::string>();
+    // if (gCfg["ndmspc"]["output"]["post"].is_string()) {
+    //   std::string post = gCfg["ndmspc"]["output"]["post"].get<std::string>();
     //   if (!post.empty()) {
     //     path += post;
     //   }
@@ -654,9 +646,9 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
     return true;
   }
 
-  std::string axisName = fCfg["ndmspc"]["result"]["axes"][i]["name"].get<std::string>();
-  if (!fCfg["ndmspc"]["result"]["axes"][i]["labels"].is_null()) {
-    for (auto & v : fCfg["ndmspc"]["result"]["axes"][i]["labels"]) {
+  std::string axisName = gCfg["ndmspc"]["result"]["axes"][i]["name"].get<std::string>();
+  if (!gCfg["ndmspc"]["result"]["axes"][i]["labels"].is_null()) {
+    for (auto & v : gCfg["ndmspc"]["result"]["axes"][i]["labels"]) {
       TAxis * a                    = (TAxis *)fResultObject->GetListOfAxes()->FindObject(axisName.c_str());
       Int_t   id                   = fResultObject->GetListOfAxes()->IndexOf(a);
       fCurrentPoint[id]            = a->FindBin(v.get<std::string>().c_str());
@@ -665,8 +657,8 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
       ProcessRecursiveInner(i - 1, n);
     }
   }
-  else if (!fCfg["ndmspc"]["result"]["axes"][i]["ranges"].is_null()) {
-    for (auto & v : fCfg["ndmspc"]["result"]["axes"][i]["ranges"]) {
+  else if (!gCfg["ndmspc"]["result"]["axes"][i]["ranges"].is_null()) {
+    for (auto & v : gCfg["ndmspc"]["result"]["axes"][i]["ranges"]) {
       TAxis * a                    = (TAxis *)fResultObject->GetListOfAxes()->FindObject(axisName.c_str());
       Int_t   id                   = fResultObject->GetListOfAxes()->IndexOf(a);
       fCurrentPoint[id]            = a->FindBin(v["name"].get<std::string>().c_str());
@@ -693,16 +685,16 @@ void PointRun::OutputFileOpen()
 
   fCurrentOutputFileName = "";
 
-  if (!fCfg["ndmspc"]["output"]["host"].get<std::string>().empty())
-    fCurrentOutputFileName += fCfg["ndmspc"]["output"]["host"].get<std::string>().c_str();
-  if (!fCfg["ndmspc"]["output"]["dir"].get<std::string>().empty())
-    fCurrentOutputFileName += fCfg["ndmspc"]["output"]["dir"].get<std::string>().c_str();
+  if (!gCfg["ndmspc"]["output"]["host"].get<std::string>().empty())
+    fCurrentOutputFileName += gCfg["ndmspc"]["output"]["host"].get<std::string>().c_str();
+  if (!gCfg["ndmspc"]["output"]["dir"].get<std::string>().empty())
+    fCurrentOutputFileName += gCfg["ndmspc"]["output"]["dir"].get<std::string>().c_str();
 
-  if (fCfg["ndmspc"]["cuts"].is_array() && !fCurrentOutputFileName.empty()) {
+  if (gCfg["ndmspc"]["cuts"].is_array() && !fCurrentOutputFileName.empty()) {
 
     std::string axisName;
-    // cfgOutput["ndmspc"]["cuts"] = fCfg["ndmspc"]["cuts"];
-    for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+    // cfgOutput["ndmspc"]["cuts"] = gCfg["ndmspc"]["cuts"];
+    for (auto & cut : gCfg["ndmspc"]["cuts"]) {
       if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
       if (axisName.length() > 0) axisName += "_";
       axisName += cut["axis"].get<std::string>();
@@ -711,11 +703,13 @@ void PointRun::OutputFileOpen()
       fCurrentOutputFileName += "/";
       fCurrentOutputFileName += TString::Format("%s", axisName.c_str());
       fCurrentOutputFileName += "/";
+      fCurrentOutputFileName += gCfg["ndmspc"]["environment"].get<std::string>().c_str();
+      fCurrentOutputFileName += "/";
       fCurrentOutputFileName += "bins";
       fCurrentOutputFileName += "/";
 
-      if (fCfg["ndmspc"]["output"]["post"].is_string()) {
-        std::string post = fCfg["ndmspc"]["output"]["post"].get<std::string>();
+      if (gCfg["ndmspc"]["output"]["post"].is_string()) {
+        std::string post = gCfg["ndmspc"]["output"]["post"].get<std::string>();
         if (!post.empty()) {
           if (!fCurrentOutputFileName.empty() && fCurrentOutputFileName[fCurrentOutputFileName.size() - 1] != '/')
             fCurrentOutputFileName += "/";
@@ -724,22 +718,27 @@ void PointRun::OutputFileOpen()
         }
       }
 
-      for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+      for (auto & cut : gCfg["ndmspc"]["cuts"]) {
         if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
         fCurrentOutputFileName += std::to_string(cut["bin"]["min"].get<Int_t>()) + "/";
       }
     }
   }
+  else {
+    fCurrentOutputFileName += gCfg["ndmspc"]["environment"].get<std::string>().c_str();
+    fCurrentOutputFileName += "/";
+  }
 
   if (!fCurrentOutputFileName.empty() && fCurrentOutputFileName[fCurrentOutputFileName.size() - 1] != '/')
     fCurrentOutputFileName += "/";
 
-  if (!fCfg["ndmspc"]["output"]["file"].get<std::string>().empty())
-    fCurrentOutputFileName += fCfg["ndmspc"]["output"]["file"].get<std::string>().c_str();
+  if (!gCfg["ndmspc"]["output"]["file"].get<std::string>().empty())
+    fCurrentOutputFileName += gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str();
 
+  fCurrentOutputFileName = gSystem->ExpandPathName(fCurrentOutputFileName.c_str());
   fCurrentOutputFile =
       NdmSpc::Utils::OpenFile(TString::Format("%s%s", fCurrentOutputFileName.c_str(),
-                                              fCfg["ndmspc"]["output"]["opt"].get<std::string>().c_str())
+                                              gCfg["ndmspc"]["output"]["opt"].get<std::string>().c_str())
                                   .Data(),
                               "RECREATE");
   // _currentOutputFile->cd();
@@ -794,12 +793,12 @@ int PointRun::ProcessSingleFile()
 {
 
   std::string type;
-  if (fCfg["ndmspc"]["process"]["type"].is_string()) type = fCfg["ndmspc"]["process"]["type"].get<std::string>();
+  if (gCfg["ndmspc"]["process"]["type"].is_string()) type = gCfg["ndmspc"]["process"]["type"].get<std::string>();
 
   if (type.empty()) {
     Printf("Warning: [ndmspc][process][type] is missing or is empty in configuration !!! Setting it ot 'single' ...");
     type                              = "single";
-    fCfg["ndmspc"]["process"]["type"] = type;
+    gCfg["ndmspc"]["process"]["type"] = type;
   }
 
   TList * inputList = OpenInputs();
@@ -811,13 +810,13 @@ int PointRun::ProcessSingleFile()
   else if (!type.compare("all")) {
     json cuts;
     int  iCut = 0;
-    for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+    for (auto & cut : gCfg["ndmspc"]["cuts"]) {
       if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
       cuts[iCut++] = cut;
     }
-    fCfg["ndmspc"]["cuts"] = cuts;
+    gCfg["ndmspc"]["cuts"] = cuts;
 
-    ProcessRecursive(fCfg["ndmspc"]["cuts"].size() - 1);
+    ProcessRecursive(gCfg["ndmspc"]["cuts"].size() - 1);
   }
   else {
     Printf("Error: Value [process][type]='%s' is not supported !!! Exiting ...", type.c_str());
@@ -839,8 +838,8 @@ int PointRun::ProcessHistogramRun()
 
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
 
-  std::string fileNameHistogram = fCfg["ndmspc"]["data"]["histogram"]["file"].get<std::string>();
-  std::string objName           = fCfg["ndmspc"]["data"]["histogram"]["obj"].get<std::string>();
+  std::string fileNameHistogram = gCfg["ndmspc"]["data"]["histogram"]["file"].get<std::string>();
+  std::string objName           = gCfg["ndmspc"]["data"]["histogram"]["obj"].get<std::string>();
 
   TFile * fProccessHistogram = NdmSpc::Utils::OpenFile(fileNameHistogram.c_str());
   if (!fProccessHistogram) {
@@ -860,9 +859,9 @@ int PointRun::ProcessHistogramRun()
     fCurrentProcessHistogramAxes.push_back(aTmp);
   }
 
-  if (fCfg["ndmspc"]["data"]["histogram"]["bins"].is_array()) {
+  if (gCfg["ndmspc"]["data"]["histogram"]["bins"].is_array()) {
 
-    for (auto & v : fCfg["ndmspc"]["data"]["histogram"]["bins"]) {
+    for (auto & v : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
       Printf("%s", v.dump().c_str());
       int   i = 0;
       Int_t p[v.size()];
@@ -889,14 +888,14 @@ int PointRun::ProcessHistogramRun()
         path += std::to_string(std::abs(p)) + "/";
       }
       // printf("\n");
-      std::string fullPath = fCfg["ndmspc"]["data"]["histogram"]["base"].get<std::string>();
+      std::string fullPath = gCfg["ndmspc"]["data"]["histogram"]["base"].get<std::string>();
       fullPath += "/";
       fullPath += path;
-      fullPath += fCfg["ndmspc"]["data"]["histogram"]["filename"].get<std::string>();
+      fullPath += gCfg["ndmspc"]["data"]["histogram"]["filename"].get<std::string>();
       // Printf("Path: %s %s", path.c_str(), fullPath.c_str());
-      fCfg["ndmspc"]["data"]["file"] = fullPath;
+      gCfg["ndmspc"]["data"]["file"] = fullPath;
 
-      fCfg["ndmspc"]["output"]["post"] = path;
+      gCfg["ndmspc"]["output"]["post"] = path;
 
       // return 0;
       Init(path);
@@ -914,17 +913,18 @@ int PointRun::ProcessHistogramRun()
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
   return 0;
 }
-bool PointRun::Run(std::string filename, std::string userConfig, bool show, std::string outfilename)
+bool PointRun::Run(std::string filename, std::string userConfig, std::string environment, bool show,
+                   std::string outfilename)
 {
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Run");
 
   if (!fMacro) return 1;
 
-  if (!LoadConfig(filename, userConfig, show, outfilename)) return false;
+  if (!LoadConfig(filename, userConfig, environment, show, outfilename)) return false;
   /*fVerbose = 2;*/
 
-  if (!fCfg["ndmspc"]["data"]["histogram"].is_null() && !fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
-      fCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>() == true) {
+  if (!gCfg["ndmspc"]["data"]["histogram"].is_null() && !gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
+      gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>() == true) {
     ProcessHistogramRun();
   }
   else {
@@ -950,6 +950,12 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
     "verbose": 0
   },
   "ndmspc": {
+    "environments": {
+      "local": {
+        "output": { "dir": "$HOME/.ndmspc/analyses/generated", "host": "" }
+      },
+    },
+    "environment": "local",
     "data": {
       "file": "input.root",
       "objects": ["hNSparse"]
@@ -1084,74 +1090,40 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   return true;
 }
 
-bool PointRun::Merge(std::string config, std::string userConfig, std::string fileOpt)
+bool PointRun::Merge(std::string config, std::string userConfig, std::string environment, std::string fileOpt)
 {
   ///
   /// Merge specific projection
   ///
-  if (config.empty()) {
-    Printf("Error: Config filename is empty !!! Exiting ...");
-    return false;
-  }
-  json        cfg;
-  std::string fileContent = NdmSpc::Utils::OpenRawFile(config);
-  if (!fileContent.empty()) {
-    cfg = json::parse(fileContent);
-    Printf("Using config file '%s' ...", config.c_str());
 
-    if (!userConfig.empty()) {
-      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
-      if (!fileContentUser.empty()) {
-        json userCfg = json::parse(fileContentUser);
-        cfg.merge_patch(userCfg);
-        Printf("Merging user config file '%s' ...", userConfig.c_str());
-      }
-      else {
-        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
-        return false;
-      }
-    }
-  }
-  else {
-    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
-    return false;
+  if (!Core::LoadConfig(config, userConfig, environment)) return false;
+
+  if (gCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
+    gCfg["ndmspc"]["output"]["opt"] = "";
   }
 
-  if (!fgEnvironment.empty()) cfg["ndmspc"]["output"]["environment"] = fgEnvironment;
-  if (cfg["ndmspc"]["output"]["environment"].is_string() &&
-      !cfg["ndmspc"]["output"]["environment"].get<std::string>().empty()) {
-    std::string              environment = cfg["ndmspc"]["output"]["environment"].get<std::string>();
-    std::vector<std::string> keys        = {"host", "dir", "file", "opt", "delete"};
-    for (auto & key : keys) {
-      if (cfg["ndmspc"]["output"]["environments"][environment][key].is_string()) {
-        cfg["ndmspc"]["output"][key] = cfg["ndmspc"]["output"]["environments"][environment][key];
-      }
-    }
-    Printf("Using environment '%s' ...", environment.c_str());
-  }
-
-  if (cfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
-    cfg["ndmspc"]["output"]["opt"] = "";
-  }
-
-  std::string hostUrl = cfg["ndmspc"]["output"]["host"].get<std::string>();
+  std::string hostUrl = gCfg["ndmspc"]["output"]["host"].get<std::string>();
   // if (hostUrl.empty()) {
   //   Printf("Error:  cfg[ndmspc][output][host] is empty!!!");
   //   return 2;
   // }
-
   std::string path;
   if (!hostUrl.empty()) path = hostUrl + "/";
-  path += cfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
+  path += gCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
 
   int nDimsCuts = 0;
-  for (auto & cut : cfg["ndmspc"]["cuts"]) {
+  for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
     path += cut["axis"].get<std::string>() + "_";
     nDimsCuts++;
   }
   path[path.size() - 1] = '/';
-  std::string outFile   = path + "results.root";
+
+  path += environment + "/";
+
+  path = gSystem->ExpandPathName(path.c_str());
+
+  std::string outFile = path + "results.root";
 
   path += "bins";
 
@@ -1161,10 +1133,14 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string fil
   std::string linesMerge     = "";
 
   if (outHost.empty()) {
-    linesMerge = gSystem->GetFromPipe(TString::Format("find %s -name %s",
-                                                      cfg["ndmspc"]["output"]["dir"].get<std::string>().c_str(),
-                                                      cfg["ndmspc"]["output"]["file"].get<std::string>().c_str())
-                                          .Data());
+    if (gSystem->AccessPathName(path.c_str())) {
+      Printf("Error: Nothing to merge, because path '%s' does not exist !!!", path.c_str());
+      return false;
+    }
+    Printf("Doing local find %s -name %s", path.c_str(), gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str());
+    linesMerge = gSystem->GetFromPipe(
+        TString::Format("find %s -name %s", path.c_str(), gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str())
+            .Data());
     // Printf("%s", linesMerge.c_str());
     // gSystem->Exit(1);
   }
@@ -1172,7 +1148,7 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string fil
 
     Printf("Doing eos find -f %s", path.c_str());
 
-    std::string contentFile = cfg["ndmspc"]["output"]["file"].get<std::string>();
+    std::string contentFile = gCfg["ndmspc"]["output"]["file"].get<std::string>();
     TString     findUrl;
 
     // Vector of string to save tokens
@@ -1233,6 +1209,7 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string fil
     outFileLocal = outFile;
     copy         = false;
   }
+  outFileLocal = gSystem->ExpandPathName(outFileLocal.c_str());
 
   TFileMerger m(kFALSE);
   m.OutputFile(TString::Format("%s%s", outFileLocal.c_str(), fileOpt.c_str()));

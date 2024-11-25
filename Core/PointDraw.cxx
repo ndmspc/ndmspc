@@ -7,6 +7,7 @@
 #include <TH1D.h>
 #include <TCanvas.h>
 #include "PointDraw.h"
+#include "Core.h"
 #include "Utils.h"
 
 /// \cond CLASSIMP
@@ -30,7 +31,7 @@ PointDraw::~PointDraw()
   ///
 }
 
-int PointDraw::Draw(std::string config, std::string userConfig)
+int PointDraw::Draw(std::string config, std::string userConfig, std::string environment)
 {
   ///
   /// Draw
@@ -46,42 +47,35 @@ int PointDraw::Draw(std::string config, std::string userConfig)
 
   TH1::AddDirectory(kFALSE);
 
-  json fCfg = Utils::LoadConfig(config, userConfig);
+  // INFO: Done via Results::LoadConfig
+  if (!Core::LoadConfig(config, userConfig, environment)) return 1;
 
+  // INFO: Done via Results::LoadConfig
   bool histogramEnabled = false;
-  if (!fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() ||
-      fCfg["ndmspc"]["data"]["histogram"]["enabled"].is_boolean())
-    histogramEnabled = fCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>();
+  if (!gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() ||
+      gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_boolean())
+    histogramEnabled = gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>();
 
-  if (!fgEnvironment.empty()) fCfg["ndmspc"]["output"]["environment"] = fgEnvironment;
-  if (fCfg["ndmspc"]["output"]["environment"].is_string() &&
-      !fCfg["ndmspc"]["output"]["environment"].get<std::string>().empty()) {
-    std::string              environment = fCfg["ndmspc"]["output"]["environment"].get<std::string>();
-    std::vector<std::string> keys        = {"host", "dir", "file", "opt", "delete"};
-    for (auto & key : keys) {
-      if (fCfg["ndmspc"]["output"]["environments"][environment][key].is_string()) {
-        fCfg["ndmspc"]["output"][key] = fCfg["ndmspc"]["output"]["environments"][environment][key];
-      }
-    }
-  }
-
-  std::string hostUrl = fCfg["ndmspc"]["output"]["host"].get<std::string>();
+  // TODO: Results path
+  std::string hostUrl = gCfg["ndmspc"]["output"]["host"].get<std::string>();
   // if (hostUrl.empty()) {
-  //   Printf("Error:  fCfg[ndmspc][output][host] is empty!!!");
+  //   Printf("Error:  gCfg[ndmspc][output][host] is empty!!!");
   //   return 2;
   // }
 
   std::string path;
   if (!hostUrl.empty()) path = hostUrl + "/";
-  path += fCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
+  path += gCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
 
-  for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+  for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
     path += cut["axis"].get<std::string>() + "_";
     fNDimCuts++;
   }
 
   path[path.size() - 1] = '/';
+
+  path += environment + "/";
 
   if (inputFile.empty()) inputFile = path + "results.root";
 
@@ -108,8 +102,8 @@ int PointDraw::Draw(std::string config, std::string userConfig)
   for (int iDim = 0; iDim < fResultHnSparse->GetNdimensions(); iDim++) fParameterPoint.push_back(-1);
 
   if (fCurrentParameterName.empty()) {
-    int idxDefault        = fCfg["ndmspc"]["result"]["parameters"]["default"].get<int>();
-    fCurrentParameterName = fCfg["ndmspc"]["result"]["parameters"]["labels"][idxDefault].get<std::string>();
+    int idxDefault        = gCfg["ndmspc"]["result"]["parameters"]["default"].get<int>();
+    fCurrentParameterName = gCfg["ndmspc"]["result"]["parameters"]["labels"][idxDefault].get<std::string>();
   }
   Printf("Paremeter: %s", fCurrentParameterName.c_str());
 
@@ -130,15 +124,15 @@ int PointDraw::Draw(std::string config, std::string userConfig)
 
   int nAxisX     = fResultHnSparse->GetNdimensions();
   int nAxisY     = fResultHnSparse->GetAxis(0)->GetNbins();
-  int pointsSize = fCfg["ndmspc"]["result"]["axes"].size() + 1;
-  if (histogramEnabled) pointsSize += fCfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
+  int pointsSize = gCfg["ndmspc"]["result"]["axes"].size() + 1;
+  if (histogramEnabled) pointsSize += gCfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
   int points[pointsSize];
   int iPoint       = 0;
   points[iPoint++] = nAxisY;
 
   int iAxisStart = 1;
   fMapTitle      = fCurrentParameterName + " [";
-  json axesArray = fCfg["ndmspc"]["result"]["axes"];
+  json axesArray = gCfg["ndmspc"]["result"]["axes"];
   int  idTmp;
   bool isDataSys = true;
   bool hasDataMc = false;
@@ -154,11 +148,11 @@ int PointDraw::Draw(std::string config, std::string userConfig)
     else if (!axisType.compare("sys") || !axisType.compare("data")) {
       if (isDataSys) {
         idTmp = iAxis - iAxisStart;
-        idBin = fCfg["ndmspc"]["result"]["data"]["defaults"][idTmp].get<int>();
+        idBin = gCfg["ndmspc"]["result"]["data"]["defaults"][idTmp].get<int>();
       }
       else {
         idTmp = iAxis - iAxisStart - fNDimCuts;
-        if (histogramEnabled) idTmp -= fCfg["ndmspc"]["result"]["data"]["defaults"].size();
+        if (histogramEnabled) idTmp -= gCfg["ndmspc"]["result"]["data"]["defaults"].size();
         // Printf("%s %d", axesArray.dump().c_str(), idTmp);
         idBin = axesArray[idTmp]["default"].get<int>() + 1;
       }
@@ -228,7 +222,7 @@ int PointDraw::Draw(std::string config, std::string userConfig)
 
     fMc.clear();
     fMc.push_back("x");
-    for (auto & b1 : fCfg["ndmspc"]["data"]["histogram"]["bins"]) {
+    for (auto & b1 : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
       std::vector<int> b = b1;
       Printf("b1=[%d(%s),%d(%s),%d(%s),%d(%s)] ", b[0], fResultHnSparse->GetAxis(1)->GetBinLabel(b[0]), b[1],
              fResultHnSparse->GetAxis(2)->GetBinLabel(b[1]), b[2], fResultHnSparse->GetAxis(3)->GetBinLabel(b[2]), b[3],
@@ -344,11 +338,11 @@ void PointDraw::DrawProjections()
   double min  = 1;
   double max  = 0;
 
-  if (!fCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].is_null()) {
+  if (!gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].is_null()) {
     Printf("Apply %s %s", fCurrentParameterName.c_str(),
-           fCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].dump().c_str());
-    min = fCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName]["min"].get<double>();
-    max = fCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName]["max"].get<double>();
+           gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].dump().c_str());
+    min = gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName]["min"].get<double>();
+    max = gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName]["max"].get<double>();
   }
 
   auto CanvasProjectionMap = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("CanvasProjectionMap");
