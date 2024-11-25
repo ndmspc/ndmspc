@@ -90,14 +90,20 @@ bool PointRun::Init(std::string extraPath)
 
       outFileName += gCfg["ndmspc"]["output"]["dir"].get<std::string>();
       outFileName += "/";
-      for (auto & cut : gCfg["ndmspc"]["cuts"]) {
-        if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-        outFileName += cut["axis"].get<std::string>() + "_";
-      }
-      outFileName[outFileName.size() - 1] = '/';
 
       std::string environment = gCfg["ndmspc"]["environment"].get<std::string>();
       outFileName += environment + "/";
+
+      std::string rebinStr = "";
+      for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+        if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+
+        outFileName += cut["axis"].get<std::string>() + "_";
+        rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
+      }
+      outFileName[outFileName.size() - 1] = '/';
+      rebinStr[rebinStr.size() - 1]       = '/';
+      outFileName += rebinStr;
 
       outFileName += "bins";
 
@@ -307,9 +313,10 @@ THnSparse * PointRun::CreateResult()
 
     if (cut["rebin"].is_number_integer())
       rebin = cut["rebin"].get<Int_t>();
-    else
-      rebin = 1;
-
+    else {
+      rebin        = 1;
+      cut["rebin"] = 1;
+    }
     bins[i] = a->GetNbins() / rebin;
     xmin[i] = a->GetXmin();
     xmax[i] = a->GetXmax() - (a->GetNbins() % rebin);
@@ -693,17 +700,22 @@ void PointRun::OutputFileOpen()
   if (gCfg["ndmspc"]["cuts"].is_array() && !fCurrentOutputFileName.empty()) {
 
     std::string axisName;
+    std::string rebinStr = "";
     // cfgOutput["ndmspc"]["cuts"] = gCfg["ndmspc"]["cuts"];
     for (auto & cut : gCfg["ndmspc"]["cuts"]) {
       if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-      if (axisName.length() > 0) axisName += "_";
+      if (axisName.length() > 0) {
+        axisName += "_";
+        rebinStr += "_";
+      }
       axisName += cut["axis"].get<std::string>();
+      rebinStr += std::to_string(cut["rebin"].get<Int_t>());
     }
     if (axisName.length() > 0) {
       fCurrentOutputFileName += "/";
-      fCurrentOutputFileName += TString::Format("%s", axisName.c_str());
-      fCurrentOutputFileName += "/";
       fCurrentOutputFileName += gCfg["ndmspc"]["environment"].get<std::string>().c_str();
+      fCurrentOutputFileName += "/";
+      fCurrentOutputFileName += TString::Format("%s/%s", axisName.c_str(), rebinStr.c_str());
       fCurrentOutputFileName += "/";
       fCurrentOutputFileName += "bins";
       fCurrentOutputFileName += "/";
@@ -1111,15 +1123,19 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string env
   if (!hostUrl.empty()) path = hostUrl + "/";
   path += gCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
 
-  int nDimsCuts = 0;
+  path += environment + "/";
+
+  std::string rebinStr  = "";
+  int         nDimsCuts = 0;
   for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
     path += cut["axis"].get<std::string>() + "_";
+    rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
     nDimsCuts++;
   }
   path[path.size() - 1] = '/';
-
-  path += environment + "/";
+  path += rebinStr;
+  path[path.size() - 1] = '/';
 
   path = gSystem->ExpandPathName(path.c_str());
 
