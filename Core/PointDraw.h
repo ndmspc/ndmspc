@@ -48,7 +48,7 @@ class PointDraw : public TObject {
   void        HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
   void        HighlightProjectionPoint(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin);
   void        UpdateRanges();
-  void        DrawProjections();
+  void        DrawProjections(bool ignoreMapping = false);
   void        DrawUser();
   static void SetEnvironment(std::string env) { fgEnvironment = env; }
 
