@@ -343,10 +343,16 @@ void PointDraw::DrawProjections(bool ignoreMapping)
 
   if (fParameterPoint.size() == 0) return;
 
-  int    xBin = fParameterPoint[fProjectionAxes[0]];
-  int    yBin = fProjectionAxes.size() > 1 ? fParameterPoint[fProjectionAxes[1]] : -1;
-  double min  = 1;
-  double max  = 0;
+  int xBin = fParameterPoint[fProjectionAxes[0]];
+  int yBin = -1;
+
+  if (fProjectionAxes.size() == 2) {
+    xBin = fParameterPoint[fProjectionAxes[1]];
+    yBin = fParameterPoint[fProjectionAxes[0]];
+  }
+
+  double min = 1;
+  double max = 0;
 
   if (!gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].is_null()) {
     // Printf("Apply %s %s", fCurrentParameterName.c_str(),
@@ -520,8 +526,8 @@ void PointDraw::HighlightProjectionPoint(TVirtualPad * pad, TObject * obj, Int_t
     fParameterPoint[fProjectionAxes[0]] = xBin;
   }
   else if (fProjectionAxes.size() == 2) {
-    fParameterPoint[fProjectionAxes[0]] = yBin;
-    fParameterPoint[fProjectionAxes[1]] = xBin;
+    fParameterPoint[fProjectionAxes[0]] = xBin;
+    fParameterPoint[fProjectionAxes[1]] = yBin;
   }
   // UpdateRanges();
   DrawProjections(true);
