@@ -123,7 +123,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
     return 6;
   }
 
-  Printf("Axis: %d [parameters] SetRange(%d,%d)", id, idBin, idBin);
+  // Printf("Axis: %d [parameters] SetRange(%d,%d)", id, idBin, idBin);
   fParameterPoint[id] = idBin;
   fResultHnSparse->GetAxis(id)->SetRange(idBin, idBin);
 
@@ -150,9 +150,10 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
       isDataSys = false;
       fProjectionAxes.push_back(iAxis);
     }
-    else if (!axisType.compare("sys") || !axisType.compare("data")) {
+    else if (!axisType.compare("sys-in") || !axisType.compare("data")) {
       if (isDataSys) {
         idTmp = iAxis - iAxisStart;
+        // Printf("%d %d %d", iAxis, iAxisStart, idTmp);
         idBin = gCfg["ndmspc"]["result"]["data"]["defaults"][idTmp].get<int>();
       }
       else {
@@ -163,7 +164,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
       }
     }
     a = (TAxis *)fResultHnSparse->GetAxis(iAxis);
-    Printf("Axis: %d [%s][%s] SetRange(%d,%d)", iAxis, axisType.c_str(), a->GetName(), idBin, idBin);
+    // Printf("Axis: %d [%s][%s] SetRange(%d,%d)", iAxis, axisType.c_str(), a->GetName(), idBin, idBin);
     points[iAxis]          = a->GetNbins();
     fParameterPoint[iAxis] = idBin;
     fResultHnSparse->GetAxis(iAxis)->SetRange(idBin, idBin);
@@ -178,15 +179,15 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
   }
   fMapTitle[fMapTitle.size() - 1] = ']';
 
-  for (auto & p : fParameterPoint) {
-    printf("%d ", p);
-  }
-  printf("\n");
+  // for (auto & p : fParameterPoint) {
+  //   printf("%d ", p);
+  // }
+  // printf("\n");
 
-  Printf("fMapTitle='%s'", fMapTitle.c_str());
+  // Printf("fMapTitle='%s'", fMapTitle.c_str());
 
-  auto CanvasMain = new TCanvas("CanvasMain", "CanvasMain", 0, 0, 500, 500);
-  CanvasMain->Divide(1, 3);
+  auto CanvasMain = new TCanvas("CanvasMain", "CanvasMain", 0, 0, 500, 800);
+  CanvasMain->Divide(1, 2);
   /*CanvasMain->HighlightConnect("HighlightMain(TVirtualPad*,TObject*,Int_t,Int_t)");*/
   CanvasMain->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "NdmSpc::PointDraw", this,
                       "HighlightMain(TVirtualPad*,TObject*,Int_t,Int_t)");
@@ -209,7 +210,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
   //   }
   // }
   hParamMain->SetStats(0);
-  hParamMain->SetLabelSize(0.07);
+  // hParamMain->SetLabelSize(0.07);
   //   hParamMain->Print();
   hParamMain->Draw();
   hParamMain->SetHighlight();
@@ -229,9 +230,9 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
     fMc.push_back("x");
     for (auto & b1 : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
       std::vector<int> b = b1;
-      Printf("b1=[%d(%s),%d(%s),%d(%s),%d(%s)] ", b[0], fResultHnSparse->GetAxis(1)->GetBinLabel(b[0]), b[1],
-             fResultHnSparse->GetAxis(2)->GetBinLabel(b[1]), b[2], fResultHnSparse->GetAxis(3)->GetBinLabel(b[2]), b[3],
-             fResultHnSparse->GetAxis(4)->GetBinLabel(b[3]));
+      // Printf("b1=[%d(%s),%d(%s),%d(%s),%d(%s)] ", b[0], fResultHnSparse->GetAxis(1)->GetBinLabel(b[0]), b[1],
+      //        fResultHnSparse->GetAxis(2)->GetBinLabel(b[1]), b[2], fResultHnSparse->GetAxis(3)->GetBinLabel(b[2]),
+      //        b[3], fResultHnSparse->GetAxis(4)->GetBinLabel(b[3]));
       std::string v;
       if (b[0] == 1) {
         // mc
@@ -251,9 +252,9 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
         fData.push_back(v);
         fDataId.push_back(b[0]);
       }
-      Printf("%s", v.c_str());
+      // Printf("%s", v.c_str());
     }
-    Printf("%ld %ld", fData.size(), fMc.size());
+    // Printf("%ld %ld", fData.size(), fMc.size());
     TH1 * hDataMc = new TH2S("hDataMc", "Data vs. MC", fData.size(), 0, fData.size(), fMc.size(), 0, fMc.size());
 
     /*TH2 * hDataMc = fResultHnSparse->Projection(2, 1, "O");*/
@@ -292,14 +293,17 @@ void PointDraw::DrawUser()
   Printf("DrawUser : Getting '%s' ...", fCurrentContentPath.c_str());
   auto CanvasUser = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("CanvasUser");
   if (!CanvasUser) {
-    CanvasUser = new TCanvas("CanvasUser", "CanvasUser", 1110, 0, 600, 500);
+    CanvasUser = new TCanvas("CanvasUser", "CanvasUser", 910, 0, 400, 400);
     // Printf("CanvasUser");
     // CanvasUser->Divide(1, fProjectionAxes.size());
     // CanvasUser->HighlightConnect("HighlightProj(TVirtualPad*,TObject*,Int_t,Int_t)");
   }
   TH1 * hPeak = (TH1 *)fIn->Get(fCurrentContentPath.c_str());
   if (!hPeak) {
-    delete CanvasUser;
+    CanvasUser->Clear();
+    CanvasUser->Modified();
+    CanvasUser->Update();
+    // delete CanvasUser;
     return;
   }
 
@@ -313,8 +317,9 @@ void PointDraw::DrawUser()
 void PointDraw::UpdateRanges()
 {
   for (int iAxis = 0; iAxis < fResultHnSparse->GetNdimensions(); iAxis++) {
-    Printf("Axis: %d [%s] SetRange(%d,%d)", iAxis, fResultHnSparse->GetAxis(iAxis)->GetName(), fParameterPoint[iAxis],
-           fParameterPoint[iAxis]);
+    // Printf("Axis: %d [%s] SetRange(%d,%d)", iAxis, fResultHnSparse->GetAxis(iAxis)->GetName(),
+    // fParameterPoint[iAxis],
+    //        fParameterPoint[iAxis]);
     fResultHnSparse->GetAxis(iAxis)->SetRange(fParameterPoint[iAxis], fParameterPoint[iAxis]);
   }
 
@@ -330,10 +335,10 @@ void PointDraw::UpdateRanges()
   fCurrentContentPath += "hPeak";
 }
 
-void PointDraw::DrawProjections()
+void PointDraw::DrawProjections(bool ignoreMapping)
 {
 
-  Printf("DrawProjections %zu", fProjectionAxes.size());
+  // Printf("DrawProjections %zu", fProjectionAxes.size());
   UpdateRanges();
 
   if (fParameterPoint.size() == 0) return;
@@ -344,52 +349,55 @@ void PointDraw::DrawProjections()
   double max  = 0;
 
   if (!gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].is_null()) {
-    Printf("Apply %s %s", fCurrentParameterName.c_str(),
-           gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].dump().c_str());
+    // Printf("Apply %s %s", fCurrentParameterName.c_str(),
+    //        gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName].dump().c_str());
     min = gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName]["min"].get<double>();
     max = gCfg["ndmspc"]["result"]["parameters"]["draw"][fCurrentParameterName]["max"].get<double>();
   }
 
   auto CanvasProjectionMap = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("CanvasProjectionMap");
   if (!CanvasProjectionMap) {
-    CanvasProjectionMap = new TCanvas("CanvasProjectionMap", "CanvasProjectionMap", 505, 0, 600, 500);
-    Printf("CanvasProjectionMap xBin=%d yBin=%d %zu", xBin, yBin, fProjectionAxes.size());
+    CanvasProjectionMap = new TCanvas("CanvasProjectionMap", "CanvasProjectionMap", 505, 0, 400, 400);
+    // Printf("CanvasProjectionMap xBin=%d yBin=%d %zu", xBin, yBin, fProjectionAxes.size());
     /*CanvasProjectionMap->HighlightConnect("HighlightProjectionPoint(TVirtualPad*,TObject*,Int_t,Int_t)");*/
     CanvasProjectionMap->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "NdmSpc::PointDraw", this,
                                  "HighlightProjectionPoint(TVirtualPad*,TObject*,Int_t,Int_t)");
   }
 
-  if (fProjectionAxes.size() == 1) {
-    CanvasProjectionMap->cd();
-    fResultHnSparse->GetAxis(fProjectionAxes[0])->SetRange();
-    TH1 * h = fResultHnSparse->Projection(fProjectionAxes[0], "O");
-    h->SetHighlight();
-    if (min < max) {
-      h->SetMinimum(min);
-      h->SetMaximum(max);
-    }
-    h->Draw();
+  if (!ignoreMapping) {
 
-    CanvasProjectionMap->Modified();
-    CanvasProjectionMap->Update();
-    return;
-  }
-  if (fProjectionAxes.size() == 2) {
-    CanvasProjectionMap->cd();
-    fResultHnSparse->GetAxis(fProjectionAxes[0])->SetRange();
-    fResultHnSparse->GetAxis(fProjectionAxes[1])->SetRange();
-    fResultHnSparse->Projection(fProjectionAxes[1], fProjectionAxes[0], "O")->Draw("colz");
-    TH2 * h = fResultHnSparse->Projection(fProjectionAxes[1], fProjectionAxes[0], "O");
-    h->SetHighlight();
-    h->Draw("colz");
-    CanvasProjectionMap->Modified();
-    CanvasProjectionMap->Update();
+    if (fProjectionAxes.size() == 1) {
+      CanvasProjectionMap->cd();
+      fResultHnSparse->GetAxis(fProjectionAxes[0])->SetRange();
+      TH1 * h = fResultHnSparse->Projection(fProjectionAxes[0], "O");
+      h->SetHighlight();
+      if (min < max) {
+        h->SetMinimum(min);
+        h->SetMaximum(max);
+      }
+      h->Draw();
+
+      CanvasProjectionMap->Modified();
+      CanvasProjectionMap->Update();
+      return;
+    }
+    if (fProjectionAxes.size() == 2) {
+      CanvasProjectionMap->cd();
+      fResultHnSparse->GetAxis(fProjectionAxes[0])->SetRange();
+      fResultHnSparse->GetAxis(fProjectionAxes[1])->SetRange();
+      // fResultHnSparse->Projection(fProjectionAxes[1], fProjectionAxes[0], "O")->Draw("colz");
+      TH2 * h = fResultHnSparse->Projection(fProjectionAxes[1], fProjectionAxes[0], "O");
+      h->SetHighlight();
+      h->Draw("colz");
+      CanvasProjectionMap->Modified();
+      CanvasProjectionMap->Update();
+    }
   }
 
   auto CanvasProjections = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("CanvasProjections");
   if (!CanvasProjections) {
-    CanvasProjections = new TCanvas("CanvasProjections", "CanvasProjections", 505, 700, 600, 500);
-    Printf("CanvasProjections xBin=%d yBin=%d %zu", xBin, yBin, fProjectionAxes.size());
+    CanvasProjections = new TCanvas("CanvasProjections", "CanvasProjections", 505, 445, 400, 350);
+    // Printf("CanvasProjections xBin=%d yBin=%d %zu", xBin, yBin, fProjectionAxes.size());
     CanvasProjections->Divide(1, fProjectionAxes.size());
     // CanvasProjections->HighlightConnect("HighlightProj(TVirtualPad*,TObject*,Int_t,Int_t)");
   }
@@ -439,7 +447,7 @@ void PointDraw::HighlightMain(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_
 
 void PointDraw::HighlightParam(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin)
 {
-  Printf("HighlightParam %d %d", xBin, yBin);
+  // Printf("HighlightParam %d %d", xBin, yBin);
   TH1 * fParamMapHistogram = (TH1 *)obj;
   if (!fParamMapHistogram) return;
 
@@ -448,7 +456,7 @@ void PointDraw::HighlightParam(TVirtualPad * pad, TObject * obj, Int_t xBin, Int
   fParamMapHistogram->SetTitle(fParamMapHistogram->GetXaxis()->GetBinLabel(xBin));
   fParameterPoint[0]    = xBin;
   fCurrentParameterName = fParamMapHistogram->GetXaxis()->GetBinLabel(xBin);
-  Printf("%s", fCurrentParameterName.c_str());
+  // Printf("%s", fCurrentParameterName.c_str());
   DrawProjections();
 
   pad->Modified();
@@ -507,16 +515,19 @@ void PointDraw::HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_
 
 void PointDraw::HighlightProjectionPoint(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin)
 {
-  Printf("HighlightProjectionPoint %d %d %d", xBin, yBin, fProjectionAxes[0]);
+  // Printf("HighlightProjectionPoint %d %d %d", xBin, yBin, fProjectionAxes[0]);
   if (fProjectionAxes.size() == 1) {
     fParameterPoint[fProjectionAxes[0]] = xBin;
   }
   else if (fProjectionAxes.size() == 2) {
-    fParameterPoint[fProjectionAxes[0]] = xBin;
-    fParameterPoint[fProjectionAxes[1]] = yBin;
+    fParameterPoint[fProjectionAxes[0]] = yBin;
+    fParameterPoint[fProjectionAxes[1]] = xBin;
   }
-  UpdateRanges();
+  // UpdateRanges();
+  DrawProjections(true);
   DrawUser();
+  pad->Modified();
+  pad->Update();
 }
 
 } // namespace NdmSpc
