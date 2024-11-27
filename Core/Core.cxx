@@ -10,7 +10,7 @@ namespace NdmSpc {
 /// Global configuration
 json gCfg;
 
-bool Core::LoadConfig(std::string config, std::string userConfig, std::string environment)
+bool Core::LoadConfig(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw)
 {
   std::string fileContent = Utils::OpenRawFile(config);
   if (!fileContent.empty()) {
@@ -21,7 +21,7 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string en
       if (!fileContentUser.empty()) {
         json userCfg = json::parse(fileContentUser);
         gCfg.merge_patch(userCfg);
-        Printf("Merging user config file '%s' ...", userConfig.c_str());
+        Printf("User config file '%s' was merged ...", userConfig.c_str());
       }
       else {
         Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
@@ -46,6 +46,13 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string en
     environment = gCfg["ndmspc"]["environment"].get<std::string>();
     LoadEnvironment(environment);
   }
+
+  if (!userConfigRaw.empty()) {
+    json userCfgRaw = json::parse(userConfigRaw);
+    gCfg.merge_patch(userCfgRaw);
+    Printf("Config raw '%s' was merged...", userConfigRaw.c_str());
+  }
+
   return true;
 }
 bool Core::LoadEnvironment(std::string environment)

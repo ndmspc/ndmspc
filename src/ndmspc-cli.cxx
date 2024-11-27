@@ -1,8 +1,9 @@
 #include <getopt.h>
 #include <cstdlib>
 #include <string>
-#include <TString.h>
 #include <CLI11.hpp>
+#include <TString.h>
+#include <TStopwatch.h>
 
 #include "Results.h"
 #include "ndmspc.h"
@@ -33,6 +34,7 @@ int main(int argc, char ** argv)
   std::string objectName         = "";
   std::string configFileName     = "";
   std::string userConfigFileName = "";
+  std::string userConfigRaw      = "";
   std::string macroFileName      = "";
   std::string directoryToken     = "";
   std::string environement       = "";
@@ -56,6 +58,7 @@ int main(int argc, char ** argv)
   point_run->add_option("-d,--basedir", basedir, "Base dir");
   point_run->add_option("-c,--config", configFileName, "Config file name");
   point_run->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  point_run->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
   point_run->add_option("-e,--environement", environement, "environement");
 
@@ -144,11 +147,19 @@ int main(int argc, char ** argv)
           NdmSpc::PointRun::Generate(name, fileName, objectName);
         }
         if (!subsubcom->get_name().compare("run")) {
+          TStopwatch timer;
+          timer.Start();
           NdmSpc::PointRun pr(macroFileName);
-          pr.Run(configFileName, userConfigFileName, environement, false);
+          pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, false);
+          timer.Stop();
+          timer.Print();
         }
         if (!subsubcom->get_name().compare("merge")) {
+          TStopwatch timer;
+          timer.Start();
           NdmSpc::PointRun::Merge(configFileName, userConfigFileName, environement);
+          timer.Stop();
+          timer.Print();
         }
         if (!subsubcom->get_name().compare("draw")) {
           NdmSpc::PointDraw pd;
