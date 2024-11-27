@@ -16,11 +16,12 @@ extern json gCfg;
 ///
 
 class Core : public TObject {
-  Core(){};
-  virtual ~Core(){};
+  Core() {};
+  virtual ~Core() {};
 
   public:
-  static bool LoadConfig(std::string config, std::string userConfig, std::string environment = "");
+  static bool LoadConfig(std::string config, std::string userConfig, std::string environment = "",
+                         std::string userConfigRaw = "");
   static bool LoadEnvironment(std::string environmenti = "local");
 
   private:

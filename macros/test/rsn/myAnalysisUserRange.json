@@ -1,0 +1,12 @@
+{
+  "ndmspc": {
+    "process": {
+      "type": "all",
+      "ranges": [
+        [1, 20],
+        [1, 1]
+      ]
+    },
+    "verbose": 0
+  }
+}

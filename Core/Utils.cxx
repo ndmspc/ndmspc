@@ -46,7 +46,7 @@ TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocal
         TUrl url(filenameT.Data());
 
         std::string filenameLocal = gSystem->GetDirName(url.GetFile()).Data();
-        Printf("NdmSpc::Utils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
+        // Printf("NdmSpc::Utils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
         gSystem->mkdir(filenameLocal.c_str(), kTRUE);
       }
     }
@@ -122,12 +122,18 @@ int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, I
                                bool normalizeToWidth, bool onlyPositive, double times)
 {
 
+  int verbose = 0;
+  if (!cfg["user"]["verbose"].is_null() && cfg["user"]["verbose"].is_number_integer()) {
+    verbose = cfg["user"]["verbose"].get<int>();
+  }
+
   bool isValNan = TMath::IsNaN(val);
   bool isErrNaN = TMath::IsNaN(err);
 
   if (isValNan || isErrNaN) {
-    Printf("Error: SetResultValueError %s val=%f[isNaN=%d] err=%f[isNan=%d]", name.c_str(), val, isValNan, err,
-           isErrNaN);
+    if (verbose > 0)
+      Printf("Error: SetResultValueError %s val=%f[isNaN=%d] err=%f[isNan=%d]", name.c_str(), val, isValNan, err,
+             isErrNaN);
     return -2;
   }
 
@@ -136,8 +142,9 @@ int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, I
   }
 
   if (times > 0 && times * std::abs(val) < err) {
-    Printf("Warning: Skipping '%s' because 'times * val < err' (  %f * %f < %f ) ...", name.c_str(), times,
-           std::abs(val), err);
+    if (verbose > 0)
+      Printf("Warning: Skipping '%s' because 'times * val < err' (  %f * %f < %f ) ...", name.c_str(), times,
+             std::abs(val), err);
     return -4;
   }
 

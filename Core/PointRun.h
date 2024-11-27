@@ -25,14 +25,14 @@ class PointRun : public TObject {
   PointRun(std::string macro = "NdmspcPointRun.C");
   virtual ~PointRun();
 
-  bool        Run(std::string filename, std::string userConfig = "", std::string environment = "", bool show = false,
-                  std::string outfilename = "");
-  json &      Cfg() { return gCfg; }
-  json *      CfgPtr() { return &gCfg; }
-  TFile *     GetInputFile() const { return fInputFile; }
-  TList *     GetInputList() const { return fInputList; }
-  THnSparse * GetResultObject() const { return fResultObject; }
-  Int_t *     GetCurrentPoint() { return fCurrentPoint; }
+  bool                     Run(std::string filename, std::string userConfig = "", std::string environment = "",
+                               std::string userConfigRaw = "", bool show = false, std::string outfilename = "");
+  json &                   Cfg() { return gCfg; }
+  json *                   CfgPtr() { return &gCfg; }
+  TFile *                  GetInputFile() const { return fInputFile; }
+  TList *                  GetInputList() const { return fInputList; }
+  THnSparse *              GetResultObject() const { return fResultObject; }
+  Int_t *                  GetCurrentPoint() { return fCurrentPoint; }
   std::vector<std::string> GetCurrentPointLabels() { return fCurrentPointLabels; }
   json                     GetCurrentPointValue() { return fCurrentPointValue; }
   TList *                  GetOutputList() const { return fOutputList; }
@@ -69,11 +69,11 @@ class PointRun : public TObject {
   TList *                  fOutputList{nullptr};
   static std::string       fgEnvironment; /// Environment
 
-  bool    LoadConfig(std::string config, std::string userConfig = "", std::string environment = "", bool show = false,
-                     std::string outfilename = "");
-  bool    Init(std::string extraPath = "");
-  bool    Finish();
-  TList * OpenInputs();
+  bool        LoadConfig(std::string config, std::string userConfig = "", std::string environment = "",
+                         std::string userConfigRaw = "", bool show = false, std::string outfilename = "");
+  bool        Init(std::string extraPath = "");
+  bool        Finish();
+  TList *     OpenInputs();
   THnSparse * CreateResult();
   bool        ApplyCuts();
 

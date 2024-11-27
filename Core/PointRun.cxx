@@ -38,14 +38,14 @@ PointRun::~PointRun()
   ///
 }
 
-bool PointRun::LoadConfig(std::string config, std::string userConfig, std::string environment, bool show,
-                          std::string outfilename)
+bool PointRun::LoadConfig(std::string config, std::string userConfig, std::string environment,
+                          std::string userConfigRaw, bool show, std::string outfilename)
 {
   ///
   /// Load config and set default PointRun parameters
   ///
 
-  if (!Core::LoadConfig(config, userConfig, environment)) return 1;
+  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw)) return 1;
 
   if (!gCfg["ndmspc"]["verbose"].is_null() && gCfg["ndmspc"]["verbose"].is_number_integer())
     fVerbose = gCfg["ndmspc"]["verbose"].get<int>();
@@ -925,14 +925,14 @@ int PointRun::ProcessHistogramRun()
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
   return 0;
 }
-bool PointRun::Run(std::string filename, std::string userConfig, std::string environment, bool show,
-                   std::string outfilename)
+bool PointRun::Run(std::string filename, std::string userConfig, std::string environment, std::string userConfigRaw,
+                   bool show, std::string outfilename)
 {
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Run");
 
   if (!fMacro) return 1;
 
-  if (!LoadConfig(filename, userConfig, environment, show, outfilename)) return false;
+  if (!LoadConfig(filename, userConfig, environment, userConfigRaw, show, outfilename)) return false;
   /*fVerbose = 2;*/
 
   if (!gCfg["ndmspc"]["data"]["histogram"].is_null() && !gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
