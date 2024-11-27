@@ -12,9 +12,10 @@ ClassImp(NdmSpc::Results);
 namespace NdmSpc {
 Results::Results() : TObject() {}
 Results::~Results() {}
-bool Results::LoadConfig(std::string configfilename, std::string userconfig, std::string environment)
+bool Results::LoadConfig(std::string configfilename, std::string userconfig, std::string environment,
+                         std::string userConfigRaw)
 {
-  bool configLoaded = Core::LoadConfig(configfilename, userconfig, environment);
+  bool configLoaded = Core::LoadConfig(configfilename, userconfig, environment, userConfigRaw);
   if (!gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() ||
       gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_boolean()) {
     if (gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) fDataSource = DataSource::histogram;

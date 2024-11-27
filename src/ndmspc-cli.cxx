@@ -45,6 +45,7 @@ int main(int argc, char ** argv)
   point->require_subcommand(); // 1 or more
   point->add_option("-c,--config", configFileName, "Config file name");
   point->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  point->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point->add_option("-m,--macro", macroFileName, "Macro path");
   point->add_option("-e,--environement", environement, "environement");
 
@@ -67,6 +68,7 @@ int main(int argc, char ** argv)
   point_merge->add_option("-d,--basedir", basedir, "Base dir");
   point_merge->add_option("-c,--config", configFileName, "Config file name");
   point_merge->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  point_merge->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_merge->add_option("-e,--environement", environement, "environement");
 
   CLI::App * point_draw = point->add_subcommand("draw", "Point draw");
@@ -74,6 +76,7 @@ int main(int argc, char ** argv)
   point_draw->add_option("-d,--basedir", basedir, "Base dir");
   point_draw->add_option("-c,--config", configFileName, "Config file name");
   point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  point_draw->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_draw->add_option("-e,--environement", environement, "environement");
 
   CLI::App * browser = app.add_subcommand("browser", "Object browser");
@@ -87,6 +90,7 @@ int main(int argc, char ** argv)
   CLI::App * browser_result = browser->add_subcommand("result", "NdmSpc result browser");
   browser_result->add_option("-c,--config", configFileName, "Config file name");
   browser_result->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  browser_result->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   browser_result->add_option("-e,--environement", environement, "environement");
 
   CLI11_PARSE(app, argc, argv);
@@ -157,13 +161,13 @@ int main(int argc, char ** argv)
         if (!subsubcom->get_name().compare("merge")) {
           TStopwatch timer;
           timer.Start();
-          NdmSpc::PointRun::Merge(configFileName, userConfigFileName, environement);
+          NdmSpc::PointRun::Merge(configFileName, userConfigFileName, environement, userConfigRaw);
           timer.Stop();
           timer.Print();
         }
         if (!subsubcom->get_name().compare("draw")) {
           NdmSpc::PointDraw pd;
-          pd.Draw(configFileName, userConfigFileName, environement);
+          pd.Draw(configFileName, userConfigFileName, environement, userConfigRaw);
         }
       }
     }
@@ -175,7 +179,7 @@ int main(int argc, char ** argv)
         }
         if (!subsubcom->get_name().compare("result")) {
           NdmSpc::Results result;
-          result.LoadConfig(configFileName, userConfigFileName, environement);
+          result.LoadConfig(configFileName, userConfigFileName, environement, userConfigRaw);
           result.Draw();
         }
       }

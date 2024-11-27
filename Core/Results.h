@@ -22,8 +22,8 @@ class Results : public TObject {
   Results();
   virtual ~Results();
 
-  bool LoadConfig(std::string configfilename = "config.json", std::string userconfig = "",
-                  std::string environment = "");
+  bool LoadConfig(std::string configfilename = "config.json", std::string userconfig = "", std::string environment = "",
+                  std::string userConfigRaw = "");
   bool LoadResults();
   void SetFileName(std::string filename) { fInputFileName = filename; }
   int  GetNCuts() { return fCuts.size(); }

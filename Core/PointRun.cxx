@@ -1102,13 +1102,14 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   return true;
 }
 
-bool PointRun::Merge(std::string config, std::string userConfig, std::string environment, std::string fileOpt)
+bool PointRun::Merge(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw,
+                     std::string fileOpt)
 {
   ///
   /// Merge specific projection
   ///
 
-  if (!Core::LoadConfig(config, userConfig, environment)) return false;
+  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw)) return false;
 
   if (gCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
     gCfg["ndmspc"]["output"]["opt"] = "";
