@@ -44,7 +44,7 @@ class PointRun : public TObject {
   static bool Generate(std::string name = "myAnalysis", std::string inFile = "myFile.root",
                        std::string inObjectName = "myNDHistogram");
   static bool Merge(std::string name = "myAnalysis.json", std::string userConfig = "", std::string environment = "",
-                    std::string fileOpt = "?remote=1");
+                    std::string userConfigRaw = "", std::string fileOpt = "?remote=1");
 
   private:
   TMacro *                 fMacro{nullptr}; /// Macro

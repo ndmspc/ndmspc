@@ -32,7 +32,7 @@ PointDraw::~PointDraw()
   ///
 }
 
-int PointDraw::Draw(std::string config, std::string userConfig, std::string environment)
+int PointDraw::Draw(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw)
 {
   ///
   /// Draw
@@ -49,7 +49,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
   TH1::AddDirectory(kFALSE);
 
   // INFO: Done via Results::LoadConfig
-  if (!Core::LoadConfig(config, userConfig, environment)) return 1;
+  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw)) return 1;
 
   // INFO: Done via Results::LoadConfig
   bool histogramEnabled = false;
