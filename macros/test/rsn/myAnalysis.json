@@ -59,7 +59,8 @@
           "min": 5
         },
         "enabled": true,
-        "rebin": 1
+        "rebin": 5,
+        "rebin_start": 4
       },
       {
         "axis": "axis2-ce",
@@ -68,7 +69,8 @@
           "min": 1
         },
         "enabled": true,
-        "rebin": 10
+        "rebin": 2,
+        "rebin_start": 1
       },
       {
         "axis": "axis3-ns1",
@@ -106,7 +108,7 @@
         "obj": "hDataMap",
         "base": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/bins",
         "filename": "AnalysisResults.root",
-        "bins": [[7, 1, 3, 6]]
+        "bins": [[7, 1, 2, 6]]
       },
       "directory": "phianalysis-t-hn-sparse_default",
       "objects": [
@@ -180,10 +182,10 @@
           "default": 0
         }
       ],
-      "data": { "defaults": [6, 1, 2, 6] }
+      "data": { "defaults": [7, 1, 2, 6] }
     },
     "file": {
-      "cache": ""
+      "cache": "$HOME/.ndmspc/cache"
     },
     "verbose": 0
   },
