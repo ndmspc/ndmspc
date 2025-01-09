@@ -34,6 +34,43 @@
       ]
     },
     {
+      "name": "ndmspc-cli point run range",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "args": ["point", "run"],
+      "stopAtEntry": false,
+      "cwd": "${fileDirname}",
+      "environment": [
+        {
+          "name": "NDMSPC_POINT_MACRO",
+          "value": "${workspaceFolder}/macros/test/rsn/RsnPhiPointMacro.C"
+        },
+        {
+          "name": "NDMSPC_POINT_CONFIG",
+          "value": "${workspaceFolder}/macros/test/rsn/myAnalysis.json"
+        },
+        {
+          "name": "NDMSPC_POINT_CONFIG_USER",
+          "value": "${workspaceFolder}/macros/test/rsn/myAnalysisUserRange.json"
+        }
+      ],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
       "name": "ndmspc-cli point run histogram=false (all)",
       "type": "cppdbg",
       "request": "launch",

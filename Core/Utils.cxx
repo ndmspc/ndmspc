@@ -105,6 +105,7 @@ void Utils::RebinBins(int & min, int & max, int rebin)
   ///
   /// Rebin bins
   ///
+  Printf("%d %d %d", min, max, rebin);
 
   Int_t binMin  = min;
   Int_t binMax  = max;
@@ -114,8 +115,51 @@ void Utils::RebinBins(int & min, int & max, int rebin)
     binMin = 1 + ((binMin - 1) * rebin);
     binMax = ((binMin - 1) + rebin * (binDiff + 1));
   }
+
   min = binMin;
   max = binMax;
+}
+std::string Utils::GetCutsPath(json cuts)
+{
+  std::string path     = "";
+  std::string rebinStr = "";
+  for (auto & cut : cuts) {
+    Int_t rebin         = 1;
+    Int_t rebin_start   = 1;
+    Int_t rebin_minimum = 1;
+    if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+    if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+    if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+
+    if (rebin_start > 1) {
+      rebin_minimum = (rebin_start % rebin);
+    }
+    path += cut["axis"].get<std::string>() + "_";
+    // Printf("rebin_minimum=%d rebin_start=%d rebin=%d", rebin_minimum, rebin_start, rebin);
+    rebinStr += std::to_string(rebin) + "-" + std::to_string(rebin_minimum) + "_";
+  }
+  path[path.size() - 1]         = '/';
+  rebinStr[rebinStr.size() - 1] = '/';
+  path += rebinStr;
+
+  // Printf("Path: %s", path.c_str());
+  // exit(1);
+  return std::move(path);
+}
+Int_t Utils::GetBinFromBase(Int_t bin, Int_t rebin, Int_t rebin_start)
+{
+  if (rebin == 1) return bin;
+  // Printf("GetBinFromBase %d %d %d", bin, rebin, rebin_start);
+
+  return (bin / rebin) + 1;
+
+  // Int_t binLocal      = bin / rebin;
+  // Int_t rebin_minimum = 1;
+  // if (rebin_start > 1) {
+  //   rebin_minimum = (rebin_start % rebin);
+  //   return binLocal + rebin_minimum - 1;
+  // }
+  // return binLocal - 1;
 }
 
 int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,

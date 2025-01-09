@@ -70,17 +70,18 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
 
   path += environment + "/";
 
-  std::string rebinStr = "";
+  // std::string rebinStr = "";
   for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-    path += cut["axis"].get<std::string>() + "_";
-    rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
+    //   path += cut["axis"].get<std::string>() + "_";
+    //   rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
     fNDimCuts++;
   }
-
-  path[path.size() - 1] = '/';
-  path += rebinStr;
-  path[path.size() - 1] = '/';
+  //
+  // path[path.size() - 1] = '/';
+  // path += rebinStr;
+  // path[path.size() - 1] = '/';
+  path += Utils::GetCutsPath(gCfg["ndmspc"]["cuts"]);
 
   if (inputFile.empty()) inputFile = path + "results.root";
 
@@ -110,7 +111,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
     int idxDefault        = gCfg["ndmspc"]["result"]["parameters"]["default"].get<int>();
     fCurrentParameterName = gCfg["ndmspc"]["result"]["parameters"]["labels"][idxDefault].get<std::string>();
   }
-  Printf("Paremeter: %s", fCurrentParameterName.c_str());
+  Printf("Parameter: %s", fCurrentParameterName.c_str());
 
   TAxis * a = (TAxis *)fResultHnSparse->GetListOfAxes()->FindObject(parameterAxisName.c_str());
   if (a == nullptr) {
@@ -134,10 +135,9 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
   int points[pointsSize];
   int iPoint       = 0;
   points[iPoint++] = nAxisY;
-
-  int iAxisStart = 1;
-  fMapTitle      = fCurrentParameterName + " [";
-  json axesArray = gCfg["ndmspc"]["result"]["axes"];
+  int iAxisStart   = 1;
+  fMapTitle        = fCurrentParameterName + " [";
+  json axesArray   = gCfg["ndmspc"]["result"]["axes"];
   int  idTmp;
   bool isDataSys = true;
   bool hasDataMc = false;
@@ -159,7 +159,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
       else {
         idTmp = iAxis - iAxisStart - fNDimCuts;
         if (histogramEnabled) idTmp -= gCfg["ndmspc"]["result"]["data"]["defaults"].size();
-        // Printf("%s %d", axesArray.dump().c_str(), idTmp);
+        // Printf("%d %s", idTmp, axesArray.dump().c_str());
         idBin = axesArray[idTmp]["default"].get<int>() + 1;
       }
     }

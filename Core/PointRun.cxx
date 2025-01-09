@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "TArrayD.h"
 #include <TFileMerger.h>
 #include <TString.h>
 #include <TMacro.h>
@@ -94,17 +95,26 @@ bool PointRun::Init(std::string extraPath)
       std::string environment = gCfg["ndmspc"]["environment"].get<std::string>();
       outFileName += environment + "/";
 
-      std::string rebinStr = "";
-      for (auto & cut : gCfg["ndmspc"]["cuts"]) {
-        if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-
-        outFileName += cut["axis"].get<std::string>() + "_";
-        rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
-      }
-      outFileName[outFileName.size() - 1] = '/';
-      rebinStr[rebinStr.size() - 1]       = '/';
-      outFileName += rebinStr;
-
+      outFileName += Utils::GetCutsPath(gCfg["ndmspc"]["cuts"]);
+      // std::string rebinStr = "";
+      // for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+      //   Int_t rebin         = 1;
+      //   Int_t rebin_start   = 1;
+      //   Int_t rebin_minimum = 1;
+      //   if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+      //   if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+      //   if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+      //
+      //   if (rebin_start > 1) {
+      //     rebin_minimum = (rebin_start % rebin);
+      //   }
+      //   outFileName += cut["axis"].get<std::string>() + "_";
+      //   rebinStr += std::to_string(rebin) + "-" + std::to_string(rebin_minimum) + "_";
+      // }
+      // outFileName[outFileName.size() - 1] = '/';
+      // rebinStr[rebinStr.size() - 1]       = '/';
+      // outFileName += rebinStr;
+      //
       outFileName += "bins";
 
       if (!extraPath.empty()) {
@@ -287,7 +297,7 @@ THnSparse * PointRun::CreateResult()
     bins[i] = a->GetNbins();
     xmin[i] = a->GetXmin();
     xmax[i] = a->GetXmax();
-    // todo handle variable binning
+    // TODO: handle variable binning
 
     names.push_back(a->GetName());
     std::string t = a->GetTitle();
@@ -301,26 +311,46 @@ THnSparse * PointRun::CreateResult()
     i++;
   }
 
-  Int_t rebin = 1;
+  Int_t rebin       = 1;
+  Int_t rebin_start = 1;
   for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (fVerbose >= 3) std::cout << "CreateResult() : " << cut.dump() << std::endl;
+
+    Int_t rebin         = 1;
+    Int_t rebin_start   = 1;
+    Int_t rebin_minimum = 1;
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+    if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+    if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+
+    if (rebin_start > 1) {
+      rebin_minimum = (rebin_start % rebin);
+    }
 
     TAxis * a = (TAxis *)s->GetListOfAxes()->FindObject(cut["axis"].get<std::string>().c_str());
     if (a == nullptr) return nullptr;
 
-    cutAxes.push_back(a);
+    if (rebin > 1) {
+      a                   = (TAxis *)a->Clone();
+      Int_t    rebins_max = a->GetNbins() / rebin;
+      Double_t arr[rebins_max + 1];
 
-    if (cut["rebin"].is_number_integer())
-      rebin = cut["rebin"].get<Int_t>();
-    else {
-      rebin        = 1;
-      cut["rebin"] = 1;
+      // Printf("Axis '%s' : %d rebin_minimum=%d", a->GetName(), rebins_max, rebin_minimum);
+      Int_t count = 0;
+      Int_t i;
+      for (i = rebin_minimum; i <= a->GetNbins(); i += rebin) {
+        // Printf("%d %f", i, a->GetBinUpEdge(i));
+        arr[count++] = a->GetBinLowEdge(i);
+      }
+      if (rebin_minimum == 1) arr[count++] = a->GetBinLowEdge(i);
+      // for (Int_t i = 0; i < count; i++) {fCurrentOutputRootDirectory
+      //   Printf("%d %f", i, arr[i]);
+      // }
+      a->Set(count - 1, arr);
+      // Printf("Axis '%s' : %d", a->GetName(), a->GetNbins());
     }
-    bins[i] = a->GetNbins() / rebin;
-    xmin[i] = a->GetXmin();
-    xmax[i] = a->GetXmax() - (a->GetNbins() % rebin);
 
+    cutAxes.push_back(a);
     names.push_back(a->GetName());
     std::string t = a->GetTitle();
     if (t.empty()) t = a->GetName();
@@ -328,6 +358,7 @@ THnSparse * PointRun::CreateResult()
     fMapAxesType->GetXaxis()->SetBinLabel(i + 1, "proj");
     i++;
   }
+  // exit(1);
 
   for (auto & value : gCfg["ndmspc"]["result"]["axes"]) {
     if (!value["labels"].is_null()) {
@@ -434,8 +465,9 @@ bool PointRun::ApplyCuts()
   TString     titlePostfix = "";
   THnSparse * s;
 
-  Int_t iCut  = 0;
-  Int_t rebin = 1;
+  Int_t iCut        = 0;
+  Int_t rebin       = 1;
+  Int_t rebin_start = 1;
 
   fCurrentPoint[iCut] = 0;
   for (size_t i = 0; i < fInputList->GetEntries(); i++) {
@@ -448,6 +480,7 @@ bool PointRun::ApplyCuts()
       if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
 
       if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+      if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
 
       if (cut["axis"].is_string() && cut["axis"].get<std::string>().empty()) {
         std::cerr << "Error: Axis name is empty ('" << cut << "') !!! Exiting ..." << std::endl;
@@ -467,11 +500,13 @@ bool PointRun::ApplyCuts()
       Int_t binMin = cut["bin"]["min"].get<Int_t>();
       Int_t binMax = cut["bin"]["max"].get<Int_t>();
 
-      NdmSpc::Utils::RebinBins(binMin, binMax, rebin);
+      // NdmSpc::Utils::RebinBins(binMin, binMax, rebin);
 
       s->GetAxis(id)->SetRange(binMin, binMax);
 
-      fCurrentPoint[iCut + fCurrentProcessHistogramPoint.size()] = cut["bin"]["min"].get<int>();
+      Int_t binLocal = Utils::GetBinFromBase(cut["bin"]["min"].get<int>(), rebin, rebin_start);
+      // Printf("binLocal=%d", binLocal);
+      fCurrentPoint[iCut + fCurrentProcessHistogramPoint.size()] = binLocal;
 
       if (i == 0) {
         if (s->GetAxis(id)->IsAlphanumeric()) {
@@ -552,22 +587,39 @@ bool PointRun::ProcessRecursive(int i)
     Printf("Error: Axis canot be found");
     return false;
   }
-  Int_t start = 1;
-  Int_t end   = a->GetNbins();
-  Int_t rebin = 1;
+  Int_t start         = 1;
+  Int_t end           = a->GetNbins();
+  Int_t rebin         = 1;
+  Int_t rebin_start   = 1;
+  Int_t rebin_minimum = 1;
   if (gCfg["ndmspc"]["cuts"][i]["rebin"].is_number_integer()) rebin = gCfg["ndmspc"]["cuts"][i]["rebin"].get<Int_t>();
+  if (gCfg["ndmspc"]["cuts"][i]["rebin_start"].is_number_integer())
+    rebin_start = gCfg["ndmspc"]["cuts"][i]["rebin_start"].get<Int_t>();
 
+  gCfg["ndmspc"]["cuts"][i]["rebin_minimum"] = rebin_minimum;
   if (rebin > 1) end /= rebin;
+  if (rebin_start > 1) {
+    rebin_minimum                              = (rebin_start % rebin);
+    gCfg["ndmspc"]["cuts"][i]["rebin_minimum"] = rebin_minimum;
+    start                                      = (rebin_start / rebin) + 1;
+    end                                        = (a->GetNbins() - rebin_minimum + 1) / rebin;
+    // Printf("%s start=%d end=%d rebin=%d nbins=%d rebin_start=%d rebin_minimum=%d", a->GetName(), start, end, rebin,
+    //        a->GetNbins(), rebin_start, rebin_minimum);
+    // exit(1);
+  }
 
   if (gCfg["ndmspc"]["process"]["ranges"].is_array()) {
     start = gCfg["ndmspc"]["process"]["ranges"][i][0];
     if (gCfg["ndmspc"]["process"]["ranges"][i][1] < end) end = gCfg["ndmspc"]["process"]["ranges"][i][1];
+    // TODO: Handle rebin and rebin_start
   }
 
   for (Int_t iBin = start; iBin <= end; iBin++) {
-    // Printf("ibin=%d", iBin);
-    Int_t binMin                            = iBin;
-    Int_t binMax                            = iBin;
+    Int_t binMin = (iBin - 1) * rebin + rebin_minimum;
+    Int_t binMax = (iBin * rebin) - 1 + rebin_minimum;
+    if (fVerbose >= 2)
+      Printf("axis=%s rebin=%d rebin_minimum=%d binMin=%d binMax=%d [%f,%f]", a->GetName(), rebin, rebin_minimum,
+             binMin, binMax, a->GetBinLowEdge(binMin), a->GetBinUpEdge(binMax));
     gCfg["ndmspc"]["cuts"][i]["bin"]["min"] = binMin;
     gCfg["ndmspc"]["cuts"][i]["bin"]["max"] = binMax;
     ProcessRecursive(i - 1);
@@ -699,27 +751,45 @@ void PointRun::OutputFileOpen()
 
   if (gCfg["ndmspc"]["cuts"].is_array() && !fCurrentOutputFileName.empty()) {
 
-    std::string axisName;
-    std::string rebinStr = "";
-    // cfgOutput["ndmspc"]["cuts"] = gCfg["ndmspc"]["cuts"];
-    for (auto & cut : gCfg["ndmspc"]["cuts"]) {
-      if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-      if (axisName.length() > 0) {
-        axisName += "_";
-        rebinStr += "_";
-      }
-      axisName += cut["axis"].get<std::string>();
-      rebinStr += std::to_string(cut["rebin"].get<Int_t>());
-    }
-    if (axisName.length() > 0) {
+    // std::string axisName;
+    // std::string rebinStr = "";
+    // // cfgOutput["ndmspc"]["cuts"] = gCfg["ndmspc"]["cuts"];
+    // for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+    //   if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+    //   Int_t rebin         = 1;
+    //   Int_t rebin_start   = 1;
+    //   Int_t rebin_minimum = 1;
+    //
+    //   if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+    //   if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+    //
+    //   if (rebin_start > 1) {
+    //     rebin_minimum = (rebin_start % rebin);
+    //   }
+    //
+    //   if (axisName.length() > 0) {
+    //     axisName += "_";
+    //     rebinStr += "_";
+    //   }
+    //   axisName += cut["axis"].get<std::string>();
+    //   rebinStr += std::to_string(rebin);
+    //   rebinStr += "-";
+    //   rebinStr += std::to_string(rebin_minimum);
+    // }
+    std::string cutsName = Utils::GetCutsPath(gCfg["ndmspc"]["cuts"]);
+    // Printf("cutsName='%s'", cutsName.c_str());
+    // exit(1);
+
+    if (cutsName.length() > 0) {
       fCurrentOutputFileName += "/";
       fCurrentOutputFileName += gCfg["ndmspc"]["environment"].get<std::string>().c_str();
       fCurrentOutputFileName += "/";
-      fCurrentOutputFileName += TString::Format("%s/%s", axisName.c_str(), rebinStr.c_str());
-      fCurrentOutputFileName += "/";
+      fCurrentOutputFileName += cutsName.c_str();
+      // fCurrentOutputFileName += "/";
       fCurrentOutputFileName += "bins";
       fCurrentOutputFileName += "/";
 
+      // TODO: check what is it used for. Remove it if not needed
       if (gCfg["ndmspc"]["output"]["post"].is_string()) {
         std::string post = gCfg["ndmspc"]["output"]["post"].get<std::string>();
         if (!post.empty()) {
@@ -732,7 +802,22 @@ void PointRun::OutputFileOpen()
 
       for (auto & cut : gCfg["ndmspc"]["cuts"]) {
         if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-        fCurrentOutputFileName += std::to_string(cut["bin"]["min"].get<Int_t>()) + "/";
+        Int_t rebin         = 1;
+        Int_t rebin_start   = 1;
+        Int_t rebin_minimum = 1;
+
+        if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+        if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+
+        if (rebin_start > 1) {
+          rebin_minimum = (rebin_start % rebin);
+        }
+
+        Int_t bin_min = cut["bin"]["min"].get<Int_t>();
+        // Printf("bin_min=%d rebin_start=%d rebin=%d %d", bin_min, rebin_start, rebin,
+        //        (bin_min - rebin_minimum) / rebin + 1);
+        Int_t bin_min_converted = (bin_min - rebin_minimum) / rebin + 1;
+        fCurrentOutputFileName += std::to_string(bin_min_converted) + "/";
       }
     }
   }
@@ -1126,17 +1211,18 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string env
 
   path += environment + "/";
 
-  std::string rebinStr  = "";
-  int         nDimsCuts = 0;
-  for (auto & cut : gCfg["ndmspc"]["cuts"]) {
-    if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-    path += cut["axis"].get<std::string>() + "_";
-    rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
-    nDimsCuts++;
-  }
-  path[path.size() - 1] = '/';
-  path += rebinStr;
-  path[path.size() - 1] = '/';
+  // int nDimsCuts = 0;
+  // std::string rebinStr  = "";
+  // for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+  //   if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+  //   path += cut["axis"].get<std::string>() + "_";
+  //   rebinStr += std::to_string(cut["rebin"].get<Int_t>()) + "_";
+  //   nDimsCuts++;
+  // }
+  // path[path.size() - 1] = '/';
+  // path += rebinStr;
+  // path[path.size() - 1] = '/';
+  path += Utils::GetCutsPath(gCfg["ndmspc"]["cuts"]);
 
   path = gSystem->ExpandPathName(path.c_str());
 
