@@ -11,7 +11,7 @@ Source0:    %{name}-%{version}.tar.gz
 
 BuildRequires:  gcc-c++
 BuildRequires:  cmake, doxygen
-BuildRequires:  root
+BuildRequires:  root, root-net-http, root-net-httpsniff
 Requires:       root, root-netx, xrootd-client
 
 %description

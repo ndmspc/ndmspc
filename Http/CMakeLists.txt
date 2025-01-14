@@ -1,4 +1,4 @@
-set(PACKAGE NdmspcCore)
+set(PACKAGE NdmspcHttp)
 file(GLOB SRCS "*.cxx")
 
 set(MY_EXTERNAL_LIBS
