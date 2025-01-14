@@ -15,6 +15,7 @@ include(ROOTMacros)
 
 include_directories(${PROJECT_SOURCE_DIR}/Utils)
 add_subdirectory(Core)
+add_subdirectory(Http)
 add_subdirectory(Event)
 add_subdirectory(Ndh)
 add_subdirectory(src)

@@ -2,13 +2,16 @@
 #include <cstdlib>
 #include <string>
 #include <CLI11.hpp>
+#include "TSystem.h"
 #include <TString.h>
 #include <TStopwatch.h>
+#include <TApplication.h>
 
 #include "Results.h"
 #include "ndmspc.h"
 #include "PointRun.h"
 #include "PointDraw.h"
+#include "HttpServer.h"
 #include "HnSparseBrowser.h"
 
 std::string app_description()
@@ -78,6 +81,9 @@ int main(int argc, char ** argv)
   point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_draw->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_draw->add_option("-e,--environement", environement, "environement");
+
+  CLI::App * serve = app.add_subcommand("serve", "Http Server");
+  // serve->require_subcommand(); // 1 or more
 
   CLI::App * browser = app.add_subcommand("browser", "Object browser");
   browser->require_subcommand(); // 1 or more
@@ -183,6 +189,16 @@ int main(int argc, char ** argv)
           result.Draw();
         }
       }
+    }
+    if (!subcom->get_name().compare("serve")) {
+      TApplication app("myapp", &argc, argv);
+      int          port = 8080;
+      if (gSystem->Getenv("PORT")) {
+        port = atoi(gSystem->Getenv("PORT"));
+      }
+
+      NdmSpc::HttpServer s(TString::Format("http:%d", port).Data());
+      app.Run();
     }
   };
 
