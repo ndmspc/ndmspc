@@ -331,24 +331,30 @@ THnSparse * PointRun::CreateResult()
     if (a == nullptr) return nullptr;
 
     if (rebin > 1) {
-      a                   = (TAxis *)a->Clone();
-      Int_t    rebins_max = a->GetNbins() / rebin;
-      Double_t arr[rebins_max + 1];
+      a                = (TAxis *)a->Clone();
+      Int_t rebins_max = a->GetNbins() / rebin;
+      if ((a->GetNbins() - rebin_minimum + 1) % rebin == 0) rebins_max++;
+      Double_t arr[rebins_max];
 
-      // Printf("Axis '%s' : %d rebin_minimum=%d", a->GetName(), rebins_max, rebin_minimum);
+      // Printf("Axis '%s' : rebin_max=%d rebin_minimum=%d nbins=%d", a->GetName(), rebins_max, rebin_minimum,
+      //        a->GetNbins());
       Int_t count = 0;
       Int_t i;
       for (i = rebin_minimum; i <= a->GetNbins(); i += rebin) {
         // Printf("%d %f", i, a->GetBinUpEdge(i));
         arr[count++] = a->GetBinLowEdge(i);
       }
-      if (rebin_minimum == 1) arr[count++] = a->GetBinLowEdge(i);
-      // for (Int_t i = 0; i < count; i++) {fCurrentOutputRootDirectory
-      //   Printf("%d %f", i, arr[i]);
+      // Printf("%s %d %d", a->GetName(), count, rebins_max);
+      if (count < rebins_max) arr[count++] = a->GetBinLowEdge(i);
+      // for (Int_t i = 0; i < count; i++) {
+      //   Printf("%s %d %f", a->GetName(), i, arr[i]);
       // }
       a->Set(count - 1, arr);
       // Printf("Axis '%s' : %d", a->GetName(), a->GetNbins());
     }
+    bins[i] = a->GetNbins();
+    xmin[i] = a->GetXmin();
+    xmax[i] = a->GetXmax();
 
     cutAxes.push_back(a);
     names.push_back(a->GetName());
@@ -423,8 +429,8 @@ THnSparse * PointRun::CreateResult()
   // i = 1;
   for (auto & a : cutAxes) {
     // Printf("%s", )
-    if (a->GetXbins()->GetArray()) fres->GetAxis(iAxis)->Set(a->GetNbins(), a->GetXbins()->GetArray());
     fres->GetAxis(iAxis)->SetNameTitle(names.at(iAxis).c_str(), titles.at(iAxis).c_str());
+    if (a->GetXbins()->GetArray()) fres->GetAxis(iAxis)->Set(a->GetNbins(), a->GetXbins()->GetArray());
     iAxis++;
   }
   int iPar = 0;
@@ -497,16 +503,19 @@ bool PointRun::ApplyCuts()
         return false;
       }
 
+      Int_t binLocal = Utils::GetBinFromBase(cut["bin"]["min"].get<int>(), rebin, rebin_start);
+      fCurrentPoint[iCut + fCurrentProcessHistogramPoint.size()] = binLocal;
+
       Int_t binMin = cut["bin"]["min"].get<Int_t>();
       Int_t binMax = cut["bin"]["max"].get<Int_t>();
-
       // NdmSpc::Utils::RebinBins(binMin, binMax, rebin);
-
+      // Int_t binDiff = cut["bin"]["max"].get<Int_t>() - cut["bin"]["min"].get<Int_t>() + 1;
+      // Int_t binMin  = binLocal;
+      // Int_t binMax  = binLocal + rebin * binDiff - 1;
+      if (fVerbose >= 2)
+        Printf("cut=%s binLocal=%d binMin=%d binMax=%d", cut["axis"].get<std::string>().c_str(), binLocal, binMin,
+               binMax);
       s->GetAxis(id)->SetRange(binMin, binMax);
-
-      Int_t binLocal = Utils::GetBinFromBase(cut["bin"]["min"].get<int>(), rebin, rebin_start);
-      // Printf("binLocal=%d", binLocal);
-      fCurrentPoint[iCut + fCurrentProcessHistogramPoint.size()] = binLocal;
 
       if (i == 0) {
         if (s->GetAxis(id)->IsAlphanumeric()) {
@@ -609,8 +618,16 @@ bool PointRun::ProcessRecursive(int i)
   }
 
   if (gCfg["ndmspc"]["process"]["ranges"].is_array()) {
-    start = gCfg["ndmspc"]["process"]["ranges"][i][0];
-    if (gCfg["ndmspc"]["process"]["ranges"][i][1] < end) end = gCfg["ndmspc"]["process"]["ranges"][i][1];
+    int range_min = gCfg["ndmspc"]["process"]["ranges"][i][0].get<int>();
+    int range_max = gCfg["ndmspc"]["process"]["ranges"][i][1].get<int>();
+    if (range_max > end || range_min < start || range_min > range_max || range_min > end || range_max < start) {
+      Printf("Error: Process range is out of bounds histogram(after rebin)=[%d,%d] request=[%d,%d] or requested min is "
+             "higher then requested max !!!",
+             start, end, range_min, range_max);
+      gSystem->Exit(1);
+    }
+    start = range_min;
+    if (gCfg["ndmspc"]["process"]["ranges"][i][1] < end) end = range_max;
     // TODO: Handle rebin and rebin_start
   }
 
@@ -811,6 +828,7 @@ void PointRun::OutputFileOpen()
 
         if (rebin_start > 1) {
           rebin_minimum = (rebin_start % rebin);
+          if (rebin_minimum == 0) rebin_minimum = 1;
         }
 
         Int_t bin_min = cut["bin"]["min"].get<Int_t>();

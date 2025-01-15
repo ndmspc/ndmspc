@@ -99,26 +99,26 @@ TMacro * Utils::OpenMacro(std::string filename)
   return m;
 }
 
-void Utils::RebinBins(int & min, int & max, int rebin)
-
-{
-  ///
-  /// Rebin bins
-  ///
-  Printf("%d %d %d", min, max, rebin);
-
-  Int_t binMin  = min;
-  Int_t binMax  = max;
-  Int_t binDiff = binMax - binMin;
-
-  if (rebin > 1) {
-    binMin = 1 + ((binMin - 1) * rebin);
-    binMax = ((binMin - 1) + rebin * (binDiff + 1));
-  }
-
-  min = binMin;
-  max = binMax;
-}
+// void Utils::RebinBins(int & min, int & max, int rebin)
+//
+// {
+//   ///
+//   /// Rebin bins
+//   ///
+//   Printf("%d %d %d", min, max, rebin);
+//
+//   Int_t binMin  = min;
+//   Int_t binMax  = max;
+//   Int_t binDiff = binMax - binMin;
+//
+//   if (rebin > 1) {
+//     binMin = 1 + ((binMin - 1) * rebin);
+//     binMax = ((binMin - 1) + rebin * (binDiff + 1));
+//   }
+//
+//   min = binMin;
+//   max = binMax;
+// }
 std::string Utils::GetCutsPath(json cuts)
 {
   std::string path     = "";
@@ -133,6 +133,7 @@ std::string Utils::GetCutsPath(json cuts)
 
     if (rebin_start > 1) {
       rebin_minimum = (rebin_start % rebin);
+      if (rebin_minimum == 0) rebin_minimum = 1;
     }
     path += cut["axis"].get<std::string>() + "_";
     // Printf("rebin_minimum=%d rebin_start=%d rebin=%d", rebin_minimum, rebin_start, rebin);
@@ -153,13 +154,15 @@ Int_t Utils::GetBinFromBase(Int_t bin, Int_t rebin, Int_t rebin_start)
 
   return (bin / rebin) + 1;
 
-  // Int_t binLocal      = bin / rebin;
+  // Int_t binLocal      = (bin / rebin);
   // Int_t rebin_minimum = 1;
   // if (rebin_start > 1) {
   //   rebin_minimum = (rebin_start % rebin);
-  //   return binLocal + rebin_minimum - 1;
+  //   if (rebin_minimum == 0) rebin_minimum = 1;
+  //   // return binLocal + rebin_minimum;
   // }
-  // return binLocal - 1;
+  // // Printf("binLocal=%d", binLocal + rebin_minimum);
+  // return binLocal + rebin_minimum;
 }
 
 int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,

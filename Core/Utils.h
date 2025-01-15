@@ -26,7 +26,7 @@ class Utils : TObject {
   static TFile *     OpenFile(std::string filename, std::string mode = "READ", bool createLocalDir = true);
   static std::string OpenRawFile(std::string filename);
   static TMacro *    OpenMacro(std::string filename);
-  static void        RebinBins(int & min, int & max, int rebin);
+  // static void        RebinBins(int & min, int & max, int rebin);
   static std::string GetCutsPath(json cuts);
   static Int_t       GetBinFromBase(Int_t bin, Int_t rebin, Int_t rebin_start);
   static int SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,

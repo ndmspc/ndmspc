@@ -59,7 +59,7 @@
           "min": 5
         },
         "enabled": true,
-        "rebin": 5,
+        "rebin": 7,
         "rebin_start": 4
       },
       {
@@ -69,8 +69,8 @@
           "min": 1
         },
         "enabled": true,
-        "rebin": 2,
-        "rebin_start": 1
+        "rebin": 3,
+        "rebin_start": 2
       },
       {
         "axis": "axis3-ns1",
