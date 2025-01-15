@@ -1,3 +1,4 @@
+#include <TSystem.h>
 #include "Core.h"
 #include "Utils.h"
 
@@ -36,6 +37,16 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string en
 
   for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (!cut["rebin"].is_number_integer()) gCfg["ndmspc"]["cuts"][cut["axis"].get<std::string>()] = 1;
+    Int_t rebin       = 1;
+    Int_t rebin_start = 1;
+    if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+    if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+    if (rebin > 1 && rebin_start >= rebin) {
+      Printf("Error: rebin_start=%d is greater than rebin=%d for axis '%s' !!! Please set rebin_start to lower then "
+             "rebin !!! Exiting ...",
+             rebin_start, rebin, cut["axis"].get<std::string>().c_str());
+      gSystem->Exit(1);
+    }
   }
 
   if (!environment.empty()) {
