@@ -5,7 +5,7 @@
 #include <TH1D.h>
 #include <ndmspc/PointRun.h>
 #include <ndmspc/Utils.h>
-bool GitlabPM(NdmSpc::PointRun *pr)
+bool GitlabPM(Ndmspc::PointRun *pr)
 {
   json                     cfg          = pr->Cfg();
   TList *                  inputList    = pr->GetInputList();
@@ -41,7 +41,7 @@ bool GitlabPM(NdmSpc::PointRun *pr)
 
 
   if (resultObject) {
-     NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Integral", point, integral, TMath::Sqrt(integral), false, true);
+     Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Integral", point, integral, TMath::Sqrt(integral), false, true);
   }
 
   if (!gROOT->IsBatch() && !cfg["ndmspc"]["process"]["type"].get<std::string>().compare("single")) {

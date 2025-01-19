@@ -4,10 +4,10 @@
 #include "GitlabTrack.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Gitlab::Track);
+ClassImp(Ndmspc::Gitlab::Track);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Gitlab {
 
 Track::Track() : TObject(), fState(), fAuthorID(0), fProjectID(0)
@@ -58,4 +58,4 @@ void Track::Clear(Option_t *)
 }
 
 } // namespace Gitlab
-} // namespace NdmSpc
+} // namespace Ndmspc

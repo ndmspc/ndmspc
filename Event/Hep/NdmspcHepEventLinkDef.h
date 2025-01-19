@@ -4,6 +4,6 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class NdmSpc::Hep::Track + ;
-#pragma link C++ class NdmSpc::Hep::Event + ;
+#pragma link C++ class Ndmspc::Hep::Track + ;
+#pragma link C++ class Ndmspc::Hep::Event + ;
 #endif

@@ -3,10 +3,10 @@
 #include "CloudEvent.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::CloudEvent);
+ClassImp(Ndmspc::CloudEvent);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 
 CloudEvent::CloudEvent(std::string id, std::string source, std::string specVersion, std::string type)
     : TObject(), fId(id), fSource(source), fSpecVersion(specVersion), fType(type)
@@ -82,4 +82,4 @@ void CloudEvent::Print(Option_t * opt) const
 {
   Printf("%s", GetInfo().c_str());
 }
-} // namespace NdmSpc
+} // namespace Ndmspc

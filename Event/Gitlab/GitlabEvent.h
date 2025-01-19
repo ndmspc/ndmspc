@@ -9,7 +9,7 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Gitlab {
 ///
 /// \class Event
@@ -138,5 +138,5 @@ class Event : public TObject {
   /// \endcond
 }; // namespace TObject
 } // namespace Gitlab
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif

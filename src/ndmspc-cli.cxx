@@ -2,17 +2,20 @@
 #include <cstdlib>
 #include <string>
 #include <CLI11.hpp>
+#include <vector>
+#include "TAxis.h"
 #include "TSystem.h"
 #include <TString.h>
 #include <TStopwatch.h>
 #include <TApplication.h>
 
-#include "Results.h"
 #include "ndmspc.h"
+#include "Results.h"
 #include "PointRun.h"
 #include "PointDraw.h"
 #include "HttpServer.h"
 #include "HnSparseBrowser.h"
+#include "Cuts.h"
 
 std::string app_description()
 {
@@ -41,6 +44,8 @@ int main(int argc, char ** argv)
   std::string macroFileName      = "";
   std::string directoryToken     = "";
   std::string environement       = "";
+  std::string cutBaseAxis        = "";
+  std::string cutRanges          = "";
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
@@ -93,11 +98,15 @@ int main(int argc, char ** argv)
   browser_hnsparse->add_option("-o,--objects", objectName, "Input objects");
   browser_hnsparse->add_option("-t,--token", directoryToken, "Directory token (default: '/')");
 
-  CLI::App * browser_result = browser->add_subcommand("result", "NdmSpc result browser");
+  CLI::App * browser_result = browser->add_subcommand("result", "Ndmspc result browser");
   browser_result->add_option("-c,--config", configFileName, "Config file name");
   browser_result->add_option("-u,--user-config", userConfigFileName, "User config file name");
   browser_result->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   browser_result->add_option("-e,--environement", environement, "environement");
+
+  CLI::App * cuts = app.add_subcommand("cuts", "Cuts");
+  cuts->add_option("-b,--base", cutBaseAxis, "Base axis (<nBins>,<min>,<max>)");
+  cuts->add_option("-r,--ranges", cutBaseAxis, "Range (<rebin1>:<nbins1>,...,<rebinN>:<nbinsN>)");
 
   CLI11_PARSE(app, argc, argv);
   if (getenv("NDMSPC_POINT_NAME")) {
@@ -128,6 +137,12 @@ int main(int argc, char ** argv)
   if (getenv("NDMSPC_BROWSER_DIRECTORY_TOKEN")) {
     if (directoryToken.empty()) directoryToken = getenv("NDMSPC_BROWSER_DIRECTORY_TOKEN");
   }
+  if (getenv("NDMSPC_CUTS_BASE_AXIS")) {
+    if (cutBaseAxis.empty()) cutBaseAxis = getenv("NDMSPC_CUTS_BASE_AXIS");
+  }
+  if (getenv("NDMSPC_CUTS_RANGES")) {
+    if (cutRanges.empty()) cutRanges = getenv("NDMSPC_CUTS_RANGES");
+  }
 
   if (!basedir.empty()) {
     if (basedir[basedir.size() - 1] != '/') basedir += "/";
@@ -154,12 +169,12 @@ int main(int argc, char ** argv)
 
       for (auto * subsubcom : subcom->get_subcommands()) {
         if (!subsubcom->get_name().compare("gen")) {
-          NdmSpc::PointRun::Generate(name, fileName, objectName);
+          Ndmspc::PointRun::Generate(name, fileName, objectName);
         }
         if (!subsubcom->get_name().compare("run")) {
           TStopwatch timer;
           timer.Start();
-          NdmSpc::PointRun pr(macroFileName);
+          Ndmspc::PointRun pr(macroFileName);
           pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, false);
           timer.Stop();
           timer.Print();
@@ -167,12 +182,12 @@ int main(int argc, char ** argv)
         if (!subsubcom->get_name().compare("merge")) {
           TStopwatch timer;
           timer.Start();
-          NdmSpc::PointRun::Merge(configFileName, userConfigFileName, environement, userConfigRaw);
+          Ndmspc::PointRun::Merge(configFileName, userConfigFileName, environement, userConfigRaw);
           timer.Stop();
           timer.Print();
         }
         if (!subsubcom->get_name().compare("draw")) {
-          NdmSpc::PointDraw pd;
+          Ndmspc::PointDraw pd;
           pd.Draw(configFileName, userConfigFileName, environement, userConfigRaw);
         }
       }
@@ -180,11 +195,11 @@ int main(int argc, char ** argv)
     if (!subcom->get_name().compare("browser")) {
       for (auto * subsubcom : subcom->get_subcommands()) {
         if (!subsubcom->get_name().compare("hnsparse")) {
-          NdmSpc::HnSparseBrowser browser;
+          Ndmspc::HnSparseBrowser browser;
           browser.Draw(fileName, objectName, directoryToken);
         }
         if (!subsubcom->get_name().compare("result")) {
-          NdmSpc::Results result;
+          Ndmspc::Results result;
           result.LoadConfig(configFileName, userConfigFileName, environement, userConfigRaw);
           result.Draw();
         }
@@ -197,7 +212,72 @@ int main(int argc, char ** argv)
         port = atoi(gSystem->Getenv("PORT"));
       }
 
-      NdmSpc::HttpServer s(TString::Format("http:%d", port).Data());
+      Ndmspc::HttpServer s(TString::Format("http:%d", port).Data());
+      app.Run();
+    }
+    if (!subcom->get_name().compare("cuts")) {
+      TApplication app("myapp", &argc, argv);
+
+      std::vector<std::string> a = Ndmspc::Utils::Tokenize(cutBaseAxis, ',');
+      if (a.size() != 3) {
+        Printf("Error: Invalid base axis format: %s", cutBaseAxis.c_str());
+        return 1;
+      }
+      TAxis * a1 = new TAxis(atoi(a[0].c_str()), atof(a[1].c_str()), atof(a[2].c_str()));
+      a1->SetName("a1");
+
+      Ndmspc::Axis *           axis1       = new Ndmspc::Axis(a1, 1, 0, 1, -1);
+      std::vector<std::string> rangesArray = Ndmspc::Utils::Tokenize(cutRanges, ',');
+      for (auto r : rangesArray) {
+        std::vector<std::string> range = Ndmspc::Utils::Tokenize(r, ':');
+        if (range.size() != 2) {
+          Printf("Error: Invalid range format: %s", r.c_str());
+          return 1;
+        }
+        axis1->AddRange(atoi(range[0].c_str()), atoi(range[1].c_str()));
+      }
+      if (!axis1->IsRangeValid()) {
+        return 1;
+      }
+
+      TAxis * varBinningAxis = new TAxis();
+      axis1->FillAxis(varBinningAxis);
+
+      TH1D * h = new TH1D("hAxis",
+                          TString::Format("Base %s nbins=%d min=%.2f max=%.2f with=%.2f", a1->GetName(), a1->GetNbins(),
+                                          a1->GetXmin(), a1->GetXmax(), a1->GetBinWidth(1))
+                              .Data(),
+                          varBinningAxis->GetNbins(), varBinningAxis->GetXbins()->GetArray());
+
+      for (int i = 0; i < varBinningAxis->GetNbins(); i++) {
+        h->SetBinContent(i + 1, i + 1);
+      }
+      h->Draw();
+
+      // axis1->Validate();
+      // Ndmspc::Cuts cuts;
+      // TAxis *      a1 = new TAxis(200, 0, 20);
+      // a1->SetName("a1");
+      // Ndmspc::Axis * axis1 = new Ndmspc::Axis(a1);
+      // axis1->AddChild(2, 0, 1, -1);
+      // axis1->AddChild(10, 0, 1, -1);
+      // axis1->AddChild(10, 2, 1, -1);
+      // axis1->AddChild(10, 9, 1, -1);
+      // axis1->Validate();
+      // cuts.AddAxis(axis1);
+      // TAxis * a2 = new TAxis(100, 0, 100);
+      // a2->SetName("a2");
+      // Ndmspc::Axis * axis2 = new Ndmspc::Axis(a2);
+      // axis2->AddChild(2, 0, 1, -1);
+      // axis2->AddChild(2, 1, 1, -1);
+      // axis2->AddChild(5, 3, 1, -1);
+      // axis2->AddChild(5, 12, 5);
+      // axis2->AddChild(7, 15, 3);
+      // axis2->Validate();
+      // cuts.AddAxis(axis2);
+      // cuts.Print("");
+
+      // cuts.Print("ranges");
       app.Run();
     }
   };

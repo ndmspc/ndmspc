@@ -9,10 +9,10 @@
 #include "HttpServer.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::HttpServer);
+ClassImp(Ndmspc::HttpServer);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 
 HttpServer::HttpServer(const char * engine) : THttpServer(engine) {}
 
@@ -38,4 +38,4 @@ void HttpServer::ProcessCloudEventRequest(CloudEvent * ce, std::shared_ptr<THttp
   // arg->SetContentType("text/plain");
 }
 
-} // namespace NdmSpc
+} // namespace Ndmspc

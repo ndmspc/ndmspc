@@ -25,10 +25,10 @@ void ana(TString input = "ndhep.root", TString filenameOut = "out.root", int ref
   }
   if (!ch) return;
 
-  NdmSpc::Hep::Event * ev = nullptr;
+  Ndmspc::Hep::Event * ev = nullptr;
   ch->SetBranchAddress("Event", &ev);
 
-  NdmSpc::Hep::Track * t;
+  Ndmspc::Hep::Track * t;
   TH1D *               hVx = new TH1D("hVx", "Vx distribution", 200, -10, 10);
   TH1D *               hPx = new TH1D("hPx", "Px distribution", 100, 0, 10);
   TH1D *               hPy = new TH1D("hPy", "Py distribution", 100, 0, 10);

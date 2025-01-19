@@ -11,7 +11,7 @@
 #include "Core.h"
 using json = nlohmann::json;
 
-namespace NdmSpc {
+namespace Ndmspc {
 
 ///
 /// \class PointRun
@@ -89,5 +89,5 @@ class PointRun : public TObject {
   ClassDef(PointRun, 1);
   /// \endcond;
 };
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif /* PointRun_H */

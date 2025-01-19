@@ -5,10 +5,10 @@
 #include "GitlabEvent.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Gitlab::Event);
+ClassImp(Ndmspc::Gitlab::Event);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Gitlab {
 
 Event::Event() : TObject(), fID(0), fNIssues(0), fNMergeRequests(0), fIssues(0), fMergeRequests(0)
@@ -23,8 +23,8 @@ Event::Event(Long64_t id) : TObject(), fID(id), fNIssues(0), fNMergeRequests(0),
   ///
   /// A constructor
   ///
-  fIssues        = new TClonesArray("NdmSpc::Gitlab::Track");
-  fMergeRequests = new TClonesArray("NdmSpc::Gitlab::Track");
+  fIssues        = new TClonesArray("Ndmspc::Gitlab::Track");
+  fMergeRequests = new TClonesArray("Ndmspc::Gitlab::Track");
   fAuthors       = new TH1S("authors", "Authors", 0, 0, 0);
   fProjects      = new TH1S("projects", "Projects", 0, 0, 0);
   fMilestones    = new TH1S("milestones", "Milestones", 0, 0, 0);
@@ -240,4 +240,4 @@ void Event::ShrinkHistogram(const char * name, TH1 * h, bool verbose)
 }
 } // namespace Gitlab
 
-} // namespace NdmSpc
+} // namespace Ndmspc

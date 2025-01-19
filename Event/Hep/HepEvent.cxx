@@ -3,10 +3,10 @@
 #include "HepEvent.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Hep::Event);
+ClassImp(Ndmspc::Hep::Event);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Hep {
 
 Event::Event() : TObject(), fID(0), fVx(0.0), fVy(0.0), fVz(0.0), fNTracks(0), fTracks(0)
@@ -23,7 +23,7 @@ Event::Event(Long64_t id, Double_t vx, Double_t vy, Double_t vz)
   /// A constructor
   ///
 
-  fTracks = new TClonesArray("NdmSpc::Hep::Track");
+  fTracks = new TClonesArray("Ndmspc::Hep::Track");
   gRandom->SetSeed(0);
 }
 
@@ -90,4 +90,4 @@ void Event::BuildVertexRandom()
 }
 
 } // namespace Hep
-} // namespace NdmSpc
+} // namespace Ndmspc

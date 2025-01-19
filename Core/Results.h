@@ -8,7 +8,7 @@
 class TFile;
 class TH1;
 class THnSparse;
-namespace NdmSpc {
+namespace Ndmspc {
 
 ///
 /// \class Results
@@ -56,5 +56,5 @@ class Results : public TObject {
   ClassDef(Results, 1);
   /// \endcond;
 };
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif

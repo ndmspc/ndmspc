@@ -4,10 +4,10 @@
 #include "HepTrack.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Hep::Track);
+ClassImp(Ndmspc::Hep::Track);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Hep {
 
 Track::Track() : TObject(), fPx(0.0), fPy(0.0), fPz(0.0), fCharge(0), fIsPrimary(0), fTPCSignal(0)
@@ -102,4 +102,4 @@ void Track::SetPIDNsigma(Int_t i, Double_t s)
   fPIDNsigma[i] = s;
 }
 } // namespace Hep
-} // namespace NdmSpc
+} // namespace Ndmspc

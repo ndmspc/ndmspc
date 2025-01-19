@@ -3,10 +3,10 @@
 #include "Utils.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Core);
+ClassImp(Ndmspc::Core);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 
 /// Global configuration
 json gCfg;
@@ -18,7 +18,7 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string en
     gCfg = json::parse(fileContent);
     Printf("Using config file '%s' ...", config.c_str());
     if (!userConfig.empty()) {
-      std::string fileContentUser = NdmSpc::Utils::OpenRawFile(userConfig);
+      std::string fileContentUser = Ndmspc::Utils::OpenRawFile(userConfig);
       if (!fileContentUser.empty()) {
         json userCfg = json::parse(fileContentUser);
         gCfg.merge_patch(userCfg);
@@ -83,4 +83,4 @@ bool Core::LoadEnvironment(std::string environment)
   }
   return true;
 }
-} // namespace NdmSpc
+} // namespace Ndmspc

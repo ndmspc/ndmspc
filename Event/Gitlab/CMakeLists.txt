@@ -1,8 +1,7 @@
-set(PACKAGE NdmspcGitlabEvent)
-file(GLOB SRCS "*.cxx")
-set (MY_INCLUDE_DIRS
-)
+set(MODULE GitlabEvent)
+set(PACKAGE Ndmspc${MODULE})
+file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx" )
+set (MY_INCLUDE_DIRS )
 include_directories(${MY_INCLUDE_DIRS})
-set(MY_EXTERNAL_LIBS
-)
+set(MY_EXTERNAL_LIBS )
 RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")

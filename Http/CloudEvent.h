@@ -7,7 +7,7 @@
 using json = nlohmann::json;
 
 class THttpCallArg;
-namespace NdmSpc {
+namespace Ndmspc {
 
 ///
 /// \class CloudEvent
@@ -57,5 +57,5 @@ class CloudEvent : public TObject {
   ClassDef(CloudEvent, 1);
   /// \endcond;
 };
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif

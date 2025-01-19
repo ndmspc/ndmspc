@@ -16,8 +16,8 @@ void gen(int nEvents = 1000, int nTracks = 100, int refresh = 100, TString filen
     return;
   }
 
-  NdmSpc::Hep::Track * t;
-  NdmSpc::Hep::Event * ev = new NdmSpc::Hep::Event(0);
+  Ndmspc::Hep::Track * t;
+  Ndmspc::Hep::Event * ev = new Ndmspc::Hep::Event(0);
 
   TTree tree("ndhepTree", "Ndhep Tree");
   tree.Branch("Event", &ev);

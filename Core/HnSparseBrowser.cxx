@@ -13,10 +13,10 @@
 #include "HnSparseBrowser.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::HnSparseBrowser);
+ClassImp(Ndmspc::HnSparseBrowser);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 HnSparseBrowser::HnSparseBrowser() : TObject()
 
 {
@@ -61,7 +61,7 @@ int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string
   // }
 
   Printf("Opening file '%s' ...", filename.c_str());
-  TFile * inputFile = NdmSpc::Utils::OpenFile(filename.c_str());
+  TFile * inputFile = Ndmspc::Utils::OpenFile(filename.c_str());
   if (!inputFile) {
     Printf("Error: Cannot open filename %s!", filename.c_str());
     return 2;
@@ -117,7 +117,7 @@ int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string
 
   TCanvas * CanvasMap = new TCanvas("CanvasAxes", "CanvasAxes", 0, 0, 1000, 300);
   // CanvasMap->HighlightConnect("HighlightMain(TVirtualPad*,TObject*,Int_t,Int_t)");
-  CanvasMap->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "NdmSpc::HnSparseBrowser", this,
+  CanvasMap->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "Ndmspc::HnSparseBrowser", this,
                      "HighlightMain(TVirtualPad*,TObject*,Int_t,Int_t)");
   hAxes->SetHighlight(true);
   hAxes->Draw("colz");
@@ -161,4 +161,4 @@ void HnSparseBrowser::HighlightMain(TVirtualPad * pad, TObject * obj, Int_t xBin
   CanvasProj->Update();
 }
 
-} // namespace NdmSpc
+} // namespace Ndmspc

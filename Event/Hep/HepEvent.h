@@ -5,7 +5,7 @@
 #include <TClonesArray.h>
 #include "HepTrack.h"
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Hep {
 ///
 /// \class Event
@@ -103,5 +103,5 @@ class Event : public TObject {
 };
 
 } // namespace Hep
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif /* HepEvent_H */

@@ -6,7 +6,7 @@
 #include <TList.h>
 #include <TVirtualPad.h>
 
-namespace NdmSpc {
+namespace Ndmspc {
 
 ///
 /// \class HnSparseBrowser
@@ -36,5 +36,5 @@ class HnSparseBrowser : public TObject {
   ClassDef(HnSparseBrowser, 1);
   /// \endcond;
 };
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif /* PointRun_H */

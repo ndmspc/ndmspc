@@ -10,10 +10,10 @@
 using std::ifstream;
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Utils);
+ClassImp(Ndmspc::Utils);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 
 TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocalDir)
 {
@@ -46,7 +46,7 @@ TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocal
         TUrl url(filenameT.Data());
 
         std::string filenameLocal = gSystem->GetDirName(url.GetFile()).Data();
-        // Printf("NdmSpc::Utils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
+        // Printf("Ndmspc::Utils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
         gSystem->mkdir(filenameLocal.c_str(), kTRUE);
       }
     }
@@ -178,7 +178,7 @@ int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, I
   bool isErrNaN = TMath::IsNaN(err);
 
   if (isValNan || isErrNaN) {
-    if (verbose > 0)
+    if (verbose >= 0)
       Printf("Error: SetResultValueError %s val=%f[isNaN=%d] err=%f[isNan=%d]", name.c_str(), val, isValNan, err,
              isErrNaN);
     return -2;
@@ -189,7 +189,7 @@ int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, I
   }
 
   if (times > 0 && times * std::abs(val) < err) {
-    if (verbose > 0)
+    if (verbose >= 0)
       Printf("Warning: Skipping '%s' because 'times * val < err' (  %f * %f < %f ) ...", name.c_str(), times,
              std::abs(val), err);
     return -4;
@@ -235,4 +235,4 @@ std::vector<std::string> Utils::Tokenize(std::string_view input, const char deli
   return out;
 }
 
-} // namespace NdmSpc
+} // namespace Ndmspc

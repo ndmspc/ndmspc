@@ -120,10 +120,10 @@ int main(int argc, char ** argv)
     maxs[i] = max;
   }
 
-  NdmSpc::Ndh::HnSparseD * h =
-      new NdmSpc::Ndh::HnSparseD("hTest", "Testing histogram", nDim, bins, mins, maxs, chunkSize);
+  Ndmspc::Ndh::HnSparseD * h =
+      new Ndmspc::Ndh::HnSparseD("hTest", "Testing histogram", nDim, bins, mins, maxs, chunkSize);
   if (nBinsReserved) h->ReserveBins(nBinsReserved);
-  NdmSpc::Ndh::HnSparseStress stress;
+  Ndmspc::Ndh::HnSparseStress stress;
   stress.SetDebugLevel(debug);
   stress.SetPrintRefresh(nPrintRefresh);
   stress.SetRandomFill(fillRandom);

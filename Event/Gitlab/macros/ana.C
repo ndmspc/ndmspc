@@ -36,7 +36,7 @@ void ana(TString input = "gitlab.root", TString filenameOut = "gitlab_hist.root"
   }
   if (!ch) return;
 
-  NdmSpc::Gitlab::Event * ev = nullptr;
+  Ndmspc::Gitlab::Event * ev = nullptr;
   ch->SetBranchAddress("Event", &ev);
 
   int     nTypes = 2;
@@ -63,7 +63,7 @@ void ana(TString input = "gitlab.root", TString filenameOut = "gitlab_hist.root"
   TAxis * milestones     = milestonesHist->GetXaxis();
   int     nMilestones    = milestones->GetNbins();
 
-  NdmSpc::Gitlab::Track * t;
+  Ndmspc::Gitlab::Track * t;
 
   const Int_t nAxis       = 5;
   Int_t       bins[nAxis] = {nTypes, nStates, nAuthors, nProjects, nMilestones};

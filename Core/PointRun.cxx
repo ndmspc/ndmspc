@@ -16,10 +16,10 @@
 #include "PointRun.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::PointRun);
+ClassImp(Ndmspc::PointRun);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 std::string PointRun::fgEnvironment = "";
 PointRun::PointRun(std::string macro) : TObject()
 {
@@ -134,7 +134,7 @@ bool PointRun::Init(std::string extraPath)
                 .Data();
 
         if (fVerbose >= 2) Printf("rmUrl '%s' ...", rmUrl.c_str());
-        TFile * f = NdmSpc::Utils::OpenFile(rmUrl.c_str());
+        TFile * f = Ndmspc::Utils::OpenFile(rmUrl.c_str());
         if (!f) return 1;
         Printf("Directory '%s' deleted", outFileName.c_str());
         f->Close();
@@ -166,7 +166,7 @@ TList * PointRun::OpenInputs()
     return nullptr;
   }
   if (fVerbose >= 0) Printf("Opening file '%s' ...", gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
-  fInputFile = NdmSpc::Utils::OpenFile(gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
+  fInputFile = Ndmspc::Utils::OpenFile(gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
   if (!fInputFile) {
     Printf("Error: Cannot open file '%s' !", gCfg["ndmspc"]["data"]["file"].get<std::string>().c_str());
     return nullptr;
@@ -233,7 +233,7 @@ TList * PointRun::OpenInputs()
 
   TFunction * fun = gROOT->GetGlobalFunction("NdmspcOpenInputsUser", nullptr, kTRUE);
   if (fun) {
-    gROOT->ProcessLine(TString::Format("NdmspcOpenInputsUser((NdmSpc::PointRun*)%p),", this));
+    gROOT->ProcessLine(TString::Format("NdmspcOpenInputsUser((Ndmspc::PointRun*)%p),", this));
   }
 
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::OpenInputs");
@@ -508,7 +508,7 @@ bool PointRun::ApplyCuts()
 
       Int_t binMin = cut["bin"]["min"].get<Int_t>();
       Int_t binMax = cut["bin"]["max"].get<Int_t>();
-      // NdmSpc::Utils::RebinBins(binMin, binMax, rebin);
+      // Ndmspc::Utils::RebinBins(binMin, binMax, rebin);
       // Int_t binDiff = cut["bin"]["max"].get<Int_t>() - cut["bin"]["min"].get<Int_t>() + 1;
       // Int_t binMin  = binLocal;
       // Int_t binMax  = binLocal + rebin * binDiff - 1;
@@ -671,9 +671,9 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
 
     {
       /*TRedirectOutputGuard g{"/dev/null"};*/
-      /*Longptr_t            ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));*/
-      /*Longptr_t ok = fMacro->Exec(TString::Format("(NdmSpc::PointRun*)%p", this));*/
-      Longptr_t ok = gROOT->ProcessLine(TString::Format("%s((NdmSpc::PointRun*)%p);", fMacro->GetName(), this));
+      /*Longptr_t            ok = fMacro->Exec(TString::Format("(Ndmspc::PointRun*)%p", this));*/
+      /*Longptr_t ok = fMacro->Exec(TString::Format("(Ndmspc::PointRun*)%p", this));*/
+      Longptr_t ok = gROOT->ProcessLine(TString::Format("%s((Ndmspc::PointRun*)%p);", fMacro->GetName(), this));
       /*fMacro.Exec(TString::Format("(TList*)%p,(json*)%p", fInputList, &gCfg));*/
 
       /*fMacro.Exec(TString::Format("(TList*)%ld,(json&)%p,(THnSparse "*/
@@ -852,7 +852,7 @@ void PointRun::OutputFileOpen()
 
   fCurrentOutputFileName = gSystem->ExpandPathName(fCurrentOutputFileName.c_str());
   fCurrentOutputFile =
-      NdmSpc::Utils::OpenFile(TString::Format("%s%s", fCurrentOutputFileName.c_str(),
+      Ndmspc::Utils::OpenFile(TString::Format("%s%s", fCurrentOutputFileName.c_str(),
                                               gCfg["ndmspc"]["output"]["opt"].get<std::string>().c_str())
                                   .Data(),
                               "RECREATE");
@@ -956,7 +956,7 @@ int PointRun::ProcessHistogramRun()
   std::string fileNameHistogram = gCfg["ndmspc"]["data"]["histogram"]["file"].get<std::string>();
   std::string objName           = gCfg["ndmspc"]["data"]["histogram"]["obj"].get<std::string>();
 
-  TFile * fProccessHistogram = NdmSpc::Utils::OpenFile(fileNameHistogram.c_str());
+  TFile * fProccessHistogram = Ndmspc::Utils::OpenFile(fileNameHistogram.c_str());
   if (!fProccessHistogram) {
     Printf("Error: Proccess input histogram file '%s' could not opened !!!", fileNameHistogram.c_str());
     return 1;
@@ -1144,7 +1144,7 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
 
 
   if (resultObject) {
-     NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Integral", point, integral, TMath::Sqrt(integral), false, true);
+     Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Integral", point, integral, TMath::Sqrt(integral), false, true);
   }
 
   if (!gROOT->IsBatch() && !cfg["ndmspc"]["process"]["type"].get<std::string>().compare("single")) {
@@ -1162,7 +1162,7 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   if (cfg["ndmspc"]["cuts"].size() == 0) {
     // Generate all axis
     // {"enabled": false, "axis": "hNSparseAxisName", "bin" : {"min":3, "max": 3}, "rebin":1}
-    TFile * tmpFile = NdmSpc::Utils::OpenFile(inFile.c_str());
+    TFile * tmpFile = Ndmspc::Utils::OpenFile(inFile.c_str());
     if (!tmpFile) {
       Printf("Error: Problem opening file '%s' !!! Exiting ...", inFile.c_str());
       return 1;
@@ -1198,7 +1198,7 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   std::string   outputMacro = name + ".C";
   std::ofstream file(outputMacro.c_str());
   file << macroTemplateHeader.c_str();
-  file << "bool " << name.c_str() << "(NdmSpc::PointRun *pr)";
+  file << "bool " << name.c_str() << "(Ndmspc::PointRun *pr)";
   file << macroTemplate.c_str();
 
   Printf("File '%s.C' and '%s.json' were generated ...", name.c_str(), name.c_str());
@@ -1280,7 +1280,7 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string env
           "root://%s//proc/user/?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
           outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
 
-      TFile * f = NdmSpc::Utils::OpenFile(findUrl.Data());
+      TFile * f = Ndmspc::Utils::OpenFile(findUrl.Data());
       if (!f) return 1;
 
       // Printf("%lld", f->GetSize());
@@ -1365,4 +1365,4 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string env
   return true;
 }
 
-} // namespace NdmSpc
+} // namespace Ndmspc

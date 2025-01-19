@@ -6,7 +6,7 @@
 #include <THnSparse.h>
 
 #include "HnSparse.h"
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Ndh {
 
 ///
@@ -54,6 +54,6 @@ class HnSparseStress : public TObject {
 };
 
 } // namespace Ndh
-} // namespace NdmSpc
+} // namespace Ndmspc
 
 #endif /* HnSparseStress_H */

@@ -12,7 +12,7 @@ Source0:    %{name}-%{version}.tar.gz
 BuildRequires:  gcc-c++
 BuildRequires:  cmake, doxygen
 BuildRequires:  root, root-net-http, root-net-httpsniff
-Requires:       root, root-netx, xrootd-client
+Requires:       root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
 
 %description
 @PROJECT_DESCRIPTION@
