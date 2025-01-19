@@ -4,11 +4,13 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class NdmSpc::Utils + ;
-#pragma link C++ class NdmSpc::Core + ;
-#pragma link C++ class NdmSpc::Results + ;
-#pragma link C++ class NdmSpc::PointRun + ;
-#pragma link C++ class NdmSpc::PointDraw + ;
-#pragma link C++ class NdmSpc::HnSparseBrowser + ;
+#pragma link C++ class Ndmspc::Axis + ;
+#pragma link C++ class Ndmspc::Cuts + ;
+#pragma link C++ class Ndmspc::Utils + ;
+#pragma link C++ class Ndmspc::Core + ;
+#pragma link C++ class Ndmspc::Results + ;
+#pragma link C++ class Ndmspc::PointRun + ;
+#pragma link C++ class Ndmspc::PointDraw + ;
+#pragma link C++ class Ndmspc::HnSparseBrowser + ;
 
 #endif

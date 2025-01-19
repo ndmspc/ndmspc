@@ -5,10 +5,10 @@
 #include "HnSparseStress.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Ndh::HnSparseStress);
+ClassImp(Ndmspc::Ndh::HnSparseStress);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Ndh {
 
 HnSparseStress::HnSparseStress() : TObject() {}
@@ -208,4 +208,4 @@ void HnSparseStress::PrintBin(Int_t n, Double_t * c, const char * msg)
 }
 
 } // namespace Ndh
-} // namespace NdmSpc
+} // namespace Ndmspc

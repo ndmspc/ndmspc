@@ -17,8 +17,8 @@ void import(std::string basedir = "./data/gitlab/6534672/day", std::string filen
     return;
   }
 
-  NdmSpc::Gitlab::Track * t;
-  NdmSpc::Gitlab::Event * ev = new NdmSpc::Gitlab::Event(0);
+  Ndmspc::Gitlab::Track * t;
+  Ndmspc::Gitlab::Event * ev = new Ndmspc::Gitlab::Event(0);
 
   TTree tree("gitlabTree", "Ndhep Gitlab Tree");
   tree.Branch("Event", &ev);

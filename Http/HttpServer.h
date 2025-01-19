@@ -5,7 +5,7 @@
 #include "CloudEvent.h"
 
 class THttpCallArg;
-namespace NdmSpc {
+namespace Ndmspc {
 
 ///
 /// \class HttpServer
@@ -26,5 +26,5 @@ class HttpServer : public THttpServer {
   ClassDef(HttpServer, 1);
   /// \endcond;
 };
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif

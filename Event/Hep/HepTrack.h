@@ -2,7 +2,7 @@
 #define HepTrack_H
 
 #include <TObject.h>
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Hep {
 
 ///
@@ -107,5 +107,5 @@ class Track : public TObject {
   /// \endcond
 };
 } // namespace Hep
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif /* HepTrack_H */

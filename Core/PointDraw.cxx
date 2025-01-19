@@ -12,10 +12,10 @@
 #include "Utils.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::PointDraw);
+ClassImp(Ndmspc::PointDraw);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 std::string PointDraw::fgEnvironment = "";
 PointDraw::PointDraw() : TObject()
 
@@ -189,7 +189,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
   auto CanvasMain = new TCanvas("CanvasMain", "CanvasMain", 0, 0, 500, 800);
   CanvasMain->Divide(1, 2);
   /*CanvasMain->HighlightConnect("HighlightMain(TVirtualPad*,TObject*,Int_t,Int_t)");*/
-  CanvasMain->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "NdmSpc::PointDraw", this,
+  CanvasMain->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "Ndmspc::PointDraw", this,
                       "HighlightMain(TVirtualPad*,TObject*,Int_t,Int_t)");
 
   //   // handle systematics
@@ -366,7 +366,7 @@ void PointDraw::DrawProjections(bool ignoreMapping)
     CanvasProjectionMap = new TCanvas("CanvasProjectionMap", "CanvasProjectionMap", 505, 0, 400, 400);
     // Printf("CanvasProjectionMap xBin=%d yBin=%d %zu", xBin, yBin, fProjectionAxes.size());
     /*CanvasProjectionMap->HighlightConnect("HighlightProjectionPoint(TVirtualPad*,TObject*,Int_t,Int_t)");*/
-    CanvasProjectionMap->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "NdmSpc::PointDraw", this,
+    CanvasProjectionMap->Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", "Ndmspc::PointDraw", this,
                                  "HighlightProjectionPoint(TVirtualPad*,TObject*,Int_t,Int_t)");
   }
 
@@ -493,7 +493,7 @@ void PointDraw::HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_
     // mc
     ptrdiff_t pos                = distance(fMc.begin(), find(fMc.begin(), fMc.end(), mc));
     fParameterPoint[2]           = fMcId[int(pos)];
-    std::vector<std::string> tok = NdmSpc::Utils::Tokenize(mc, '|');
+    std::vector<std::string> tok = Ndmspc::Utils::Tokenize(mc, '|');
     fParameterPoint[3]           = atoi(tok[1].c_str());
     fParameterPoint[4]           = atoi(tok[2].c_str());
   }
@@ -501,7 +501,7 @@ void PointDraw::HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_
     // data
     ptrdiff_t pos                = distance(fData.begin(), find(fData.begin(), fData.end(), data));
     fParameterPoint[1]           = fDataId[int(pos)];
-    std::vector<std::string> tok = NdmSpc::Utils::Tokenize(data, '|');
+    std::vector<std::string> tok = Ndmspc::Utils::Tokenize(data, '|');
     fParameterPoint[3]           = atoi(tok[1].c_str());
     fParameterPoint[4]           = atoi(tok[2].c_str());
   }
@@ -536,4 +536,4 @@ void PointDraw::HighlightProjectionPoint(TVirtualPad * pad, TObject * obj, Int_t
   pad->Update();
 }
 
-} // namespace NdmSpc
+} // namespace Ndmspc

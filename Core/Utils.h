@@ -8,7 +8,7 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-namespace NdmSpc {
+namespace Ndmspc {
 
 ///
 /// \class Utils
@@ -38,5 +38,5 @@ class Utils : TObject {
   /// \endcond;
 
 }; // namespace Utils
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif

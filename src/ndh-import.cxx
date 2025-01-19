@@ -96,7 +96,7 @@ int main(int argc, char ** argv)
   axisSplit      = config["split"]["axes"].get<std::vector<int>>();
   outputFilename = config["output"]["filename"].get<std::string>();
 
-  NdmSpc::Ndh::HnSparseL h;
+  Ndmspc::Ndh::HnSparseL h;
   h.SetOutputFileName(outputFilename.data());
   h.Import(axisSplit, filename.data(), objname.data());
 

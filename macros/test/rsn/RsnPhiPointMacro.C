@@ -14,7 +14,7 @@
 using json = nlohmann::json;
 
 TList * _currentFunctions = nullptr;
-void    NdmspcOpenInputsUser(NdmSpc::PointRun * pr)
+void    NdmspcOpenInputsUser(Ndmspc::PointRun * pr)
 {
   json &  cfg = *pr->CfgPtr();
   TFile * fIn = pr->GetInputFile();
@@ -25,7 +25,7 @@ void    NdmspcOpenInputsUser(NdmSpc::PointRun * pr)
 
 TList * RsnFunctions(std::string name, Double_t min, Double_t max, bool reuseFunctions = false);
 bool    ProcessFit(json & cfg, TH1 * peak, int verbose = 0);
-bool    RsnPhiPointMacro(NdmSpc::PointRun * pr)
+bool    RsnPhiPointMacro(Ndmspc::PointRun * pr)
 {
 
   json                     cfg          = pr->Cfg();
@@ -281,27 +281,27 @@ bool    RsnPhiPointMacro(NdmSpc::PointRun * pr)
   // Int_t nCuts=   pointLabels.size()
 
   if (resultObject) {
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawBC", point, integral, err, false, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawFnc", point, integralFnc, errFnc, false, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawBCNorm", point, integral, err, true, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "RawFncNorm", point, integralFnc, errFnc, true, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Mass", point, sigBgFnc->GetParameter(1),
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "RawBC", point, integral, err, false, true);
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "RawFnc", point, integralFnc, errFnc, false, true);
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "RawBCNorm", point, integral, err, true, true);
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "RawFncNorm", point, integralFnc, errFnc, true, true);
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Mass", point, sigBgFnc->GetParameter(1),
                                        sigBgFnc->GetParError(1), false, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Width", point, sigBgFnc->GetParameter(2),
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Width", point, sigBgFnc->GetParameter(2),
                                        sigBgFnc->GetParError(2), false, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Sigma", point, sigBgFnc->GetParameter(3),
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Sigma", point, sigBgFnc->GetParameter(3),
                                        sigBgFnc->GetParError(3), false, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Chi2", point, sigBgFnc->GetChisquare(), 0.0, false, true);
-    NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Probability", point, sigBgFnc->GetProb(), 0.0, false, true,
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Chi2", point, sigBgFnc->GetChisquare(), 0.0, false, true);
+    Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Probability", point, sigBgFnc->GetProb(), 0.0, false, true,
                                        10);
     if (hTrue)
-      NdmSpc::Utils::SetResultValueError(cfg, resultObject, "True", point, hTrue->GetBinContent(1),
+      Ndmspc::Utils::SetResultValueError(cfg, resultObject, "True", point, hTrue->GetBinContent(1),
                                          hTrue->GetBinError(1), true, true);
     if (hGen)
-      NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1),
+      Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Gen", point, hGen->GetBinContent(1), hGen->GetBinError(1),
                                          true, true);
     if (pEff)
-      NdmSpc::Utils::SetResultValueError(cfg, resultObject, "Eff", point, pEff->GetBinContent(1), pEff->GetBinError(1),
+      Ndmspc::Utils::SetResultValueError(cfg, resultObject, "Eff", point, pEff->GetBinContent(1), pEff->GetBinError(1),
                                          false, true);
   }
   else {

@@ -6,10 +6,10 @@
 #include "Core.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Results);
+ClassImp(Ndmspc::Results);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 Results::Results() : TObject() {}
 Results::~Results() {}
 bool Results::LoadConfig(std::string configfilename, std::string userconfig, std::string environment,
@@ -258,4 +258,4 @@ void Results::Draw(Option_t * option)
   Printf("Draw results ...");
   LoadResults();
 }
-} // namespace NdmSpc
+} // namespace Ndmspc

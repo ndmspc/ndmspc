@@ -1,6 +1,39 @@
 {
   "configurations": [
     {
+      "name": "ndmspc-cli cuts",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "environment": [
+        {
+          "name": "NDMSPC_CUTS_BASE_AXIS",
+          "value": "200,0.0,20.0"
+        },
+        {
+          "name": "NDMSPC_CUTS_RANGES",
+          "value": "3:2,5:4,2:6"
+        }
+      ],
+      "args": ["cuts"],
+      "stopAtEntry": false,
+      "cwd": "${fileDirname}",
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
       "name": "ndmspc-cli serve",
       "type": "cppdbg",
       "request": "launch",

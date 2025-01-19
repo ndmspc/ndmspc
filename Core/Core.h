@@ -3,9 +3,9 @@
 #include <TObject.h>
 #include "Utils.h"
 
-namespace NdmSpc {
+namespace Ndmspc {
 
-/// NdmSpc global configuration
+/// Ndmspc global configuration
 extern json gCfg;
 
 ///
@@ -29,5 +29,5 @@ class Core : public TObject {
   ClassDef(Core, 0);
   /// \endcond;
 };
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif

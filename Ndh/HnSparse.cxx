@@ -7,10 +7,10 @@
 #include "HnSparse.h"
 
 /// \cond CLASSIMP
-ClassImp(NdmSpc::Ndh::HnSparse);
+ClassImp(Ndmspc::Ndh::HnSparse);
 /// \endcond
 
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Ndh {
 
 HnSparse::HnSparse() : THnSparse()
@@ -152,4 +152,4 @@ void HnSparse::ReserveBins(Long64_t nBins)
   Printf("%e bins reserved.", (Double_t)nBins);
 }
 } // namespace Ndh
-} // namespace NdmSpc
+} // namespace Ndmspc

@@ -9,7 +9,7 @@
 #include <TObject.h>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
-namespace NdmSpc {
+namespace Ndmspc {
 
 ///
 /// \class PointRun
@@ -57,5 +57,5 @@ class PointDraw : public TObject {
   ClassDef(PointDraw, 1);
   /// \endcond;
 };
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif /* PointRun_H */

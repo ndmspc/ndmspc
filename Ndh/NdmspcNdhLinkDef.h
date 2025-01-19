@@ -4,18 +4,18 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class NdmSpc::Ndh::HnSparse + ;
-#pragma link C++ class NdmSpc::Ndh::HnSparseT < TArrayD> + ;
-#pragma link C++ class NdmSpc::Ndh::HnSparseT < TArrayF> + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparse + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseT < TArrayD> + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseT < TArrayF> + ;
 #if ROOT_VERSION_CODE >= ROOT_VERSION(6, 32, 0)
-#pragma link C++ class NdmSpc::Ndh::HnSparseT < TArrayL64> + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseT < TArrayL64> + ;
 #else
-#pragma link C++ class NdmSpc::Ndh::HnSparseT < TArrayL> + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseT < TArrayL> + ;
 #endif
-#pragma link C++ class NdmSpc::Ndh::HnSparseT < TArrayI> + ;
-#pragma link C++ class NdmSpc::Ndh::HnSparseT < TArrayS> + ;
-#pragma link C++ class NdmSpc::Ndh::HnSparseT < TArrayC> + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseT < TArrayI> + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseT < TArrayS> + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseT < TArrayC> + ;
 
-#pragma link C++ class NdmSpc::Ndh::HnSparseStress + ;
+#pragma link C++ class Ndmspc::Ndh::HnSparseStress + ;
 
 #endif

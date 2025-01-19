@@ -4,6 +4,6 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class NdmSpc::Gitlab::Track + ;
-#pragma link C++ class NdmSpc::Gitlab::Event + ;
+#pragma link C++ class Ndmspc::Gitlab::Track + ;
+#pragma link C++ class Ndmspc::Gitlab::Event + ;
 #endif

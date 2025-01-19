@@ -2,7 +2,7 @@
 #define GitlabTrack_H
 
 #include <TObject.h>
-namespace NdmSpc {
+namespace Ndmspc {
 namespace Gitlab {
 
 ///
@@ -113,5 +113,5 @@ class Track : public TObject {
   /// \endcond
 };
 } // namespace Gitlab
-} // namespace NdmSpc
+} // namespace Ndmspc
 #endif

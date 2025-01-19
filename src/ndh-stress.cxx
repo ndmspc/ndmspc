@@ -29,9 +29,9 @@ int main(int argc, char ** argv)
     maxs[i] = max;
   }
 
-  NdmSpc::Ndh::HnSparseD * h = new NdmSpc::Ndh::HnSparseD("hNStress", "hNStress", nDim, bins, mins, maxs, chunkSize);
+  Ndmspc::Ndh::HnSparseD * h = new Ndmspc::Ndh::HnSparseD("hNStress", "hNStress", nDim, bins, mins, maxs, chunkSize);
 
-  NdmSpc::Ndh::HnSparseStress stress;
+  Ndmspc::Ndh::HnSparseStress stress;
 
   TStopwatch timeStress;
   timeStress.Start();
