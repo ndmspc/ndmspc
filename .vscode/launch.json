@@ -215,7 +215,7 @@
       ]
     },
     {
-      "name": "ndmspc-cli point merge -e local",
+      "name": "ndmspc-cli point merge",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
@@ -252,11 +252,11 @@
       ]
     },
     {
-      "name": "ndmspc-cli point run -u local",
+      "name": "ndmspc-cli point draw",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
-      "args": ["point", "run"],
+      "args": ["point", "draw"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
       "environment": [
@@ -269,37 +269,8 @@
           "value": "${workspaceFolder}/macros/test/rsn/myAnalysis.json"
         },
         {
-          "name": "NDMSPC_POINT_CONFIG_USER",
-          "value": "${workspaceFolder}/macros/test/rsn/myAnalysisLocal.json"
-        }
-      ],
-      "externalConsole": false,
-      "MIMode": "gdb",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        },
-        {
-          "description": "Set Disassembly Flavor to Intel",
-          "text": "-gdb-set disassembly-flavor intel",
-          "ignoreFailures": true
-        }
-      ]
-    },
-    {
-      "name": "ndmspc-cli point draw",
-      "type": "cppdbg",
-      "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
-      "args": ["point", "draw"],
-      "stopAtEntry": false,
-      "cwd": "${fileDirname}",
-      "environment": [
-        {
-          "name": "NDMSPC_POINT_CONFIG",
-          "value": "${workspaceFolder}/macros/test/rsn/myAnalysis.json"
+          "name": "NDMSPC_POINT_ENVIRONMENT",
+          "value": "local"
         }
       ],
       "externalConsole": false,

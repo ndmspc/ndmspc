@@ -3,12 +3,14 @@
 #include <TCanvas.h>
 #include <TRootCanvas.h>
 #include <TROOT.h>
+#include <TF1.h>
 #include <TH2.h>
 #include <TH1D.h>
 #include <TCanvas.h>
 #include <string>
 #include "PointDraw.h"
 #include "Core.h"
+#include "Rtypes.h"
 #include "Utils.h"
 
 /// \cond CLASSIMP
@@ -294,11 +296,16 @@ void PointDraw::DrawUser()
   auto CanvasUser = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("CanvasUser");
   if (!CanvasUser) {
     CanvasUser = new TCanvas("CanvasUser", "CanvasUser", 910, 0, 400, 400);
+    CanvasUser->Divide(2, 2);
     // Printf("CanvasUser");
     // CanvasUser->Divide(1, fProjectionAxes.size());
     // CanvasUser->HighlightConnect("HighlightProj(TVirtualPad*,TObject*,Int_t,Int_t)");
   }
-  TH1 * hPeak = (TH1 *)fIn->Get(fCurrentContentPath.c_str());
+  // fCurrentContentPath += "hPeak";
+  TH1 * hSigBg  = (TH1 *)fIn->Get(TString::Format("%s/hSigBg", fCurrentContentPath.c_str()));
+  TH1 * hBg     = (TH1 *)fIn->Get(TString::Format("%s/hBg", fCurrentContentPath.c_str()));
+  TH1 * hBgNorm = (TH1 *)fIn->Get(TString::Format("%s/hBgNorm", fCurrentContentPath.c_str()));
+  TH1 * hPeak   = (TH1 *)fIn->Get(TString::Format("%s/hPeak", fCurrentContentPath.c_str()));
   if (!hPeak) {
     CanvasUser->Clear();
     CanvasUser->Modified();
@@ -307,9 +314,33 @@ void PointDraw::DrawUser()
     return;
   }
 
-  CanvasUser->cd();
-  // hPeak->Print("all");
-  hPeak->Draw();
+  if (hBg) {
+    hBg->SetLineColor(kViolet);
+    hBg->SetMarkerColor(kViolet);
+    hBg->Draw("SAME");
+  }
+  if (hBgNorm) {
+    hBgNorm->SetLineColor(kGreen);
+    hBgNorm->SetMarkerColor(kGreen);
+    hBgNorm->Draw("SAME");
+  }
+
+  CanvasUser->cd(1);
+  if (hSigBg) hSigBg->Draw();
+  if (hBg) hBg->Draw("SAME");
+  CanvasUser->cd(2);
+  if (hSigBg) hSigBg->Draw();
+  if (hBgNorm) hBgNorm->Draw("SAME");
+  CanvasUser->cd(3);
+  if (hPeak) hPeak->Draw();
+  CanvasUser->cd(4);
+  if (hPeak) {
+
+    TF1 * funSignal = (TF1 *)hPeak->GetListOfFunctions()->At(0);
+    if (funSignal) {
+      funSignal->Draw();
+    }
+  }
   CanvasUser->Modified();
   CanvasUser->Update();
 }
@@ -332,7 +363,6 @@ void PointDraw::UpdateRanges()
     }
     fCurrentContentPath += std::to_string(std::abs(p)) + "/";
   }
-  fCurrentContentPath += "hPeak";
 }
 
 void PointDraw::DrawProjections(bool ignoreMapping)
