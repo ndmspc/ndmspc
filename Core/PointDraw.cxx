@@ -10,6 +10,7 @@
 #include <string>
 #include "PointDraw.h"
 #include "Core.h"
+#include "ROOT/RConfig.hxx"
 #include "Rtypes.h"
 #include "Utils.h"
 
@@ -296,9 +297,8 @@ void PointDraw::DrawUser()
   auto CanvasUser = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("CanvasUser");
   if (!CanvasUser) {
     CanvasUser = new TCanvas("CanvasUser", "CanvasUser", 910, 0, 400, 400);
-    CanvasUser->Divide(2, 2);
     // Printf("CanvasUser");
-    // CanvasUser->Divide(1, fProjectionAxes.size());
+    CanvasUser->Divide(2, 2);
     // CanvasUser->HighlightConnect("HighlightProj(TVirtualPad*,TObject*,Int_t,Int_t)");
   }
   // fCurrentContentPath += "hPeak";
@@ -307,22 +307,21 @@ void PointDraw::DrawUser()
   TH1 * hBgNorm = (TH1 *)fIn->Get(TString::Format("%s/hBgNorm", fCurrentContentPath.c_str()));
   TH1 * hPeak   = (TH1 *)fIn->Get(TString::Format("%s/hPeak", fCurrentContentPath.c_str()));
   if (!hPeak) {
-    CanvasUser->Clear();
+    CanvasUser->Clear("D");
     CanvasUser->Modified();
     CanvasUser->Update();
-    // delete CanvasUser;
+    // gROOT->GetListOfCanvases()->Remove(CanvasUser);
+    // SafeDelete(CanvasUser);
     return;
   }
 
   if (hBg) {
     hBg->SetLineColor(kViolet);
     hBg->SetMarkerColor(kViolet);
-    hBg->Draw("SAME");
   }
   if (hBgNorm) {
     hBgNorm->SetLineColor(kGreen);
     hBgNorm->SetMarkerColor(kGreen);
-    hBgNorm->Draw("SAME");
   }
 
   CanvasUser->cd(1);
