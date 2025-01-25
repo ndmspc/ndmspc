@@ -6,6 +6,7 @@
 #include <Rtypes.h>
 
 #include "CloudEvent.h"
+#include "WebSocketHandler.h"
 #include "HttpServer.h"
 
 /// \cond CLASSIMP
@@ -14,7 +15,11 @@ ClassImp(Ndmspc::HttpServer);
 
 namespace Ndmspc {
 
-HttpServer::HttpServer(const char * engine) : THttpServer(engine) {}
+HttpServer::HttpServer(const char * engine, bool ws) : THttpServer(engine)
+{
+  WebSocketHandler * handler = new WebSocketHandler("ws", "ws");
+  Register("/", handler);
+}
 
 void HttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {

@@ -16,7 +16,7 @@ namespace Ndmspc {
 ///
 class HttpServer : public THttpServer {
   public:
-  HttpServer(const char * engine = "http:8080");
+  HttpServer(const char * engine = "http:8080", bool ws = true);
 
   protected:
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg);
