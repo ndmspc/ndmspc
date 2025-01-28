@@ -1,0 +1,85 @@
+#include <TH1F.h>
+#include <TH2F.h>
+#include <TCanvas.h>
+#include <TObjArray.h>
+#include <TRandom3.h>
+#include <TBufferJSON.h>
+#include <TROOT.h>
+#include "RtypesCore.h"
+#include "WebSocketHandler.h"
+#include "StressHistograms.h"
+
+/// \cond CLASSIMP
+ClassImp(Ndmspc::StressHistograms);
+/// \endcond
+
+namespace Ndmspc {
+StressHistograms::StressHistograms(int fill, Long64_t reset, int seed, bool batch)
+    : TObject(), fNFill(fill), fReset(reset), fBatch(batch)
+{
+
+  // Create some histograms, a profile histogram and an ntuple
+  fHpx = new TH1F("hpx", "This is the px distribution", 100, -4, 4);
+  fHpx->SetFillColor(48);
+  fHpxpy = new TH2F("hpxpy", "py vs px", 10, -4, 4, 10, -4, 4);
+
+  fObjs = new TObjArray();
+  fObjs->Add(fHpx);
+  fObjs->Add(fHpxpy);
+  // when read-only mode disabled one could execute object methods like TTree::Draw()
+
+  fRandom.SetSeed(seed); // this is a random seed
+}
+StressHistograms::~StressHistograms() {}
+bool StressHistograms::HandleEvent(WebSocketHandler * ws)
+{
+
+  if (fReset && fNEvents % fReset == 0) {
+    fHpx->Reset();
+    fHpxpy->Reset();
+  }
+
+  // c1->SetFillColor(42);
+  // c1->GetFrame()->SetFillColor(21);
+  // c1->GetFrame()->SetBorderSize(6);
+  // c1->GetFrame()->SetBorderMode(-1);
+
+  // Fill histograms randomly
+  Float_t     px, py, pz;
+  Long64_t    maxcnt  = 0;
+  const Int_t kUPDATE = 1;
+  const Int_t kSLEEP  = 100;
+  Long64_t    i       = 0;
+  // press Ctrl-C to stop macro
+  for (int i = 0; i < fNFill; i++) {
+
+    fRandom.Rannor(px, py);
+    pz          = px * px + py * py;
+    Float_t rnd = fRandom.Rndm(1);
+    fHpx->Fill(px);
+    fHpxpy->Fill(px, py);
+  }
+  // fill only first 25000 events in NTuple
+  // if (i == kUPDATE) {
+  if (!fBatch) {
+    if (!fCanvas) {
+      // Create a new canvas.
+      fCanvas = new TCanvas("c1", "Dynamic Filling Example", 200, 10, 700, 500);
+      fCanvas->Divide(2, 1);
+    }
+    fCanvas->cd(1);
+    fHpx->Draw();
+    fCanvas->cd(2);
+    fHpxpy->Draw();
+    fCanvas->Modified();
+    fCanvas->Update();
+  }
+  fNEvents++;
+  Printf("Event %lld fill=%d", fNEvents, fNFill);
+  if (ws) {
+    ws->SendCharStarWS(ws->fWSId, TBufferJSON::ConvertToJSON(fObjs).Data());
+  }
+  return true;
+}
+
+} // namespace Ndmspc

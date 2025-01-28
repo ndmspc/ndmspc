@@ -1,5 +1,6 @@
 #include <getopt.h>
 #include <cstdlib>
+#include <nlohmann/detail/value_t.hpp>
 #include <string>
 #include <CLI11.hpp>
 #include <vector>
@@ -8,7 +9,15 @@
 #include <TString.h>
 #include <TStopwatch.h>
 #include <TApplication.h>
+#include <TRandom3.h>
+#include <TH1F.h>
+#include <TH2F.h>
+#include <TCanvas.h>
+#include <TFrame.h>
+#include <TBenchmark.h>
+#include <TBufferJSON.h>
 
+#include "StressHistograms.h"
 #include "ndmspc.h"
 #include "Results.h"
 #include "PointRun.h"
@@ -88,7 +97,19 @@ int main(int argc, char ** argv)
   point_draw->add_option("-e,--environement", environement, "environement");
 
   CLI::App * serve = app.add_subcommand("serve", "Http Server");
-  // serve->require_subcommand(); // 1 or more
+  serve->require_subcommand(); // 1 or more
+  CLI::App * serve_default = serve->add_subcommand("default", "Default http server");
+  CLI::App * serve_stress  = serve->add_subcommand("stress", "Stress http server");
+  int        fill          = 1;
+  serve_stress->add_option("-f,--fill", fill, "N fill (default: 1)");
+  int timeout = 100;
+  serve_stress->add_option("-t,--timeout", timeout, "Publish timeout in miliseconds (default: 100)");
+  int reset = 100;
+  serve_stress->add_option("-r,--reset", reset, "Reset every n events (default: 100)");
+  int seed = 0;
+  serve_stress->add_option("-s,--seed", seed, "Random seed (default: 0)");
+  bool batch = false;
+  serve_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
 
   CLI::App * browser = app.add_subcommand("browser", "Object browser");
   browser->require_subcommand(); // 1 or more
@@ -206,14 +227,45 @@ int main(int argc, char ** argv)
       }
     }
     if (!subcom->get_name().compare("serve")) {
-      TApplication app("myapp", &argc, argv);
-      int          port = 8080;
-      if (gSystem->Getenv("PORT")) {
-        port = atoi(gSystem->Getenv("PORT"));
-      }
+      for (auto * subsubcom : subcom->get_subcommands()) {
+        if (!subsubcom->get_name().compare("default")) {
+          TApplication app("myapp", &argc, argv);
+          int          port = 8080;
+          if (gSystem->Getenv("PORT")) {
+            port = atoi(gSystem->Getenv("PORT"));
+          }
 
-      Ndmspc::HttpServer s(TString::Format("http:%d", port).Data());
-      app.Run();
+          Ndmspc::HttpServer * serv = new Ndmspc::HttpServer(TString::Format("http:%d?top=aaa", port).Data());
+          // press Ctrl-C to stop macro
+          while (!gSystem->ProcessEvents()) {
+            gSystem->Sleep(100);
+          }
+          app.Run();
+        }
+        if (!subsubcom->get_name().compare("stress")) {
+          TApplication app("myapp", &argc, argv);
+          int          port = 8080;
+          if (gSystem->Getenv("PORT")) {
+            port = atoi(gSystem->Getenv("PORT"));
+          }
+
+          Ndmspc::HttpServer * serv = new Ndmspc::HttpServer(TString::Format("http:%d?top=aaa", port).Data());
+          Printf("Starting server on port %d ...", port);
+          Ndmspc::WebSocketHandler * ws = serv->GetWebSocketHandler();
+
+          // when read-only mode disabled one could execute object methods like TTree::Draw()
+          serv->SetReadOnly(kFALSE);
+
+          Ndmspc::StressHistograms sh(fill, reset, seed, batch);
+
+          // press Ctrl-C to stop macro
+          while (!gSystem->ProcessEvents()) {
+            if (!sh.HandleEvent(ws)) break;
+            gSystem->Sleep(timeout);
+          }
+          app.Run();
+        }
+      }
     }
     if (!subcom->get_name().compare("cuts")) {
       TApplication app("myapp", &argc, argv);

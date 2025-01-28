@@ -59,8 +59,8 @@
           "min": 5
         },
         "enabled": true,
-        "rebin": 7,
-        "rebin_start": 4
+        "rebin": 10,
+        "rebin_start": 1
       },
       {
         "axis": "axis2-ce",

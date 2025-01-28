@@ -6,5 +6,6 @@
 
 #pragma link C++ class Ndmspc::CloudEvent + ;
 #pragma link C++ class Ndmspc::HttpServer + ;
+#pragma link C++ class Ndmspc::StressHistograms + ;
 
 #endif
