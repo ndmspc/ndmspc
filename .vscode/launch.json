@@ -34,7 +34,7 @@
       ]
     },
     {
-      "name": "ndmspc-cli serve",
+      "name": "ndmspc-cli serve default",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
@@ -44,7 +44,36 @@
           "value": "8000"
         }
       ],
-      "args": ["serve"],
+      "args": ["serve", "default"],
+      "stopAtEntry": false,
+      "cwd": "${fileDirname}",
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "ndmspc-cli serve stress",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "environment": [
+        {
+          "name": "PORT",
+          "value": "8000"
+        }
+      ],
+      "args": ["serve", "stress", "--batch=true"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
       "externalConsole": false,

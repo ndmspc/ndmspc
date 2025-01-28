@@ -6,7 +6,6 @@
 #include <Rtypes.h>
 
 #include "CloudEvent.h"
-#include "WebSocketHandler.h"
 #include "HttpServer.h"
 
 /// \cond CLASSIMP
@@ -17,8 +16,10 @@ namespace Ndmspc {
 
 HttpServer::HttpServer(const char * engine, bool ws) : THttpServer(engine)
 {
-  WebSocketHandler * handler = new WebSocketHandler("ws", "ws");
-  Register("/", handler);
+  if (ws) {
+    fWebSocketHandler = new WebSocketHandler("ws", "ws");
+    Register("/", fWebSocketHandler);
+  }
 }
 
 void HttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
@@ -26,7 +27,7 @@ void HttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
   CloudEvent ce(arg.get());
   if (ce.IsValid()) {
-    ProcessCloudEventRequest(&ce, arg);
+    HttpServer::ProcessCloudEventRequest(&ce, arg);
   }
   THttpServer::ProcessRequest(arg);
 }
