@@ -1,6 +1,11 @@
 stages:
   - build
   - deploy
+image: docker:stable
+services:
+  - docker:dind
+variables:
+  DOCKER_DRIVER: overlay2
 
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
