@@ -24,6 +24,8 @@ class Core : public TObject {
                          std::string userConfigRaw = "");
   static bool LoadEnvironment(std::string environmenti = "local");
 
+  static bool SaveConfig(json cfg, std::string filename);
+
   private:
   /// \cond CLASSIMP
   ClassDef(Core, 0);

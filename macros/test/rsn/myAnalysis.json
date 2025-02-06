@@ -60,7 +60,8 @@
         },
         "enabled": true,
         "rebin": 10,
-        "rebin_start": 1
+        "rebin_start": 1,
+        "nbins": 200
       },
       {
         "axis": "axis2-ce",
@@ -70,7 +71,8 @@
         },
         "enabled": true,
         "rebin": 3,
-        "rebin_start": 2
+        "rebin_start": 2,
+        "nbins": 10
       },
       {
         "axis": "axis3-ns1",
@@ -196,6 +198,6 @@
     "minEntries": 1000,
     "proj": 0,
     "events": -1,
-    "verbose": 0
+    "verbose": -1
   }
 }

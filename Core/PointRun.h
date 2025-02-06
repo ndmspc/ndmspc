@@ -8,6 +8,7 @@
 #include <TH1S.h>
 #include <THnSparse.h>
 #include <nlohmann/json.hpp>
+#include <vector>
 #include "Core.h"
 using json = nlohmann::json;
 
@@ -25,10 +26,12 @@ class PointRun : public TObject {
   PointRun(std::string macro = "NdmspcPointRun.C");
   virtual ~PointRun();
 
-  bool                     Run(std::string filename, std::string userConfig = "", std::string environment = "",
-                               std::string userConfigRaw = "", bool show = false, std::string outfilename = "");
-  json &                   Cfg() { return gCfg; }
-  json *                   CfgPtr() { return &gCfg; }
+  bool   Run(std::string filename, std::string userConfig = "", std::string environment = "",
+             std::string userConfigRaw = "", bool show = false, std::string outfilename = "");
+  bool   GenerateJobs(std::string jobs, std::string filename, std::string userConfig = "", std::string environment = "",
+                      std::string userConfigRaw = "", std::string jobDir = "/tmp/ndmspc-jobs");
+  json & Cfg() { return gCfg; }
+  json * CfgPtr() { return &gCfg; }
   TFile *                  GetInputFile() const { return fInputFile; }
   TList *                  GetInputList() const { return fInputList; }
   THnSparse *              GetResultObject() const { return fResultObject; }
@@ -84,6 +87,8 @@ class PointRun : public TObject {
   void OutputFileOpen();
   void OutputFileClose();
   int  ProcessHistogramRun();
+  bool GenerateRecursiveConfig(Int_t dim, std::vector<std::vector<int>> & ranges, json & cfg, std::string & outfilename,
+                               int & count);
 
   /// \cond CLASSIMP
   ClassDef(PointRun, 1);

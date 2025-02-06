@@ -57,7 +57,7 @@ TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocal
 std::string Utils::OpenRawFile(std::string filename)
 {
   std::string content;
-  TFile *     f = TFile::Open(TString::Format("%s?filetype=raw", filename.c_str()));
+  TFile *     f = OpenFile(TString::Format("%s?filetype=raw", filename.c_str()).Data());
   if (!f) return "";
 
   // Printf("%lld", f->GetSize());
@@ -77,6 +77,16 @@ std::string Utils::OpenRawFile(std::string filename)
   }
   f->Close();
   return content;
+}
+bool Utils::SaveRawFile(std::string filename, std::string content)
+{
+  TFile * f = OpenFile(TString::Format("%s?filetype=raw", filename.c_str()).Data(), "RECREATE");
+  if (!f) return false;
+
+  f->WriteBuffer(content.c_str(), content.size());
+
+  f->Close();
+  return true;
 }
 
 TMacro * Utils::OpenMacro(std::string filename)

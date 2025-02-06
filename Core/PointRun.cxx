@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -1047,6 +1048,82 @@ bool PointRun::Run(std::string filename, std::string userConfig, std::string env
   }
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::Run");
   return true;
+}
+
+bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string userConfig, std::string environment,
+                            std::string userConfigRaw, std::string outfilename)
+{
+  if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::GenerateJobs");
+
+  if (!fMacro) return 1;
+
+  if (!LoadConfig(filename, userConfig, environment, userConfigRaw, true)) return false;
+
+  if (outfilename[outfilename.size() - 1] == '/') outfilename.pop_back();
+
+  Printf("Generating jobs with split '%s' to %s ...", jobs.c_str(), outfilename.c_str());
+
+  std::vector<std::string>      jobsArray = Utils::Tokenize(jobs.c_str(), ':');
+  std::vector<std::vector<int>> cutBins;
+
+  int i = -1;
+  for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+    i++;
+    if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+    Int_t rebin         = 1;
+    Int_t rebin_start   = 1;
+    Int_t rebin_minimum = 1;
+    Int_t nbins         = -1;
+    if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+    if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+    if (cut["nbins"].is_number_integer()) nbins = cut["nbins"].get<Int_t>();
+    if (nbins < 0) {
+      Printf("Error: Number of bins in '%s' is less then 0 !!! Exiting ...", cut["name"].get<std::string>().c_str());
+      return false;
+    }
+
+    if (rebin_start > 1) {
+      rebin_minimum = (rebin_start % rebin);
+      if (rebin_minimum == 0) rebin_minimum = 1;
+    }
+    int start = (rebin_start / rebin) + 1;
+    int end   = (nbins - rebin_minimum + 1) / rebin;
+    cutBins.push_back({start, end, atoi(jobsArray[i - 1].c_str())});
+  }
+  // i = 0;
+  // for (auto & ranges : cutBins) {
+  // Printf("%d [%d,%d]", i, ranges[0], ranges[1]);
+  // gCfg["ndmspc"]["process"]["ranges"][i] = {ranges[0], ranges[1]};
+  // i++;
+  // }
+  int count = 1;
+  GenerateRecursiveConfig(0, cutBins, gCfg, outfilename, count);
+
+  if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::GenerateJobs");
+  return true;
+}
+
+bool PointRun::GenerateRecursiveConfig(Int_t dim, std::vector<std::vector<int>> & ranges, json & cfg,
+                                       std::string & outfilename, int & count)
+{
+  if (dim < ranges.size()) {
+    // Printf("dim=%d", dim);
+    for (int i = ranges[dim][0]; i <= ranges[dim][1]; i += ranges[dim][2]) {
+      // Printf("Running dim=%d [%d,%d]", dim, i, i + ranges[dim][2] - 1);
+      int min = i;
+      int max = i + ranges[dim][2] - 1;
+      if (max > ranges[dim][1]) max = ranges[dim][1];
+      cfg["ndmspc"]["process"]["ranges"][dim] = {min, max};
+      if (!GenerateRecursiveConfig(dim + 1, ranges, cfg, outfilename, count)) return false;
+    }
+    return true;
+  }
+  // outfilename                 = "/tmp/test/";
+  std::string outFilenamePath = outfilename + "/" + std::to_string(count++) + ".json";
+  if (!Core::SaveConfig(gCfg, outFilenamePath)) return false;
+  Printf("Jobs saved to '%s' '%s'", outFilenamePath.c_str(), gCfg["ndmspc"]["process"]["ranges"].dump().c_str());
+  return true;
+  // return GenerateRecursiveConfig(dim + 1, ranges, cfg);
 }
 
 bool PointRun::Generate(std::string name, std::string inFile, std::string inObjectName)

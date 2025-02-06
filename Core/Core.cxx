@@ -74,7 +74,7 @@ bool Core::LoadEnvironment(std::string environment)
     gCfg.merge_patch(myCfg);
   }
   else {
-    if (!environment.compare("default")) {
+    if (!environment.compare("local")) {
       // Printf("Warning: No environment specified !!! Setting it to 'default' !!!");
       return true;
     }
@@ -82,5 +82,9 @@ bool Core::LoadEnvironment(std::string environment)
     return false;
   }
   return true;
+}
+bool Core::SaveConfig(json cfg, std::string filename)
+{
+  return Utils::SaveRawFile(filename, cfg.dump());
 }
 } // namespace Ndmspc
