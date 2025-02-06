@@ -25,6 +25,7 @@ class Utils : TObject {
   public:
   static TFile *     OpenFile(std::string filename, std::string mode = "READ", bool createLocalDir = true);
   static std::string OpenRawFile(std::string filename);
+  static bool        SaveRawFile(std::string filename, std::string content);
   static TMacro *    OpenMacro(std::string filename);
   // static void        RebinBins(int & min, int & max, int rebin);
   static std::string GetCutsPath(json cuts);

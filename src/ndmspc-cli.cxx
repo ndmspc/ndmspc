@@ -19,12 +19,12 @@
 
 #include "StressHistograms.h"
 #include "ndmspc.h"
+#include "Axis.h"
 #include "Results.h"
 #include "PointRun.h"
 #include "PointDraw.h"
 #include "HttpServer.h"
 #include "HnSparseBrowser.h"
-#include "Cuts.h"
 
 std::string app_description()
 {
@@ -53,6 +53,8 @@ int main(int argc, char ** argv)
   std::string macroFileName      = "";
   std::string directoryToken     = "";
   std::string environement       = "";
+  std::string jobs               = "";
+  std::string jobdir             = "/tmp/ndmspc-jobs";
   std::string cutBaseAxis        = "";
   std::string cutRanges          = "";
 
@@ -79,6 +81,8 @@ int main(int argc, char ** argv)
   point_run->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
   point_run->add_option("-e,--environement", environement, "environement");
+  point_run->add_option("-j,--jobs", jobs, "Generate jobs");
+  point_run->add_option("-o,--output-dir", jobdir, "Generate jobs output dir");
 
   CLI::App * point_merge = point->add_subcommand("merge", "Point merge");
   point_merge->add_option("-n,--name", name, "Name");
@@ -196,6 +200,10 @@ int main(int argc, char ** argv)
           TStopwatch timer;
           timer.Start();
           Ndmspc::PointRun pr(macroFileName);
+          if (!jobs.empty()) {
+            pr.GenerateJobs(jobs, configFileName, userConfigFileName, environement, userConfigRaw, jobdir);
+            return 0;
+          }
           pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, false);
           timer.Stop();
           timer.Print();
