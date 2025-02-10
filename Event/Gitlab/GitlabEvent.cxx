@@ -217,10 +217,13 @@ std::string Event::ParseProjectName(std::string in, char d) const
   std::stringstream ss(in);
   std::getline(ss, s, d);
 
-  return std::move(s);
+  return s;
 }
 void Event::ShrinkHistogram(const char * name, TH1 * h, bool verbose)
 {
+  ///
+  /// Shrink histogram
+  ///
 
   if (!h) return;
   if (h->GetXaxis()->GetNbins() <= 0) return;

@@ -18,11 +18,14 @@ class Cuts : public TObject {
   Cuts();
   virtual ~Cuts();
 
-  virtual void   Print(Option_t * option = "") const;
-  void           AddAxis(Ndmspc::Axis * axis) { fAxes.push_back(axis); }
-  Ndmspc::Axis * GetAxis(int i) const { return fAxes[i]; }
+  virtual void Print(Option_t * option = "") const;
+  /// Add axis
+  void AddAxis(Ndmspc::Axis * axis) { fAxes.push_back(axis); }
+  /// Return axis
+  Axis * GetAxis(int i) const { return fAxes[i]; }
 
   private:
+  /// List of axes
   std::vector<Ndmspc::Axis *> fAxes{};
 
   /// \cond CLASSIMP

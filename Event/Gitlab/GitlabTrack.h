@@ -97,11 +97,11 @@ class Track : public TObject {
   private:
   std::string fState;       ///< State of track
   Int_t       fAuthorID;    ///< Author id
-  std::string fAuthor;      ///! Author name
+  std::string fAuthor;      ///< Author name
   Int_t       fProjectID;   ///< Project ID
-  std::string fProject;     ///! Project name
+  std::string fProject;     ///< Project name
   Int_t       fMilestoneID; ///< Milestone ID
-  std::string fMilestone;   ///! Milestone name
+  std::string fMilestone;   ///< Milestone name
 
   // TODO
   /// Copy constructor

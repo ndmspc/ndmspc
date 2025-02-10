@@ -10,11 +10,25 @@ ClassImp(Ndmspc::Results);
 /// \endcond
 
 namespace Ndmspc {
-Results::Results() : TObject() {}
-Results::~Results() {}
+Results::Results() : TObject()
+{
+  ///
+  /// Constructor
+  ///
+}
+Results::~Results()
+{
+  ///
+  /// Destructor
+  ///
+}
 bool Results::LoadConfig(std::string configfilename, std::string userconfig, std::string environment,
                          std::string userConfigRaw)
 {
+  ///
+  /// Loads config
+  ///
+
   bool configLoaded = Core::LoadConfig(configfilename, userconfig, environment, userConfigRaw);
   if (!gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() ||
       gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_boolean()) {

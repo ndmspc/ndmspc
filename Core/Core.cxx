@@ -13,6 +13,9 @@ json gCfg;
 
 bool Core::LoadConfig(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw)
 {
+  ///
+  /// Load Config
+  ///
   std::string fileContent = Utils::OpenRawFile(config);
   if (!fileContent.empty()) {
     gCfg = json::parse(fileContent);
@@ -68,6 +71,9 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string en
 }
 bool Core::LoadEnvironment(std::string environment)
 {
+  ///
+  /// Load environment
+  ///
   if (gCfg["ndmspc"]["environments"][environment].is_object()) {
     Printf("Using environment '%s' ...", environment.c_str());
     json myCfg = gCfg["ndmspc"]["environments"][environment];
@@ -85,6 +91,9 @@ bool Core::LoadEnvironment(std::string environment)
 }
 bool Core::SaveConfig(json cfg, std::string filename)
 {
+  ///
+  /// Save config
+  ///
   return Utils::SaveRawFile(filename, cfg.dump());
 }
 } // namespace Ndmspc

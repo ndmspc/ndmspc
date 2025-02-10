@@ -16,7 +16,9 @@ extern json gCfg;
 ///
 
 class Core : public TObject {
+  /// Constructor
   Core() {};
+  /// Destructor
   virtual ~Core() {};
 
   public:

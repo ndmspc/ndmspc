@@ -1,0 +1,13 @@
+[Unit]
+Description=NdmSpc http %I
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/ndmspc/ndmspc-http
+EnvironmentFile=-/etc/ndmspc/ndmspc-http.%I
+ExecStart=/usr/bin/ndmspc-cli serve %I $NDMSPC_HTTP_OPTS
+Restart=on-abort
+
+[Install]
+WantedBy=multi-user.target

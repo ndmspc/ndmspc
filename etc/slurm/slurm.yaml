@@ -1,0 +1,20 @@
+- name: Slurm all in One
+  hosts: all
+  vars:
+    slurm_config:
+      #ControlMachine: 'jf01'
+      #ClusterName: 'jf'
+      #FastSchedule: 1
+      SchedulerType: "sched/backfill"
+      SelectType: "select/cons_res"
+      SelectTypeParameters: "CR_CPU"
+      MaxArraySize: 65533
+      #JobAcctGatherType: jobacct_gather/linux
+    slurm_roles: ["controller", "exec"]
+    slurm_nodes:
+      - name: "localhost"
+        CPUs: 20
+  roles:
+    - role: galaxyproject.slurm
+      become: True
+      ignore_errors: yes

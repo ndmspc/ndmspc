@@ -35,7 +35,7 @@ PointDraw::~PointDraw()
   ///
 }
 
-int PointDraw::Draw(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw)
+int PointDraw::DrawPoint(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw)
 {
   ///
   /// Draw
@@ -131,16 +131,16 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
   fParameterPoint[id] = idBin;
   fResultHnSparse->GetAxis(id)->SetRange(idBin, idBin);
 
-  int nAxisX     = fResultHnSparse->GetNdimensions();
-  int nAxisY     = fResultHnSparse->GetAxis(0)->GetNbins();
+  // int nAxisX     = fResultHnSparse->GetNdimensions();
+  // int nAxisY     = fResultHnSparse->GetAxis(0)->GetNbins();
   int pointsSize = gCfg["ndmspc"]["result"]["axes"].size() + 1;
   if (histogramEnabled) pointsSize += gCfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
-  int points[pointsSize];
-  int iPoint       = 0;
-  points[iPoint++] = nAxisY;
-  int iAxisStart   = 1;
-  fMapTitle        = fCurrentParameterName + " [";
-  json axesArray   = gCfg["ndmspc"]["result"]["axes"];
+  // int points[pointsSize];
+  // int iPoint = 0;
+  // points[iPoint++] = nAxisY;
+  int iAxisStart = 1;
+  fMapTitle      = fCurrentParameterName + " [";
+  json axesArray = gCfg["ndmspc"]["result"]["axes"];
   int  idTmp;
   bool isDataSys = true;
   bool hasDataMc = false;
@@ -168,7 +168,7 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
     }
     a = (TAxis *)fResultHnSparse->GetAxis(iAxis);
     // Printf("Axis: %d [%s][%s] SetRange(%d,%d)", iAxis, axisType.c_str(), a->GetName(), idBin, idBin);
-    points[iAxis]          = a->GetNbins();
+    // points[iAxis]          = a->GetNbins();
     fParameterPoint[iAxis] = idBin;
     fResultHnSparse->GetAxis(iAxis)->SetRange(idBin, idBin);
     std::string l = a->GetBinLabel(idBin);
@@ -263,10 +263,10 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
     /*TH2 * hDataMc = fResultHnSparse->Projection(2, 1, "O");*/
     /*hDataMc->SetNameTitle("hDataMc", "Data vs. MC");*/
     hDataMc->SetStats(0);
-    for (int i = 0; i < fData.size(); i++) {
+    for (long unsigned int i = 0; i < fData.size(); i++) {
       hDataMc->GetXaxis()->SetBinLabel(i + 1, fData[i].c_str());
     }
-    for (int i = 0; i < fMc.size(); i++) {
+    for (long unsigned int i = 0; i < fMc.size(); i++) {
       hDataMc->GetYaxis()->SetBinLabel(i + 1, fMc[i].c_str());
     }
 
@@ -293,6 +293,9 @@ int PointDraw::Draw(std::string config, std::string userConfig, std::string envi
 
 void PointDraw::DrawUser()
 {
+  ///
+  /// Draw user function
+  ///
   Printf("DrawUser : Getting '%s' ...", fCurrentContentPath.c_str());
   auto CanvasUser = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("CanvasUser");
   if (!CanvasUser) {
@@ -346,6 +349,9 @@ void PointDraw::DrawUser()
 
 void PointDraw::UpdateRanges()
 {
+  ///
+  /// Update ranges
+  ///
   for (int iAxis = 0; iAxis < fResultHnSparse->GetNdimensions(); iAxis++) {
     // Printf("Axis: %d [%s] SetRange(%d,%d)", iAxis, fResultHnSparse->GetAxis(iAxis)->GetName(),
     // fParameterPoint[iAxis],
@@ -354,7 +360,7 @@ void PointDraw::UpdateRanges()
   }
 
   fCurrentContentPath.clear();
-  int i = 0;
+  // int i = 0;
   for (auto & p : fParameterPoint) {
     if (fCurrentContentPath.empty()) {
       fCurrentContentPath = "content/";
@@ -366,6 +372,9 @@ void PointDraw::UpdateRanges()
 
 void PointDraw::DrawProjections(bool ignoreMapping)
 {
+  ///
+  /// Draw projections
+  ///
 
   // Printf("DrawProjections %zu", fProjectionAxes.size());
   UpdateRanges();
@@ -470,6 +479,9 @@ void PointDraw::DrawProjections(bool ignoreMapping)
 
 void PointDraw::HighlightMain(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin)
 {
+  ///
+  /// Main highlight function
+  ///
   auto        h     = (TH1 *)obj;
   std::string hName = h->GetName();
   if (!hName.compare("hParamMain")) {
@@ -482,6 +494,9 @@ void PointDraw::HighlightMain(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_
 
 void PointDraw::HighlightParam(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin)
 {
+  ///
+  /// Param highlight function
+  ///
   // Printf("HighlightParam %d %d", xBin, yBin);
   TH1 * fParamMapHistogram = (TH1 *)obj;
   if (!fParamMapHistogram) return;
@@ -500,6 +515,9 @@ void PointDraw::HighlightParam(TVirtualPad * pad, TObject * obj, Int_t xBin, Int
 
 void PointDraw::HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin)
 {
+  ///
+  /// Data highlight function
+  ///
   // Printf("HighlightData %d %d", xBin, yBin);
   TH2 * hDataMc = (TH2 *)obj;
   if (!hDataMc) return;
@@ -550,6 +568,9 @@ void PointDraw::HighlightData(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_
 
 void PointDraw::HighlightProjectionPoint(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin)
 {
+  ///
+  /// Projection point highlight function
+  ///
   // Printf("HighlightProjectionPoint %d %d %d", xBin, yBin, fProjectionAxes[0]);
   if (fProjectionAxes.size() == 1) {
     fParameterPoint[fProjectionAxes[0]] = xBin;

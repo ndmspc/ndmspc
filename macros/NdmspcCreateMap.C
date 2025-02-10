@@ -13,7 +13,7 @@ std::vector<std::string> GetListObObjects(const char * str, char token = ',')
     if (item.empty()) continue;
     result.push_back(item);
   }
-  return std::move(result);
+  return result;
 }
 
 Int_t NdmspcCreateMap(TString filename = "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/cern.ch/user/a/alihyperloop/"

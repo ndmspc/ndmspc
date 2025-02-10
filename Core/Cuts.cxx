@@ -6,10 +6,21 @@ ClassImp(Ndmspc::Cuts);
 /// \endcond
 
 namespace Ndmspc {
-Cuts::Cuts() : TObject() {}
-Cuts::~Cuts() {}
+Cuts::Cuts() : TObject()
+{
+  ///
+  /// Constructor
+  ///
+}
+Cuts::~Cuts()
+{
+  ///
+  /// Destructor
+  ///
+}
 void Cuts::Print(Option_t * option) const
 {
+  /// Print cuts info
 
   for (auto axis : fAxes) {
     axis->Print(option);

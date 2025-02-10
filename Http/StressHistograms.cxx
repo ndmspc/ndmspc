@@ -45,17 +45,18 @@ bool StressHistograms::HandleEvent(WebSocketHandler * ws)
   // c1->GetFrame()->SetBorderMode(-1);
 
   // Fill histograms randomly
-  Float_t     px, py, pz;
-  Long64_t    maxcnt  = 0;
-  const Int_t kUPDATE = 1;
-  const Int_t kSLEEP  = 100;
-  Long64_t    i       = 0;
+  Float_t px, py;
+  // Float_t pz;
+  // Long64_t    maxcnt  = 0;
+  // const Int_t kUPDATE = 1;
+  // const Int_t kSLEEP  = 100;
+  // Long64_t i = 0;
   // press Ctrl-C to stop macro
   for (int i = 0; i < fNFill; i++) {
 
     fRandom.Rannor(px, py);
-    pz          = px * px + py * py;
-    Float_t rnd = fRandom.Rndm(1);
+    // pz = px * px + py * py;
+    // Float_t rnd = fRandom.Rndm(1);
     fHpx->Fill(px);
     fHpxpy->Fill(px, py);
   }

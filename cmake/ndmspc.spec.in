@@ -40,12 +40,22 @@ rm -rf %{buildroot}
 cd build
 make install DESTDIR=%{buildroot}
 
+%post
+%systemd_post ndmspc-http@*.service
+
+%preun
+%systemd_preun ndmspc-http@*.service
+
+%postun
+%systemd_postun ndmspc-http@*.service
+
 %files
 %{_bindir}/*
 %{_libdir}/*
 %{_datadir}/%{name}/*
 %{_sysconfdir}/*
 %{_includedir}/*
+%{_unitdir}/ndmspc-http@.service
 
 %files doc
 %doc /usr/share/doc/%{name}/

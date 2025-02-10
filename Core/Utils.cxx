@@ -56,6 +56,10 @@ TFile * Utils::OpenFile(std::string filename, std::string mode, bool createLocal
 
 std::string Utils::OpenRawFile(std::string filename)
 {
+  ///
+  /// Opens raw file
+  ///
+
   std::string content;
   TFile *     f = OpenFile(TString::Format("%s?filetype=raw", filename.c_str()).Data());
   if (!f) return "";
@@ -80,6 +84,10 @@ std::string Utils::OpenRawFile(std::string filename)
 }
 bool Utils::SaveRawFile(std::string filename, std::string content)
 {
+  ///
+  /// Save raw file
+  ///
+
   TFile * f = OpenFile(TString::Format("%s?filetype=raw", filename.c_str()).Data(), "RECREATE");
   if (!f) return false;
 
@@ -91,6 +99,9 @@ bool Utils::SaveRawFile(std::string filename, std::string content)
 
 TMacro * Utils::OpenMacro(std::string filename)
 {
+  ///
+  /// Open macro
+  ///
 
   std::string content = OpenRawFile(filename);
   if (content.empty()) {
@@ -131,6 +142,10 @@ TMacro * Utils::OpenMacro(std::string filename)
 // }
 std::string Utils::GetCutsPath(json cuts)
 {
+  ///
+  /// Get cut path from config
+  ///
+
   std::string path     = "";
   std::string rebinStr = "";
   for (auto & cut : cuts) {
@@ -155,10 +170,14 @@ std::string Utils::GetCutsPath(json cuts)
 
   // Printf("Path: %s", path.c_str());
   // exit(1);
-  return std::move(path);
+  return path;
 }
 Int_t Utils::GetBinFromBase(Int_t bin, Int_t rebin, Int_t rebin_start)
 {
+  ///
+  /// Returns bin from base
+  ///
+
   if (rebin == 1) return bin;
   // Printf("GetBinFromBase %d %d %d", bin, rebin, rebin_start);
 
@@ -178,6 +197,9 @@ Int_t Utils::GetBinFromBase(Int_t bin, Int_t rebin, Int_t rebin_start)
 int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,
                                bool normalizeToWidth, bool onlyPositive, double times)
 {
+  ///
+  /// Set result value and error
+  ///
 
   int verbose = 0;
   if (!cfg["user"]["verbose"].is_null() && cfg["user"]["verbose"].is_number_integer()) {
@@ -233,6 +255,10 @@ int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, I
 }
 std::vector<std::string> Utils::Tokenize(std::string_view input, const char delim)
 {
+  ///
+  /// Tokenize helper function
+  ///
+
   std::vector<std::string> out;
 
   for (auto found = input.find(delim); found != std::string_view::npos; found = input.find(delim)) {
