@@ -1,1 +1,3 @@
 NDMSPC_HTTP_OPTS=""
+ROOT_INCLUDE_PATH=/usr/include/ndmspc:/usr/include/root
+
