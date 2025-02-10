@@ -5,8 +5,8 @@ if(NOT CMAKE_INSTALL_PREFIX)
       CACHE PATH "Default installation" FORCE)
 endif()
 
-project(ndmspc VERSION 0.0.0 DESCRIPTION "NDMSPC")
-set(PROJECT_VERSION_RELEASE 0.1.rc0)
+project(ndmspc VERSION 0.20250210.0 DESCRIPTION "NDMSPC")
+set(PROJECT_VERSION_RELEASE 1)
 
 include(cmake/cmake_base.cmake)
 find_package(Root REQUIRED)
