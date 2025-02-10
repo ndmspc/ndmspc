@@ -1,4 +1,5 @@
 #include <getopt.h>
+#include <cstddef>
 #include <cstdlib>
 #include <nlohmann/detail/value_t.hpp>
 #include <string>
@@ -103,8 +104,16 @@ int main(int argc, char ** argv)
   CLI::App * serve = app.add_subcommand("serve", "Http Server");
   serve->require_subcommand(); // 1 or more
   CLI::App * serve_default = serve->add_subcommand("default", "Default http server");
-  CLI::App * serve_stress  = serve->add_subcommand("stress", "Stress http server");
-  int        fill          = 1;
+  if (serve_default == nullptr) {
+    Printf("Problem creating serve subcommand");
+    return 1;
+  }
+  CLI::App * serve_stress = serve->add_subcommand("stress", "Stress http server");
+  if (serve_stress == nullptr) {
+    Printf("Problem creating serve stress subcommand");
+    return 1;
+  }
+  int fill = 1;
   serve_stress->add_option("-f,--fill", fill, "N fill (default: 1)");
   int timeout = 100;
   serve_stress->add_option("-t,--timeout", timeout, "Publish timeout in miliseconds (default: 100)");
@@ -217,7 +226,7 @@ int main(int argc, char ** argv)
         }
         if (!subsubcom->get_name().compare("draw")) {
           Ndmspc::PointDraw pd;
-          pd.Draw(configFileName, userConfigFileName, environement, userConfigRaw);
+          pd.DrawPoint(configFileName, userConfigFileName, environement, userConfigRaw);
         }
       }
     }
@@ -225,7 +234,7 @@ int main(int argc, char ** argv)
       for (auto * subsubcom : subcom->get_subcommands()) {
         if (!subsubcom->get_name().compare("hnsparse")) {
           Ndmspc::HnSparseBrowser browser;
-          browser.Draw(fileName, objectName, directoryToken);
+          browser.DrawBrowser(fileName, objectName, directoryToken);
         }
         if (!subsubcom->get_name().compare("result")) {
           Ndmspc::Results result;
@@ -244,6 +253,10 @@ int main(int argc, char ** argv)
           }
 
           Ndmspc::HttpServer * serv = new Ndmspc::HttpServer(TString::Format("http:%d?top=aaa", port).Data());
+          if (serv == nullptr) {
+            Printf("Server was not created !!!");
+            exit(1);
+          }
           // press Ctrl-C to stop macro
           while (!gSystem->ProcessEvents()) {
             gSystem->Sleep(100);

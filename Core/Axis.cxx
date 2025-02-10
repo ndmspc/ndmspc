@@ -10,6 +10,9 @@ namespace Ndmspc {
 Axis::Axis(TAxis * base, int rebin, int rebinShift, int min, int max)
     : TObject(), fBaseAxis(base), fRebin(rebin), fRebinStart(rebinShift + 1), fBinMin(min), fBinMax(max)
 {
+  ///
+  /// Constructor
+  ///
   fNBins = (fBaseAxis->GetNbins() - rebinShift) / fRebin;
 
   // if ((fBaseAxis->GetNbins() % fRebin) - rebinShift != 0) fNBins--;
@@ -18,9 +21,17 @@ Axis::Axis(TAxis * base, int rebin, int rebinShift, int min, int max)
     fBinMax = fNBins;
   }
 };
-Axis::~Axis() {}
+Axis::~Axis()
+{
+  ///
+  /// Destructor
+  ///
+}
 void Axis::Print(Option_t * option, int spaces) const
 {
+  ///
+  /// Print axis info
+  ///
   if (fBaseAxis == nullptr) {
     Printf("Base Axis is not set !!!");
     return;
@@ -47,6 +58,9 @@ void Axis::Print(Option_t * option, int spaces) const
 }
 Axis * Axis::AddChild(int rebin, int rebinShift, int min, int max, Option_t * option)
 {
+  ///
+  /// Add child via parameters
+  ///
   if (max == -1) max = fBinMax;
   Axis * axis = new Axis(fBaseAxis, rebin, rebinShift, min, max);
   if (axis->GetBinMaxBase() > fBinMax) {
@@ -69,9 +83,9 @@ Axis * Axis::AddChild(int rebin, int rebinShift, int min, int max, Option_t * op
 
 Axis * Axis::AddRange(int rebin, int nBins)
 {
-  //
-  // Add Range from rebin and nbins
-  //
+  ///
+  /// Add Range from rebin and nbins
+  ///
 
   if (fChildren.size() == 0) {
     Printf("Axis:");
@@ -85,7 +99,7 @@ Axis * Axis::AddRange(int rebin, int nBins)
     return AddChild(rebin, rebinShift, minFromBase, nBins, "ranges");
   }
   Printf("Adding range rebin=%d nBins=%d ...", rebin, nBins);
-  auto child = GetChild(fChildren.size() - 1);
+  // auto child = GetChild(fChildren.size() - 1);
 
   int nBinsBase = 0;
   for (auto c : fChildren) {
@@ -104,15 +118,15 @@ Axis * Axis::AddRange(int rebin, int nBins)
 
 bool Axis::IsRangeValid()
 {
-  //
-  // Check if bin ranges are valid
-  //
+  ///
+  /// Check if bin ranges are valid
+  ///
 
   Printf("Checking ranage validity ...");
 
   if (fChildren.size() == 0) {
     Printf("Axis:");
-    Print();
+    Print("", 0);
     Printf("Error: No ranges defined !!!");
     return false;
   }

@@ -1,7 +1,7 @@
 #include <cstddef>
 #include <fstream>
 #include <iostream>
-#include <sstream>
+// #include <sstream>
 #include <string>
 #include <vector>
 #include "TArrayD.h"
@@ -13,6 +13,7 @@
 #include <TSystem.h>
 #include <THnSparse.h>
 #include "Core.h"
+#include "RtypesCore.h"
 #include "Utils.h"
 #include "PointRun.h"
 
@@ -263,9 +264,7 @@ THnSparse * PointRun::CreateResult()
     nDimsCuts++;
   }
 
-  for (auto & value : gCfg["ndmspc"]["result"]["axes"]) {
-    nDimsParams++;
-  }
+  nDimsParams += gCfg["ndmspc"]["result"]["axes"].size();
 
   const Int_t              ndims = nDimsCuts + nDimsParams + nDimsProccess + 1;
   Int_t                    bins[ndims];
@@ -312,8 +311,6 @@ THnSparse * PointRun::CreateResult()
     i++;
   }
 
-  Int_t rebin       = 1;
-  Int_t rebin_start = 1;
   for (auto & cut : gCfg["ndmspc"]["cuts"]) {
     if (fVerbose >= 3) std::cout << "CreateResult() : " << cut.dump() << std::endl;
 
@@ -466,6 +463,10 @@ THnSparse * PointRun::CreateResult()
 
 bool PointRun::ApplyCuts()
 {
+  ///
+  /// Apply cuts
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ApplyCuts");
 
   /// TODO! port it to std::string
@@ -477,7 +478,7 @@ bool PointRun::ApplyCuts()
   Int_t rebin_start = 1;
 
   fCurrentPoint[iCut] = 0;
-  for (size_t i = 0; i < fInputList->GetEntries(); i++) {
+  for (Long64_t i = 0; i < fInputList->GetEntries(); i++) {
     s    = (THnSparse *)fInputList->At(i);
     iCut = 1;
     for (auto & cut : gCfg["ndmspc"]["cuts"]) {
@@ -542,6 +543,10 @@ bool PointRun::ApplyCuts()
 }
 bool PointRun::ProcessSinglePoint()
 {
+  ///
+  /// Process single point
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ProcessSinglePoint");
 
   fIsProcessOk = false;
@@ -569,7 +574,7 @@ bool PointRun::ProcessSinglePoint()
 
   if (fVerbose >= 1) Printf("Starting User Process() ...");
   fBinCount++;
-  bool ok = ProcessRecursiveInner(resultAxes.size() - 1, names);
+  ProcessRecursiveInner(resultAxes.size() - 1, names);
 
   if (fVerbose >= 1) Printf("User Process() done ...");
 
@@ -585,6 +590,10 @@ bool PointRun::ProcessSinglePoint()
 }
 bool PointRun::ProcessRecursive(int i)
 {
+  ///
+  ///  Process run in recursion
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ProcessRecursive[%d]", i);
 
   if (i < 0) {
@@ -649,6 +658,10 @@ bool PointRun::ProcessRecursive(int i)
 }
 bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
 {
+  ///
+  /// Process inner recursion
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::ProcessRecursiveInner[%d]", i);
 
   if (fIsSkipBin) return false;
@@ -700,7 +713,7 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
 
     TDirectory * outputDir = fCurrentOutputRootDirectory;
 
-    int         iPoint = 1;
+    // int         iPoint = 1;
     std::string path;
     for (int iPoint = 1; iPoint < fResultObject->GetNdimensions(); iPoint++) {
       path += std::to_string(fCurrentPoint[iPoint]) + "/";
@@ -755,6 +768,9 @@ bool PointRun::ProcessRecursiveInner(Int_t i, std::vector<std::string> & n)
 }
 void PointRun::OutputFileOpen()
 {
+  ///
+  /// Open output file
+  ///
 
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::OutputFileOpen");
 
@@ -867,6 +883,10 @@ void PointRun::OutputFileOpen()
 }
 void PointRun::OutputFileClose()
 {
+  ///
+  /// Closing output file
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::OutputFileClose");
 
   if (fCurrentOutputFile == nullptr) return;
@@ -888,6 +908,9 @@ void PointRun::OutputFileClose()
 }
 bool PointRun::Finish()
 {
+  ///
+  /// Finish
+  ///
 
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Finish");
   if (fInputList) {
@@ -907,6 +930,9 @@ bool PointRun::Finish()
 }
 int PointRun::ProcessSingleFile()
 {
+  ///
+  /// Process singe file
+  ///
 
   std::string type;
   if (gCfg["ndmspc"]["process"]["type"].is_string()) type = gCfg["ndmspc"]["process"]["type"].get<std::string>();
@@ -951,6 +977,9 @@ int PointRun::ProcessSingleFile()
 }
 int PointRun::ProcessHistogramRun()
 {
+  ///
+  /// Process histogram run
+  ///
 
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
 
@@ -1032,6 +1061,11 @@ int PointRun::ProcessHistogramRun()
 bool PointRun::Run(std::string filename, std::string userConfig, std::string environment, std::string userConfigRaw,
                    bool show, std::string outfilename)
 {
+
+  ///
+  /// Main run
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::Run");
 
   if (!fMacro) return 1;
@@ -1053,6 +1087,10 @@ bool PointRun::Run(std::string filename, std::string userConfig, std::string env
 bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string userConfig, std::string environment,
                             std::string userConfigRaw, std::string outfilename)
 {
+  ///
+  /// Generates jobs
+  ///
+
   if (fVerbose >= 2) Printf("[<-] Ndmspc::PointRun::GenerateJobs");
 
   if (!fMacro) return 1;
@@ -1106,7 +1144,11 @@ bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string 
 bool PointRun::GenerateRecursiveConfig(Int_t dim, std::vector<std::vector<int>> & ranges, json & cfg,
                                        std::string & outfilename, int & count)
 {
-  if (dim < ranges.size()) {
+  ///
+  /// Generate config recursively
+  ///
+
+  if (dim < static_cast<Int_t>(ranges.size())) {
     // Printf("dim=%d", dim);
     for (int i = ranges[dim][0]; i <= ranges[dim][1]; i += ranges[dim][2]) {
       // Printf("Running dim=%d [%d,%d]", dim, i, i + ranges[dim][2] - 1);
@@ -1269,14 +1311,15 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   }
 
   std::string   outputConfig = name + ".json";
-  std::ofstream fileConfig(outputConfig.c_str());
+  std::ofstream fileConfig(outputConfig);
   fileConfig << std::setw(2) << cfg << std::endl;
+  // fileConfig << cfg.dump() << std::endl;
 
   std::string   outputMacro = name + ".C";
-  std::ofstream file(outputMacro.c_str());
-  file << macroTemplateHeader.c_str();
-  file << "bool " << name.c_str() << "(Ndmspc::PointRun *pr)";
-  file << macroTemplate.c_str();
+  std::ofstream fileMacro(outputMacro);
+  fileMacro << macroTemplateHeader.c_str();
+  fileMacro << "bool " << name.c_str() << "(Ndmspc::PointRun *pr)";
+  fileMacro << macroTemplate.c_str();
 
   Printf("File '%s.C' and '%s.json' were generated ...", name.c_str(), name.c_str());
   return true;

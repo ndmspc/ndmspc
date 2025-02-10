@@ -79,17 +79,22 @@ class HnSparse : public THnSparse {
 template <class CONT>
 class HnSparseT : public HnSparse {
   public:
+  /// Default constructor
   HnSparseT() {}
+  /// Constructor
   HnSparseT(const char * name, const char * title, Int_t dim, const Int_t * nbins, const Double_t * xmin = nullptr,
             const Double_t * xmax = nullptr, Int_t chunksize = 1024 * 16)
       : HnSparse(name, title, dim, nbins, xmin, xmax, chunksize)
   {
   }
 
+  /// Returns content array
   TArray * GenerateArray() const override { return new CONT(GetChunkSize()); }
 
   private:
+  /// \cond CLASSIMP
   ClassDefOverride(HnSparseT, 1); // Sparse n-dimensional histogram with templated content
+  /// \endcond;
 };
 
 typedef HnSparseT<TArrayD> HnSparseD;

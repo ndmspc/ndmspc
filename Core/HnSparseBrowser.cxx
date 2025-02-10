@@ -34,7 +34,7 @@ HnSparseBrowser::~HnSparseBrowser()
   SafeDelete(fListOfHnSparses);
 }
 
-int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string dirtoken)
+int HnSparseBrowser::DrawBrowser(std::string filename, std::string objects, std::string dirtoken)
 {
   ///
   /// Draw
@@ -67,7 +67,7 @@ int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string
     return 2;
   }
 
-  for (int i = 0; i < objectList.size(); i++) {
+  for (long unsigned int i = 0; i < objectList.size(); i++) {
     std::string objTemp = objectList[i].c_str();
     Printf("Object : %s", objTemp.c_str());
     size_t pos = objTemp.find(dirtoken);
@@ -90,12 +90,12 @@ int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string
   for (int i = 0; i < nDim; i++) {
     TAxis * a = (TAxis *)listOfAxes->At(i);
     hAxes->GetXaxis()->SetBinLabel(i + 1, a->GetName());
-    for (int j = 0; j < objects.size(); j++) {
+    for (long unsigned int j = 0; j < objects.size(); j++) {
       hAxes->SetBinContent(i + 1, j + 1, 1);
     }
   }
 
-  for (int i = 0; i < objects.size(); i++) {
+  for (long unsigned int i = 0; i < objects.size(); i++) {
     if (dirtoken.empty())
       hAxes->GetYaxis()->SetBinLabel(i + 1, objectList[i].c_str());
     else
@@ -106,7 +106,7 @@ int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string
   hAxes->GetXaxis()->SetLabelSize(0.08);
   hAxes->SetStats(0);
   THnSparse * sparseTmp = nullptr;
-  for (int i = 0; i < objects.size(); i++) {
+  for (long unsigned int i = 0; i < objects.size(); i++) {
     sparseTmp = (THnSparse *)inputFile->Get(objectList[i].c_str());
     if (!sparseTmp) {
       Printf("Error: Cannot find objects %s!", objectList[i].c_str());
@@ -131,6 +131,9 @@ int HnSparseBrowser::Draw(std::string filename, std::string objects, std::string
 
 void HnSparseBrowser::HighlightMain(TVirtualPad * pad, TObject * obj, Int_t xBin, Int_t yBin)
 {
+  ///
+  /// Main highlight function
+  ///
   // Printf("Obj = %p %d %d", (void *)obj, xBin, yBin);
   auto hAxes = dynamic_cast<TH1D *>(obj);
 

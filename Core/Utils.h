@@ -19,7 +19,9 @@ namespace Ndmspc {
 
 class Utils : TObject {
 
+  /// Constructor
   Utils() {};
+  /// Destructor
   virtual ~Utils() {};
 
   public:
