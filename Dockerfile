@@ -12,7 +12,7 @@ FROM registry.gitlab.com/ndmspc/user/al9:base
 RUN dnf update -y
 RUN dnf install -y nmap salsa munge
 COPY . /ndmspc/
-RUN /ndmspc/scripts/slurm-init.sh
+RUN /ndmspc/scripts/slurm-init
 COPY --from=builder /builder/build/RPMS/x86_64/ndmspc*.rpm /
 RUN dnf install -y ndmspc*.rpm
 RUN rm -rf *.rpm
