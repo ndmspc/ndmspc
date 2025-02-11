@@ -2,7 +2,7 @@
 ID=${SLURM_ARRAY_TASK_ID-1}
 JOBS_FILE=${1-"/tmp/ndmspc.jobs"}
 CMD=$(sed "${ID}q;d" $JOBS_FILE)
+unset NDMSPC_POINT_JOBS
 
 echo "Running '$CMD' ..."
 $CMD
-

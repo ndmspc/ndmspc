@@ -161,6 +161,10 @@ int main(int argc, char ** argv)
   if (getenv("NDMSPC_POINT_ENVIRONMENT")) {
     if (environement.empty()) environement = getenv("NDMSPC_POINT_ENVIRONMENT");
   }
+  if (getenv("NDMSPC_POINT_JOBS")) {
+    if (jobs.empty()) jobs = getenv("NDMSPC_POINT_JOBS");
+    if (jobs.empty()) jobs = "1:1:1";
+  }
   if (getenv("NDMSPC_BROWSER_FILE")) {
     if (fileName.empty()) fileName = getenv("NDMSPC_BROWSER_FILE");
   }
