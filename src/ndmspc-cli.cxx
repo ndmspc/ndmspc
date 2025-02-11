@@ -31,9 +31,7 @@ std::string app_description()
 {
   size_t size = 64;
   char   buf[size];
-  size =
-      std::snprintf(buf, size, "%s v%d.%d.%d-%s", NDMSPC_NAME, NDMSPC_VERSION_MAJOR(NDMSPC_VERSION),
-                    NDMSPC_VERSION_MINOR(NDMSPC_VERSION), NDMSPC_VERSION_PATCH(NDMSPC_VERSION), NDMSPC_VERSION_RELEASE);
+  size = std::snprintf(buf, size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
   return std::string(buf, size);
 }
 
