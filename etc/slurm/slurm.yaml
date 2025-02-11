@@ -2,18 +2,19 @@
   hosts: all
   vars:
     slurm_config:
-      #ControlMachine: 'jf01'
-      #ClusterName: 'jf'
-      #FastSchedule: 1
+      ClusterName: "ndmspc-cluster"
+      FastSchedule: 1
       SchedulerType: "sched/backfill"
-      SelectType: "select/cons_res"
-      SelectTypeParameters: "CR_CPU"
+      SelectType: "select/cons_tres"
+      SelectTypeParameters: "CR_Core_Memory"
+      DefMemPerCPU: 4096
       MaxArraySize: 65533
-      #JobAcctGatherType: jobacct_gather/linux
+      JobAcctGatherType: jobacct_gather/linux
     slurm_roles: ["controller", "exec"]
     slurm_nodes:
       - name: "localhost"
-        CPUs: 20
+        CPUs: 8
+        RealMemory: 16384
   roles:
     - role: galaxyproject.slurm
       become: True

@@ -1,30 +1,32 @@
 #!/bin/bash
 export NDMSPC_POINT_MACRO=${NDMSPC_POINT_MACRO-"/usr/share/ndmspc/macros/test/rsn/RsnPhiPointMacro.C"}
 export NDMSPC_POINT_CONFIG=${NDMSPC_POINT_CONFIG-"/usr/share/ndmspc/macros/test/rsn/myAnalysis.json"}
-export NDMSPC_POINT_CONFIG_USER=${NDMSPC_POINT_CONFIG_USER-"/usr/share/ndmspc/macros/test/rsn/myAnalysisUserAll.json"}
-NDMSPC_JOBS_FILE=${NDMSPC_JOBS_FILE-"/tmp/ndmspc.jobs"}
-NDMSPC_JOB_CONFIG_DIR=${NDMSPC_JOB_CONFIG_DIR-"/tmp/ndmspc-jobs"}
+export NDMSPC_POINT_JOBS=${NDMSPC_POINT_JOBS-"1:1:1"}
+NDMSPC_TMP_DIR="/tmp/ndmspc/$(date '+%Y%m%d-%H%M%S')"
+NDMSPC_JOBS_FILE=${NDMSPC_JOBS_FILE-"$NDMSPC_TMP_DIR/jobs"}
+NDMSPC_JOB_CONFIG_DIR=${NDMSPC_JOB_CONFIG_DIR-"$NDMSPC_TMP_DIR/configs"}
 NDMSPC_SLURM_RUN_SCRIPT=${1-"ndmspc-slurm-run-single"}
 NDMSPC_JOB_SUBMIT=${NDMSPC_JOB_SUBMIT-0}
 
-ndmspc-cli point run --jobs 1:1 --output-dir $NDMSPC_JOB_CONFIG_DIR
+ndmspc-cli point run --output-dir $NDMSPC_JOB_CONFIG_DIR
 find $NDMSPC_JOB_CONFIG_DIR -type f | xargs -I {} echo ndmspc-cli point run -m $NDMSPC_POINT_MACRO -c {} >$NDMSPC_JOBS_FILE
 
 N=$(cat $NDMSPC_JOBS_FILE | wc -l)
 echo ""
-echo "Jobs are stored in $NDMSPC_JOBS_FILE"
+echo "Jobs are stored in $NDMSPC_JOBS_FILE and configs are stored in $NDMSPC_JOB_CONFIG_DIR"
 echo "Number of jobs: $N"
 echo ""
 echo "To submit jobs to SLURM, run:"
-echo "  sbatch -a 1-$N $NDMSPC_SLURM_RUN_SCRIPT"
+echo "  sbatch -a 1-$N $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE"
 echo ""
 echo "  or"
 echo ""
-echo "  NDMSPC_JOB_SUBMIT=submit ndmspc-slurm-run-jobs"
+echo "  NDMSPC_JOB_SUBMIT=1 ndmspc-slurm-run-jobs"
 echo ""
 
 [[ $NDMSPC_JOB_SUBMIT == 1 ]] && {
   echo "Submitting jobs via SLURM ..."
-  sbatch -a 1-$N $NDMSPC_SLURM_RUN_SCRIPT
+  jid=$(sbatch -a 1-1 $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE | rev | cut -d ' ' -f1)
+  sbatch --dependency=afterok:$jid -a 2-$N $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE
   echo "Job submitted"
 }
