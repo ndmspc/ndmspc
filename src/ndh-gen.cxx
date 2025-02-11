@@ -7,8 +7,7 @@
 
 void version()
 {
-  Printf("%s v%d.%d.%d-%s", NDMSPC_NAME, NDMSPC_VERSION_MAJOR(NDMSPC_VERSION), NDMSPC_VERSION_MINOR(NDMSPC_VERSION),
-         NDMSPC_VERSION_PATCH(NDMSPC_VERSION), NDMSPC_VERSION_RELEASE);
+  Printf("%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
 }
 
 [[noreturn]] void help(int rc = 0)
