@@ -9,7 +9,6 @@ set(MY_EXTERNAL_LIBS
   NdmspcCore
   NdmspcHttp
   NdmspcNdh
-  nlohmann_json::nlohmann_json
 )
 
 file(GLOB EXEC_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.cxx" )
