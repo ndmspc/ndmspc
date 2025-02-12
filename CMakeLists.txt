@@ -10,7 +10,7 @@ set(PROJECT_VERSION_RELEASE 1)
 
 include(cmake/cmake_base.cmake)
 find_package(Root REQUIRED)
-find_package(nlohmann_json REQUIRED)
+#find_package(nlohmann_json REQUIRED)
 include(ROOTMacros)
 
 include_directories(${PROJECT_SOURCE_DIR}/Utils)

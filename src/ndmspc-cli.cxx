@@ -1,7 +1,6 @@
 #include <getopt.h>
 #include <cstddef>
 #include <cstdlib>
-#include <nlohmann/detail/value_t.hpp>
 #include <string>
 #include <CLI11.hpp>
 #include <vector>
