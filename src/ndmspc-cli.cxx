@@ -4,7 +4,7 @@
 #include <string>
 #include <CLI11.hpp>
 #include <vector>
-#include "TAxis.h"
+#include <TAxis.h>
 #include "TSystem.h"
 #include <TString.h>
 #include <TStopwatch.h>
@@ -51,6 +51,7 @@ int main(int argc, char ** argv)
   std::string macroFileName      = "";
   std::string directoryToken     = "";
   std::string environement       = "";
+  std::string binnings           = "";
   std::string jobs               = "";
   std::string jobdir             = "/tmp/ndmspc-jobs";
   std::string cutBaseAxis        = "";
@@ -79,6 +80,7 @@ int main(int argc, char ** argv)
   point_run->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
   point_run->add_option("-e,--environement", environement, "environement");
+  point_run->add_option("-b,--binnings", binnings, "Generate Binning jobs");
   point_run->add_option("-j,--jobs", jobs, "Generate jobs");
   point_run->add_option("-o,--output-dir", jobdir, "Generate jobs output dir");
 
@@ -162,6 +164,9 @@ int main(int argc, char ** argv)
     if (jobs.empty()) jobs = getenv("NDMSPC_POINT_JOBS");
     if (jobs.empty()) jobs = "1:1:1";
   }
+  if (getenv("NDMSPC_POINT_BINNINGS")) {
+    if (binnings.empty()) binnings = getenv("NDMSPC_POINT_BINNINGS");
+  }
   if (getenv("NDMSPC_BROWSER_FILE")) {
     if (fileName.empty()) fileName = getenv("NDMSPC_BROWSER_FILE");
   }
@@ -211,7 +216,7 @@ int main(int argc, char ** argv)
           timer.Start();
           Ndmspc::PointRun pr(macroFileName);
           if (!jobs.empty()) {
-            pr.GenerateJobs(jobs, configFileName, userConfigFileName, environement, userConfigRaw, jobdir);
+            pr.GenerateJobs(jobs, configFileName, userConfigFileName, environement, userConfigRaw, jobdir, binnings);
             return 0;
           }
           pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, false);

@@ -1085,7 +1085,7 @@ bool PointRun::Run(std::string filename, std::string userConfig, std::string env
 }
 
 bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string userConfig, std::string environment,
-                            std::string userConfigRaw, std::string outfilename)
+                            std::string userConfigRaw, std::string outfilename, std::string binnings)
 {
   ///
   /// Generates jobs
@@ -1099,44 +1099,89 @@ bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string 
 
   if (outfilename[outfilename.size() - 1] == '/') outfilename.pop_back();
 
-  Printf("Generating jobs with split '%s' to %s ...", jobs.c_str(), outfilename.c_str());
+  Printf("Generating jobs with split '%s' with binnings '%s' to %s ...", jobs.c_str(), binnings.c_str(),
+         outfilename.c_str());
+
+  gCfg["ndmspc"]["process"]["type"] = "all";
 
   std::vector<std::string>      jobsArray = Utils::Tokenize(jobs.c_str(), ':');
   std::vector<std::vector<int>> cutBins;
 
-  int i = -1;
+  std::vector<std::string> binningsArray = Utils::Tokenize(binnings.c_str(), ',');
+
+  std::string binningFirst = "";
   for (auto & cut : gCfg["ndmspc"]["cuts"]) {
-    i++;
     if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-    Int_t rebin         = 1;
-    Int_t rebin_start   = 1;
-    Int_t rebin_minimum = 1;
-    Int_t nbins         = -1;
-    if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
-    if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
-    if (cut["nbins"].is_number_integer()) nbins = cut["nbins"].get<Int_t>();
-    if (nbins < 0) {
-      Printf("Error: Number of bins in '%s' is less then 0 !!! Exiting ...", cut["name"].get<std::string>().c_str());
-      return false;
+    if (!binningFirst.empty()) {
+      binningFirst += "_";
     }
 
-    if (rebin_start > 1) {
-      rebin_minimum = (rebin_start % rebin);
-      if (rebin_minimum == 0) rebin_minimum = 1;
-    }
-    int start = (rebin_start / rebin) + 1;
-    int end   = (nbins - rebin_minimum + 1) / rebin;
-    cutBins.push_back({start, end, atoi(jobsArray[i - 1].c_str())});
+    Int_t nbins = cut["nbins"].get<Int_t>();
+
+    binningFirst += std::to_string(nbins) + "-1";
   }
-  // i = 0;
-  // for (auto & ranges : cutBins) {
-  // Printf("%d [%d,%d]", i, ranges[0], ranges[1]);
-  // gCfg["ndmspc"]["process"]["ranges"][i] = {ranges[0], ranges[1]};
-  // i++;
-  // }
-  int count = 1;
-  GenerateRecursiveConfig(0, cutBins, gCfg, outfilename, count);
+  if (binningFirst.empty()) {
+    Printf("Error: Binning is empty !!! Exiting ...");
+    return false;
+  }
+  binningsArray.insert(binningsArray.begin(), binningFirst);
 
+  for (auto & binning : binningsArray) {
+    std::vector<std::string> binningAxes = Utils::Tokenize(binning.c_str(), '_');
+    int                      i           = 0;
+    int                      index       = -1;
+    // Printf("Binning: %s", binning.c_str());
+    cutBins.clear();
+    for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+      index++;
+      if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+
+      Int_t rebin         = 1;
+      Int_t rebin_start   = 1;
+      Int_t rebin_minimum = 1;
+      Int_t nbins         = -1;
+      if (cut["rebin"].is_number_integer()) rebin = cut["rebin"].get<Int_t>();
+      if (cut["rebin_start"].is_number_integer()) rebin_start = cut["rebin_start"].get<Int_t>();
+      if (cut["nbins"].is_number_integer()) nbins = cut["nbins"].get<Int_t>();
+      if (nbins < 0) {
+        Printf("Error: Number of bins in '%s' is less then 0 !!! Exiting ...", cut["name"].get<std::string>().c_str());
+        return false;
+      }
+
+      std::vector<std::string> binningAxis = Utils::Tokenize(binningAxes[i], '-');
+      if (binningAxis.size() == 2) {
+        rebin                                        = atoi(binningAxis[0].c_str());
+        rebin_start                                  = atoi(binningAxis[1].c_str());
+        gCfg["ndmspc"]["cuts"][index]["rebin"]       = rebin;
+        gCfg["ndmspc"]["cuts"][index]["rebin_start"] = rebin_start;
+      }
+      // Printf("rebin=%d rebin_start=%d nbins=%d", rebin, rebin_start, nbins);
+
+      if (rebin_start > 1) {
+        rebin_minimum = (rebin_start % rebin);
+        if (rebin_minimum == 0) rebin_minimum = 1;
+      }
+      int start = (rebin_start / rebin) + 1;
+      int end   = (nbins - rebin_minimum + 1) / rebin;
+      if (end < start) {
+        Printf("Error: rebin=%d is higher then nbins=%d !!! Exiting ...", rebin, nbins);
+        return false;
+      }
+      // if (nbins == rebin) end = 1;
+      // Printf("start=%d end=%d jobsArray=%s", start, end, jobsArray[i].c_str());
+      cutBins.push_back({start, end, atoi(jobsArray[i].c_str())});
+      i++;
+    }
+    // i = 0;
+    // for (auto & ranges : cutBins) {
+    // Printf("%d [%d,%d]", i, ranges[0], ranges[1]);
+    // gCfg["ndmspc"]["process"]["ranges"][i] = {ranges[0], ranges[1]};
+    // i++;
+    // }
+    int         count          = 1;
+    std::string outfilenameTmp = outfilename + "/" + binning;
+    GenerateRecursiveConfig(0, cutBins, gCfg, outfilenameTmp, count);
+  }
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::GenerateJobs");
   return true;
 }
