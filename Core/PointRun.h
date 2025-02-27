@@ -29,7 +29,7 @@ class PointRun : public TObject {
   bool Run(std::string filename, std::string userConfig = "", std::string environment = "",
            std::string userConfigRaw = "", bool show = false, std::string outfilename = "");
   bool GenerateJobs(std::string jobs, std::string filename, std::string userConfig = "", std::string environment = "",
-                    std::string userConfigRaw = "", std::string jobDir = "/tmp/ndmspc-jobs");
+                    std::string userConfigRaw = "", std::string jobDir = "/tmp/ndmspc-jobs", std::string binnings = "");
 
   /// Returns global config object
   json & Cfg() { return gCfg; }
