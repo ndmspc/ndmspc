@@ -17,6 +17,7 @@ for d in $DIRS; do
   NDMSPC_JOBS_FILE_FULL_TMP=${NDMSPC_JOBS_FILE}_${d}_tmp
   find $NDMSPC_JOB_CONFIG_DIR/$d -type f | xargs -I {} echo ndmspc-cli point run -m $NDMSPC_POINT_MACRO -c {} >$NDMSPC_JOBS_FILE_FULL_TMP
   tac $NDMSPC_JOBS_FILE_FULL_TMP >$NDMSPC_JOBS_FILE_FULL
+  rm -f $NDMSPC_JOBS_FILE_FULL_TMP
   N=$(cat $NDMSPC_JOBS_FILE_FULL | wc -l)
   echo ""
   echo "Jobs are stored in $NDMSPC_JOBS_FILE_FULL and configs are stored in $NDMSPC_JOB_CONFIG_DIR/$d"
@@ -34,12 +35,10 @@ for d in $DIRS; do
     echo "Submitting jobs via SLURM ..."
 
     if [ -z $jidfirst ]; then
-      jidfirst=$(sbatch -a 1-1 $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE_FULL | rev | cut -d ' ' -f1)
+      jidfirst=$(sbatch -J $d -a 1-1 --parsable $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE_FULL)
       jid=$jidfirst
     else
-      #jid=$(sbatch -a 1-1 $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE_FULL | rev | cut -d ' ' -f1)
-      #sbatch --dependency=afterok:$jid -a 2-$N $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE_FULL
-      jid=$(sbatch --dependency=afterok:$jidfirst -a 1-$N $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE_FULL | rev | cut -d ' ' -f1)
+      jid=$(sbatch -J $d --dependency=afterok:$jidfirst -a 1-$N --parsable $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE_FULL)
     fi
 
     cat <<EOF >${NDMSPC_JOBS_FILE_FULL}.sh
@@ -49,7 +48,7 @@ unset NDMSPC_POINT_CONFIG_USER
 unset NDMSPC_POINT_MACRO
 ndmspc-cli point merge -c $NDMSPC_JOB_CONFIG_DIR/$d/1.json
 EOF
-    sbatch --dependency=afterok:$jid ${NDMSPC_JOBS_FILE_FULL}.sh
+    sbatch -J m$jid --dependency=afterok:$jid ${NDMSPC_JOBS_FILE_FULL}.sh
     echo "Job submitted"
   }
 done
