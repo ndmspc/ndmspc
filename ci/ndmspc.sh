@@ -1,6 +1,6 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v0.20240422.0"
+tag: "v0.20250228.0"
 requires:
   - ROOT
 build_requires:

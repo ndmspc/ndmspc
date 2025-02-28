@@ -4,6 +4,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
+
 #include "TArrayD.h"
 #include <TFileMerger.h>
 #include <TString.h>
@@ -1162,7 +1165,8 @@ bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string 
         if (rebin_minimum == 0) rebin_minimum = 1;
       }
       int start = (rebin_start / rebin) + 1;
-      int end   = (nbins - rebin_minimum + 1) / rebin;
+      if (rebin == 1) start = rebin_start;
+      int end = (nbins - rebin_minimum + 1) / rebin;
       if (end < start) {
         Printf("Error: rebin=%d is higher then nbins=%d !!! Exiting ...", rebin, nbins);
         return false;
@@ -1181,6 +1185,7 @@ bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string 
     int         count          = 1;
     std::string outfilenameTmp = outfilename + "/" + binning;
     GenerateRecursiveConfig(0, cutBins, gCfg, outfilenameTmp, count);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
   }
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::GenerateJobs");
   return true;
@@ -1505,13 +1510,11 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string env
   // Int_t mode         = default_mode | TFileMerger::kOnlyListed;
   while (std::getline(check2, line)) {
 
-    Printf("Adding file '%s' ...", line.data());
     if (!outHost.empty()) {
-      m.AddFile(TString::Format("root://%s/%s", outHost.c_str(), line.c_str()).Data());
+      line = TString::Format("root://%s/%s", outHost.c_str(), line.c_str()).Data();
     }
-    else {
-      m.AddFile(line.c_str());
-    }
+    Printf("Adding file '%s' ...", line.data());
+    m.AddFile(line.c_str());
   }
 
   Printf("Merging ...");
