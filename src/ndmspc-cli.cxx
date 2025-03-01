@@ -5,7 +5,7 @@
 #include <CLI11.hpp>
 #include <vector>
 #include <TAxis.h>
-#include "TSystem.h"
+#include <TSystem.h>
 #include <TString.h>
 #include <TStopwatch.h>
 #include <TApplication.h>
@@ -56,6 +56,10 @@ int main(int argc, char ** argv)
   std::string jobdir             = "/tmp/ndmspc-jobs";
   std::string cutBaseAxis        = "";
   std::string cutRanges          = "";
+  std::string mergeFromStr       = "0";
+  std::string mergeToStr         = "1";
+  std::string levelStr           = "-1";
+  std::string cacheDir           = "${PWD}/.ndmspc_cache_dir";
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
@@ -90,7 +94,9 @@ int main(int argc, char ** argv)
   point_merge->add_option("-c,--config", configFileName, "Config file name");
   point_merge->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_merge->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
-  point_merge->add_option("-e,--environement", environement, "environement");
+  point_merge->add_option("-e,--environement", environement, "Environement");
+  point_merge->add_option("-f,--from", mergeFromStr, "Merge from (default: 0)");
+  point_merge->add_option("-t,--to", mergeToStr, "Merge to (default: 1)");
 
   CLI::App * point_draw = point->add_subcommand("draw", "Point draw");
   point_draw->add_option("-n,--name", name, "Name");
@@ -99,6 +105,7 @@ int main(int argc, char ** argv)
   point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_draw->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_draw->add_option("-e,--environement", environement, "environement");
+  point_draw->add_option("-l,--level", levelStr, "Level");
 
   CLI::App * serve = app.add_subcommand("serve", "Http Server");
   serve->require_subcommand(); // 1 or more
@@ -159,6 +166,9 @@ int main(int argc, char ** argv)
   }
   if (getenv("NDMSPC_POINT_ENVIRONMENT")) {
     if (environement.empty()) environement = getenv("NDMSPC_POINT_ENVIRONMENT");
+  }
+  if (getenv("NDMSPC_POINT_MERGE_CACHE_DIR")) {
+    cacheDir = getenv("NDMSPC_POINT_MERGE_CACHE_DIR");
   }
   if (getenv("NDMSPC_POINT_JOBS")) {
     if (jobs.empty()) jobs = getenv("NDMSPC_POINT_JOBS");
@@ -226,13 +236,17 @@ int main(int argc, char ** argv)
         if (!subsubcom->get_name().compare("merge")) {
           TStopwatch timer;
           timer.Start();
-          Ndmspc::PointRun::Merge(configFileName, userConfigFileName, environement, userConfigRaw);
+          int mergeFrom = atoi(mergeFromStr.c_str());
+          int mergeTo   = atoi(mergeToStr.c_str());
+          Ndmspc::PointRun::Merge(mergeFrom, mergeTo, configFileName, userConfigFileName, environement, userConfigRaw,
+                                  cacheDir);
           timer.Stop();
           timer.Print();
         }
         if (!subsubcom->get_name().compare("draw")) {
           Ndmspc::PointDraw pd;
-          pd.DrawPoint(configFileName, userConfigFileName, environement, userConfigRaw);
+          int               level = atoi(levelStr.c_str());
+          pd.DrawPoint(level, configFileName, userConfigFileName, environement, userConfigRaw);
         }
       }
     }

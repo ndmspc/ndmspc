@@ -1375,15 +1375,31 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
   return true;
 }
 
-bool PointRun::Merge(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw,
-                     std::string fileOpt)
+bool PointRun::Merge(int from, int to, std::string config, std::string userConfig, std::string environment,
+                     std::string userConfigRaw, std::string cacheDir, std::string fileOpt)
 {
   ///
   /// Merge specific projection
   ///
 
+  if (from >= to) {
+    Printf("Error: 'from=%d' must be smaller then 'to=%d' !!! Exiting ...", from, to);
+    return false;
+  }
+
+  std::string fromFile = "content.root";
+  if (from > 0) {
+    fromFile = "merged_" + std::to_string(from) + ".root";
+  }
+  std::string toFile = "merged_" + std::to_string(to) + ".root";
+
   if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw)) return false;
 
+  if (!cacheDir.empty()) {
+    cacheDir += "_" + std::to_string(gSystem->GetPid());
+    Printf("Setting cache directory to '%s' ...", gSystem->ExpandPathName(cacheDir.c_str()));
+    TFile::SetCacheFileDir(gSystem->ExpandPathName(cacheDir.c_str()), 1, 1);
+  }
   if (gCfg["ndmspc"]["output"]["host"].get<std::string>().empty()) {
     gCfg["ndmspc"]["output"]["opt"] = "";
   }
@@ -1414,122 +1430,177 @@ bool PointRun::Merge(std::string config, std::string userConfig, std::string env
 
   path = gSystem->ExpandPathName(path.c_str());
 
-  std::string outFile = path + "results.root";
+  // std::vector<std::string> binsArrayFrom;
+  std::vector<std::string> binsArrayTo;
+  if (gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) {
+    std::string binToStr;
+    for (auto & bin : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
+      // binFromStr     = "";
+      binToStr       = "";
+      int binsize    = bin.size();
+      int iLevelFrom = binsize - from + 1;
+      int iLevelTo   = binsize - to + 1;
+      for (auto & binElement : bin) {
 
-  path += "bins";
-
-  TUrl        url(path.c_str());
-  std::string outHost        = url.GetHost();
-  std::string inputDirectory = url.GetFile();
-  std::string linesMerge     = "";
-
-  if (outHost.empty()) {
-    if (gSystem->AccessPathName(path.c_str())) {
-      Printf("Error: Nothing to merge, because path '%s' does not exist !!!", path.c_str());
-      return false;
+        if (iLevelTo > 0) {
+          binToStr += std::to_string(binElement.get<Int_t>()) + "/";
+        }
+        if (iLevelFrom <= 0) break;
+        iLevelFrom--;
+        iLevelTo--;
+      }
+      Printf("To: %s", binToStr.c_str());
+      binsArrayTo.push_back(binToStr);
+      if (binToStr.empty()) {
+        toFile = "results.root";
+        break;
+      }
     }
-    Printf("Doing local find %s -name %s", path.c_str(), gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str());
-    linesMerge = gSystem->GetFromPipe(
-        TString::Format("find %s -name %s", path.c_str(), gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str())
-            .Data());
-    // Printf("%s", linesMerge.c_str());
-    // gSystem->Exit(1);
   }
   else {
+    binsArrayTo.push_back("");
+  }
 
-    Printf("Doing eos find -f %s", path.c_str());
+  // exit(0);
+  std::string pathBase = path;
+  for (auto & bin : binsArrayTo) {
 
-    std::string contentFile = gCfg["ndmspc"]["output"]["file"].get<std::string>();
-    TString     findUrl;
+    path                 = pathBase + "bins/" + bin;
+    std::string pathFrom = path;
+    std::string outFile  = path + toFile;
 
-    // Vector of string to save tokens
-    std::vector<std::string> tokens;
+    TUrl        url(pathFrom.c_str());
+    std::string outHost        = url.GetHost();
+    std::string inputDirectory = url.GetFile();
+    std::string linesMerge     = "";
 
-    if (!inputDirectory.empty()) {
-      findUrl = TString::Format(
-          "root://%s//proc/user/?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
-          outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
-
-      TFile * f = Ndmspc::Utils::OpenFile(findUrl.Data());
-      if (!f) return 1;
-
-      // Printf("%lld", f->GetSize());
-
-      int  buffsize = 4096;
-      char buff[buffsize + 1];
-
-      Long64_t    buffread = 0;
-      std::string content;
-      while (buffread < f->GetSize()) {
-
-        if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
-
-        // Printf("Buff %lld %d", buffread, buffsize);
-        f->ReadBuffer(buff, buffread, buffsize);
-        buff[buffsize] = '\0';
-        content += buff;
-        buffread += buffsize;
+    if (outHost.empty()) {
+      if (gSystem->AccessPathName(pathFrom.c_str())) {
+        Printf("Error: Nothing to merge, because path '%s' does not exist !!!", pathFrom.c_str());
+        return false;
       }
-
-      f->Close();
-
-      std::string ss  = "mgm.proc.stdout=";
-      size_t      pos = ss.size() + 1;
-      content         = content.substr(pos);
-
-      // stringstream class check1
-      std::stringstream check1(content);
-
-      std::string intermediate;
-
-      // Tokenizing w.r.t. space '&'
-      while (getline(check1, intermediate, '&')) {
-        tokens.push_back(intermediate);
-      }
+      Printf("Doing local find %s -name %s", pathFrom.c_str(),
+             gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str());
+      linesMerge = gSystem->GetFromPipe(TString::Format("find %s -name %s", pathFrom.c_str(),
+                                                        gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str())
+                                            .Data());
+      // Printf("%s", linesMerge.c_str());
+      // gSystem->Exit(1);
     }
     else {
-      tokens.push_back(contentFile.c_str());
+
+      Printf("Doing eos find -f %s", pathFrom.c_str());
+
+      // std::string contentFile = gCfg["ndmspc"]["output"]["file"].get<std::string>();
+      std::string contentFile = fromFile;
+      TString     findUrl;
+
+      // Vector of string to save tokens
+      std::vector<std::string> tokens;
+
+      if (!inputDirectory.empty()) {
+        findUrl =
+            TString::Format("root://%s//proc/user/"
+                            "?mgm.cmd=find&mgm.find.match=%s&mgm.path=%s&mgm.format=json&mgm.option=f&filetype=raw",
+                            outHost.c_str(), contentFile.c_str(), inputDirectory.c_str());
+        // Printf("Doing '%s' ...", findUrl.Data());
+
+        TFile * f = Ndmspc::Utils::OpenFile(findUrl.Data());
+        if (!f) return 1;
+
+        // Printf("%lld", f->GetSize());
+
+        int  buffsize = 4096;
+        char buff[buffsize + 1];
+
+        Long64_t    buffread = 0;
+        std::string content;
+        while (buffread < f->GetSize()) {
+
+          if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
+
+          // Printf("Buff %lld %d", buffread, buffsize);
+          f->ReadBuffer(buff, buffread, buffsize);
+          buff[buffsize] = '\0';
+          content += buff;
+          buffread += buffsize;
+        }
+
+        f->Close();
+
+        std::string ss  = "mgm.proc.stdout=";
+        size_t      pos = ss.size() + 1;
+        content         = content.substr(pos);
+
+        // stringstream class check1
+        std::stringstream check1(content);
+
+        std::string intermediate;
+
+        // Tokenizing w.r.t. space '&'
+        while (getline(check1, intermediate, '&')) {
+          tokens.push_back(intermediate);
+        }
+      }
+      else {
+        tokens.push_back(contentFile.c_str());
+      }
+      linesMerge = tokens[0];
     }
-    linesMerge = tokens[0];
-  }
-  std::stringstream check2(linesMerge);
-  std::string       line;
-  std::string       outFileLocal = "/tmp/ndmspc-merged-" + std::to_string(gSystem->GetPid()) + ".root";
-  bool              copy         = true;
-  if (hostUrl.empty()) {
-    outFileLocal = outFile;
-    copy         = false;
-  }
-  outFileLocal = gSystem->ExpandPathName(outFileLocal.c_str());
 
-  TFileMerger m(kFALSE);
-  m.OutputFile(TString::Format("%s%s", outFileLocal.c_str(), fileOpt.c_str()));
-  // m.AddObjectNames("results");
-  // m.AddObjectNames("content");
-  // Int_t default_mode = TFileMerger::kAll | TFileMerger::kIncremental;
-  // Int_t mode         = default_mode | TFileMerger::kOnlyListed;
-  while (std::getline(check2, line)) {
-
-    if (!outHost.empty()) {
-      line = TString::Format("root://%s/%s", outHost.c_str(), line.c_str()).Data();
+    if (linesMerge.empty()) {
+      Printf("Error: Nothing to merge, because path '%s' does not contain file '%s' !!!", pathFrom.c_str(),
+             fromFile.c_str());
+      return false;
     }
-    Printf("Adding file '%s' ...", line.data());
-    m.AddFile(line.c_str());
-  }
 
-  Printf("Merging ...");
-  m.Merge();
-  // m.PartialMerge(mode);
-  if (copy) {
-    Printf("Copy '%s' to '%s' ...", outFileLocal.c_str(), outFile.c_str());
-    TFile::Cp(outFileLocal.c_str(), outFile.c_str());
-    std::string rm = "rm -f " + outFileLocal;
-    Printf("Doing '%s' ...", rm.c_str());
-    gSystem->Exec(rm.c_str());
-  }
-  Printf("Output: '%s'", outFile.c_str());
-  Printf("Done ...");
+    std::stringstream check2(linesMerge);
+    std::string       line;
+    std::string       tempMergeDir = "/tmp";
+    if (gCfg["ndmspc"]["output"]["merge"]["tmpdir"].is_string())
+      tempMergeDir = gCfg["ndmspc"]["output"]["merge"]["tmpdir"].get<std::string>();
 
+    std::string outFileLocal = tempMergeDir + "/ndmspc-merged-" + std::to_string(gSystem->GetPid()) + ".root";
+    bool        copy         = true;
+    if (hostUrl.empty()) {
+      outFileLocal = outFile;
+      copy         = false;
+    }
+    outFileLocal = gSystem->ExpandPathName(outFileLocal.c_str());
+    Printf("Output file: '%s'", outFile.c_str());
+
+    TFileMerger m(kFALSE);
+    m.OutputFile(TString::Format("%s%s", outFileLocal.c_str(), fileOpt.c_str()));
+    // m.AddObjectNames("results");
+    // m.AddObjectNames("content");
+    // Int_t default_mode = TFileMerger::kAll | TFileMerger::kIncremental;
+    // Int_t mode         = default_mode | TFileMerger::kOnlyListed;
+    while (std::getline(check2, line)) {
+
+      if (!outHost.empty()) {
+        line = TString::Format("root://%s/%s", outHost.c_str(), line.c_str()).Data();
+      }
+      Printf("Adding file '%s' ...", line.data());
+      m.AddFile(line.c_str());
+    }
+
+    Printf("Merging ...");
+    m.Merge();
+    // m.PartialMerge(mode);
+    if (copy && toFile > 0) {
+      Printf("Copy '%s' to '%s' ...", outFileLocal.c_str(), outFile.c_str());
+      TFile::Cp(outFileLocal.c_str(), outFile.c_str());
+      std::string rm = "rm -f " + outFileLocal;
+      Printf("Doing '%s' ...", rm.c_str());
+      gSystem->Exec(rm.c_str());
+    }
+    Printf("Output: '%s'", outFile.c_str());
+    std::string rmCache = "rm -rf ";
+    rmCache += gSystem->ExpandPathName(cacheDir.c_str());
+    Printf("Removing cache dir: '%s' ...", rmCache.c_str());
+    gSystem->Exec(rmCache.c_str());
+    Printf("Done ...");
+  }
   return true;
 }
 

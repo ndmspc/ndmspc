@@ -9,6 +9,7 @@ NDMSPC_JOBS_FILE=${NDMSPC_JOBS_FILE-"$NDMSPC_TMP_DIR/jobs"}
 NDMSPC_JOB_CONFIG_DIR=${NDMSPC_JOB_CONFIG_DIR-"$NDMSPC_TMP_DIR/configs"}
 NDMSPC_SLURM_RUN_SCRIPT=${1-"ndmspc-slurm-run-single"}
 NDMSPC_JOB_SUBMIT=${NDMSPC_JOB_SUBMIT-0}
+NDMSPC_JOB_MERGE=${NDMSPC_JOB_MERGE-1}
 
 ndmspc-cli point run --output-dir $NDMSPC_JOB_CONFIG_DIR
 DIRS=$(ls -tr $NDMSPC_JOB_CONFIG_DIR)
@@ -40,15 +41,16 @@ for d in $DIRS; do
     else
       jid=$(sbatch -J $d --dependency=afterok:$jidfirst -a 1-$N --parsable $NDMSPC_SLURM_RUN_SCRIPT $NDMSPC_JOBS_FILE_FULL)
     fi
-
-    cat <<EOF >${NDMSPC_JOBS_FILE_FULL}.sh
+    [[ $NDMSPC_JOB_MERGE == 1 ]] && {
+      cat <<EOF >${NDMSPC_JOBS_FILE_FULL}.sh
 #!/bin/bash
 unset NDMSPC_POINT_CONFIG
 unset NDMSPC_POINT_CONFIG_USER
 unset NDMSPC_POINT_MACRO
-ndmspc-cli point merge -c $NDMSPC_JOB_CONFIG_DIR/$d/1.json
+ndmspc-cli point merge -c $NDMSPC_JOB_CONFIG_DIR/$d/1.json --from 0 --to 1 
 EOF
-    sbatch -J m$jid --dependency=afterok:$jid ${NDMSPC_JOBS_FILE_FULL}.sh
-    echo "Job submitted"
+      sbatch -J m$jid --dependency=afterok:$jid ${NDMSPC_JOBS_FILE_FULL}.sh
+      echo "Job submitted"
+    }
   }
 done
