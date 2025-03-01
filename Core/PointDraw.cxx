@@ -10,7 +10,6 @@
 #include <string>
 #include "PointDraw.h"
 #include "Core.h"
-#include "ROOT/RConfig.hxx"
 #include "Rtypes.h"
 #include "Utils.h"
 
@@ -35,7 +34,8 @@ PointDraw::~PointDraw()
   ///
 }
 
-int PointDraw::DrawPoint(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw)
+int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, std::string environment,
+                         std::string userConfigRaw)
 {
   ///
   /// Draw
@@ -86,10 +86,41 @@ int PointDraw::DrawPoint(std::string config, std::string userConfig, std::string
   // path[path.size() - 1] = '/';
   path += Utils::GetCutsPath(gCfg["ndmspc"]["cuts"]);
 
-  if (inputFile.empty()) inputFile = path + "results.root";
+  std::string fromFile = "content.root";
+  if (level > 0) {
+    fromFile = "merged_" + std::to_string(level) + ".root";
+  }
+  // std::vector<std::string> binsArray;
+  if (gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) {
+    path += "bins/";
+    std::string binStr;
+    for (auto & bin : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
+      binStr      = "";
+      int binsize = bin.size();
+      int iLevel  = binsize - level + 1;
+      for (auto & binElement : bin) {
+
+        if (iLevel <= 0) break;
+        binStr += std::to_string(binElement.get<Int_t>()) + "/";
+        iLevel--;
+      }
+      // Printf("binStr='%s'", binStr.c_str());
+      if (binStr.empty()) {
+        fromFile = "results.root";
+        break;
+      }
+      else {
+        path += binStr;
+      }
+    }
+  }
+  else {
+    path += "bins/";
+  }
+
+  if (inputFile.empty()) inputFile = path + fromFile;
 
   Printf("Opening file '%s' ...", inputFile.c_str());
-
   fIn = TFile::Open(inputFile.c_str());
   if (!fIn) {
     Printf("Error: Input file '%s' was not found !!!", inputFile.c_str());

@@ -51,5 +51,6 @@ runs
 #*.txt
 compile_commands.json
 .cache
+.ndmspc_cache_dir*
 *.root
 test.C
