@@ -27,7 +27,7 @@ class PointRun : public TObject {
   virtual ~PointRun();
 
   bool Run(std::string filename, std::string userConfig = "", std::string environment = "",
-           std::string userConfigRaw = "", bool show = false, std::string outfilename = "");
+           std::string userConfigRaw = "", std::string binnings = "", bool show = false, std::string outfilename = "");
   bool GenerateJobs(std::string jobs, std::string filename, std::string userConfig = "", std::string environment = "",
                     std::string userConfigRaw = "", std::string jobDir = "/tmp/ndmspc-jobs", std::string binnings = "");
 
@@ -62,7 +62,7 @@ class PointRun : public TObject {
                        std::string inObjectName = "myNDHistogram");
   /// Merge
   static bool Merge(int from = 0, int to = 1, std::string name = "myAnalysis.json", std::string userConfig = "",
-                    std::string environment = "", std::string userConfigRaw = "",
+                    std::string environment = "", std::string userConfigRaw = "", std::string binning = "",
                     std::string cacheDir = "${PWD}/.ndmspc_merge_cache", std::string fileOpt = "?remote=1");
 
   private:
@@ -89,7 +89,8 @@ class PointRun : public TObject {
   static std::string       fgEnvironment;                        ///< Environment
 
   bool        LoadConfig(std::string config, std::string userConfig = "", std::string environment = "",
-                         std::string userConfigRaw = "", bool show = false, std::string outfilename = "");
+                         std::string userConfigRaw = "", std::string binning = "", bool show = false,
+                         std::string outfilename = "");
   bool        Init(std::string extraPath = "");
   bool        Finish();
   TList *     OpenInputs();

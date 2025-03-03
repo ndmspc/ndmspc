@@ -22,8 +22,8 @@ class Core : public TObject {
   virtual ~Core() {};
 
   public:
-  static bool LoadConfig(std::string config, std::string userConfig, std::string environment = "",
-                         std::string userConfigRaw = "");
+  static bool LoadConfig(std::string config, std::string userConfig, std::string & environment,
+                         std::string userConfigRaw = "", std::string binning = "");
   static bool LoadEnvironment(std::string environmenti = "local");
 
   static bool SaveConfig(json cfg, std::string filename);

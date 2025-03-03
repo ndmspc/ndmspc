@@ -57,9 +57,10 @@ int main(int argc, char ** argv)
   std::string cutBaseAxis        = "";
   std::string cutRanges          = "";
   std::string mergeFromStr       = "0";
-  std::string mergeToStr         = "1";
+  std::string mergeToStr         = "-1";
   std::string levelStr           = "-1";
   std::string cacheDir           = "${PWD}/.ndmspc_cache_dir";
+  std::string binning            = "";
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
 
@@ -69,7 +70,8 @@ int main(int argc, char ** argv)
   point->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point->add_option("-m,--macro", macroFileName, "Macro path");
-  point->add_option("-e,--environement", environement, "environement");
+  point->add_option("-e,--environement", environement, "Environement");
+  point->add_option("-b,--binning", binning, "Binning");
 
   CLI::App * point_gen = point->add_subcommand("gen", "Point generate");
   point_gen->add_option("-n,--name", name, "Name");
@@ -84,7 +86,8 @@ int main(int argc, char ** argv)
   point_run->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
   point_run->add_option("-e,--environement", environement, "environement");
-  point_run->add_option("-b,--binnings", binnings, "Generate Binning jobs");
+  point_run->add_option("--binnings", binnings, "Generate Binning jobs");
+  point_run->add_option("-b,--binning", binning, "Binning");
   point_run->add_option("-j,--jobs", jobs, "Generate jobs");
   point_run->add_option("-o,--output-dir", jobdir, "Generate jobs output dir");
 
@@ -95,6 +98,7 @@ int main(int argc, char ** argv)
   point_merge->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_merge->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_merge->add_option("-e,--environement", environement, "Environement");
+  point_merge->add_option("-b,--binning", binning, "Binning");
   point_merge->add_option("-f,--from", mergeFromStr, "Merge from (default: 0)");
   point_merge->add_option("-t,--to", mergeToStr, "Merge to (default: 1)");
 
@@ -105,6 +109,7 @@ int main(int argc, char ** argv)
   point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_draw->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_draw->add_option("-e,--environement", environement, "environement");
+  point_draw->add_option("-b,--binning", binning, "Binning");
   point_draw->add_option("-l,--level", levelStr, "Level");
 
   CLI::App * serve = app.add_subcommand("serve", "Http Server");
@@ -174,6 +179,9 @@ int main(int argc, char ** argv)
     if (jobs.empty()) jobs = getenv("NDMSPC_POINT_JOBS");
     if (jobs.empty()) jobs = "1:1:1";
   }
+  if (getenv("NDMSPC_POINT_BINNING")) {
+    if (binning.empty()) binning = getenv("NDMSPC_POINT_BINNING");
+  }
   if (getenv("NDMSPC_POINT_BINNINGS")) {
     if (binnings.empty()) binnings = getenv("NDMSPC_POINT_BINNINGS");
   }
@@ -208,7 +216,7 @@ int main(int argc, char ** argv)
 
   if (directoryToken.empty()) directoryToken = "/";
 
-  if (environement.empty()) environement = "default";
+  // if (environement.empty()) environement = "default";
 
   // std::cout << "Working on --file from start: " << file << '\n';
   // std::cout << "Working on --count from stop: " << s->count() << ", direct count: " << stop->count("--count") <<
@@ -229,7 +237,7 @@ int main(int argc, char ** argv)
             pr.GenerateJobs(jobs, configFileName, userConfigFileName, environement, userConfigRaw, jobdir, binnings);
             return 0;
           }
-          pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, false);
+          pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, binning, false);
           timer.Stop();
           timer.Print();
         }
@@ -239,14 +247,14 @@ int main(int argc, char ** argv)
           int mergeFrom = atoi(mergeFromStr.c_str());
           int mergeTo   = atoi(mergeToStr.c_str());
           Ndmspc::PointRun::Merge(mergeFrom, mergeTo, configFileName, userConfigFileName, environement, userConfigRaw,
-                                  cacheDir);
+                                  binning, cacheDir);
           timer.Stop();
           timer.Print();
         }
         if (!subsubcom->get_name().compare("draw")) {
           Ndmspc::PointDraw pd;
           int               level = atoi(levelStr.c_str());
-          pd.DrawPoint(level, configFileName, userConfigFileName, environement, userConfigRaw);
+          pd.DrawPoint(level, configFileName, userConfigFileName, environement, userConfigRaw, binning);
         }
       }
     }

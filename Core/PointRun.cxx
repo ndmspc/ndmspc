@@ -45,13 +45,13 @@ PointRun::~PointRun()
 }
 
 bool PointRun::LoadConfig(std::string config, std::string userConfig, std::string environment,
-                          std::string userConfigRaw, bool show, std::string outfilename)
+                          std::string userConfigRaw, std::string binning, bool show, std::string outfilename)
 {
   ///
   /// Load config and set default PointRun parameters
   ///
 
-  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw)) return 1;
+  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw, binning)) return 1;
 
   if (!gCfg["ndmspc"]["verbose"].is_null() && gCfg["ndmspc"]["verbose"].is_number_integer())
     fVerbose = gCfg["ndmspc"]["verbose"].get<int>();
@@ -1062,7 +1062,7 @@ int PointRun::ProcessHistogramRun()
   return 0;
 }
 bool PointRun::Run(std::string filename, std::string userConfig, std::string environment, std::string userConfigRaw,
-                   bool show, std::string outfilename)
+                   std::string binning, bool show, std::string outfilename)
 {
 
   ///
@@ -1073,7 +1073,7 @@ bool PointRun::Run(std::string filename, std::string userConfig, std::string env
 
   if (!fMacro) return 1;
 
-  if (!LoadConfig(filename, userConfig, environment, userConfigRaw, show, outfilename)) return false;
+  if (!LoadConfig(filename, userConfig, environment, userConfigRaw, binning, show, outfilename)) return false;
   /*fVerbose = 2;*/
 
   if (!gCfg["ndmspc"]["data"]["histogram"].is_null() && !gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
@@ -1098,7 +1098,7 @@ bool PointRun::GenerateJobs(std::string jobs, std::string filename, std::string 
 
   if (!fMacro) return 1;
 
-  if (!LoadConfig(filename, userConfig, environment, userConfigRaw, true)) return false;
+  if (!LoadConfig(filename, userConfig, environment, userConfigRaw, "", true)) return false;
 
   if (outfilename[outfilename.size() - 1] == '/') outfilename.pop_back();
 
@@ -1376,13 +1376,13 @@ bool PointRun::Generate(std::string name, std::string inFile, std::string inObje
 }
 
 bool PointRun::Merge(int from, int to, std::string config, std::string userConfig, std::string environment,
-                     std::string userConfigRaw, std::string cacheDir, std::string fileOpt)
+                     std::string userConfigRaw, std::string binning, std::string cacheDir, std::string fileOpt)
 {
   ///
   /// Merge specific projection
   ///
 
-  if (from >= to) {
+  if (from >= to && to >= 0) {
     Printf("Error: 'from=%d' must be smaller then 'to=%d' !!! Exiting ...", from, to);
     return false;
   }
@@ -1393,7 +1393,7 @@ bool PointRun::Merge(int from, int to, std::string config, std::string userConfi
   }
   std::string toFile = "merged_" + std::to_string(to) + ".root";
 
-  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw)) return false;
+  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw, binning)) return false;
 
   if (!cacheDir.empty()) {
     cacheDir += "_" + std::to_string(gSystem->GetPid());
@@ -1432,12 +1432,17 @@ bool PointRun::Merge(int from, int to, std::string config, std::string userConfi
 
   // std::vector<std::string> binsArrayFrom;
   std::vector<std::string> binsArrayTo;
+  int                      binsize = 0;
   if (gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) {
     std::string binToStr;
     for (auto & bin : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
       // binFromStr     = "";
-      binToStr       = "";
-      int binsize    = bin.size();
+      binToStr = "";
+      binsize  = bin.size();
+      if (to < 0) to = binsize + 1;
+      // if (to > binsize) {
+      //   path.erase(path.size() - 5, path.size());
+      // }
       int iLevelFrom = binsize - from + 1;
       int iLevelTo   = binsize - to + 1;
       for (auto & binElement : bin) {
@@ -1461,13 +1466,20 @@ bool PointRun::Merge(int from, int to, std::string config, std::string userConfi
     binsArrayTo.push_back("");
   }
 
+  if (from > binsize) {
+    Printf("Error: 'from=%d' must be smaller then 'binsize=%d' !!! Exiting ...", from, binsize);
+    return false;
+  }
   // exit(0);
   std::string pathBase = path;
   for (auto & bin : binsArrayTo) {
 
-    path                 = pathBase + "bins/" + bin;
-    std::string pathFrom = path;
-    std::string outFile  = path + toFile;
+    std::string pathFrom = pathBase + "bins/" + bin;
+    std::string outFile  = pathBase;
+    if (to <= binsize) {
+      outFile += "bins/" + bin;
+    }
+    outFile += toFile;
 
     TUrl        url(pathFrom.c_str());
     std::string outHost        = url.GetHost();
