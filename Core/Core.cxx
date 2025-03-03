@@ -1,4 +1,6 @@
 #include <TSystem.h>
+#include <cstdlib>
+#include "TString.h"
 #include "Core.h"
 #include "Utils.h"
 
@@ -11,7 +13,8 @@ namespace Ndmspc {
 /// Global configuration
 json gCfg;
 
-bool Core::LoadConfig(std::string config, std::string userConfig, std::string environment, std::string userConfigRaw)
+bool Core::LoadConfig(std::string config, std::string userConfig, std::string & environment, std::string userConfigRaw,
+                      std::string binning)
 {
   ///
   /// Load Config
@@ -66,7 +69,23 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string en
     gCfg.merge_patch(userCfgRaw);
     Printf("Config raw '%s' was merged...", userConfigRaw.c_str());
   }
-
+  // Printf("binning=%s", binning.c_str());
+  if (!binning.empty()) {
+    std::vector<std::string> ba    = Utils::Tokenize(binning.c_str(), '_');
+    int                      i     = 0;
+    int                      index = -1;
+    for (auto & cut : gCfg["ndmspc"]["cuts"]) {
+      index++;
+      if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+      std::vector<std::string> b = Utils::Tokenize(ba[i].c_str(), '-');
+      if (b.size() == 2) {
+        gCfg["ndmspc"]["cuts"][index]["rebin"]       = atoi(b[0].c_str());
+        gCfg["ndmspc"]["cuts"][index]["rebin_start"] = atoi(b[1].c_str());
+      }
+      i++;
+    }
+  }
+  // exit(1);
   return true;
 }
 bool Core::LoadEnvironment(std::string environment)

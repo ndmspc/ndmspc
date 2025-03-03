@@ -24,7 +24,7 @@ class PointDraw : public TObject {
   virtual ~PointDraw();
 
   int DrawPoint(int level, std::string config = "myAnalysis.json", std::string userConfig = "",
-                std::string environment = "", std::string userConfigRaw = "");
+                std::string environment = "", std::string userConfigRaw = "", std::string binning = "");
 
   protected:
   TFile *                  fIn             = nullptr;    ///< Input file

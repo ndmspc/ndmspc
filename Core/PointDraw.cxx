@@ -35,7 +35,7 @@ PointDraw::~PointDraw()
 }
 
 int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, std::string environment,
-                         std::string userConfigRaw)
+                         std::string userConfigRaw, std::string binning)
 {
   ///
   /// Draw
@@ -52,7 +52,7 @@ int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, 
   TH1::AddDirectory(kFALSE);
 
   // INFO: Done via Results::LoadConfig
-  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw)) return 1;
+  if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw, binning)) return 1;
 
   // INFO: Done via Results::LoadConfig
   bool histogramEnabled = false;
@@ -94,24 +94,25 @@ int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, 
   if (gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) {
     path += "bins/";
     std::string binStr;
-    for (auto & bin : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
-      binStr      = "";
-      int binsize = bin.size();
-      int iLevel  = binsize - level + 1;
-      for (auto & binElement : bin) {
+    auto &      bin = gCfg["ndmspc"]["result"]["data"]["defaults"];
+    binStr          = "";
+    int binsize     = bin.size();
+    if (level < 0) level = binsize + 1;
+    if (level > binsize) {
+      path.erase(path.size() - 5, path.size());
+    }
+    int iLevel = binsize - level + 1;
+    for (auto & binElement : bin) {
 
-        if (iLevel <= 0) break;
-        binStr += std::to_string(binElement.get<Int_t>()) + "/";
-        iLevel--;
-      }
-      // Printf("binStr='%s'", binStr.c_str());
-      if (binStr.empty()) {
-        fromFile = "results.root";
-        break;
-      }
-      else {
-        path += binStr;
-      }
+      if (iLevel <= 0) break;
+      binStr += std::to_string(binElement.get<Int_t>()) + "/";
+      iLevel--;
+    }
+    if (binStr.empty()) {
+      fromFile = "results.root";
+    }
+    else {
+      path += binStr;
     }
   }
   else {
