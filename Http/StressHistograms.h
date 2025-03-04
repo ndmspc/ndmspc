@@ -7,6 +7,7 @@ class TCanvas;
 class TObjArray;
 class TH1F;
 class TH2F;
+class TH3F;
 namespace Ndmspc {
 
 ///
@@ -29,6 +30,7 @@ class StressHistograms : public TObject {
   TObjArray * fObjs{nullptr};
   TH1F *      fHpx{nullptr};
   TH2F *      fHpxpy{nullptr};
+  TH3F *      fHpxpypz{nullptr};
   TRandom3    fRandom;
   int         fNFill{1};
   Long64_t    fNEvents{0};
