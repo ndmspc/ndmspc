@@ -69,7 +69,7 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string & 
     gCfg.merge_patch(userCfgRaw);
     Printf("Config raw '%s' was merged...", userConfigRaw.c_str());
   }
-  // Printf("binning=%s", binning.c_str());
+  Printf("Using binning '%s'", binning.c_str());
   if (!binning.empty()) {
     std::vector<std::string> ba    = Utils::Tokenize(binning.c_str(), '_');
     int                      i     = 0;

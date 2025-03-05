@@ -6,6 +6,9 @@ unset NDMSPC_POINT_CONFIG
 unset NDMSPC_POINT_CONFIG_USER
 unset NDMSPC_POINT_MACRO
 unset NDMSPC_POINT_JOBS
+unset NDMSPC_POINT_BINNING
 
+date
 echo "Running '$CMD' ..."
 $CMD
+date

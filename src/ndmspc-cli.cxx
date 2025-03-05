@@ -51,18 +51,20 @@ int main(int argc, char ** argv)
   std::string macroFileName      = "";
   std::string directoryToken     = "";
   std::string environement       = "";
-  std::string binnings           = "";
-  std::string jobs               = "";
-  std::string jobdir             = "/tmp/ndmspc-jobs";
-  std::string cutBaseAxis        = "";
-  std::string cutRanges          = "";
-  std::string mergeFromStr       = "0";
-  std::string mergeToStr         = "-1";
-  std::string levelStr           = "-1";
-  std::string cacheDir           = "${PWD}/.ndmspc_cache_dir";
-  std::string binning            = "";
+  // std::string binnings           = "";
+  std::string jobs            = "";
+  std::string jobdir          = "/tmp/ndmspc-jobs";
+  std::string cutBaseAxis     = "";
+  std::string cutRanges       = "";
+  std::string mergeFromStr    = "0";
+  std::string mergeToStr      = "-1";
+  std::string levelStr        = "-1";
+  std::string cacheDir        = "${PWD}/.ndmspc_cache_dir";
+  std::string binning         = "";
+  std::string binningIndexStr = "0";
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
+  CLI::App * version = app.add_subcommand("version", "Print version");
 
   CLI::App * point = app.add_subcommand("point", "Point");
   point->require_subcommand(); // 1 or more
@@ -86,7 +88,7 @@ int main(int argc, char ** argv)
   point_run->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
   point_run->add_option("-e,--environement", environement, "environement");
-  point_run->add_option("--binnings", binnings, "Generate Binning jobs");
+  // point_run->add_option("--binnings", binnings, "Generate Binning jobs");
   point_run->add_option("-b,--binning", binning, "Binning");
   point_run->add_option("-j,--jobs", jobs, "Generate jobs");
   point_run->add_option("-o,--output-dir", jobdir, "Generate jobs output dir");
@@ -110,6 +112,7 @@ int main(int argc, char ** argv)
   point_draw->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_draw->add_option("-e,--environement", environement, "environement");
   point_draw->add_option("-b,--binning", binning, "Binning");
+  point_draw->add_option("-i,--binning-index", binningIndexStr, "Binning index");
   point_draw->add_option("-l,--level", levelStr, "Level");
 
   CLI::App * serve = app.add_subcommand("serve", "Http Server");
@@ -182,9 +185,13 @@ int main(int argc, char ** argv)
   if (getenv("NDMSPC_POINT_BINNING")) {
     if (binning.empty()) binning = getenv("NDMSPC_POINT_BINNING");
   }
-  if (getenv("NDMSPC_POINT_BINNINGS")) {
-    if (binnings.empty()) binnings = getenv("NDMSPC_POINT_BINNINGS");
+
+  if (getenv("NDMSPC_POINT_BINNING_INDEX")) {
+    binningIndexStr = getenv("NDMSPC_POINT_BINNING_INDEX");
   }
+  // if (getenv("NDMSPC_POINT_BINNINGS")) {
+  //   if (binnings.empty()) binnings = getenv("NDMSPC_POINT_BINNINGS");
+  // }
   if (getenv("NDMSPC_BROWSER_FILE")) {
     if (fileName.empty()) fileName = getenv("NDMSPC_BROWSER_FILE");
   }
@@ -223,21 +230,35 @@ int main(int argc, char ** argv)
   // '\n'; std::cout << "Count of --random flag: " << app.count("--random") << '\n';
   for (auto * subcom : app.get_subcommands()) {
     // std::cout << "Subcommand: " << subcom->get_name() << std::endl;
+    if (!subcom->get_name().compare("version")) {
+      Printf("%s", app_description().c_str());
+    }
     if (!subcom->get_name().compare("point")) {
 
       for (auto * subsubcom : subcom->get_subcommands()) {
         if (!subsubcom->get_name().compare("gen")) {
           Ndmspc::PointRun::Generate(name, fileName, objectName);
         }
+        std::vector<std::string> binningsArray = Ndmspc::Utils::Tokenize(binning.c_str(), ',');
+        if (binningsArray.empty()) {
+          binningsArray.push_back("");
+          binningIndexStr = "0";
+
+          Printf("Error: Binning is empty !!! Exiting ...");
+          return 1;
+        }
         if (!subsubcom->get_name().compare("run")) {
           TStopwatch timer;
           timer.Start();
           Ndmspc::PointRun pr(macroFileName);
           if (!jobs.empty()) {
+            std::string binnings = binning;
             pr.GenerateJobs(jobs, configFileName, userConfigFileName, environement, userConfigRaw, jobdir, binnings);
             return 0;
           }
-          pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, binning, false);
+          for (auto & b : binningsArray) {
+            pr.Run(configFileName, userConfigFileName, environement, userConfigRaw, b, false);
+          }
           timer.Stop();
           timer.Print();
         }
@@ -246,15 +267,20 @@ int main(int argc, char ** argv)
           timer.Start();
           int mergeFrom = atoi(mergeFromStr.c_str());
           int mergeTo   = atoi(mergeToStr.c_str());
-          Ndmspc::PointRun::Merge(mergeFrom, mergeTo, configFileName, userConfigFileName, environement, userConfigRaw,
-                                  binning, cacheDir);
+          for (auto & b : binningsArray) {
+            Ndmspc::PointRun::Merge(mergeFrom, mergeTo, configFileName, userConfigFileName, environement, userConfigRaw,
+                                    b, cacheDir);
+          }
           timer.Stop();
           timer.Print();
         }
         if (!subsubcom->get_name().compare("draw")) {
           Ndmspc::PointDraw pd;
-          int               level = atoi(levelStr.c_str());
-          pd.DrawPoint(level, configFileName, userConfigFileName, environement, userConfigRaw, binning);
+          int               level        = atoi(levelStr.c_str());
+          int               binningIndex = atoi(binningIndexStr.c_str());
+
+          pd.DrawPoint(level, configFileName, userConfigFileName, environement, userConfigRaw,
+                       binningsArray[binningIndex]);
         }
       }
     }
