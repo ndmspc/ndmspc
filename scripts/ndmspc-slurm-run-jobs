@@ -2,7 +2,7 @@
 export NDMSPC_POINT_MACRO=${NDMSPC_POINT_MACRO-"/usr/share/ndmspc/macros/test/rsn/RsnPhiPointMacro.C"}
 export NDMSPC_POINT_CONFIG=${NDMSPC_POINT_CONFIG-"/usr/share/ndmspc/macros/test/rsn/myAnalysis.json"}
 export NDMSPC_POINT_JOBS=${NDMSPC_POINT_JOBS-"1:1:1"}
-export NDMSPC_POINT_BINNINGS=${NDMSPC_POINT_BINNINGS-""}
+export NDMSPC_POINT_BINNING=${NDMSPC_POINT_BINNING-""}
 
 NDMSPC_TMP_DIR="/tmp/ndmspc/$(date '+%Y%m%d-%H%M%S')"
 NDMSPC_JOBS_FILE=${NDMSPC_JOBS_FILE-"$NDMSPC_TMP_DIR/jobs"}
