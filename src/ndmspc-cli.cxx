@@ -20,6 +20,7 @@
 #include "StressHistograms.h"
 #include "ndmspc.h"
 #include "Axis.h"
+#include "Manager.h"
 #include "Results.h"
 #include "PointRun.h"
 #include "PointDraw.h"
@@ -65,15 +66,21 @@ int main(int argc, char ** argv)
 
   /*app.add_option("-c,--config", configFileName, "Config file name");*/
   CLI::App * version = app.add_subcommand("version", "Print version");
+  CLI::App * info    = app.add_subcommand("info", "Print NdmSpc Info");
+  info->add_option("-c,--config", configFileName, "Config file name");
+  info->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  info->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
+  info->add_option("-e,--environement", environement, "Environement");
+  info->add_option("-b,--binning", binning, "Binning");
 
   CLI::App * point = app.add_subcommand("point", "Point");
   point->require_subcommand(); // 1 or more
   point->add_option("-c,--config", configFileName, "Config file name");
   point->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
-  point->add_option("-m,--macro", macroFileName, "Macro path");
   point->add_option("-e,--environement", environement, "Environement");
   point->add_option("-b,--binning", binning, "Binning");
+  point->add_option("-m,--macro", macroFileName, "Macro path");
 
   CLI::App * point_gen = point->add_subcommand("gen", "Point generate");
   point_gen->add_option("-n,--name", name, "Name");
@@ -233,6 +240,11 @@ int main(int argc, char ** argv)
     if (!subcom->get_name().compare("version")) {
       Printf("%s", app_description().c_str());
     }
+    if (!subcom->get_name().compare("info")) {
+      Ndmspc::Manager m;
+      m.Load(configFileName, userConfigFileName, environement, userConfigRaw, binning);
+      m.Print();
+    }
     if (!subcom->get_name().compare("point")) {
 
       for (auto * subsubcom : subcom->get_subcommands()) {
@@ -290,10 +302,12 @@ int main(int argc, char ** argv)
           Ndmspc::HnSparseBrowser browser;
           browser.DrawBrowser(fileName, objectName, directoryToken);
         }
+        // TODO: Remove results from Ndmspc
         if (!subsubcom->get_name().compare("result")) {
           Ndmspc::Results result;
-          result.LoadConfig(configFileName, userConfigFileName, environement, userConfigRaw);
-          result.Draw();
+          result.LoadResults();
+          // result.LoadConfig(configFileName, userConfigFileName, environement, userConfigRaw);
+          // result.Draw();
         }
       }
     }

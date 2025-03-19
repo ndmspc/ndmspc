@@ -7,7 +7,10 @@
 #pragma link C++ class Ndmspc::Axis + ;
 #pragma link C++ class Ndmspc::Cuts + ;
 #pragma link C++ class Ndmspc::Utils + ;
+#pragma link C++ class Ndmspc::Config + ;
+#pragma link C++ class Ndmspc::Manager + ;
 #pragma link C++ class Ndmspc::Core + ;
+#pragma link C++ class Ndmspc::InputMap + ;
 #pragma link C++ class Ndmspc::Results + ;
 #pragma link C++ class Ndmspc::PointRun + ;
 #pragma link C++ class Ndmspc::PointDraw + ;

@@ -104,7 +104,7 @@
     ],
     "data": {
       "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/hyperloop/PWGLF-376/222580/AnalysisResults.root",
-      "histogram": {
+      "map": {
         "enabled": true,
         "file": "root://eos.ndmspc.io//eos/ndmspc/scratch/alice/rsn/hDataMap.root",
         "obj": "hDataMap",

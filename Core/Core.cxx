@@ -19,6 +19,7 @@ bool Core::LoadConfig(std::string config, std::string userConfig, std::string & 
   ///
   /// Load Config
   ///
+
   std::string fileContent = Utils::OpenRawFile(config);
   if (!fileContent.empty()) {
     gCfg = json::parse(fileContent);

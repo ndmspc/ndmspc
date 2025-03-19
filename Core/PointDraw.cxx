@@ -55,19 +55,14 @@ int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, 
   if (!Core::LoadConfig(config, userConfig, environment, userConfigRaw, binning)) return 1;
 
   // INFO: Done via Results::LoadConfig
-  bool histogramEnabled = false;
-  if (!gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() ||
-      gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_boolean())
-    histogramEnabled = gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>();
+  bool dataMapEnabled = false;
+  if (!gCfg["ndmspc"]["data"]["map"]["enabled"].is_null() ||
+      gCfg["ndmspc"]["data"]["map"]["enabled"].is_boolean())
+    dataMapEnabled = gCfg["ndmspc"]["data"]["map"]["enabled"].get<bool>();
 
   // TODO: Results path
-  std::string hostUrl = gCfg["ndmspc"]["output"]["host"].get<std::string>();
-  // if (hostUrl.empty()) {
-  //   Printf("Error:  gCfg[ndmspc][output][host] is empty!!!");
-  //   return 2;
-  // }
-
   std::string path;
+  std::string hostUrl = gCfg["ndmspc"]["output"]["host"].get<std::string>();
   if (!hostUrl.empty()) path = hostUrl + "/";
   path += gCfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
 
@@ -91,7 +86,7 @@ int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, 
     fromFile = "merged_" + std::to_string(level) + ".root";
   }
   // std::vector<std::string> binsArray;
-  if (gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) {
+  if (gCfg["ndmspc"]["data"]["map"]["enabled"].get<bool>()) {
     path += "bins/";
     std::string binStr;
     auto &      bin = gCfg["ndmspc"]["result"]["data"]["defaults"];
@@ -166,7 +161,7 @@ int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, 
   // int nAxisX     = fResultHnSparse->GetNdimensions();
   // int nAxisY     = fResultHnSparse->GetAxis(0)->GetNbins();
   int pointsSize = gCfg["ndmspc"]["result"]["axes"].size() + 1;
-  if (histogramEnabled) pointsSize += gCfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
+  if (dataMapEnabled) pointsSize += gCfg["ndmspc"]["result"]["data"]["defaults"].size() + 1;
   // int points[pointsSize];
   // int iPoint = 0;
   // points[iPoint++] = nAxisY;
@@ -193,7 +188,7 @@ int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, 
       }
       else {
         idTmp = iAxis - iAxisStart - fNDimCuts;
-        if (histogramEnabled) idTmp -= gCfg["ndmspc"]["result"]["data"]["defaults"].size();
+        if (dataMapEnabled) idTmp -= gCfg["ndmspc"]["result"]["data"]["defaults"].size();
         // Printf("%d %s", idTmp, axesArray.dump().c_str());
         idBin = axesArray[idTmp]["default"].get<int>() + 1;
       }
@@ -263,7 +258,7 @@ int PointDraw::DrawPoint(int level, std::string config, std::string userConfig, 
 
     fMc.clear();
     fMc.push_back("x");
-    for (auto & b1 : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
+    for (auto & b1 : gCfg["ndmspc"]["data"]["map"]["bins"]) {
       std::vector<int> b = b1;
       // Printf("b1=[%d(%s),%d(%s),%d(%s),%d(%s)] ", b[0], fResultHnSparse->GetAxis(1)->GetBinLabel(b[0]), b[1],
       //        fResultHnSparse->GetAxis(2)->GetBinLabel(b[1]), b[2], fResultHnSparse->GetAxis(3)->GetBinLabel(b[2]),
