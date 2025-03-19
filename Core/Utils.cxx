@@ -5,6 +5,8 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include "TH2.h"
+#include "TUrl.h"
 #include "Utils.h"
 
 using std::ifstream;
@@ -140,6 +142,15 @@ TMacro * Utils::OpenMacro(std::string filename)
 //   min = binMin;
 //   max = binMax;
 // }
+std::string Utils::GetBasePath(json cfg)
+{
+  std::string path;
+  std::string hostUrl = cfg["ndmspc"]["output"]["host"].get<std::string>();
+  if (!hostUrl.empty()) path = hostUrl + "/";
+  path += cfg["ndmspc"]["output"]["dir"].get<std::string>() + "/";
+  path += cfg["ndmspc"]["environment"].get<std::string>() + "/";
+  return gSystem->ExpandPathName(path.c_str());
+}
 std::string Utils::GetCutsPath(json cuts)
 {
   ///
@@ -192,6 +203,130 @@ Int_t Utils::GetBinFromBase(Int_t bin, Int_t rebin, Int_t rebin_start)
   // }
   // // Printf("binLocal=%d", binLocal + rebin_minimum);
   // return binLocal + rebin_minimum;
+}
+std::vector<std::string> Utils::Find(std::string path, std::string filename)
+{
+  ///
+  /// Find files in path
+  ///
+
+  std::vector<std::string> files;
+  path = gSystem->ExpandPathName(path.c_str());
+  if (path.rfind("root://", 0) == 0) {
+
+    return FindEos(path, filename);
+  }
+  else {
+    return FindLocal(path, filename);
+    // Printf("%s", linesMerge.c_str());
+    // gSystem->Exit(1);
+  }
+  // if (outHost.empty()) {
+  //   if (gSystem->AccessPathName(pathFrom.c_str())) {
+  //     Printf("Error: Nothing to merge, because path '%s' does not exist !!!", pathFrom.c_str());
+  //     return false;
+  //   }
+  //   Printf("Doing local find %s -name %s", pathFrom.c_str(),
+  //          gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str());
+  //   linesMerge = gSystem->GetFromPipe(TString::Format("find %s -name %s", pathFrom.c_str(),
+  //                                                     gCfg["ndmspc"]["output"]["file"].get<std::string>().c_str())
+  //                                         .Data());
+  //   // Printf("%s", linesMerge.c_str());
+  //   // gSystem->Exit(1);
+  // }
+  // else {
+  //
+  //
+  // if (linesMerge.empty()) {
+  //   Printf("Error: Nothing to merge, because path '%s' does not contain file '%s' !!!", pathFrom.c_str(),
+  //          fromFile.c_str());
+
+  return files;
+}
+
+std::vector<std::string> Utils::FindLocal(std::string path, std::string filename)
+{
+  ///
+  /// Find local files
+  ///
+
+  std::vector<std::string> files;
+  if (gSystem->AccessPathName(path.c_str())) {
+    Printf("Error: Nothing to merge, because path '%s' does not exist !!!", path.c_str());
+    return files;
+  }
+  Printf("Doing local find %s -name %s", path.c_str(), filename.c_str());
+  std::string linesMerge =
+      gSystem->GetFromPipe(TString::Format("find %s -name %s", path.c_str(), filename.c_str())).Data();
+
+  std::stringstream check2(linesMerge);
+  std::string       line;
+  while (std::getline(check2, line)) {
+    files.push_back(line);
+  }
+  return files;
+}
+std::vector<std::string> Utils::FindEos(std::string path, std::string filename)
+{
+  ///
+  /// Find eos files
+  ///
+
+  std::vector<std::string> files;
+  Printf("Doing eos find -f --name %s %s ", filename.c_str(), path.c_str());
+
+  TUrl        url(path.c_str());
+  std::string host      = url.GetHost();
+  std::string directory = url.GetFile();
+  std::string findUrl   = "root://";
+  findUrl += host + "//proc/user/";
+  findUrl += "?mgm.cmd=find&mgm.find.match=" + filename;
+  findUrl += "&mgm.path=" + directory;
+  findUrl += "&mgm.format=json&mgm.option=f&filetype=raw";
+  Printf("Doing '%s' ...", findUrl.c_str());
+
+  TFile * f = Ndmspc::Utils::OpenFile(findUrl.c_str());
+  if (!f) return files;
+
+  // Printf("%lld", f->GetSize());
+
+  int  buffsize = 4096;
+  char buff[buffsize + 1];
+
+  Long64_t    buffread = 0;
+  std::string content;
+  while (buffread < f->GetSize()) {
+
+    if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
+
+    // Printf("Buff %lld %d", buffread, buffsize);
+    f->ReadBuffer(buff, buffread, buffsize);
+    buff[buffsize] = '\0';
+    content += buff;
+    buffread += buffsize;
+  }
+
+  f->Close();
+
+  std::string ss  = "mgm.proc.stdout=";
+  size_t      pos = ss.size() + 1;
+  content         = content.substr(pos);
+
+  // stringstream class check1
+  std::stringstream check1(content);
+
+  std::string intermediate;
+
+  // Tokenizing w.r.t. space '&'
+  std::vector<std::string> tokens;
+  while (getline(check1, intermediate, '&')) {
+    tokens.push_back(intermediate);
+  }
+  std::string linesString = tokens[0];
+  for (auto & line : Utils::Tokenize(linesString, '\n')) {
+    files.push_back("root://" + host + "/" + line);
+  }
+  return files;
 }
 
 int Utils::SetResultValueError(json cfg, THnSparse * output, std::string name, Int_t * point, double val, double err,
@@ -270,5 +405,69 @@ std::vector<std::string> Utils::Tokenize(std::string_view input, const char deli
 
   return out;
 }
+std::vector<int> Utils::TokenizeInt(std::string_view input, const char delim)
+{
+  ///
+  /// Tokenize helper function
+  ///
 
+  std::vector<int>         out;
+  std::vector<std::string> tokens = Tokenize(input, delim);
+  for (auto & t : tokens) {
+    if (t.empty()) continue;
+    out.push_back(std::stoi(t));
+  }
+
+  return out;
+}
+std::vector<std::string> Utils::Truncate(std::vector<std::string> values, std::string value)
+{
+  ///
+  /// Truncate helper function
+  ///
+
+  std::vector<std::string> out;
+  for (auto & v : values) {
+    v = std::string(v.begin() + value.size(), v.end());
+    out.push_back(v);
+  }
+  return out;
+}
+
+std::set<std::string> Utils::Unique(std::vector<std::string> & paths, int axis, std::string path, char token)
+{
+  ///
+  /// Unique helper function
+  ///
+
+  std::set<std::string>    out;
+  std::vector<std::string> truncatedPaths = Utils::Truncate(paths, path);
+  for (auto & p : truncatedPaths) {
+    std::vector<std::string> tokens = Tokenize(p, token);
+    out.insert(tokens[axis]);
+  }
+  return out;
+}
+TH2D * Utils::GetMappingHistogram(std::string name, std::string title, std::set<std::string> x, std::set<std::string> y)
+{
+  ///
+  /// Get mapping histogram
+  ///
+
+  int nBinsX = x.size();
+  int nBinsY = y.size();
+  if (nBinsY == 0) nBinsY = 1;
+  TH2D * h = new TH2D(name.c_str(), title.c_str(), nBinsX, 0, nBinsX, nBinsY, 0, nBinsY);
+  int    i = 1;
+  for (auto & xV : x) {
+    h->GetXaxis()->SetBinLabel(i, xV.c_str());
+    i++;
+  }
+  i = 1;
+  for (auto & yV : y) {
+    h->GetYaxis()->SetBinLabel(i, yV.c_str());
+    i++;
+  }
+  return h;
+}
 } // namespace Ndmspc

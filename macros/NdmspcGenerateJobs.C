@@ -84,17 +84,17 @@ int NdmspcGenerateJobs(std::string configFileName = "myAnalysis.json",
   }
   // return 1;
 
-  json dataHistogramBins = cfg["ndmspc"]["data"]["histogram"]["bins"];
-  if (!cfg["ndmspc"]["data"]["histogram"].is_null() && cfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) {
+  json dataHistogramBins = cfg["ndmspc"]["data"]["map"]["bins"];
+  if (!cfg["ndmspc"]["data"]["map"].is_null() && cfg["ndmspc"]["data"]["map"]["enabled"].get<bool>()) {
 
     for (auto & dhb : dataHistogramBins) {
 
       if (nBins.size() == 0) {
-        std::string p = cfg["ndmspc"]["data"]["histogram"]["base"].get<std::string>();
+        std::string p = cfg["ndmspc"]["data"]["map"]["base"].get<std::string>();
         for (auto & b : dhb) {
           p += "/" + std::to_string(b.get<int>());
         }
-        p += "/" + cfg["ndmspc"]["data"]["histogram"]["filename"].get<std::string>();
+        p += "/" + cfg["ndmspc"]["data"]["map"]["filename"].get<std::string>();
         Printf("%s", p.c_str());
 
         TFile * fIn = TFile::Open(p.c_str());
@@ -131,9 +131,9 @@ int NdmspcGenerateJobs(std::string configFileName = "myAnalysis.json",
       // }
 
       // for (auto & dhb : dataHistogramBins) {
-      cfg["ndmspc"]["data"]["histogram"]["bins"] = json::array();
-      cfg["ndmspc"]["data"]["histogram"]["bins"].push_back(dhb);
-      Printf("%s", cfg["ndmspc"]["data"]["histogram"]["bins"].dump().c_str());
+      cfg["ndmspc"]["data"]["map"]["bins"] = json::array();
+      cfg["ndmspc"]["data"]["map"]["bins"].push_back(dhb);
+      Printf("%s", cfg["ndmspc"]["data"]["map"]["bins"].dump().c_str());
 
       SinglePoint(0, 0, cutSize, ndmscpRunScript);
       // Printf("cuts %s", cfg["ndmspc"]["cuts"].dump().c_str());

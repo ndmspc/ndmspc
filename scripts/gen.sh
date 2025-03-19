@@ -5,7 +5,9 @@
   exit 1
 }
 
-PROJECT_DIR="$(dirname $(dirname $(readlink -m ${BASH_ARGV[0]})))"
+PROJECT_DIR="$(dirname $(readlink -m ${BASH_ARGV[0]}))"
+echo $PROJECT_DIR
+
 TEMPLATE_DIR="$PROJECT_DIR/etc/template"
 cp -a $TEMPLATE_DIR/Example.h $1.h
 cp -a $TEMPLATE_DIR/Example.cxx $1.cxx

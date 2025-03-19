@@ -22,38 +22,39 @@ class Results : public TObject {
   Results();
   virtual ~Results();
 
-  bool LoadConfig(std::string configfilename = "config.json", std::string userconfig = "", std::string environment = "",
-                  std::string userConfigRaw = "");
+  // bool LoadConfig(std::string configfilename = "config.json", std::string userconfig = "", std::string environment =
+  // "",
+  //                 std::string userConfigRaw = "");
   bool LoadResults();
-  /// Sets filename
-  void SetFileName(std::string filename) { fInputFileName = filename; }
-  /// Returns number of cuts
-  int  GetNCuts() { return fCuts.size(); }
-  void GenerateTitle();
-  bool ApplyPoints();
-
-  virtual void Draw(Option_t * option = "");
+  /// /// Sets filename
+  /// void SetFileName(std::string filename) { fInputFileName = filename; }
+  /// /// Returns number of cuts
+  /// int  GetNCuts() { return fCuts.size(); }
+  /// void GenerateTitle();
+  /// bool ApplyPoints();
+  ///
+  /// virtual void Draw(Option_t * option = "");
   virtual void Print(Option_t * option = "") const;
-
-  private:
-  std::string                                     fInputFileName{""};               ///< file name
-  TFile *                                         fInputFile{nullptr};              ///< input file
-  std::string                                     fResultsHnSparseName{"results"};  ///< results object name
-  THnSparse *                                     fResultHnSparse{nullptr};         ///< results sparse histogram
-  std::string                                     fResultFileName{"results.root"};  ///< results file name
-  TH1 *                                           fMapAxesType{nullptr};            ///< map axes type
-  std::string                                     fMapAxesTypeName{"mapAxesType"};  ///< map axes type name
-  DataSource                                      fDataSource{simple};              ///< data source
-  std::string                                     fParametesAxisName{"parameters"}; ///< parameters axis name
-  std::string                                     fCurrentParameterName{""};        ///< current parameter name
-  std::string                                     fMapTitle{""};                    ///< map type title
-  std::vector<std::string>                        fCuts;                            ///< cuts
-  std::vector<int>                                fPoint;                           ///< point
-  std::vector<std::string>                        fAxes;                            ///< axes names
-  std::vector<std::string>                        fAxesTypes;                       ///< axes types
-  std::map<std::string, std::vector<std::string>> fAxesLabels;                      ///< axes labels
-  std::map<std::string, int>                      fAxesBinSizes;                    ///< axes map
-
+  ///
+  /// private:
+  /// std::string                                     fInputFileName{""};               ///< file name
+  /// TFile *                                         fInputFile{nullptr};              ///< input file
+  /// std::string                                     fResultsHnSparseName{"results"};  ///< results object name
+  /// THnSparse *                                     fResultHnSparse{nullptr};         ///< results sparse histogram
+  /// std::string                                     fResultFileName{"results.root"};  ///< results file name
+  /// TH1 *                                           fMapAxesType{nullptr};            ///< map axes type
+  /// std::string                                     fMapAxesTypeName{"mapAxesType"};  ///< map axes type name
+  /// DataSource                                      fDataSource{simple};              ///< data source
+  /// std::string                                     fParametesAxisName{"parameters"}; ///< parameters axis name
+  /// std::string                                     fCurrentParameterName{""};        ///< current parameter name
+  /// std::string                                     fMapTitle{""};                    ///< map type title
+  /// std::vector<std::string>                        fCuts;                            ///< cuts
+  /// std::vector<int>                                fPoint;                           ///< point
+  /// std::vector<std::string>                        fAxes;                            ///< axes names
+  /// std::vector<std::string>                        fAxesTypes;                       ///< axes types
+  /// std::map<std::string, std::vector<std::string>> fAxesLabels;                      ///< axes labels
+  /// std::map<std::string, int>                      fAxesBinSizes;                    ///< axes map
+  ///
   /// \cond CLASSIMP
   ClassDef(Results, 1);
   /// \endcond;

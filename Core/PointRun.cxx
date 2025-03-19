@@ -986,8 +986,8 @@ int PointRun::ProcessHistogramRun()
 
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::ProcessHistogramRun");
 
-  std::string fileNameHistogram = gCfg["ndmspc"]["data"]["histogram"]["file"].get<std::string>();
-  std::string objName           = gCfg["ndmspc"]["data"]["histogram"]["obj"].get<std::string>();
+  std::string fileNameHistogram = gCfg["ndmspc"]["data"]["map"]["file"].get<std::string>();
+  std::string objName           = gCfg["ndmspc"]["data"]["map"]["obj"].get<std::string>();
 
   TFile * fProccessHistogram = Ndmspc::Utils::OpenFile(fileNameHistogram.c_str());
   if (!fProccessHistogram) {
@@ -1007,9 +1007,9 @@ int PointRun::ProcessHistogramRun()
     fCurrentProcessHistogramAxes.push_back(aTmp);
   }
 
-  if (gCfg["ndmspc"]["data"]["histogram"]["bins"].is_array()) {
+  if (gCfg["ndmspc"]["data"]["map"]["bins"].is_array()) {
 
-    for (auto & v : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
+    for (auto & v : gCfg["ndmspc"]["data"]["map"]["bins"]) {
       Printf("%s", v.dump().c_str());
       int   i = 0;
       Int_t p[v.size()];
@@ -1036,10 +1036,10 @@ int PointRun::ProcessHistogramRun()
         path += std::to_string(std::abs(p)) + "/";
       }
       // printf("\n");
-      std::string fullPath = gCfg["ndmspc"]["data"]["histogram"]["base"].get<std::string>();
+      std::string fullPath = gCfg["ndmspc"]["data"]["map"]["base"].get<std::string>();
       fullPath += "/";
       fullPath += path;
-      fullPath += gCfg["ndmspc"]["data"]["histogram"]["filename"].get<std::string>();
+      fullPath += gCfg["ndmspc"]["data"]["map"]["filename"].get<std::string>();
       // Printf("Path: %s %s", path.c_str(), fullPath.c_str());
       gCfg["ndmspc"]["data"]["file"] = fullPath;
 
@@ -1076,13 +1076,17 @@ bool PointRun::Run(std::string filename, std::string userConfig, std::string env
   if (!LoadConfig(filename, userConfig, environment, userConfigRaw, binning, show, outfilename)) return false;
   /*fVerbose = 2;*/
 
-  if (!gCfg["ndmspc"]["data"]["histogram"].is_null() && !gCfg["ndmspc"]["data"]["histogram"]["enabled"].is_null() &&
-      gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>() == true) {
+  if (!gCfg["ndmspc"]["data"]["map"].is_null() && !gCfg["ndmspc"]["data"]["map"]["enabled"].is_null() &&
+      gCfg["ndmspc"]["data"]["map"]["enabled"].get<bool>() == true) {
     ProcessHistogramRun();
   }
   else {
     ProcessSingleFile();
   }
+
+  // Clear all canvases
+  gROOT->GetListOfCanvases()->Clear();
+
   if (fVerbose >= 2) Printf("[->] Ndmspc::PointRun::Run");
   return true;
 }
@@ -1433,9 +1437,9 @@ bool PointRun::Merge(int from, int to, std::string config, std::string userConfi
   // std::vector<std::string> binsArrayFrom;
   std::vector<std::string> binsArrayTo;
   int                      binsize = 0;
-  if (gCfg["ndmspc"]["data"]["histogram"]["enabled"].get<bool>()) {
+  if (gCfg["ndmspc"]["data"]["map"]["enabled"].get<bool>()) {
     std::string binToStr;
-    for (auto & bin : gCfg["ndmspc"]["data"]["histogram"]["bins"]) {
+    for (auto & bin : gCfg["ndmspc"]["data"]["map"]["bins"]) {
       // binFromStr     = "";
       binToStr = "";
       binsize  = bin.size();
