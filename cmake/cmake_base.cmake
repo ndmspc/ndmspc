@@ -28,7 +28,7 @@ find_package(Threads REQUIRED)
 # enable testing
 # enable_testing()
 # find_package(GTest REQUIRED)
-
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 
 message("-- Found C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
 if (CMAKE_CXX_STANDARD_DEFAULT STREQUAL "14" OR
@@ -37,11 +37,17 @@ if (CMAKE_CXX_STANDARD_DEFAULT STREQUAL "14" OR
          CMAKE_CXX_STANDARD_DEFAULT STREQUAL "23" OR
          CMAKE_CXX_STANDARD_DEFAULT STREQUAL "26")
 
-message("-- Setting C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
-set(CMAKE_CXX_STANDARD ${CMAKE_CXX_STANDARD_DEFAULT})
+  message("-- Setting C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
+  set(CMAKE_CXX_STANDARD ${CMAKE_CXX_STANDARD_DEFAULT})
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+  # if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+  #   add_compile_options(-Wno-deprecated)
+  # elseif(MSVC)
+  #   add_compile_options(/wd4996)
+  # endif()
 else()
-message("-- Setting C++ standard: 11")
-set(CMAKE_CXX_STANDARD 11)
+  message("-- Setting C++ standard: 11")
+  set(CMAKE_CXX_STANDARD 11)
 endif()
 # set(CMAKE_CXX_STANDARD 20)
 # # c++11 support
