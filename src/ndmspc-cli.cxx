@@ -1,4 +1,5 @@
 #include <getopt.h>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <string>
@@ -26,7 +27,8 @@
 #include "PointDraw.h"
 #include "HttpServer.h"
 #include "HnSparseBrowser.h"
-
+#include "Logger.h"
+namespace logs_api = opentelemetry::logs;
 std::string app_description()
 {
   size_t size = 64;
@@ -37,6 +39,16 @@ std::string app_description()
 
 int main(int argc, char ** argv)
 {
+  auto logger = Ndmspc::Logger::getInstance("");
+  // auto               logger     = Ndmspc::Logger::getInstance("http://localhost:4318/v1/logs");
+  logs_api::Logger * otl_logger = logger->GetOtlLogger();
+  logger->Info("Starting %s %p...", app_description().c_str(), otl_logger);
+  logger->DebugOtl("Using %s ...", NDMSPC_VERSION);
+  return 0;
+
+  // Set the log level (e.g., to WARNING)
+  // logger->setSeverity(Ndmspc::Severity::WARNING);
+
   CLI::App app{app_description()};
   app.require_subcommand(); // 1 or more
   argv = app.ensure_utf8(argv);
@@ -256,7 +268,7 @@ int main(int argc, char ** argv)
           binningsArray.push_back("");
           binningIndexStr = "0";
 
-          Printf("Error: Binning is empty !!! Exiting ...");
+          logger->Error("Binning is empty !!! Exiting ...");
           return 1;
         }
         if (!subsubcom->get_name().compare("run")) {
@@ -322,7 +334,7 @@ int main(int argc, char ** argv)
 
           Ndmspc::HttpServer * serv = new Ndmspc::HttpServer(TString::Format("http:%d?top=aaa", port).Data());
           if (serv == nullptr) {
-            Printf("Server was not created !!!");
+            logger->Error("Server was not created !!!");
             exit(1);
           }
           // press Ctrl-C to stop macro
@@ -339,7 +351,7 @@ int main(int argc, char ** argv)
           }
 
           Ndmspc::HttpServer * serv = new Ndmspc::HttpServer(TString::Format("http:%d?top=aaa", port).Data());
-          Printf("Starting server on port %d ...", port);
+          logger->Info("Starting server on port %d ...", port);
           Ndmspc::WebSocketHandler * ws = serv->GetWebSocketHandler();
 
           // when read-only mode disabled one could execute object methods like TTree::Draw()
@@ -361,7 +373,7 @@ int main(int argc, char ** argv)
 
       std::vector<std::string> a = Ndmspc::Utils::Tokenize(cutBaseAxis, ',');
       if (a.size() != 3) {
-        Printf("Error: Invalid base axis format: %s", cutBaseAxis.c_str());
+        logger->Error("Invalid base axis format: %s", cutBaseAxis.c_str());
         return 1;
       }
       TAxis * a1 = new TAxis(atoi(a[0].c_str()), atof(a[1].c_str()), atof(a[2].c_str()));
@@ -372,7 +384,7 @@ int main(int argc, char ** argv)
       for (auto r : rangesArray) {
         std::vector<std::string> range = Ndmspc::Utils::Tokenize(r, ':');
         if (range.size() != 2) {
-          Printf("Error: Invalid range format: %s", r.c_str());
+          logger->Error("Invalid range format: %s", r.c_str());
           return 1;
         }
         axis1->AddRange(atoi(range[0].c_str()), atoi(range[1].c_str()));

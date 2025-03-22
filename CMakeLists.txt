@@ -9,15 +9,30 @@ project(ndmspc VERSION 0.20250210.0 DESCRIPTION "NDMSPC")
 set(PROJECT_VERSION_RELEASE 1)
 
 include(cmake/cmake_base.cmake)
+
+if (PROTOBUF_ROOT)
+  find_package(Protobuf CONFIG REQUIRED)
+  set(Protobuf_LIBRARIES "${PROTOBUF_ROOT}/lib")
+  set(Protobuf_INCLUDE_DIR "${PROTOBUF_ROOT}/include")
+endif()
+
+find_package(opentelemetry-cpp CONFIG REQUIRED)
+if(opentelemetry-cpp_FOUND)
+  message(STATUS "Found opentelemetry-cpp: ${opentelemetry-cpp_VERSION}")
+  find_package(CURL REQUIRED)
+  find_package(nlohmann_json REQUIRED)
+endif()
+
+
 find_package(Root REQUIRED)
-#find_package(nlohmann_json REQUIRED)
 include(ROOTMacros)
 
 include_directories(${PROJECT_SOURCE_DIR}/Utils)
-add_subdirectory(Core)
-add_subdirectory(Http)
-add_subdirectory(Event)
-add_subdirectory(Ndh)
+add_subdirectory(base)
+add_subdirectory(core)
+add_subdirectory(http)
+add_subdirectory(event)
+add_subdirectory(ndh)
 add_subdirectory(src)
 add_subdirectory(doc)
 
