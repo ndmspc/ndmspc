@@ -15,7 +15,8 @@ namespace Ndmspc {
 
 class Axis : public TObject {
   public:
-  Axis(TAxis * base = nullptr, int rebin = 1, int rebinShift = 0, int min = 1, int max = -1);
+  Axis();
+  Axis(TAxis * base, int rebin = 1, int rebinShift = 0, int min = 1, int max = -1);
   virtual ~Axis();
 
   /// Print function
@@ -24,8 +25,6 @@ class Axis : public TObject {
 
   /// Sets base axis
   void SetBaseAxis(TAxis * base) { fBaseAxis = base; }
-  /// Get base axixs
-  TAxis * SetBaseAxis() const { return fBaseAxis; }
 
   /// Sets rebin
   void SetRebin(int rebin) { fRebin = rebin; }
@@ -39,6 +38,8 @@ class Axis : public TObject {
   void SetRange(int min, int max) { fBinMin = min, fBinMax = max; }
   // void SetNBins(int nBins) { fNBins = nBins; }
 
+  /// Get base axixs
+  TAxis * GetBaseAxis() const { return fBaseAxis; }
   /// Returns rebin
   int GetRebin() const { return fRebin; }
   /// Returns rebin start

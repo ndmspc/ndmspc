@@ -31,6 +31,7 @@ class InputMap : public TObject {
   THnSparse *                                     Query(const std::string & ouputPath);
   THnSparse *                                     Generate(std::vector<std::vector<int>> bins);
   std::map<std::string, std::vector<std::string>> GetProjections() const { return fProjections; }
+  std::string                                     GetInputFileName(int index = 0);
 
   private:
   std::string                                     fMapFileName{}; ///< Map File name

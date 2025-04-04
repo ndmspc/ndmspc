@@ -22,7 +22,7 @@ if(opentelemetry-cpp_FOUND)
   find_package(CURL REQUIRED)
   find_package(nlohmann_json REQUIRED)
 endif()
-
+find_package(OpenMP REQUIRED)
 
 find_package(Root REQUIRED)
 include(ROOTMacros)

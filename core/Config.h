@@ -3,6 +3,7 @@
 #include <TNamed.h>
 #include "InputMap.h"
 #include <nlohmann/json.hpp>
+#include <vector>
 using json = nlohmann::json;
 namespace Ndmspc {
 
@@ -35,6 +36,8 @@ class Config : public TNamed {
   std::string GetContentFile() const;
   std::string GetWorkingDirectory() const;
   InputMap *  GetInputMap() const { return fInputMap; }
+  std::string GetInputObjectDirectory() const;
+  void GetInputObjectNames(std::vector<std::vector<std::string>> & names, std::vector<std::string> & aliases) const;
 
   // Delete copy constructor and assignment operator
   Config(const Config &)             = delete;

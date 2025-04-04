@@ -1,17 +1,21 @@
 #!/bin/bash
 
-[ -n "$1" ] || {
-  echo "Set name of the class name as first argument !!!"
+CLASSNAME=${1-""}
+CLASSNAME_DERIVATIVE=${2-"TObject"}
+
+[ -n "$CLASSNAME" ] || {
+  echo "Set the class name as first argument !!!"
   exit 1
 }
-
-PROJECT_DIR="$(dirname $(readlink -m ${BASH_ARGV[0]}))"
+WKDIR=$(pwd)
+PROJECT_DIR="$(dirname $(dirname $(readlink -m $0)))"
 echo $PROJECT_DIR
 
 TEMPLATE_DIR="$PROJECT_DIR/etc/template"
-cp -a $TEMPLATE_DIR/Example.h $1.h
-cp -a $TEMPLATE_DIR/Example.cxx $1.cxx
+cp -a $TEMPLATE_DIR/${CLASSNAME_DERIVATIVE}.h.tmpl $WKDIR/${CLASSNAME}.h
+cp -a $TEMPLATE_DIR/${CLASSNAME_DERIVATIVE}.cxx.tmpl $WKDIR/${CLASSNAME}.cxx
 
-sed -i "s/Example/$1/g" $1.h
-sed -i "s/NdmspcExample_H/Ndmspc$1_H/g" $1.h
-sed -i "s/Example/$1/g" $1.cxx
+sed -i "s/__CLASSNAME__/$CLASSNAME/g" $WKDIR/$1.h
+sed -i "s/__CLASSNAME_DERIVATIVE__/$CLASSNAME_DERIVATIVE/g" $WKDIR/${CLASSNAME}.h
+sed -i "s/__CLASSNAME__/$CLASSNAME/g" $WKDIR/$1.cxx
+sed -i "s/__CLASSNAME_DERIVATIVE__/$CLASSNAME_DERIVATIVE/g" $WKDIR/${CLASSNAME}.cxx

@@ -1,12 +1,19 @@
 #include <TString.h>
 #include <TSystem.h>
 #include "Axis.h"
+#include "Logger.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::Axis);
 /// \endcond
 
 namespace Ndmspc {
+Axis::Axis() : TObject()
+{
+  ///
+  /// Default constructor
+  ///
+}
 Axis::Axis(TAxis * base, int rebin, int rebinShift, int min, int max)
     : TObject(), fBaseAxis(base), fRebin(rebin), fRebinStart(rebinShift + 1), fBinMin(min), fBinMax(max)
 {
@@ -32,14 +39,15 @@ void Axis::Print(Option_t * option, int spaces) const
   ///
   /// Print axis info
   ///
+  auto logger = Ndmspc::Logger::getInstance("");
   if (fBaseAxis == nullptr) {
-    Printf("Base Axis is not set !!!");
+    logger->Error("Base Axis is not set !!!");
     return;
   }
 
-  Printf("%*cname=%s nbins=%d rebin=%d rebinShift=%d step=%.2f range=[%d,%d] rangeBase=[%d,%d]...", spaces, ' ',
-         fBaseAxis->GetName(), fNBins, fRebin, fRebinStart - 1, (double)fRebin * fBaseAxis->GetBinWidth(1), fBinMin,
-         fBinMax, GetBinMinBase(), GetBinMaxBase());
+  logger->Info("%*cname=%s nbins=%d rebin=%d rebinShift=%d step=%.2E range=[%d,%d] rangeBase=[%d,%d]...", spaces, ' ',
+               fBaseAxis->GetName(), fNBins, fRebin, fRebinStart - 1, (double)fRebin * fBaseAxis->GetBinWidth(1),
+               fBinMin, fBinMax, GetBinMinBase(), GetBinMaxBase());
   TString opt(option);
   if (opt.Contains("baseOnly")) {
     return;
@@ -48,8 +56,8 @@ void Axis::Print(Option_t * option, int spaces) const
     for (int iBin = fBinMin - 1; iBin < fBinMax; iBin++) {
       int binMin = iBin * fRebin + fRebinStart;
       int binMax = (binMin + fRebin) - 1;
-      Printf("%*cbin=%d [%.2f,%.2f]", spaces + 2, ' ', iBin + 1, fBaseAxis->GetBinLowEdge(binMin),
-             fBaseAxis->GetBinUpEdge(binMax));
+      logger->Info("%*cbin=%d [%.2f,%.2f]", spaces + 2, ' ', iBin + 1, fBaseAxis->GetBinLowEdge(binMin),
+                   fBaseAxis->GetBinUpEdge(binMax));
     }
   }
   for (auto child : fChildren) {
@@ -61,13 +69,14 @@ Axis * Axis::AddChild(int rebin, int rebinShift, int min, int max, Option_t * op
   ///
   /// Add child via parameters
   ///
+  auto logger = Ndmspc::Logger::getInstance("");
   if (max == -1) max = fBinMax;
   Axis * axis = new Axis(fBaseAxis, rebin, rebinShift, min, max);
   if (axis->GetBinMaxBase() > fBinMax) {
-    Printf("Error: Out of range of in rangeBase: binMax=%d > baseBinMax=%d", axis->GetBinMaxBase(), fBinMax);
-    Printf("  Base axis:");
+    logger->Error("Error: Out of range of in rangeBase: binMax=%d > baseBinMax=%d", axis->GetBinMaxBase(), fBinMax);
+    logger->Error("  Base axis:");
     Print("baseOnly", 4);
-    Printf("  New axis :");
+    logger->Error("  New axis :");
     axis->Print("", 4);
 
     gSystem->Exit(1);
@@ -87,10 +96,10 @@ Axis * Axis::AddRange(int rebin, int nBins)
   /// Add Range from rebin and nbins
   ///
 
+  auto logger = Ndmspc::Logger::getInstance("");
   if (fChildren.size() == 0) {
     Printf("Axis:");
-    Print("baseOnly");
-    Printf("Adding range rebin=%d nBins=%d ...", rebin, nBins);
+    logger->Debug("Adding range rebin=%d nBins=%d ...", rebin, nBins);
     int rebinShift  = (fBinMin % rebin) - 1;
     int minFromBase = (fBinMin / rebin) + 1;
     SetRebinShift(rebinShift);
@@ -121,13 +130,13 @@ bool Axis::IsRangeValid()
   ///
   /// Check if bin ranges are valid
   ///
-
-  Printf("Checking ranage validity ...");
+  auto logger = Ndmspc::Logger::getInstance("");
+  logger->Info("Checking ranage validity ...");
 
   if (fChildren.size() == 0) {
-    Printf("Axis:");
+    logger->Error("Axis:");
     Print("", 0);
-    Printf("Error: No ranges defined !!!");
+    logger->Error("Error: No ranges defined !!!");
     return false;
   }
 
@@ -148,9 +157,9 @@ bool Axis::IsRangeValid()
       continue;
     }
     else {
-      Printf("Axis:");
+      logger->Error("Axis:");
       child->Print("ranges");
-      Printf("Invalid bin range: %d != %d in axis below", bin, binFirst);
+      logger->Error("Invalid bin range: %d != %d in axis below", bin, binFirst);
       return false;
     }
   }

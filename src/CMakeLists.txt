@@ -4,15 +4,17 @@ set (MY_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/http
   ${CMAKE_SOURCE_DIR}/ndh
 )
-include_directories(${MY_INCLUDE_DIRS})
+include_directories(${MY_INCLUDE_DIRS}
+${OPENTELEMETRY_CPP_INCLUDE_DIRS}
+)
 
 set(MY_EXTERNAL_LIBS
+  ${OPENTELEMETRY_CPP_LIBRARIES}
+  ${CURL_LIBRARIES}
   NdmspcBase
   NdmspcCore
   NdmspcHttp
   NdmspcNdh
-  ${OPENTELEMETRY_CPP_LIBRARIES}
-  ${CURL_LIBRARIES}
 )
 
 file(GLOB EXEC_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.cxx" )

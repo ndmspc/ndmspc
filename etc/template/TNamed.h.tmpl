@@ -1,0 +1,24 @@
+#ifndef Ndmspc___CLASSNAME___H
+#define Ndmspc___CLASSNAME___H
+#include <__CLASSNAME_DERIVATIVE__.h>
+
+namespace Ndmspc {
+
+///
+/// \class __CLASSNAME__
+///
+/// \brief __CLASSNAME__ object
+///	\author Martin Vala <mvala@cern.ch>
+///
+
+class __CLASSNAME__ : public __CLASSNAME_DERIVATIVE__ {
+  public:
+  __CLASSNAME__(const char *name = "", const char *title = "");
+  virtual ~__CLASSNAME__();
+
+  /// \cond CLASSIMP
+  ClassDef(__CLASSNAME__, 1);
+  /// \endcond;
+};
+} // namespace Ndmspc
+#endif

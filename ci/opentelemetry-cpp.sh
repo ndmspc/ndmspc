@@ -32,6 +32,7 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"          \
       -DWITH_EXAMPLES=OFF \
       -DWITH_OTLP_FILE=ON \
       -DWITH_OTLP_HTTP=ON \
+      -DBUILD_SHARED_LIBS=ON \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build . -- ${JOBS+-j $JOBS} install
