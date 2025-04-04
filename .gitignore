@@ -54,3 +54,4 @@ compile_commands.json
 .ndmspc_cache_dir*
 *.root
 test.C
+notes

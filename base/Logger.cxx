@@ -25,12 +25,6 @@ namespace Ndmspc {
 std::unique_ptr<Logger> Logger::instance = nullptr;
 std::mutex              Logger::mutex_;
 
-// void Logger::SetSeverity(Severity level)
-// {
-//   std::lock_guard<std::mutex> lock(mutex_);
-//   currentSeverity = level;
-// }
-
 void Logger::InitTracer()
 {
   // Create ostream span exporter instance
@@ -51,7 +45,7 @@ void Logger::CleanupTracer()
   trace_api::Provider::SetTracerProvider(noop);
 }
 
-void Logger::InitLogger()
+void Logger::InitLogger(logs_api::Severity min_severity)
 {
   // Create ostream log exporter instance
   // auto exporter  = std::unique_ptr<logs_sdk::LogRecordExporter>(new logs_exporter::OStreamLogRecordExporter);
@@ -60,7 +54,8 @@ void Logger::InitLogger()
                                                                           {"application", "ndmspc-app"}};
   auto resource = opentelemetry::sdk::resource::Resource::Create(resource_attributes);
 
-  auto exporter  = std::unique_ptr<logs_sdk::LogRecordExporter>(new SimpleOStreamLogRecordExporter);
+  auto exporter =
+      std::unique_ptr<logs_sdk::LogRecordExporter>(new SimpleOStreamLogRecordExporter(std::cout, min_severity_));
   auto processor = logs_sdk::SimpleLogRecordProcessorFactory::Create(std::move(exporter));
 
   std::shared_ptr<opentelemetry::sdk::logs::LoggerProvider> sdk_provider(
@@ -95,7 +90,7 @@ void Logger::InitOTLLogger()
   auto processor       = logs_sdk::SimpleLogRecordProcessorFactory::Create(std::move(exporter));
   otl_logger_provider_ = logs_sdk::LoggerProviderFactory::Create(std::move(processor), resource);
 
-  std::shared_ptr<opentelemetry::logs::LoggerProvider> api_provider = otl_logger_provider_;
+  std::shared_ptr<logs_api::LoggerProvider> api_provider = otl_logger_provider_;
   logs_api::Provider::SetLoggerProvider(api_provider);
 }
 
@@ -112,7 +107,7 @@ void Logger::CleanupOTLLogger()
   logs_api::Provider::SetLoggerProvider(noop);
 }
 
-void Logger::Log(opentelemetry::logs::Severity level, logs_api::Logger * logger, const char * format, va_list args)
+void Logger::Log(logs_api::Severity level, logs_api::Logger * logger, const char * format, va_list args)
 {
   std::stringstream ss;
 

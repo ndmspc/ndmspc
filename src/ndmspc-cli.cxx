@@ -22,11 +22,14 @@
 #include "ndmspc.h"
 #include "Axis.h"
 #include "Manager.h"
+#include "Config.h"
 #include "Results.h"
 #include "PointRun.h"
 #include "PointDraw.h"
 #include "HttpServer.h"
 #include "HnSparseBrowser.h"
+#include "HnSparseTree.h"
+#include "HnSparseTreeUtils.h"
 #include "Logger.h"
 namespace logs_api = opentelemetry::logs;
 std::string app_description()
@@ -40,11 +43,12 @@ std::string app_description()
 int main(int argc, char ** argv)
 {
   auto logger = Ndmspc::Logger::getInstance("");
+  logger->Info("Starting %s ...", app_description().c_str());
   // auto               logger     = Ndmspc::Logger::getInstance("http://localhost:4318/v1/logs");
-  logs_api::Logger * otl_logger = logger->GetOtlLogger();
-  logger->Info("Starting %s %p...", app_description().c_str(), otl_logger);
-  logger->DebugOtl("Using %s ...", NDMSPC_VERSION);
-  return 0;
+  // logs_api::Logger * otl_logger = logger->GetOtlLogger();
+  // logger->Info("Starting %s %p...", app_description().c_str(), otl_logger);
+  // logger->DebugOtl("Using %s ...", NDMSPC_VERSION);
+  // return 0;
 
   // Set the log level (e.g., to WARNING)
   // logger->setSeverity(Ndmspc::Severity::WARNING);
@@ -83,7 +87,7 @@ int main(int argc, char ** argv)
   info->add_option("-u,--user-config", userConfigFileName, "User config file name");
   info->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   info->add_option("-e,--environement", environement, "Environement");
-  info->add_option("-b,--binning", binning, "Binning");
+  info->add_option("-b,--binning", binning, "Axes");
 
   CLI::App * point = app.add_subcommand("point", "Point");
   point->require_subcommand(); // 1 or more
@@ -91,7 +95,7 @@ int main(int argc, char ** argv)
   point->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point->add_option("-e,--environement", environement, "Environement");
-  point->add_option("-b,--binning", binning, "Binning");
+  point->add_option("-b,--binning", binning, "Axes");
   point->add_option("-m,--macro", macroFileName, "Macro path");
 
   CLI::App * point_gen = point->add_subcommand("gen", "Point generate");
@@ -107,8 +111,8 @@ int main(int argc, char ** argv)
   point_run->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_run->add_option("-m,--macro", macroFileName, "Macro path");
   point_run->add_option("-e,--environement", environement, "environement");
-  // point_run->add_option("--binnings", binnings, "Generate Binning jobs");
-  point_run->add_option("-b,--binning", binning, "Binning");
+  // point_run->add_option("--binnings", binnings, "Generate Axes jobs");
+  point_run->add_option("-b,--binning", binning, "Axes");
   point_run->add_option("-j,--jobs", jobs, "Generate jobs");
   point_run->add_option("-o,--output-dir", jobdir, "Generate jobs output dir");
 
@@ -119,7 +123,7 @@ int main(int argc, char ** argv)
   point_merge->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_merge->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_merge->add_option("-e,--environement", environement, "Environement");
-  point_merge->add_option("-b,--binning", binning, "Binning");
+  point_merge->add_option("-b,--binning", binning, "Axes");
   point_merge->add_option("-f,--from", mergeFromStr, "Merge from (default: 0)");
   point_merge->add_option("-t,--to", mergeToStr, "Merge to (default: 1)");
 
@@ -130,8 +134,8 @@ int main(int argc, char ** argv)
   point_draw->add_option("-u,--user-config", userConfigFileName, "User config file name");
   point_draw->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   point_draw->add_option("-e,--environement", environement, "environement");
-  point_draw->add_option("-b,--binning", binning, "Binning");
-  point_draw->add_option("-i,--binning-index", binningIndexStr, "Binning index");
+  point_draw->add_option("-b,--binning", binning, "Axes");
+  point_draw->add_option("-i,--binning-index", binningIndexStr, "Axes index");
   point_draw->add_option("-l,--level", levelStr, "Level");
 
   CLI::App * serve = app.add_subcommand("serve", "Http Server");
@@ -171,9 +175,20 @@ int main(int argc, char ** argv)
   browser_result->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
   browser_result->add_option("-e,--environement", environement, "environement");
 
-  CLI::App * cuts = app.add_subcommand("cuts", "Cuts");
-  cuts->add_option("-b,--base", cutBaseAxis, "Base axis (<nBins>,<min>,<max>)");
-  cuts->add_option("-r,--ranges", cutBaseAxis, "Range (<rebin1>:<nbins1>,...,<rebinN>:<nbinsN>)");
+  CLI::App * axes = app.add_subcommand("axes", "Axes");
+  axes->add_option("-b,--base", cutBaseAxis, "Base axis (<nBins>,<min>,<max>)");
+  axes->add_option("-r,--ranges", cutBaseAxis, "Range (<rebin1>:<nbins1>,...,<rebinN>:<nbinsN>)");
+
+  CLI::App * test = app.add_subcommand("test", "Test");
+  test->require_subcommand(); // 1 or more
+  test->add_option("-c,--config", configFileName, "Config file name");
+  test->add_option("-u,--user-config", userConfigFileName, "User config file name");
+  test->add_option("-r,--user-config-raw", userConfigRaw, "User config raw");
+  test->add_option("-e,--environement", environement, "Environement");
+  test->add_option("-b,--binning", binning, "Axes");
+  CLI::App * test_hnst = test->add_subcommand("hnst", "HnSparseTree test");
+
+  test_hnst->add_option("-f,--file", fileName, "Input file");
 
   CLI11_PARSE(app, argc, argv);
   if (getenv("NDMSPC_POINT_NAME")) {
@@ -221,11 +236,19 @@ int main(int argc, char ** argv)
   if (getenv("NDMSPC_BROWSER_DIRECTORY_TOKEN")) {
     if (directoryToken.empty()) directoryToken = getenv("NDMSPC_BROWSER_DIRECTORY_TOKEN");
   }
-  if (getenv("NDMSPC_CUTS_BASE_AXIS")) {
-    if (cutBaseAxis.empty()) cutBaseAxis = getenv("NDMSPC_CUTS_BASE_AXIS");
+  if (getenv("NDMSPC_AXES_BASE_AXIS")) {
+    if (cutBaseAxis.empty()) cutBaseAxis = getenv("NDMSPC_AXES_BASE_AXIS");
   }
-  if (getenv("NDMSPC_CUTS_RANGES")) {
-    if (cutRanges.empty()) cutRanges = getenv("NDMSPC_CUTS_RANGES");
+  if (getenv("NDMSPC_AXES_RANGES")) {
+    if (cutRanges.empty()) cutRanges = getenv("NDMSPC_AXES_RANGES");
+  }
+  if (getenv("NDMSPC_CACHE")) {
+    std::string              cache               = getenv("NDMSPC_CACHE");
+    std::vector<std::string> cacheOpts           = Ndmspc::Utils::Tokenize(cache.c_str(), ':');
+    std::string              cacheDir            = cacheOpts[0];
+    int                      operateDisconnected = atoi(cacheOpts[1].c_str());
+    int                      forceCacheRead      = atoi(cacheOpts[2].c_str());
+    TFile::SetCacheFileDir(gSystem->ExpandPathName(cacheDir.c_str()), operateDisconnected, forceCacheRead);
   }
 
   if (!basedir.empty()) {
@@ -268,7 +291,7 @@ int main(int argc, char ** argv)
           binningsArray.push_back("");
           binningIndexStr = "0";
 
-          logger->Error("Binning is empty !!! Exiting ...");
+          logger->Error("Axes is empty !!! Exiting ...");
           return 1;
         }
         if (!subsubcom->get_name().compare("run")) {
@@ -323,6 +346,49 @@ int main(int argc, char ** argv)
         }
       }
     }
+    if (!subcom->get_name().compare("test")) {
+      for (auto * subsubcom : subcom->get_subcommands()) {
+        if (!subsubcom->get_name().compare("hnst")) {
+          Ndmspc::Manager m;
+          m.Load(configFileName, userConfigFileName, environement, userConfigRaw, binning);
+          // m.Print();
+          Ndmspc::Config & c = Ndmspc::Config::Instance();
+
+          int nfiles = kMaxInt;
+          // nfiles            = 3;
+          std::string wkdir = "$HOME/.ndmspc/test";
+          // wkdir             = "/tmp/.ndmspc/test";
+          // wkdir             = "root://eos.ndmspc.io//eos/ndmspc/scratch/mvala/test/hnst";
+          wkdir += "/" + std::to_string(nfiles == kMaxInt ? 0 : nfiles);
+
+          std::string filename = wkdir + "/full/hnst.root";
+          wkdir += "/pt";
+
+          // Ndmspc::HnSparseTreeC * hnst = new Ndmspc::HnSparseTreeC();
+          // hnst->SetFileName("root://eos.ndmspc.io//eos/ndmspc/scratch/mvala/hnst.root");
+          // filename             = "root://eos.ndmspc.io//eos/ndmspc/scratch/mvala/hnst.root";
+          // Ndmspc::HnSparseTreeUtils::Import(c, filename);
+          Ndmspc::HnSparseTreeUtils::Import(c, filename, nfiles);
+          Ndmspc::HnSparseTreeUtils::Distribute(filename, wkdir, "hnst.root", 4);
+
+          Ndmspc::HnSparseTree * h       = Ndmspc::HnSparseTree::Load(wkdir + "/hnst.root");
+          int                    timeout = 0;
+          h->Play(timeout);
+          Printf("Work dir %s", wkdir.c_str());
+          // Example 1: Iterate through a 3D integer space
+          // std::vector<int> minBounds = {1, 3, 0};
+          // std::vector<int> maxBounds = {2, 4, 2};
+          // Ndmspc::HnSparseTreeUtils::IterateNDimensionalSpace(minBounds, maxBounds, [](const std::vector<int> &
+          // point) {
+          //   std::cout << "Point: ";
+          //   for (auto & p : point) {
+          //     std::cout << p << " ";
+          //   }
+          //   std::cout << std::endl;
+          // });
+        }
+      }
+    }
     if (!subcom->get_name().compare("serve")) {
       for (auto * subsubcom : subcom->get_subcommands()) {
         if (!subsubcom->get_name().compare("default")) {
@@ -368,7 +434,7 @@ int main(int argc, char ** argv)
         }
       }
     }
-    if (!subcom->get_name().compare("cuts")) {
+    if (!subcom->get_name().compare("axes")) {
       TApplication app("myapp", &argc, argv);
 
       std::vector<std::string> a = Ndmspc::Utils::Tokenize(cutBaseAxis, ',');
@@ -393,22 +459,22 @@ int main(int argc, char ** argv)
         return 1;
       }
 
-      TAxis * varBinningAxis = new TAxis();
-      axis1->FillAxis(varBinningAxis);
+      TAxis * varAxesAxis = new TAxis();
+      axis1->FillAxis(varAxesAxis);
 
       TH1D * h = new TH1D("hAxis",
                           TString::Format("Base %s nbins=%d min=%.2f max=%.2f with=%.2f", a1->GetName(), a1->GetNbins(),
                                           a1->GetXmin(), a1->GetXmax(), a1->GetBinWidth(1))
                               .Data(),
-                          varBinningAxis->GetNbins(), varBinningAxis->GetXbins()->GetArray());
+                          varAxesAxis->GetNbins(), varAxesAxis->GetXbins()->GetArray());
 
-      for (int i = 0; i < varBinningAxis->GetNbins(); i++) {
+      for (int i = 0; i < varAxesAxis->GetNbins(); i++) {
         h->SetBinContent(i + 1, i + 1);
       }
       h->Draw();
 
       // axis1->Validate();
-      // Ndmspc::Cuts cuts;
+      // Ndmspc::Axes cuts;
       // TAxis *      a1 = new TAxis(200, 0, 20);
       // a1->SetName("a1");
       // Ndmspc::Axis * axis1 = new Ndmspc::Axis(a1);

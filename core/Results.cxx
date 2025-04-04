@@ -62,7 +62,7 @@ void Results::Print(Option_t * option) const
 
   Config & c = Config::Instance();
   Printf("Results ...");
-  Printf("%s", c.GetCfg().dump(2).c_str());
+  // Printf("%s", c.GetCfg().dump(2).c_str());
 
   // int iAxis = 0;
   // for (auto & an : fAxes) {

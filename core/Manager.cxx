@@ -27,8 +27,6 @@ void Manager::Print(Option_t * option) const
   /// Print Manager information
   ///
 
-  std::string opt = option;
-
   Printf("%s", std::string(64, '=').c_str());
   Printf("NdmSpc manager");
   Printf("Name: '%s' Title: '%s'", GetName(), GetTitle());

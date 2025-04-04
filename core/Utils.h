@@ -48,6 +48,7 @@ class Utils : TObject {
   static TH2D *                   GetMappingHistogram(std::string name, std::string title, std::set<std::string> x,
                                                       std::set<std::string> y = {});
 
+  static bool SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>>);
   /// \cond CLASSIMP
   ClassDef(Utils, 0);
   /// \endcond;

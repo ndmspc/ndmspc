@@ -1,8 +1,8 @@
-#include "Config.h"
-#include <string>
-#include "TSystem.h"
+#include <TSystem.h>
 #include "Utils.h"
+#include "Logger.h"
 
+#include "Config.h"
 /// \cond CLASSIMP
 ClassImp(Ndmspc::Config);
 /// \endcond
@@ -26,31 +26,32 @@ bool Config::Load(const std::string & config, const std::string & userConfig, co
   /// Load configuration
   ///
 
+  auto logger             = Ndmspc::Logger::getInstance("");
   fCfgLoaded              = false;
   std::string fileContent = Utils::OpenRawFile(config);
   if (!fileContent.empty()) {
     fCfg = json::parse(fileContent);
-    Printf("Using config file '%s' ...", config.c_str());
+    logger->Info("Using config file '%s' ...", config.c_str());
     if (!userConfig.empty()) {
       std::string fileContentUser = Ndmspc::Utils::OpenRawFile(userConfig);
       if (!fileContentUser.empty()) {
         json userCfg = json::parse(fileContentUser);
         fCfg.merge_patch(userCfg);
-        Printf("User config file '%s' was merged ...", userConfig.c_str());
+        logger->Info("User config file '%s' was merged ...", userConfig.c_str());
       }
       else {
-        Printf("Warning: User config '%s' was specified, but it was not open !!!", userConfig.c_str());
+        logger->Warning("User config '%s' was specified, but it was not open !!!", userConfig.c_str());
         return false;
       }
     }
     if (!userConfigRaw.empty()) {
       json userCfgRaw = json::parse(userConfigRaw);
       fCfg.merge_patch(userCfgRaw);
-      Printf("Config raw '%s' was merged...", userConfigRaw.c_str());
+      logger->Info("Config raw '%s' was merged...", userConfigRaw.c_str());
     }
   }
   else {
-    Printf("Error: Problem opening config file '%s' !!! Exiting ...", config.c_str());
+    logger->Error("Problem opening config file '%s' !!! Exiting ...", config.c_str());
     return false;
   }
 
@@ -157,7 +158,7 @@ bool Config::SetEnvironment(const std::string & environment)
   ///
   /// Set environment
   ///
-
+  auto logger = Ndmspc::Logger::getInstance("");
   if (fCfg["ndmspc"]["environments"][environment].is_object()) {
     // Printf("Setting up environment '%s' ...", environment.c_str());
     json myCfg = fCfg["ndmspc"]["environments"][environment];
@@ -172,10 +173,10 @@ bool Config::SetEnvironment(const std::string & environment)
         fCfg.merge_patch(myCfg);
         return true;
       }
-      Printf("Error: Environment 'local' was not found !!! Exiting ...");
+      logger->Error("Error: Environment 'local' was not found !!! Exiting ...");
       return false;
     }
-    Printf("Error: Environment '%s' was not found !!! Exiting ...", environment.c_str());
+    logger->Error("Error: Environment '%s' was not found !!! Exiting ...", environment.c_str());
     return false;
   }
 
@@ -261,16 +262,49 @@ bool Config::SetInputMap()
   ///
   /// Set input map
   ///
+  auto logger = Ndmspc::Logger::getInstance("");
 
   if (!fCfg["ndmspc"]["data"]["map"]["enabled"].is_boolean()) return false;
   if (!fCfg["ndmspc"]["data"]["map"]["enabled"].get<bool>()) return false;
 
   fInputMap = new InputMap(fCfg["ndmspc"]["data"]["map"]);
   if (!fInputMap->LoadMap()) {
-    Printf("Error: Cannot load input map!!!");
+    logger->Error("Cannot load input map!!!");
     return false;
   }
   fInputMap->Query(GetBaseDirectory());
   return true;
 }
+
+std::string Config::GetInputObjectDirectory() const
+{
+  ///
+  /// Return input object directory
+  ///
+
+  std::string path = "";
+  if (fCfg["ndmspc"]["data"]["directory"].is_string()) {
+    path = fCfg["ndmspc"]["data"]["directory"].get<std::string>() + '/';
+  }
+  return path;
+}
+void Config::GetInputObjectNames(std::vector<std::vector<std::string>> & names,
+                                 std::vector<std::string> &              aliases) const
+{
+  ///
+  /// Get input object names
+  ///
+
+  if (!fCfg["ndmspc"]["data"]["objects"].is_array()) return;
+
+  for (auto & obj : fCfg["ndmspc"]["data"]["objects"]) {
+
+    std::vector<std::string> obj_alias = Utils::Tokenize(obj.get<std::string>(), ':');
+    std::vector<std::string> obj_name  = Utils::Tokenize(obj_alias[0], '+');
+
+    names.push_back(obj_name);
+    aliases.push_back(obj_alias[1]);
+  }
+}
+
 } // namespace Ndmspc

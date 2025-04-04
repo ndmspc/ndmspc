@@ -11,6 +11,7 @@
 #include <unordered_map>
 
 #include "opentelemetry/common/attribute_value.h"
+#include "opentelemetry/logs/severity.h"
 #include "opentelemetry/nostd/span.h"
 #include "opentelemetry/sdk/common/attribute_utils.h"
 #include "opentelemetry/sdk/common/exporter_utils.h"
@@ -28,7 +29,9 @@ class SimpleOStreamLogRecordExporter final : public opentelemetry::sdk::logs::Lo
    * Create an OStreamLogRecordExporter. This constructor takes in a reference to an ostream that
    * the Export() method will send log data into. The default ostream is set to stdout.
    */
-  explicit SimpleOStreamLogRecordExporter(std::ostream & sout = std::cout) noexcept;
+  explicit SimpleOStreamLogRecordExporter(
+      std::ostream &                sout         = std::cout,
+      opentelemetry::logs::Severity min_severity = opentelemetry::logs::Severity::kTrace) noexcept;
 
   std::unique_ptr<opentelemetry::sdk::logs::Recordable> MakeRecordable() noexcept override;
 
@@ -61,5 +64,6 @@ class SimpleOStreamLogRecordExporter final : public opentelemetry::sdk::logs::Lo
                        const std::string & prefix = "\n\t");
   void printAttributes(const std::unordered_map<std::string, opentelemetry::common::AttributeValue> & map,
                        const std::string &                                                            prefix = "\n\t");
+  opentelemetry::logs::Severity min_severity_;
 };
 } // namespace Ndmspc

@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "Utils.h"
 #include "InputMap.h"
+#include "Logger.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::InputMap);
@@ -64,6 +65,7 @@ THnSparse * InputMap::Query(const std::string & outputPath)
 
   std::vector<std::string>      paths = Utils::Find(fBaseDir, fFileName);
   std::vector<std::vector<int>> bins;
+
   for (auto & p : paths) {
     p.erase(p.find(fFileName), fFileName.length());
     p.erase(p.find(fBaseDir), fBaseDir.length());
@@ -79,6 +81,7 @@ THnSparse * InputMap::Query(const std::string & outputPath)
   }
   int pointSize = bins[0].size();
   int point[pointSize];
+  // fMap->Reset();
   for (auto & b : bins) {
     for (int i = 0; i < pointSize; i++) {
       if (i < 2)
@@ -87,8 +90,8 @@ THnSparse * InputMap::Query(const std::string & outputPath)
         point[i] = b[i];
     }
     mapFilled->SetBinContent(point, 1);
+    fMap->SetBinContent(point, 1);
   }
-  mapFilled->Print();
   std::string binsStr = "[";
   for (int i = 0; i < mapFilled->GetNbins(); i++) {
 
@@ -190,4 +193,24 @@ void InputMap::Print(Option_t * option) const
     }
   }
 }
+
+std::string InputMap::GetInputFileName(int index)
+{
+  ///
+  /// Get input filename
+  ///
+
+  auto  logger = Logger::getInstance("");
+  Int_t point[fMap->GetNdimensions()];
+  fMap->GetBinContent(index, point);
+  std::string path = fBaseDir + '/';
+  for (int i = 0; i < fMap->GetNdimensions(); i++) {
+    path += std::to_string(point[i]) + "/";
+  }
+  path += fFileName;
+  logger->Trace("Path: %s", path.c_str());
+
+  return path;
+}
+
 } // namespace Ndmspc

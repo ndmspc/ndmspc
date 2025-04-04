@@ -1,21 +1,21 @@
 {
   "configurations": [
     {
-      "name": "ndmspc-cli cuts",
+      "name": "ndmspc-cli axes",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "environment": [
         {
-          "name": "NDMSPC_CUTS_BASE_AXIS",
+          "name": "NDMSPC_AXES_BASE_AXIS",
           "value": "200,0.0,20.0"
         },
         {
-          "name": "NDMSPC_CUTS_RANGES",
+          "name": "NDMSPC_AXES_RANGES",
           "value": "3:2,5:4,2:6"
         }
       ],
-      "args": ["cuts"],
+      "args": ["axes"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
       "externalConsole": false,
@@ -37,7 +37,7 @@
       "name": "ndmspc-cli serve default",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "environment": [
         {
           "name": "PORT",
@@ -66,7 +66,7 @@
       "name": "ndmspc-cli serve stress",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "environment": [
         {
           "name": "PORT",
@@ -95,7 +95,7 @@
       "name": "ndmspc-cli point run (default)",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "run"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -136,7 +136,7 @@
       "name": "ndmspc-cli point run full (myAnalysisUserRange.json)",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "run", "merge", "draw"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -177,7 +177,7 @@
       "name": "ndmspc-cli point run full (myAnalysisUserAll.json)",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "run", "merge", "draw"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -218,7 +218,7 @@
       "name": "ndmspc-cli point run full (myAnalysisUserAll.json) jobs",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "run", "--jobs", "1:1:1"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -259,8 +259,49 @@
       "name": "ndmspc-cli info",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["info"],
+      "stopAtEntry": false,
+      "cwd": "${fileDirname}",
+      "environment": [
+        {
+          "name": "NDMSPC_POINT_MACRO",
+          "value": "${workspaceFolder}/macros/test/rsn/RsnPhiPointMacro.C"
+        },
+        {
+          "name": "NDMSPC_POINT_CONFIG",
+          "value": "${workspaceFolder}/macros/test/rsn/myAnalysis.json"
+        },
+        {
+          "name": "NDMSPC_POINT_ENVIRONMENT",
+          "value": "local"
+        },
+        {
+          "name": "NDMSPC_POINT_BINNING",
+          "value": ""
+        }
+      ],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "ndmspc-cli test hnst",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
+      "args": ["test", "hnst"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
       "environment": [
@@ -300,7 +341,7 @@
       "name": "ndmspc-cli point merge",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "merge"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -337,7 +378,7 @@
       "name": "ndmspc-cli point draw",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "draw"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -378,7 +419,7 @@
       "name": "ndmspc-cli point draw with -u",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "draw"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -397,7 +438,7 @@
       "name": "ndmspc-cli point draw with -u [single file]",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["point", "draw"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -416,7 +457,7 @@
       "name": "ndmspc-cli browser hnsparse",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/out/Debug/src/ndmspc-cli",
+      "program": "${workspaceFolder}/bin/ndmspc-cli",
       "args": ["browser", "hnsparse"],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",

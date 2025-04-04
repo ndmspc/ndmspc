@@ -6,19 +6,16 @@ ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
 )
 include_directories(${MY_INCLUDE_DIRS})
 
-if (NDMSPC_ENABLE_OPENTELEMETRY)
-  set(MY_EXTERNAL_LIBS
-    ${OPENTELEMETRY_CPP_LIBRARIES}
-    ${CURL_LIBRARIES}
-    nlohmann_json::nlohmann_json
-  )
-else()
-  set(MY_EXTERNAL_LIBS
+set(MY_EXTERNAL_LIBS
+#  ${OPENTELEMETRY_CPP_LIBRARIES}
+#  ${CURL_LIBRARIES}
+#  nlohmann_json::nlohmann_json
 )
-endif()
 add_library(${PACKAGE} STATIC "${SRCS}")
 target_link_libraries(${PACKAGE} ${MY_EXTERNAL_LIBS})
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
   DESTINATION include/${CMAKE_PROJECT_NAME}
   FILES_MATCHING PATTERN "*.h"
 )
+#RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
+
