@@ -12,7 +12,10 @@ namespace Ndmspc {
 /// \brief Axis object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
-
+enum class AxisType {
+  kTypeBin   = 0, ///< Type bin
+  kTypeRange = 1, ///< Type range
+};
 class Axis : public TObject {
   public:
   Axis();
@@ -22,7 +25,8 @@ class Axis : public TObject {
   /// Print function
   virtual void Print(Option_t * option = "") const { Print(option, 0); }
   virtual void Print(Option_t * option, int spaces) const;
-
+  // Sets axis type
+  void SetType(AxisType type) { fType = type; }
   /// Sets base axis
   void SetBaseAxis(TAxis * base) { fBaseAxis = base; }
 
@@ -38,6 +42,8 @@ class Axis : public TObject {
   void SetRange(int min, int max) { fBinMin = min, fBinMax = max; }
   // void SetNBins(int nBins) { fNBins = nBins; }
 
+  /// Get axis type
+  AxisType GetType() const { return fType; }
   /// Get base axixs
   TAxis * GetBaseAxis() const { return fBaseAxis; }
   /// Returns rebin
@@ -73,14 +79,18 @@ class Axis : public TObject {
   /// Checks if range is valid
   bool IsRangeValid();
 
+  /// Get Axis type name
+  std::string GetAxisTypeName() const;
+
   private:
-  TAxis *             fBaseAxis = {nullptr}; ///< Base axis
-  int                 fNBins{0};             ///< Total number of bins
-  int                 fRebin{1};             ///< rebin factor
-  int                 fRebinStart{1};        ///< rebin start
-  int                 fBinMin{1};            ///< range minimum
-  int                 fBinMax{-1};           ///< range maximum
-  std::vector<Axis *> fChildren;             ///< list of children axis
+  AxisType            fType{AxisType::kTypeBin}; ///< Axis type
+  TAxis *             fBaseAxis = {nullptr};     ///< Base axis
+  int                 fNBins{0};                 ///< Total number of bins
+  int                 fRebin{1};                 ///< rebin factor
+  int                 fRebinStart{1};            ///< rebin start
+  int                 fBinMin{1};                ///< range minimum
+  int                 fBinMax{-1};               ///< range maximum
+  std::vector<Axis *> fChildren;                 ///< list of children axis
 
   /// \cond CLASSIMP
   ClassDef(Axis, 1);

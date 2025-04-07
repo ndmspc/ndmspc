@@ -39,7 +39,7 @@ class HnSparseTreeBranch : public TObject {
   void      SetBranchStatus(int status) { fBranchStatus = status; }
 
   Long64_t GetEntry(TTree * tree, Long64_t entry);
-  void     SaveEntry(HnSparseTreeBranch * hnstIn, bool useProjection = false);
+  void     SaveEntry(HnSparseTreeBranch * hnstIn, bool useProjection = false, const std::string projOpt = "OE");
 
   private:
   std::string fName{""};                   ///< Branch name

@@ -45,9 +45,11 @@ void Axis::Print(Option_t * option, int spaces) const
     return;
   }
 
-  logger->Info("%*cname=%s nbins=%d rebin=%d rebinShift=%d step=%.2E range=[%d,%d] rangeBase=[%d,%d]...", spaces, ' ',
-               fBaseAxis->GetName(), fNBins, fRebin, fRebinStart - 1, (double)fRebin * fBaseAxis->GetBinWidth(1),
-               fBinMin, fBinMax, GetBinMinBase(), GetBinMaxBase());
+  logger->Info("%*cname=%s type=%s nbins=%d rebin=%d rebinShift=%d step=%.2E range=[%d,%d] rangeBase=[%d,%d] "
+               "minmax=[%.3f,%.3f] width=%.2E",
+               spaces, ' ', fBaseAxis->GetName(), GetAxisTypeName().c_str(), fNBins, fRebin, fRebinStart - 1,
+               (double)fRebin * fBaseAxis->GetBinWidth(1), fBinMin, fBinMax, GetBinMinBase(), GetBinMaxBase(),
+               fBaseAxis->GetXmin(), fBaseAxis->GetXmax(), fBaseAxis->GetBinWidth(1));
   TString opt(option);
   if (opt.Contains("baseOnly")) {
     return;
@@ -198,6 +200,14 @@ int Axis::GetBinMaxBase() const
 {
   if (fRebin == 1) return fBinMax;
   return fBinMax * fRebin + GetRebinShift();
+}
+std::string Axis::GetAxisTypeName() const
+{
+  switch (fType) {
+  case AxisType::kTypeBin: return "bin";
+  case AxisType::kTypeRange: return "range";
+  default: return "unknown";
+  }
 }
 
 } // namespace Ndmspc

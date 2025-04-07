@@ -472,7 +472,7 @@ TH2D * Utils::GetMappingHistogram(std::string name, std::string title, std::set<
   }
   return h;
 }
-bool Utils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges)
+bool Utils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow)
 {
   ///
   /// Set axis ranges
@@ -488,13 +488,17 @@ bool Utils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> rang
 
   /// Reset all axis ranges
   for (int i = 0; i < sparse->GetNdimensions(); i++) {
-    sparse->GetAxis(i)->SetRange();
+    if (withOverflow) {
+      sparse->GetAxis(i)->SetRange(0, 0);
+    }
+    else
+      sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
   }
 
   TAxis * axis = nullptr;
   for (int i = 0; i < ranges.size(); i++) {
     axis = sparse->GetAxis(ranges[i][0]);
-    logger->Info("Setting axis range %s=[%d,%d] ...", axis->GetName(), ranges[i][1], ranges[i][2]);
+    logger->Debug("Setting axis range %s=[%d,%d] ...", axis->GetName(), ranges[i][1], ranges[i][2]);
     if (ranges[i].size() != 3) {
       logger->Error("Error: Axis range must have 3 values, but has %zu ...", ranges[i].size());
       return false;

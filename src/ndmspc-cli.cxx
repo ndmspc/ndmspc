@@ -187,7 +187,6 @@ int main(int argc, char ** argv)
   test->add_option("-e,--environement", environement, "Environement");
   test->add_option("-b,--binning", binning, "Axes");
   CLI::App * test_hnst = test->add_subcommand("hnst", "HnSparseTree test");
-
   test_hnst->add_option("-f,--file", fileName, "Input file");
 
   CLI11_PARSE(app, argc, argv);
@@ -355,6 +354,7 @@ int main(int argc, char ** argv)
           Ndmspc::Config & c = Ndmspc::Config::Instance();
 
           int nfiles = kMaxInt;
+          // nfiles     = 1;
           // nfiles            = 3;
           std::string wkdir = "$HOME/.ndmspc/test";
           // wkdir             = "/tmp/.ndmspc/test";
@@ -370,11 +370,12 @@ int main(int argc, char ** argv)
           // Ndmspc::HnSparseTreeUtils::Import(c, filename);
           Ndmspc::HnSparseTreeUtils::Import(c, filename, nfiles);
           Ndmspc::HnSparseTreeUtils::Distribute(filename, wkdir, "hnst.root", 4);
+          //
+          // Ndmspc::HnSparseTree * h       = Ndmspc::HnSparseTree::Load(wkdir + "/hnst.root");
+          // int                    timeout = 0;
+          // h->Play(timeout);
+          // Printf("Work dir %s", wkdir.c_str());
 
-          Ndmspc::HnSparseTree * h       = Ndmspc::HnSparseTree::Load(wkdir + "/hnst.root");
-          int                    timeout = 0;
-          h->Play(timeout);
-          Printf("Work dir %s", wkdir.c_str());
           // Example 1: Iterate through a 3D integer space
           // std::vector<int> minBounds = {1, 3, 0};
           // std::vector<int> maxBounds = {2, 4, 2};
