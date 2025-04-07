@@ -44,15 +44,16 @@ class HnSparseTree : public THnSparse {
   std::vector<Long64_t> GetIndexes() { return fIndexes; }
   Axes                  GetAxes() { return fAxes; }
   void                  SetAxes(Axes axes) { fAxes = axes; }
+  Axis *                GetAxesAxis(int i) { return fAxes.GetAxis(i); }
 
-  virtual void         Print(Option_t * option = "") const;
-  bool                 InitTree(const std::string & filename = "", const std::string & treename = "ndh");
-  bool                 InitAxes(TObjArray * newAxes, int n = 0);
-  Int_t                FillTree();
-  int                  FillPoints(std::vector<std::vector<int>> points);
-  bool                 Close();
-  void                 Play(int timeout, std::string branches = "");
-  bool                 AddBranch(const std::string & name, void * address, const std::string & className);
+  virtual void Print(Option_t * option = "") const;
+  bool         InitTree(const std::string & filename = "", const std::string & treename = "ndh");
+  bool         InitAxes(TObjArray * newAxes, int n = 0);
+  Int_t        FillTree();
+  int          FillPoints(std::vector<std::vector<int>> points);
+  bool         Close(bool write = false);
+  void Play(int timeout, std::vector<std::vector<int>> ranges = {{}}, std::string branches = "", int branchId = -1);
+  bool AddBranch(const std::string & name, void * address, const std::string & className);
   HnSparseTreeBranch * GetBranch(const std::string & name) { return &fBranchesMap[name]; }
   void                 SetPointAt(int i, int val) { fPoint[i] = val; }
   bool                 SetFileTree(TFile * file, TTree * tree);
@@ -61,8 +62,7 @@ class HnSparseTree : public THnSparse {
   void     EnableBranches(std::vector<std::string> branches);
   Long64_t GetEntry(Long64_t entry);
 
-  void SaveEntry(HnSparseTree * hnstIn, Long64_t entry, std::vector<std::vector<int>> ranges,
-                 bool useProjection = false);
+  void SaveEntry(HnSparseTree * hnstIn, std::vector<std::vector<int>> ranges, bool useProjection = false);
   // void SaveEntry(TFile * f, TTree * tree, Long64_t entry, int level);
   void AddProjectionIndexes();
 

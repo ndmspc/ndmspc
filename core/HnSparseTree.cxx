@@ -3,17 +3,19 @@
 #include <TAxis.h>
 #include <TH2D.h>
 #include <THnSparse.h>
-#include <root/TObjArray.h>
+#include <TObjArray.h>
 #include <string>
 #include <vector>
 #include "TBranch.h"
+#include "TStopwatch.h"
 #include <TObjArray.h>
 #include <TObjString.h>
 #include <TObject.h>
 #include <TSystem.h>
-#include <HnSparseTreeInfo.h>
+#include <TCanvas.h>
+#include <TStyle.h>
+#include "HnSparseTreeInfo.h"
 #include "Logger.h"
-#include "RtypesCore.h"
 #include "Utils.h"
 #include "HnSparseTree.h"
 
@@ -133,10 +135,21 @@ void HnSparseTree::Print(Option_t * option) const
   for (auto & kv : fBranchesMap) {
     kv.second.Print();
   }
-  // // Print all axes
-  // for (Int_t i = 0; i < GetNdimensions(); i++) {
-  //   GetAxis(i)->Print();
-  // }
+  // Print all axes
+  for (Int_t i = 0; i < GetNdimensions(); i++) {
+    GetAxis(i)->Print();
+  }
+  std::string pointStr;
+  if (fPoint == nullptr) {
+    pointStr = "n/a";
+  }
+  else {
+    // Print current point
+    for (int i = 0; i < GetNdimensions(); i++) {
+      pointStr += std::to_string(fPoint[i]) + " ";
+    }
+  }
+  logger->Info("Current point: %s", pointStr.c_str());
 }
 
 bool HnSparseTree::InitTree(const std::string & filename, const std::string & treename)
@@ -337,19 +350,25 @@ Long64_t HnSparseTree::GetEntry(Long64_t entry)
     // logger->Info("Getting content from %s ...", kv.first.c_str());
     bytessum += kv.second.GetEntry(fTree, entry);
   }
+  if (fPoint == nullptr) {
+    fPoint = new Int_t[GetNdimensions()];
+  }
+  GetBinContent(entry, fPoint);
+  // for (int i = 0; i < GetNdimensions(); i++) {
+  //   logger->Info("Point[%d]=%d", i, fPoint[i]);
+  // }
 
   // fTree->GetEntry(entry);
   return bytessum;
 }
 
-void HnSparseTree::SaveEntry(HnSparseTree * hnstIn, Long64_t entry, std::vector<std::vector<int>> ranges,
-                             bool useProjection)
+void HnSparseTree::SaveEntry(HnSparseTree * hnstIn, std::vector<std::vector<int>> ranges, bool useProjection)
 {
   ///
   /// Save entry
   ///
   auto logger = Ndmspc::Logger::getInstance("");
-  logger->Trace("Saving entry=%lld ...", entry);
+  logger->Trace("Saving entry in HnSparseTree ...");
 
   for (auto & kv : fBranchesMap) {
     logger->Trace("Saving content from %s ...", kv.first.c_str());
@@ -386,37 +405,48 @@ int HnSparseTree::FillPoints(std::vector<std::vector<int>> points)
   return 0;
 }
 
-bool HnSparseTree::Close()
+bool HnSparseTree::Close(bool write)
 {
   ///
   /// Close
   ///
   auto logger = Ndmspc::Logger::getInstance("");
-  logger->Info("Closing ...");
+  logger->Info("Closing file %s ...", fFileName.c_str());
 
   if (fFile) {
-    fFile->cd();
+    if (write) {
+      fFile->cd();
 
-    TList * userInfo = fTree->GetUserInfo();
-    SetNameTitle("hnstMap", "HnSparseTree mapping");
-    userInfo->Add((THnSparse *)Clone());
-    HnSparseTreeInfo * info = new HnSparseTreeInfo();
-    // info->SetHnSparseTree(this);
-    info->SetHnSparseTree((HnSparseTree *)Clone());
-    userInfo->Add(info);
+      TList * userInfo = fTree->GetUserInfo();
+      SetNameTitle("hnstMap", "HnSparseTree mapping");
+      userInfo->Add((THnSparse *)Clone());
+      HnSparseTreeInfo * info = new HnSparseTreeInfo();
+      // info->SetHnSparseTree(this);
+      info->SetHnSparseTree((HnSparseTree *)Clone());
+      userInfo->Add(info);
 
-    fTree->Write("", TObject::kOverwrite);
-    fFile->Close();
-    logger->Info("Output was stored in '%s' ...", fFileName.c_str());
+      fTree->Write("", TObject::kOverwrite);
+      fFile->Close();
+      logger->Info("Output was stored in '%s' ...", fFileName.c_str());
+    }
+    else {
+      fFile->Close();
+    }
+  }
+  else {
+    logger->Error("File is nullptr !!!");
+    return false;
   }
   return true;
 }
-void HnSparseTree::Play(int timeout, std::string branches)
+void HnSparseTree::Play(int timeout, std::vector<std::vector<int>> ranges, std::string branches, int branchId)
 {
   ///
   /// Play
   ///
 
+  TStopwatch timer;
+  timer.Start();
   auto logger = Ndmspc::Logger::getInstance("");
 
   TH1::AddDirectory(kFALSE);
@@ -427,19 +457,40 @@ void HnSparseTree::Play(int timeout, std::string branches)
     logger->Error("Tree is nullptr !!!");
     return;
   }
+  std::vector<std::string> enabledBranches = Ndmspc::Utils::Tokenize(branches, ',');
+  if (branches.empty()) {
+    enabledBranches.clear();
+    for (auto & kv : fBranchesMap) {
+      logger->Info("Enabling branch %s ...", kv.first.c_str());
+      enabledBranches.push_back(kv.first);
+    }
+    if (branchId < 0 && enabledBranches.size() > 0) {
+      branchId = 0;
+    }
+  }
+  if (branchId < 0 || branchId >= enabledBranches.size()) {
+    logger->Error("Branch id %d is out of range [0, %d]", branchId, (int)enabledBranches.size());
+    return;
+  }
+  for (auto & kv : fBranchesMap) {
+    logger->Info("Available branch %s ...", kv.first.c_str());
+  }
+  // print info what branches are enabled
+  for (auto & kv : enabledBranches) {
+    logger->Info("Branch %s is enabled", kv.c_str());
+  }
 
+  Long64_t bytessum = 0;
+  Long64_t nEntries = 0;
   if (fTree->GetEntries() == 0) {
     logger->Warning("No entries in tree !!! Printing all points ...");
     GetAxes().Print();
-    Int_t *  point    = new Int_t[GetNdimensions()];
-    Long64_t bytessum = 0;
-    Long64_t nEntries = 0;
+    Int_t * point = new Int_t[GetNdimensions()];
     for (Long64_t i = 0; i < GetNbins(); i++) {
       GetBinContent(i, point);
 
       std::string axes_path = GetAxes().GetPath(point);
       std::string path      = fPrefix + "/" + axes_path + "/" + fPostfix;
-      logger->Debug("Path: %s", path.c_str());
 
       logger->Debug("Branches: %s", branches.c_str());
       HnSparseTree * hnst = HnSparseTree::Load(path, "ndh", branches);
@@ -477,7 +528,100 @@ void HnSparseTree::Play(int timeout, std::string branches)
   }
   else {
     logger->Info("Entries in tree: %lld", fTree->GetEntries());
+    fAxes.Print();
+    // Print();
+    // SetBranchAddresses();
+
+    TCanvas * c = new TCanvas("cTest", "cTest", 800, 600);
+    Ndmspc::Utils::SetAxisRanges(this, ranges);
+    // Ndmspc::Utils::SetAxisRanges(this, {{5, 100, 100}});
+    AddProjectionIndexes();
+    // Print ll indexes
+    for (auto & kv : fIndexes) {
+      logger->Debug("Index: %lld", kv);
+    }
+
+    /// Get List of indexes
+    std::vector<Long64_t> indexes = GetProjectionIndexes();
+
+    TH1 * h     = nullptr;
+    TH2 * hStat = Projection(6, 5, "O");
+    hStat->SetNameTitle("hStat", "Stat");
+    hStat->Reset();
+
+    Long64_t sum = 0;
+    // Int_t    point[GetNdimensions()];
+    for (Long64_t j = 0; j < indexes.size(); j++) {
+      // for (Long64_t j = 0; j < fTree->GetEntries(); j++) {
+      // bytessum += GetEntry(j);
+      logger->Debug("Getting entry %lld ...", indexes[j]);
+      bytessum += GetEntry(indexes[j]);
+      // Print full fPoint for debugging
+      // for (int i = 0; i < GetNdimensions(); i++) {
+      //   logger->Trace("fPoint[%d]=%d", i, fPoint[i]);
+      // }
+
+      int idx = 0;
+      for (auto & kv : GetBranchesMap()) {
+        THnSparse * s = (THnSparse *)kv.second.GetObject();
+        if (s && s->GetNdimensions() > 0) {
+          // s->GetBinContent(0, point);
+          // Ndmspc::Utils::SetAxisRanges(s, {{1, (int)j, (int)j}});
+          Ndmspc::Utils::SetAxisRanges(s, {});
+          if (kv.first == enabledBranches[branchId]) {
+            TH1 * hh = s->Projection(0);
+            if (h == nullptr)
+              h = (TH1 *)hh->Clone();
+            else {
+              h->Add(hh);
+            }
+            // Print fPoint for debugging
+            // for (int i = 5; i <= 6; i++) {
+            //   logger->Info("xxx fPoint[%d]=%d", i, fPoint[i]);
+            // }
+            // print integral for debugging
+            // logger->Info("Integral=%.0f", hh->Integral());
+            double integral = hh->Integral();
+            if (integral > 0) {
+              double binContent = integral + hStat->GetBinContent(fPoint[5], fPoint[6]);
+              hStat->SetBinContent(fPoint[5], fPoint[6], binContent);
+              sum += hh->Integral();
+            }
+
+            if (timeout > 0) {
+              hh->Print();
+              hh->DrawCopy("hist");
+              // h->Draw();
+              c->Update();
+              c->Modified();
+              gSystem->Sleep(timeout);
+            }
+            delete hh;
+          }
+
+          // h->Print();
+          // delete h;
+        }
+        idx++;
+      }
+      nEntries++;
+    }
+    if (h) {
+      h->Print();
+      logger->Info("Sum: %lld", sum);
+      c->Clear();
+      c->Divide(2, 1);
+      c->cd(1);
+      h->DrawCopy("hist");
+      // c->cd(2)->SetLogy();
+      c->cd(2);
+      gStyle->SetOptStat(1000111);
+      hStat->DrawCopy("colz");
+    }
+    logger->Info("Bytes read: %.3f MB entries=%lld", (double)bytessum / (1024 * 1024), nEntries);
   }
+  timer.Stop();
+  timer.Print();
 }
 
 std::vector<std::string> HnSparseTree::GetBranchesMapKeys()

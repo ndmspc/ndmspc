@@ -1,9 +1,11 @@
 #include <TTree.h>
 #include <string>
-#include "THnSparse.h"
+#include <TH1.h>
+#include <THnSparse.h>
 #include <TBranch.h>
 #include <TObject.h>
 #include "Logger.h"
+#include "RtypesCore.h"
 
 #include "HnSparseTreeBranch.h"
 
@@ -86,11 +88,13 @@ Long64_t HnSparseTreeBranch::GetEntry(TTree * tree, Long64_t entry)
   /// Get entry
   ///
   auto logger = Ndmspc::Logger::getInstance("");
+  // logger->Trace("Getting entry for branch '%s' %lld status=%d ...", fBranch->GetName(), entry,
+  //               tree->GetBranchStatus(fBranch->GetName()));
 
   Long64_t bytes = 0;
   if (fBranch && tree->GetBranchStatus(fBranch->GetName()) == 1) {
     bytes = fBranch->GetEntry(entry);
-    // logger->Trace("Getting content from %s with size %.3f MB", fBranch->GetName(), (double)bytes / (1024 * 1024));
+    logger->Trace("Getting content from %s with size %.3f MB", fBranch->GetName(), (double)bytes / (1024 * 1024));
     // if (fObject) {
     //   fObject->Print();
     // }
@@ -98,13 +102,13 @@ Long64_t HnSparseTreeBranch::GetEntry(TTree * tree, Long64_t entry)
 
   return bytes;
 }
-void HnSparseTreeBranch::SaveEntry(HnSparseTreeBranch * hnstBranchIn, bool useProjection)
+void HnSparseTreeBranch::SaveEntry(HnSparseTreeBranch * hnstBranchIn, bool useProjection, const std::string projOpt)
 {
   ///
   /// Save entry
   ///
   auto logger = Ndmspc::Logger::getInstance("");
-  logger->Info("Saving entry for branch=%s ...", fName.c_str());
+  logger->Debug("Saving entry for branch=%s ...", fName.c_str());
   // return;
 
   THnSparse * in = (THnSparse *)hnstBranchIn->GetObject();
@@ -116,9 +120,18 @@ void HnSparseTreeBranch::SaveEntry(HnSparseTreeBranch * hnstBranchIn, bool usePr
         for (Int_t iDim = 0; iDim < in->GetNdimensions(); iDim++) {
           dims[iDim] = iDim;
         }
-        THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, "O");
-        out->Print();
+        THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, projOpt.c_str());
+        // Loop over all bins
+        double sum = 0;
+        // logger->Info("Projection of %lld ...", out->GetNbins());
+        for (Int_t i = 0; i < out->GetNbins(); i++) {
+          // logger->Info("Bin %d content=%f", i, out->GetBinContent(i));
+          sum += out->GetBinContent(i);
+        }
+        // out->Projection(0)->Print();
+        out->SetEntries(sum);
         out->SetNameTitle(in->GetName(), in->GetTitle());
+        // out->Print();
         SetAddress(out);
       }
       else {
@@ -137,7 +150,8 @@ void HnSparseTreeBranch::Print(Option_t * option) const
   /// Print
   ///
   auto logger = Ndmspc::Logger::getInstance("");
-  logger->Info("Branch '%s' object='%s' address=%p", fName.c_str(), fObjectClassName.c_str(), fObject);
+  logger->Info("Branch '%s' object='%s' address=%p branch=%p status=%d", fName.c_str(), fObjectClassName.c_str(),
+               fObject, fBranch, fBranchStatus);
 }
 
 } // namespace Ndmspc

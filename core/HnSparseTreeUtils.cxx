@@ -5,6 +5,7 @@
 #include <TH1.h>
 #include <omp.h>
 #include <pthread.h>
+#include <vector>
 
 #include "Logger.h"
 #include "HnSparseTree.h"
@@ -120,6 +121,7 @@ bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, i
   /// Import from config
   ///
   ///
+  TH1::AddDirectory(kFALSE);
 
   auto          logger = Ndmspc::Logger::getInstance("");
   HnSparseTreeC hnst;
@@ -197,7 +199,7 @@ bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, i
     ImportSingle(&hnst, fn, objNames);
   }
 
-  hnst.Close();
+  hnst.Close(true);
   //
   // // GetAxis(1)->SetRange(7, 7);
   // // AddProjectionIndexes();
@@ -249,6 +251,7 @@ bool HnSparseTreeUtils::Distribute(const std::string & in, const std::string & o
   ///
   /// Distribute
   ///
+  TH1::AddDirectory(kFALSE);
 
   auto logger = Ndmspc::Logger::getInstance("");
   logger->Info("Distributing '%s' ...", in.c_str());
@@ -282,16 +285,49 @@ bool HnSparseTreeUtils::Distribute(const std::string & in, const std::string & o
     // hnstOut.SetAxes(hnst->GetAxes());
     // Set branches map
     hnstOut.SetBranchesMap(hnst->GetBranchesMap());
+    hnstOut.GetAxesAxis(5)->SetType(AxisType::kTypeRange);
+    hnstOut.GetAxesAxis(6)->SetType(AxisType::kTypeRange);
     // TODO: Make it more general and use IterateNDimensionalSpace
-    for (int iEntry = 0; iEntry < hnst->GetAxis(5)->GetNbins(); iEntry++) {
+    // for (int iEntry = 0; iEntry < hnst->GetAxis(5)->GetNbins(); iEntry++) {
+    //
+    //   // if (i > 0) break;
+    //   std::vector<std::vector<int>> ranges = {{5 - 4, iEntry + 1, iEntry + 1}};
+    //
+    //   p[5] = iEntry + 1;
+    //   hnstOut.FillPoints({p});
+    //   hnstOut.SaveEntry(hnst, iEntry, ranges, true);
+    // }
 
-      // if (i > 0) break;
-      std::vector<std::vector<int>> ranges = {{5 - 4, iEntry + 1, iEntry + 1}};
-      hnstOut.SaveEntry(hnst, iEntry, ranges, true);
-    }
+    std::vector<int> minBounds = {1, 1};
+    std::vector<int> maxBounds = {hnst->GetAxis(5)->GetNbins(), hnst->GetAxis(6)->GetNbins()};
+    std::vector<int> ids       = {5, 6};
+    Ndmspc::HnSparseTreeUtils::IterateNDimensionalSpace(
+        minBounds, maxBounds, [ids, p, &hnst, &hnstOut, logger](const std::vector<int> & point) {
+          // hnst->Print();
+          // std::cout << "Point: ";
+          std::string                   pStr;
+          std::vector<int>              ppp = p;
+          int                           id  = 0;
+          std::vector<std::vector<int>> ranges;
+          for (auto & pp : point) {
+            pStr += std::to_string(pp) + " ";
+            // printfa("%d=%d=%d ", ids[id], pp, p[ids[id]]);
+            ranges.push_back({ids[id] - 4, pp, pp});
+            ppp[ids[id]] = pp;
+            id++;
+          }
+          // printf("\n");
+          if (point[1] == 1) logger->Info("Filling point: %s", pStr.c_str());
+
+          hnstOut.FillPoints({ppp});
+          hnstOut.SaveEntry(hnst, ranges, true);
+        });
+
     hnstOut.GetAxes().Print();
-    hnstOut.Close();
+    hnstOut.Close(true);
     logger->Info("Output file='%s' ...", outFileName.c_str());
+    p[5] = 1;
+    p[6] = 1;
     points.push_back(p);
   }
 
@@ -302,7 +338,7 @@ bool HnSparseTreeUtils::Distribute(const std::string & in, const std::string & o
   hnstMap.InitAxes(hnst->GetListOfAxes(), level);
   hnstMap.InitTree(outFileName, "ndh");
   hnstMap.FillPoints(points);
-  hnstMap.Close();
+  hnstMap.Close(true);
 
   return true;
 }
