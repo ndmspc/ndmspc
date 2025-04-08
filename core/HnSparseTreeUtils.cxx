@@ -9,6 +9,7 @@
 
 #include "Logger.h"
 #include "HnSparseTree.h"
+#include "RtypesCore.h"
 #include "HnSparseTreeUtils.h"
 
 /// \cond CLASSIMP
@@ -342,7 +343,146 @@ bool HnSparseTreeUtils::Distribute(const std::string & in, const std::string & o
 
   return true;
 }
+THnSparse * HnSparseTreeUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, std::vector<TAxis *> newAxes,
+                                                 std::vector<int> newPoint, Option_t * option)
+{
+  ///
+  /// Reshape sparse axes
+  ///
 
+  TString opt(option);
+  auto    logger = Ndmspc::Logger::getInstance("");
+
+  if (hns == nullptr) {
+    logger->Error("THnSparse hns is null");
+    return nullptr;
+  }
+
+  if (order.size() != hns->GetNdimensions() + newAxes.size()) {
+    logger->Error("Invalid size %d [order] != %d [hns->GetNdimensions()+newAxes]", order.size(),
+                  hns->GetNdimensions() + newAxes.size());
+    return nullptr;
+  }
+
+  if (newAxes.size() != newPoint.size()) {
+    logger->Error("Invalid size %d [newAxes] != %d [newPoint]", newAxes.size(), newPoint.size());
+    return nullptr;
+  }
+
+  // loop over order and check if order contains values from 0 to hns->GetNdimensions() + newAxes.size()
+  for (int i = 0; i < order.size(); i++) {
+    if (order[i] < 0 || order[i] >= hns->GetNdimensions() + newAxes.size()) {
+      logger->Error(
+          "Invalid order[%d]=%d. Value is negative or higher then 'hns->GetNdimensions() + newAxes.size()' !!!", i,
+          order[i]);
+      return nullptr;
+    }
+  }
+
+  // check if order contains unique values
+  for (int i = 0; i < order.size(); i++) {
+    for (int j = i + 1; j < order.size(); j++) {
+      if (order[i] == order[j]) {
+        logger->Error("Invalid order[%d]=%d and order[%d]=%d. Value is not unique !!!", i, order[i], j, order[j]);
+        return nullptr;
+      }
+    }
+  }
+
+  // print info about original THnSparse
+  logger->Info("Original THnSparse object:");
+  hns->Print();
+
+  logger->Info("Reshaping sparse axes ...");
+
+  int      nDims = hns->GetNdimensions() + newAxes.size();
+  Int_t    bins[nDims];
+  Double_t xmin[nDims];
+  Double_t xmax[nDims];
+  /// loop over all axes
+  int newAxesIndex = 0;
+  for (int i = 0; i < nDims; i++) {
+    TAxis * a  = nullptr;
+    int     id = order[i];
+    if (id < hns->GetNdimensions()) {
+      a = hns->GetAxis(id);
+      logger->Info("[ORIG] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(), a->GetTitle(), a->GetNbins(),
+                   a->GetXmin(), a->GetXmax());
+    }
+    else {
+      newAxesIndex = id - hns->GetNdimensions();
+      a            = newAxes[newAxesIndex];
+      logger->Info("[NEW ] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(), a->GetTitle(), a->GetNbins(),
+                   a->GetXmin(), a->GetXmax());
+    }
+    bins[i] = a->GetNbins();
+    xmin[i] = a->GetXmin();
+    xmax[i] = a->GetXmax();
+  }
+
+  THnSparse * hnsNew = new THnSparseD(hns->GetName(), hns->GetTitle(), nDims, bins, xmin, xmax);
+
+  // return hnsNew;
+  // loop over all axes
+  for (int i = 0; i < hnsNew->GetNdimensions(); i++) {
+    TAxis * aIn = nullptr;
+    if (order[i] < hns->GetNdimensions()) {
+      aIn = hns->GetAxis(order[i]);
+    }
+    else {
+      newAxesIndex = order[i] - hns->GetNdimensions();
+      aIn          = newAxes[newAxesIndex];
+    }
+
+    TAxis * a = hnsNew->GetAxis(i);
+    a->SetName(aIn->GetName());
+    a->SetTitle(aIn->GetTitle());
+    if (aIn->GetXbins()->GetSize() > 0) {
+      Double_t arr[aIn->GetNbins() + 1];
+      arr[0] = aIn->GetBinLowEdge(1);
+      for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
+        arr[iBin] = aIn->GetBinUpEdge(iBin);
+      }
+      a->Set(a->GetNbins(), arr);
+    }
+  }
+
+  // loop over all bins
+  logger->Info("Filling all bins ...");
+  for (Long64_t i = 0; i < hns->GetNbins(); i++) {
+    Int_t p[nDims];
+    Int_t pNew[nDims];
+    hns->GetBinContent(i, p);
+    Double_t v = hns->GetBinContent(i);
+    // remap p to pNew
+    for (int j = 0; j < nDims; j++) {
+      int id = order[j];
+      if (id < hns->GetNdimensions()) {
+        pNew[j] = p[id];
+      }
+      else {
+        newAxesIndex = id - hns->GetNdimensions();
+        pNew[j]      = newPoint[newAxesIndex];
+      }
+    }
+    hnsNew->SetBinContent(pNew, v);
+  }
+  // Calsculate sumw2
+  if (opt.Contains("E")) {
+    logger->Debug("Calculating sumw2 ...");
+    hnsNew->Sumw2();
+  }
+  hnsNew->SetEntries(hns->GetEntries());
+  logger->Info("Reshaped sparse axes:");
+  // print all axes
+  for (int i = 0; i < nDims; i++) {
+    TAxis * a = hnsNew->GetAxis(i);
+    logger->Info("Axis %d: %s %s %d %.2f %.2f", i, a->GetName(), a->GetTitle(), a->GetNbins(), a->GetXmin(),
+                 a->GetXmax());
+  }
+  hnsNew->Print();
+  return hnsNew;
+}
 void HnSparseTreeUtils::IterateNDimensionalSpace(const std::vector<int> & minBounds, const std::vector<int> & maxBounds,
                                                  const std::function<void(const std::vector<int> &)> & userFunction)
 {

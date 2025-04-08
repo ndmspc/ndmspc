@@ -26,8 +26,10 @@ class HnSparseTreeUtils : public TObject {
   static bool ImportSingle(HnSparseTree * hnst, std::string filename, std::vector<std::string> objname);
   static bool Distribute(const std::string & in, const std::string & out, const std::string & filename = "hnst.root",
                          int level = 0);
-  static void IterateNDimensionalSpace(const std::vector<int> & minBounds, const std::vector<int> & maxBounds,
-                                       const std::function<void(const std::vector<int> &)> & userFunction);
+  static THnSparse * ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, std::vector<TAxis *> newAxes = {},
+                                       std::vector<int> newPoint = {}, Option_t * option = "E");
+  static void        IterateNDimensionalSpace(const std::vector<int> & minBounds, const std::vector<int> & maxBounds,
+                                              const std::function<void(const std::vector<int> &)> & userFunction);
   static void IterateNDimensionalSpaceParallel(const std::vector<int> & minBounds, const std::vector<int> & maxBounds,
                                                const std::function<void(const std::vector<int> &)> & userFunction,
                                                int                                                   numThreads = -1);
