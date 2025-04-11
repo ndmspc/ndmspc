@@ -3,6 +3,7 @@ version: "%(tag_basename)s"
 tag: "v0.20250322.0"
 requires:
   - ROOT
+  - JAliEn-ROOT
 build_requires:
   - CMake
   - ninja

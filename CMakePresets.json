@@ -8,5 +8,12 @@
         "CMAKE_INSTALL_PREFIX": "${sourceDir}"
       }
     }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "jobs": 0
+    }
   ]
 }

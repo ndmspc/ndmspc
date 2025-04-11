@@ -1,6 +1,6 @@
 package: opentelemetry-cpp
 version: "%(tag_basename)s"
-tag: "v1.19.0"
+tag: "v1.20.0"
 requires:
   - curl
   - protobuf

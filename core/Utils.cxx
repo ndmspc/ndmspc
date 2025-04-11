@@ -395,16 +395,21 @@ std::vector<std::string> Utils::Tokenize(std::string_view input, const char deli
   ///
   /// Tokenize helper function
   ///
-
   std::vector<std::string> out;
+  size_t                   start = 0;
+  size_t                   end   = input.find(delim);
 
-  for (auto found = input.find(delim); found != std::string_view::npos; found = input.find(delim)) {
-    out.emplace_back(input, 0, found);
-    input.remove_prefix(found + 1);
+  while (end != std::string_view::npos) {
+    if (end > start) {
+      out.emplace_back(input.substr(start, end - start));
+    }
+    start = end + 1;
+    end   = input.find(delim, start);
   }
 
-  if (not input.empty()) out.emplace_back(input);
-
+  if (start < input.length()) {
+    out.emplace_back(input.substr(start));
+  }
   return out;
 }
 std::vector<int> Utils::TokenizeInt(std::string_view input, const char delim)
@@ -506,6 +511,159 @@ bool Utils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> rang
     axis->SetRange(ranges[i][1], ranges[i][2]);
   }
   return true;
+}
+
+std::string Utils::GetJsonString(json j)
+{
+  ///
+  /// Returns json string if it is valid
+  ///
+
+  if (j.is_string()) {
+    return j.get<std::string>();
+  }
+  else if (j.is_number_integer()) {
+    return std::to_string(j.get<int>());
+  }
+  else if (j.is_number_float()) {
+    return std::to_string(j.get<double>());
+  }
+  else if (j.is_boolean()) {
+    return j.get<bool>() ? "true" : "false";
+  }
+  else if (j.is_null()) {
+    return "";
+  }
+  else {
+    return "";
+  }
+}
+int Utils::GetJsonInt(json j)
+{
+  ///
+  /// Returns json int if it is valid
+  ///
+
+  if (j.is_number_integer()) {
+    return j.get<int>();
+  }
+  else if (j.is_number_float()) {
+    return static_cast<int>(j.get<double>());
+  }
+  else if (j.is_boolean()) {
+    return j.get<bool>() ? 1 : 0;
+  }
+  else if (j.is_null()) {
+    return -1;
+  }
+  else {
+    return -1;
+  }
+}
+
+double Utils::GetJsonDouble(json j)
+{
+  ///
+  /// Returns json double if it is valid
+  ///
+
+  if (j.is_number_float()) {
+    return j.get<double>();
+  }
+  else if (j.is_number_integer()) {
+    return static_cast<double>(j.get<int>());
+  }
+  else if (j.is_boolean()) {
+    return j.get<bool>() ? 1.0 : 0.0;
+  }
+  else if (j.is_null()) {
+    return -1.0;
+  }
+  else {
+    return -1.0;
+  }
+}
+
+bool Utils::GetJsonBool(json j)
+{
+  ///
+  /// Returns json bool if it is valid
+  ///
+
+  if (j.is_boolean()) {
+    return j.get<bool>();
+  }
+  else if (j.is_number_integer()) {
+    return j.get<int>() != 0;
+  }
+  else if (j.is_number_float()) {
+    return j.get<double>() != 0.0;
+  }
+  else if (j.is_null()) {
+    return false;
+  }
+  else {
+    return false;
+  }
+}
+
+std::vector<std::string> Utils::GetJsonStringArray(json j)
+{
+  ///
+  /// Returns json string array if it is valid
+  ///
+
+  std::vector<std::string> out;
+  if (j.is_array()) {
+    for (auto & v : j) {
+      out.push_back(GetJsonString(v));
+    }
+  }
+  return out;
+}
+std::string Utils::HttpRequestFromPipe(std::string url, std::string method, std::string data, std::string contentType,
+                                       std::string extraArgs)
+{
+
+  ///
+  /// Run http request from command via gSystem->GetFromPipe()
+  ///
+
+  auto logger = Ndmspc::Logger::getInstance("");
+
+  std::string command = "curl -s -X " + method + " -H 'Content-Type: " + contentType + "'";
+  if (!extraArgs.empty()) {
+    command += " " + extraArgs;
+  }
+  command += +" '" + url + "'";
+  logger->Info("Running command: %s", command.c_str());
+
+  std::string result = gSystem->GetFromPipe(command.c_str()).Data();
+  return result;
+}
+
+json Utils::HttpRequest(std::string url, std::string extraArgs, std::string method, std::string data,
+                        std::string contentType)
+{
+
+  ///
+  /// Run http request from command via gSystem->GetFromPipe()
+  ///
+
+  auto logger = Ndmspc::Logger::getInstance("");
+
+  std::string result = Utils::HttpRequestFromPipe(url, method, data, contentType, extraArgs);
+
+  logger->Info("Result: %s", result.c_str());
+  json j;
+  try {
+    j = json::parse(result);
+  }
+  catch (json::parse_error & e) {
+    logger->Error("%s", e.what());
+    return json();
+  }
+  return j;
 }
 
 } // namespace Ndmspc

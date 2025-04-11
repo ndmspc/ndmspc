@@ -10,7 +10,10 @@ set(PROJECT_VERSION_RELEASE 1)
 
 include(cmake/cmake_base.cmake)
 
-if (PROTOBUF_ROOT)
+# TODO: Remove it: Temporary fix for opentelemetry-cpp
+add_definitions(-Wno-cpp)
+
+if(PROTOBUF_ROOT)
   find_package(Protobuf CONFIG REQUIRED)
   set(Protobuf_LIBRARIES "${PROTOBUF_ROOT}/lib")
   set(Protobuf_INCLUDE_DIR "${PROTOBUF_ROOT}/include")
@@ -30,9 +33,11 @@ include(ROOTMacros)
 include_directories(${PROJECT_SOURCE_DIR}/Utils)
 add_subdirectory(base)
 add_subdirectory(core)
+add_subdirectory(analysis)
 add_subdirectory(http)
-add_subdirectory(event)
+# add_subdirectory(event)
 add_subdirectory(ndh)
+add_subdirectory(alice)
 add_subdirectory(src)
 add_subdirectory(doc)
 

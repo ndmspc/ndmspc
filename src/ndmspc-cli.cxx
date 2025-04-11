@@ -351,7 +351,11 @@ int main(int argc, char ** argv)
           Ndmspc::Manager m;
           m.Load(configFileName, userConfigFileName, environement, userConfigRaw, binning);
           // m.Print();
-          Ndmspc::Config & c = Ndmspc::Config::Instance();
+          Ndmspc::Config * c = Ndmspc::Config::Instance();
+          if (c == nullptr) {
+            logger->Error("Cannot get config instance");
+            return 1;
+          }
 
           int nfiles = kMaxInt;
           // nfiles     = 1;

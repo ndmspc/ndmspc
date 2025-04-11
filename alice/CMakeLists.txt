@@ -1,17 +1,20 @@
-set(MODULE Http)
+set(MODULE ALICE)
 set(PACKAGE Ndmspc${MODULE})
 file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx" )
 set (MY_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/base
+  ${CMAKE_SOURCE_DIR}/http
+  ${CMAKE_SOURCE_DIR}/core
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${OpenMP_INCLUDE_DIRS}
 )
 include_directories(${MY_INCLUDE_DIRS})
 set(MY_EXTERNAL_LIBS
-
-  RHTTP
   NdmspcBase
+  NdmspcHttp
+  NdmspcCore
   ${OPENTELEMETRY_CPP_LIBRARIES}
+  OpenMP::OpenMP_CXX
 )
 RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
 

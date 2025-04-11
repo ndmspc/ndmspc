@@ -2,6 +2,7 @@
 #define Ndmspc_HnSparseTreeUtils_H
 #include <TObject.h>
 #include <string>
+#include <vector>
 #include "Config.h"
 #include "HnSparseTree.h"
 
@@ -19,9 +20,15 @@ class HnSparseTreeUtils : public TObject {
   // HnSparseTreeUtils();
   // virtual ~HnSparseTreeUtils();
 
+  // Stable
+  static HnSparseTree * Create(std::vector<std::vector<std::string>> points, std::vector<std::string> axisNames,
+                               std::vector<std::string> axisTitles = {});
+  static HnSparseTree * CreateFromDir(std::string dir, std::vector<std::string> axisNames, std::string filter = "");
+
+  // Beta
   static bool Read(int limit = 1000, std::string file = "/tmp/hnst.root");
   static bool ReadNew(int limit = 1000, std::string file = "/tmp/hnst.root");
-  static bool Import(const Ndmspc::Config & c, std::string filename = "/tmp/hnst.root", int limit = kMaxInt,
+  static bool Import(const Ndmspc::Config * c, std::string filename = "/tmp/hnst.root", int limit = kMaxInt,
                      std::string className = "THnSparseF");
   static bool ImportSingle(HnSparseTree * hnst, std::string filename, std::vector<std::string> objname);
   static bool Distribute(const std::string & in, const std::string & out, const std::string & filename = "hnst.root",

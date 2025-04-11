@@ -60,7 +60,11 @@ void Results::Print(Option_t * option) const
   /// Print results information
   ///
 
-  Config & c = Config::Instance();
+  Config * c = Config::Instance();
+  if (c == nullptr) {
+    Printf("Error: Config is not initialized ...");
+    return;
+  }
   Printf("Results ...");
   // Printf("%s", c.GetCfg().dump(2).c_str());
 
@@ -95,7 +99,11 @@ bool Results::LoadResults()
   /// Load results
   ///
   //
-  Config & c = Config::Instance();
+  Config * c = Config::Instance();
+  if (c == nullptr) {
+    Printf("Error: Config is not initialized ...");
+    return false;
+  }
 
   // Printf("Opening file '%s' ...", c.GetRes.c_str());
   //
