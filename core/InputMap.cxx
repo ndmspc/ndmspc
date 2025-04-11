@@ -59,7 +59,11 @@ THnSparse * InputMap::Query(const std::string & outputPath)
   /// Query content of the map
   ///
 
-  Config & c = Config::Instance();
+  // Config * c = Config::Instance();
+  // if (c == nullptr) {
+  //   Printf("Cannot get config instance");
+  //   return nullptr;
+  // }
 
   Printf("Querying map '%s' with filname '%s'...", fBaseDir.c_str(), fFileName.c_str());
 

@@ -4,6 +4,7 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
+#pragma link C++ class HttpRequestCurl+;
 #pragma link C++ class Ndmspc::Axis + ;
 #pragma link C++ class Ndmspc::Axes + ;
 #pragma link C++ class Ndmspc::Utils + ;

@@ -25,6 +25,9 @@ class HnSparseTree : public THnSparse {
   public:
   HnSparseTree();
   HnSparseTree(const std::string & filename, const std::string & treename = "ndh");
+  HnSparseTree(const char * name, const char * title, Int_t dim, const Int_t * nbins, const Double_t * xmin = 0,
+               const Double_t * xmax = 0, Int_t chunksize = 1024 * 16);
+  ~HnSparseTree();
 
   /// Setting output file name
   void SetFileName(const std::string & fn) { fFileName = fn; }
@@ -65,20 +68,15 @@ class HnSparseTree : public THnSparse {
   void SaveEntry(HnSparseTree * hnstIn, std::vector<std::vector<int>> ranges, bool useProjection = false);
   // void SaveEntry(TFile * f, TTree * tree, Long64_t entry, int level);
   void AddProjectionIndexes();
-
+  /// Get projection indexes
   std::vector<Long64_t> GetProjectionIndexes() { return fIndexes; }
 
   std::map<std::string, HnSparseTreeBranch> GetBranchesMap() const { return fBranchesMap; }
   void SetBranchesMap(std::map<std::string, HnSparseTreeBranch> branchesMap) { fBranchesMap = branchesMap; }
-  // Get fBranchesMap keys
   std::vector<std::string> GetBranchesMapKeys();
-  static HnSparseTree *    Load(const std::string & filename, const std::string & treename = "ndh",
-                                const std::string & branches = "");
 
-  protected:
-  HnSparseTree(const char * name, const char * title, Int_t dim, const Int_t * nbins, const Double_t * xmin = 0,
-               const Double_t * xmax = 0, Int_t chunksize = 1024 * 16);
-  ~HnSparseTree();
+  static HnSparseTree * Load(const std::string & filename, const std::string & treename = "ndh",
+                             const std::string & branches = "");
 
   private:
   std::string                               fFileName{"hnst.root"}; ///< Output filename
@@ -130,18 +128,21 @@ class HnSparseTree : public THnSparse {
 template <class CONT>
 class HnSparseTreeT : public HnSparseTree {
   public:
-  /// Default constructor
-  HnSparseTreeT() {}
-  /// Constructor
-  HnSparseTreeT(const char * name, const char * title, Int_t dim, const Int_t * nbins, const Double_t * xmin = nullptr,
-                const Double_t * xmax = nullptr, Int_t chunksize = 1024 * 16)
-      : HnSparseTree(name, title, dim, nbins, xmin, xmax, chunksize)
-  {
-  }
-
-  HnSparseTreeT(const std::string & filename, const std::string & treename = "ndh") : HnSparseTree(filename, treename)
-  {
-  }
+  using HnSparseTree::HnSparseTree;
+  /// /// Default constructor
+  /// HnSparseTreeT() {}
+  /// /// Constructor
+  /// HnSparseTreeT(const char * name, const char * title, Int_t dim, const Int_t * nbins, const Double_t * xmin =
+  /// nullptr,
+  ///               const Double_t * xmax = nullptr, Int_t chunksize = 1024 * 16)
+  ///     : HnSparseTree(name, title, dim, nbins, xmin, xmax, chunksize)
+  /// {
+  /// }
+  ///
+  /// HnSparseTreeT(const std::string & filename, const std::string & treename = "ndh") : HnSparseTree(filename,
+  /// treename)
+  /// {
+  /// }
 
   /// Returns content array
   TArray * GenerateArray() const override { return new CONT(GetChunkSize()); }

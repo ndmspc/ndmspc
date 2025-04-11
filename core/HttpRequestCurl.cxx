@@ -1,0 +1,145 @@
+
+#include "HttpRequestCurl.h"
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <TString.h>
+#include <TBase64.h>
+
+using namespace Ndmspc;
+
+Ndmspc::HttpRequestCurl::HttpRequestCurl() : curl(nullptr), headers(nullptr)
+{
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  if (!curl) {
+    throw std::runtime_error("Error: curl_easy_init() failed");
+  }
+}
+
+Ndmspc::HttpRequestCurl::~HttpRequestCurl()
+{
+  if (curl) {
+    curl_easy_cleanup(curl);
+  }
+  if (headers) {
+    curl_slist_free_all(headers);
+  }
+  curl_global_cleanup();
+}
+
+std::string Ndmspc::HttpRequestCurl::get(const std::string & url, const std::string & cert_path,
+                                         const std::string & key_path, const std::string & key_password_file,
+                                         bool insecure)
+{
+  std::ostringstream response_stream;
+  CURLcode           res = request("GET", url, "", response_stream, cert_path, key_path, key_password_file, insecure);
+  if (res != CURLE_OK) {
+    throw_curl_error(res);
+  }
+  return response_stream.str();
+}
+
+std::string Ndmspc::HttpRequestCurl::post(const std::string & url, const std::string & post_data,
+                                          const std::string & cert_path, const std::string & key_path,
+                                          const std::string & key_password_file, bool insecure)
+{
+  std::ostringstream response_stream;
+  CURLcode res = request("POST", url, post_data, response_stream, cert_path, key_path, key_password_file, insecure);
+  if (res != CURLE_OK) {
+    throw_curl_error(res);
+  }
+  return response_stream.str();
+}
+
+CURLcode Ndmspc::HttpRequestCurl::request(const std::string & method, const std::string & url, const std::string & data,
+                                          std::ostringstream & response_stream, const std::string & cert_path,
+                                          const std::string & key_path, const std::string & key_password_file,
+                                          bool insecure)
+{
+  CURLcode res = CURLE_OK;
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_stream);
+
+  // Set method (GET or POST)
+  if (method == "POST") {
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
+  }
+  else {
+    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+  }
+
+  // Set Content-Type header to application/json
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+  // SSL certificate and key
+  if (!cert_path.empty() && !key_path.empty()) {
+    curl_easy_setopt(curl, CURLOPT_SSLCERT, cert_path.c_str());
+    curl_easy_setopt(curl, CURLOPT_SSLKEY, key_path.c_str());
+
+    // Set the key password file
+    if (!key_password_file.empty()) {
+      curl_easy_setopt(curl, CURLOPT_SSLKEYPASSWD, NULL);
+      curl_easy_setopt(curl, CURLOPT_KEYPASSWD, NULL);
+      curl_easy_setopt(curl, CURLOPT_SSLKEYPASSWD, "");
+      curl_easy_setopt(curl, CURLOPT_KEYPASSWD, "");
+
+      std::ifstream passwordFile(key_password_file);
+      std::string   encodedPassword;
+      if (passwordFile.is_open()) {
+        std::getline(passwordFile, encodedPassword);
+        passwordFile.close();
+
+        TString     encoded(encodedPassword);            // Use TString
+        TString     decoded  = TBase64::Decode(encoded); // Decode with TBase64
+        std::string password = decoded.Data();           // Convert TString back to std::string
+
+        // Remove carriage return if it exists, to avoid authentication failure.
+        if (!password.empty() && password.back() == '\r') {
+          password.pop_back();
+        }
+
+        curl_easy_setopt(curl, CURLOPT_SSLKEYPASSWD, password.c_str());
+        curl_easy_setopt(curl, CURLOPT_KEYPASSWD, password.c_str());
+      }
+      else {
+        std::cerr << "Error: Could not open password file: " << key_password_file << std::endl;
+        return CURLE_FILE_COULDNT_READ_FILE;
+      }
+    }
+  }
+
+  // Insecure option
+  if (insecure) {
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  }
+  else {
+    // Add the CA cert path here for secure connection
+    // curl_easy_setopt(curl, CURLOPT_CAINFO, "/path/to/ca/cert.pem");
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+  }
+
+  res = curl_easy_perform(curl);
+  if (res != CURLE_OK) {
+    return res; // Return the error code
+  }
+
+  return res;
+}
+
+size_t Ndmspc::HttpRequestCurl::WriteCallback(void * contents, size_t size, size_t nmemb, void * userp)
+{
+  (static_cast<std::ostringstream *>(userp))->write(static_cast<char *>(contents), size * nmemb);
+  return size * nmemb;
+}
+
+void Ndmspc::HttpRequestCurl::throw_curl_error(CURLcode res) const
+{
+  throw std::runtime_error(std::string("curl error: ") + curl_easy_strerror(res));
+}

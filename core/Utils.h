@@ -31,6 +31,12 @@ class Utils : TObject {
   static std::string OpenRawFile(std::string filename);
   static bool        SaveRawFile(std::string filename, std::string content);
   static TMacro *    OpenMacro(std::string filename);
+
+  static std::string HttpRequestFromPipe(std::string url, std::string method, std::string data, std::string contentType,
+                                         std::string extraArgs = "");
+  static json        HttpRequest(std::string url, std::string extraArgs = "", std::string method = "GET",
+                                 std::string data = "", std::string contentType = "application/json");
+
   // static void        RebinBins(int & min, int & max, int rebin);
   static std::string GetBasePath(json cfg);
   static std::string GetCutsPath(json cuts);
@@ -49,6 +55,13 @@ class Utils : TObject {
                                                       std::set<std::string> y = {});
 
   static bool SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>>, bool withOverflow = false);
+
+  static std::string              GetJsonString(json j);
+  static int                      GetJsonInt(json j);
+  static double                   GetJsonDouble(json j);
+  static bool                     GetJsonBool(json j);
+  static std::vector<std::string> GetJsonStringArray(json j);
+
   /// \cond CLASSIMP
   ClassDef(Utils, 0);
   /// \endcond;

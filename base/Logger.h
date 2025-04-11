@@ -50,6 +50,13 @@ class Logger {
   // Delete copy constructor and assignment operator
   Logger(const Logger &)             = delete;
   Logger & operator=(const Logger &) = delete;
+  virtual ~Logger()
+  {
+    // printf("Logger destructor called\n");
+    // CleanupTracer();
+    // CleanupLogger();
+    // CleanupOTLLogger();
+  }
 
   static Logger * getInstance(std::string url = "")
   {
@@ -103,6 +110,12 @@ class Logger {
   void InitOTLLogger();
   void CleanupOTLLogger();
 
+  void Cleanup()
+  {
+    CleanupTracer();
+    CleanupLogger();
+    CleanupOTLLogger();
+  }
   opentelemetry::nostd::shared_ptr<trace_api::Tracer> GetDefaultTracer()
   {
     auto provider = trace_api::Provider::GetTracerProvider();

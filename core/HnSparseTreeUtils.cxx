@@ -3,13 +3,14 @@
 #include <TStopwatch.h>
 #include <THnSparse.h>
 #include <TH1.h>
+#include <TH2.h>
+#include <TH3.h>
 #include <omp.h>
 #include <pthread.h>
 #include <vector>
 
 #include "Logger.h"
 #include "HnSparseTree.h"
-#include "RtypesCore.h"
 #include "HnSparseTreeUtils.h"
 
 /// \cond CLASSIMP
@@ -17,6 +18,147 @@ ClassImp(Ndmspc::HnSparseTreeUtils);
 /// \endcond
 
 namespace Ndmspc {
+HnSparseTree * HnSparseTreeUtils::Create(std::vector<std::vector<std::string>> points,
+                                         std::vector<std::string> axisNames, std::vector<std::string> axisTitles)
+{
+  ///
+  /// Constructor from points
+  ///
+
+  auto logger = Ndmspc::Logger::getInstance("");
+
+  int        nPoints = points.size();
+  int        nDims   = points[0].size();
+  Int_t *    nbins   = new Int_t[nDims];
+  Double_t * mins    = new Double_t[nDims];
+  Double_t * maxs    = new Double_t[nDims];
+
+  std::vector<std::set<std::string>> space(nDims);
+
+  for (auto & point : points) {
+    for (size_t i = 0; i < point.size(); i++) {
+      space[i].insert(point[i]);
+    }
+  }
+
+  // Print all sets in space
+  for (size_t i = 0; i < space.size(); i++) {
+    std::string s = "";
+    for (auto & j : space[i]) {
+      s += j + " ";
+    }
+    logger->Info("Set %d: %s", i, s.c_str());
+  }
+
+  for (int i = 0; i < nDims; i++) {
+    nbins[i] = space[i].size();
+    mins[i]  = 0;
+    maxs[i]  = space[i].size();
+  }
+
+  if (axisTitles.size() == 0) {
+    for (size_t i = 0; i < axisNames.size(); i++) {
+      axisTitles.push_back(axisNames[i]);
+    }
+  }
+
+  if (axisNames.size() != axisTitles.size()) {
+    logger->Error("Invalid size %d [axisNames] != %d [axisTitles]", axisNames.size(), axisTitles.size());
+    return nullptr;
+  }
+
+  HnSparseTree * hnst = new HnSparseTreeC("hnst", "hnst", nDims, nbins, mins, maxs);
+  // loop oper all axes and set label in each bin of axis
+  for (int i = 0; i < nDims; i++) {
+    int j = 1;
+
+    // check if name is in axisNames and set name and title for this axis
+
+    if (i < axisNames.size()) {
+      hnst->GetAxis(i)->SetNameTitle(axisNames[i].c_str(), TString::Format("%s", axisTitles[i].c_str()).Data());
+    }
+
+    for (auto & b : space[i]) {
+      hnst->GetAxis(i)->SetBinLabel(j, b.c_str());
+      j++;
+    }
+  }
+
+  // print all axes and their bin labels
+  for (int i = 0; i < nDims; i++) {
+    logger->Info("Axis %d: %s", i, hnst->GetAxis(i)->GetName());
+    for (int j = 1; j <= nbins[i]; j++) {
+      logger->Info("  Bin %d: %s", j, hnst->GetAxis(i)->GetBinLabel(j));
+    }
+  }
+
+  // Fill all points
+  int p[nDims];
+  for (auto & point : points) {
+    for (size_t i = 0; i < point.size(); i++) {
+      p[i] = hnst->GetAxis(i)->FindBin(point[i].c_str());
+    }
+    hnst->SetBinContent(p, 1);
+  }
+  // hnst->Print();
+  // hnst->Projection(1, 2)->Draw();
+
+  delete[] nbins;
+  delete[] mins;
+  delete[] maxs;
+
+  return hnst;
+}
+
+HnSparseTree * HnSparseTreeUtils::CreateFromDir(std::string dir, std::vector<std::string> axisNames, std::string filter)
+{
+  ///
+  /// Create HnSparseTree from directory
+  ///
+
+  // ceck if dir has slash at the end, if yes remove it
+  if (dir.back() == '/') {
+    dir.pop_back();
+  }
+
+  auto logger = Ndmspc::Logger::getInstance("");
+  TH1::AddDirectory(kFALSE);
+  TStopwatch timer;
+  timer.Start();
+  std::vector<std::string>              paths = Utils::Find(dir, filter);
+  std::vector<std::vector<std::string>> bins;
+
+  for (auto & p : paths) {
+    p.erase(p.find(dir), dir.length());
+    if (!filter.empty()) p.erase(p.find(filter), filter.length());
+    // logger->Info("Path: %s", p.c_str());
+    std::vector<std::string> bin = Utils::Tokenize(p, '/');
+
+    bins.push_back(bin);
+  }
+
+  // print bins
+  for (auto & b : bins) {
+    std::string s = "";
+    for (auto & i : b) {
+      s += i + " ";
+    }
+    logger->Info("Bin: %s", s.c_str());
+  }
+  HnSparseTree * hnst = HnSparseTreeUtils::Create(bins, axisNames);
+
+  logger->Info("postfix=%s", filter.c_str());
+  hnst->SetPrefix(dir);
+  hnst->SetPostfix(filter);
+  hnst->InitTree(dir + "/hnst.root", "ndh");
+  // // hnst->FillPoints(points);
+  hnst->Print();
+  hnst->Close(true);
+  timer.Stop();
+  timer.Print();
+  return hnst;
+}
+
 bool HnSparseTreeUtils::Read(int limit, std::string filename)
 {
   auto logger = Ndmspc::Logger::getInstance("");
@@ -116,7 +258,7 @@ bool HnSparseTreeUtils::ReadNew(int limit, std::string filename)
   return true;
 }
 
-bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, int limit, std::string className)
+bool HnSparseTreeUtils::Import(const Ndmspc::Config * c, std::string filename, int limit, std::string className)
 {
   ///
   /// Import from config
@@ -130,7 +272,7 @@ bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, i
 
   std::vector<std::vector<std::string>> objsExpressionsIn;
   std::vector<std::string>              aliasesIn;
-  c.GetInputObjectNames(objsExpressionsIn, aliasesIn);
+  c->GetInputObjectNames(objsExpressionsIn, aliasesIn);
 
   // Get list of unique object names from objsExpressionsIn
   std::vector<std::string> objNames;
@@ -147,14 +289,14 @@ bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, i
   }
   // return true;
 
-  std::string filenameIn = c.GetInputMap()->GetInputFileName(0);
+  std::string filenameIn = c->GetInputMap()->GetInputFileName(0);
   logger->Info("Opening file='%s' obj='%s' ...", filenameIn.c_str(), objNames[0].c_str());
   TFile * file = TFile::Open(filenameIn.c_str());
   if (!file) {
     logger->Error("Cannot open file '%s'", filenameIn.c_str());
     return false;
   }
-  std::string objDir = c.GetInputObjectDirectory() + "/";
+  std::string objDir = c->GetInputObjectDirectory() + "/";
   THnSparse * hn     = dynamic_cast<THnSparse *>(file->Get((objDir + objNames[0]).c_str()));
   if (!hn) {
     logger->Error("Cannot get object '%s' from file '%s'", objNames[0].c_str(), filenameIn.c_str());
@@ -162,7 +304,7 @@ bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, i
   }
 
   TAxis *     a;
-  TObjArray * axesInputMap = (TObjArray *)c.GetInputMap()->GetMap()->GetListOfAxes()->Clone();
+  TObjArray * axesInputMap = (TObjArray *)c->GetInputMap()->GetMap()->GetListOfAxes()->Clone();
   TObjArray * axesData     = (TObjArray *)hn->GetListOfAxes()->Clone();
   file->Close();
 
@@ -180,7 +322,7 @@ bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, i
 
   hnst.InitAxes(newAxis, axesInputMap->GetEntries());
   //
-  THnSparse * hMap = c.GetInputMap()->GetMap();
+  THnSparse * hMap = c->GetInputMap()->GetMap();
   for (int i = 0; i < hMap->GetNbins(); i++) {
     if (limit > 0 && i >= limit) {
       break;
@@ -196,7 +338,7 @@ bool HnSparseTreeUtils::Import(const Ndmspc::Config & c, std::string filename, i
       hnst.SetPointAt(j + axesInputMap->GetEntries(), 1);
     }
 
-    std::string fn = c.GetInputMap()->GetInputFileName(i);
+    std::string fn = c->GetInputMap()->GetInputFileName(i);
     ImportSingle(&hnst, fn, objNames);
   }
 
@@ -229,10 +371,14 @@ bool HnSparseTreeUtils::ImportSingle(HnSparseTree * hnst, std::string filename, 
     return false;
   }
 
-  TObject *        s    = nullptr;
-  Ndmspc::Config & c    = Ndmspc::Config::Instance();
-  std::string      path = c.GetInputObjectDirectory();
-  int              i    = -1;
+  TObject *        s = nullptr;
+  Ndmspc::Config * c = Ndmspc::Config::Instance();
+  if (c == nullptr) {
+    logger->Error("Cannot get config instance");
+    return false;
+  }
+  std::string path = c->GetInputObjectDirectory();
+  int         i    = -1;
   for (auto & name : objnames) {
     i++;
     s = file->Get((path + "/" + name).c_str());

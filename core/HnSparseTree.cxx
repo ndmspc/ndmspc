@@ -14,10 +14,12 @@
 #include <TSystem.h>
 #include <TCanvas.h>
 #include <TStyle.h>
-#include "HnSparseTreeInfo.h"
 #include "Logger.h"
+#include "RtypesCore.h"
 #include "Utils.h"
 #include "HnSparseTree.h"
+#include "HnSparseTreeInfo.h"
+#include "HnSparseTreeUtils.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::HnSparseTree);
@@ -97,10 +99,10 @@ HnSparseTree * HnSparseTree::Load(const std::string & filename, const std::strin
     hnst->EnableBranches(enabledBranches);
   }
 
-  // return nullptr;
-
   /// TODO:: Set Axes correctlry
-  hnst->SetBranchAddresses();
+  // hnst->SetBranchAddresses();
+
+  hnst->Print();
 
   return hnst;
 }
@@ -114,10 +116,10 @@ bool HnSparseTree::SetFileTree(TFile * file, TTree * tree)
     logger->Error("File or tree is nullptr !!!");
     return false;
   }
-  fFile    = file;
-  fTree    = tree;
-  fPrefix  = gSystem->GetDirName(file->GetName());
-  fPostfix = gSystem->BaseName(file->GetName());
+  fFile = file;
+  fTree = tree;
+  if (fPrefix.empty()) fPrefix = gSystem->GetDirName(file->GetName());
+  if (fPostfix.empty()) fPostfix = gSystem->BaseName(file->GetName());
   // print prefix and postfix
   return true;
 }
@@ -127,18 +129,47 @@ void HnSparseTree::Print(Option_t * option) const
   /// Print
   ///
   // THnSparse::Print(option);
+  TString opt(option);
 
   auto logger = Ndmspc::Logger::getInstance("");
-  logger->Info("Printing HnSparseTree with %lld entries and %d dimensions ...", fTree ? fTree->GetEntries() : -1,
-               GetNdimensions());
-
-  for (auto & kv : fBranchesMap) {
-    kv.second.Print();
-  }
-  // Print all axes
+  logger->Info("HnSparseTree name='%s' title='%s'", fName.Data(), fTitle.Data());
+  logger->Info("THnSparse:");
+  logger->Info("  dimensions: %d", fNdimensions);
+  logger->Info("  filled bins = %lld", GetNbins());
+  // print axes name nbins min max in one line
   for (Int_t i = 0; i < GetNdimensions(); i++) {
-    GetAxis(i)->Print();
+    TAxis * a = GetAxis(i);
+    if (a->IsAlphanumeric()) {
+      // build string with all labels coma separated and put in brackets
+      std::string labels;
+      for (int j = 1; j <= a->GetNbins(); j++) {
+        labels += a->GetBinLabel(j);
+        labels += ",";
+      }
+      if (labels.back() == ',') {
+        labels.pop_back();
+      }
+      logger->Info("  name='%s' title='%s' nbins=%d labels=[%s]", a->GetName(), a->GetTitle(), a->GetNbins(),
+                   labels.c_str());
+    }
+    else {
+      logger->Info("  name='%s' title='%s' nbins=%d min=%.3f max=%.3f", a->GetName(), a->GetTitle(), a->GetNbins(),
+                   a->GetXmin(), a->GetXmax());
+    }
   }
+  logger->Info("TTree:");
+  logger->Info("  filename='%s'", fFileName.c_str());
+  logger->Info("  tree name='%s'", fTree ? fTree->GetName() : "n/a");
+  logger->Info("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
+  logger->Info("  prefix='%s'", fPrefix.c_str());
+  logger->Info("  postfix='%s'", fPostfix.c_str());
+  if (!fBranchesMap.empty()) {
+    logger->Info("  branches:");
+    for (auto & kv : fBranchesMap) {
+      kv.second.Print();
+    }
+  }
+
   std::string pointStr;
   if (fPoint == nullptr) {
     pointStr = "n/a";
@@ -150,6 +181,81 @@ void HnSparseTree::Print(Option_t * option) const
     }
   }
   logger->Info("Current point: %s", pointStr.c_str());
+
+  if (opt.Contains("P")) {
+    std::vector<int> minBounds;
+    std::vector<int> maxBounds;
+    std::vector<int> ids;
+    std::string      header = "| ";
+    for (int i = 0; i < GetNdimensions(); i++) {
+      minBounds.push_back(1);
+      maxBounds.push_back(GetAxis(i)->GetNbins());
+      ids.push_back(i);
+      header += GetAxis(i)->GetName();
+      header += " | ";
+    }
+    header += "content |";
+    bool allBins   = opt.Contains("A");
+    bool urlike    = opt.Contains("U");
+    bool forceBins = opt.Contains("B");
+
+    if (!urlike) logger->Info("%s", header.c_str());
+    Ndmspc::HnSparseTreeUtils::IterateNDimensionalSpace(
+        minBounds, maxBounds, [logger, this, &allBins, &urlike, &forceBins](const std::vector<int> & point) {
+          // build string from point coordinates
+          Int_t p[GetNdimensions()];
+          // loop over point and set p
+          for (int i = 0; i < GetNdimensions(); i++) {
+            p[i] = point[i];
+          }
+
+          double content = GetBinContent(p);
+          if (urlike) {
+            if (allBins || GetBinContent(p) > 0) {
+
+              std::string pointStr = fPrefix;
+              if (!fPrefix.empty()) pointStr += "/";
+              for (int i = 0; i < GetNdimensions(); i++) {
+                TAxis * a = GetAxis(i);
+                if (a->IsAlphanumeric() && !forceBins) {
+                  pointStr += a->GetBinLabel(point[i]);
+                }
+                else {
+                  pointStr += std::to_string(point[i]);
+                }
+                pointStr += "/";
+              }
+              // check if pointStr has space and remove it
+              if (pointStr.back() == '/') {
+                pointStr.pop_back();
+              }
+              pointStr += "/" + fPostfix;
+              logger->Info("[%3s] %s", content > 0 ? "YES" : "NO", pointStr.c_str());
+            }
+          }
+          else {
+            if (allBins || GetBinContent(p) > 0) {
+              // Print current point
+              std::string pointStr = "| ";
+              for (int i = 0; i < GetNdimensions(); i++) {
+                TAxis * a = GetAxis(i);
+                if (a->IsAlphanumeric()) {
+                  pointStr += a->GetBinLabel(point[i]);
+                  pointStr += " | ";
+                }
+                else {
+                  pointStr += std::to_string(point[i]);
+                }
+              }
+              // check if pointStr has space and remove it
+              if (pointStr.back() == ' ') {
+                pointStr.pop_back();
+              }
+              logger->Info("%s %.0f |", pointStr.c_str(), content);
+            }
+          }
+        });
+  }
 }
 
 bool HnSparseTree::InitTree(const std::string & filename, const std::string & treename)
@@ -178,8 +284,8 @@ bool HnSparseTree::InitTree(const std::string & filename, const std::string & tr
     logger->Error("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), filename.c_str());
     return false;
   }
-  fPrefix  = gSystem->GetDirName(filename.c_str());
-  fPostfix = gSystem->BaseName(filename.c_str());
+  if (fPrefix.empty()) fPrefix = gSystem->GetDirName(filename.c_str());
+  if (fPostfix.empty()) fPostfix = gSystem->BaseName(filename.c_str());
 
   return true;
 }

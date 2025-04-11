@@ -1,4 +1,5 @@
 #include <TSystem.h>
+#include <vector>
 #include "Utils.h"
 #include "Logger.h"
 
@@ -8,6 +9,11 @@ ClassImp(Ndmspc::Config);
 /// \endcond
 
 namespace Ndmspc {
+
+// Initialize pointer to null
+std::unique_ptr<Config> Config::fgInstance = nullptr;
+std::mutex              Config::fMutex;
+
 Config::Config() : TNamed("ndmspcCfg", "NDMSPC configuration") {}
 Config::Config(const std::string & config, const std::string & userConfig, const std::string & userConfigRaw)
     : TNamed("ndmspcCfg", "NDMSPC configuration")
@@ -28,6 +34,7 @@ bool Config::Load(const std::string & config, const std::string & userConfig, co
 
   auto logger             = Ndmspc::Logger::getInstance("");
   fCfgLoaded              = false;
+  fCfg                    = json::object();
   std::string fileContent = Utils::OpenRawFile(config);
   if (!fileContent.empty()) {
     fCfg = json::parse(fileContent);
@@ -56,7 +63,7 @@ bool Config::Load(const std::string & config, const std::string & userConfig, co
   }
 
   // INFO: Set default binning from configuration
-  if (!SetBinning()) return false;
+  // if (!SetBinning()) return false;
 
   fCfgLoaded = true;
 
@@ -70,21 +77,141 @@ void Config::Print(Option_t * option) const
 
   std::string opt = option;
 
-  Printf("Configuration:");
-  Printf("  - Environment: '%s'", GetEnvironment().c_str());
-  Printf("  - Binning: '%s'", GetBinning().c_str());
-  Printf("  - Cuts:");
-  for (auto & cut : fCfg["ndmspc"]["cuts"]) {
-    if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
-    Printf("    - %s: rebin=%d rebin_start=%d", cut["axis"].get<std::string>().c_str(), cut["rebin"].get<Int_t>(),
-           cut["rebin_start"].get<Int_t>());
-  }
-  Printf("  - Work Dir: '%s'", GetWorkingDirectory().c_str());
-  Printf("  - Content file: '%s'", GetContentFile().c_str());
+  auto logger = Ndmspc::Logger::getInstance("");
 
+  logger->Info("NDMSPC configuration:");
+  logger->Info("  - Name: '%s'", GetAnalysisName().c_str());
+  logger->Info("  - Revision: '%s'", GetAnalysisRevision().c_str());
+  logger->Info("  - Environment: '%s'", GetEnvironment().c_str());
+  logger->Info("  - Base path: '%s'", GetAnalysisBasePath().c_str());
+  logger->Info("  - Workspace path: '%s'", GetWorkspacePath().c_str());
+  logger->Info("  - Map file: '%s'", GetMapFileName().c_str());
+  logger->Info("  - Map object: '%s'", GetMapObjectName().c_str());
+  logger->Info("  - Input prefix: '%s'", GetInputPrefix().c_str());
+  logger->Info("  - Input object directory: '%s'", GetInputObjectDirecotry().c_str());
+
+  // Print input objects
+  logger->Info("  - Input objects:");
+  for (auto & obj : GetInputObjectNames()) {
+    logger->Info("    - '%s'", obj.c_str());
+  }
+
+  // Printf("  - Binning: '%s'", GetBinning().c_str());
+  // Printf("  - Cuts:");
+  // for (auto & cut : fCfg["ndmspc"]["cuts"]) {
+  //   if (cut["enabled"].is_boolean() && cut["enabled"].get<bool>() == false) continue;
+  //   Printf("    - %s: rebin=%d rebin_start=%d", cut["axis"].get<std::string>().c_str(), cut["rebin"].get<Int_t>(),
+  //          cut["rebin_start"].get<Int_t>());
+  // }
+  // Printf("  - Work Dir: '%s'", GetWorkingDirectory().c_str());
+  // Printf("  - Content file: '%s'", GetContentFile().c_str());
+  //
   if (opt.find("config") != std::string::npos) {
     Printf("Config: \n%s", fCfg.dump(2).c_str());
   }
+}
+
+std::string Config::GetAnalysisBasePath() const
+{
+  ///
+  /// Return analysis path
+  ///
+
+  return gSystem->ExpandPathName(Utils::GetJsonString(fCfg["ndmspc"]["base"]).c_str());
+}
+
+std::string Config::GetAnalysisInputPath() const
+{
+  ///
+  /// Return analysis input path
+  ///
+
+  std::string path = GetAnalysisBasePath() + "/" + GetAnalysisName() + "/" + GetInputPrefix();
+  return gSystem->ExpandPathName(path.c_str());
+}
+
+std::string Config::GetAnalysisName() const
+{
+  ///
+  /// Return analysis name
+  ///
+
+  return Utils::GetJsonString(fCfg["ndmspc"]["name"]);
+}
+
+std::string Config::GetAnalysisRevision() const
+{
+  ///
+  /// Return analysis revision
+  ///
+
+  return Utils::GetJsonString(fCfg["ndmspc"]["revision"]);
+}
+
+std::string Config::GetAnalysisNameRevision() const
+{
+  ///
+  /// Return analysis name and revision
+  ///
+
+  std::string name = GetAnalysisName();
+  std::string rev  = GetAnalysisRevision();
+  if (rev.empty()) return name;
+  return name + "-" + rev;
+}
+std::string Config::GetWorkspacePath() const
+{
+  ///
+  /// Return workspace path
+  ///
+
+  std::string dir  = Utils::GetJsonString(fCfg["ndmspc"]["workspace"]["dir"]);
+  std::string host = Utils::GetJsonString(fCfg["ndmspc"]["workspace"]["host"]);
+  std::string path = host + dir;
+  return gSystem->ExpandPathName(path.c_str());
+}
+
+std::string Config::GetInputPrefix() const
+{
+  ///
+  /// Return input prefix
+  ///
+
+  return Utils::GetJsonString(fCfg["ndmspc"]["input"]["prefix"]);
+}
+
+std::string Config::GetInputObjectDirecotry() const
+{
+  ///
+  /// Return input object directory
+  ///
+
+  return Utils::GetJsonString(fCfg["ndmspc"]["input"]["directory"]);
+}
+
+std::vector<std::string> Config::GetInputObjectNames() const
+{
+  ///
+  /// Return input object names
+  ///
+
+  return Utils::GetJsonStringArray(fCfg["ndmspc"]["input"]["objects"]);
+}
+std::string Config::GetMapFileName() const
+{
+  ///
+  /// Return map file name
+  ///
+
+  return Utils::GetJsonString(fCfg["ndmspc"]["map"]["file"]);
+}
+std::string Config::GetMapObjectName() const
+{
+  ///
+  /// Return map object name
+  ///
+
+  return Utils::GetJsonString(fCfg["ndmspc"]["map"]["object"]);
 }
 
 std::string Config::GetAxesName() const

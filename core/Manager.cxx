@@ -31,9 +31,13 @@ void Manager::Print(Option_t * option) const
   Printf("NdmSpc manager");
   Printf("Name: '%s' Title: '%s'", GetName(), GetTitle());
 
-  Config & c = Config::Instance();
-  c.Print(option);
-  InputMap * im = c.GetInputMap();
+  Config * c = Config::Instance();
+  if (c == nullptr) {
+    Printf("Config is not initialized ...");
+    return;
+  }
+  c->Print(option);
+  InputMap * im = c->GetInputMap();
   if (im) im->Print();
   Printf("%s", std::string(64, '=').c_str());
 }
@@ -44,20 +48,24 @@ bool Manager::Load(std::string config, std::string userConfig, std::string envir
   /// Load manager
   ///
 
-  Config & c = Config::Instance();
+  Config * c = Config::Instance();
+  if (c == nullptr) {
+    Printf("Error: Cannot get config instance ...");
+    return false;
+  }
 
   // INFO: Load configuration
-  if (!c.Load(config, userConfig, userConfigRaw)) return false;
+  if (!c->Load(config, userConfig, userConfigRaw)) return false;
 
   // INFO: Load environment
-  if (!c.SetEnvironment(environment)) return false;
-  Printf("Environment '%s' is loaded ...", c.GetEnvironment().c_str());
+  if (!c->SetEnvironment(environment)) return false;
+  Printf("Environment '%s' is loaded ...", c->GetEnvironment().c_str());
 
   // INFO: Load environment
-  if (!c.SetBinning(binning)) return false;
+  if (!c->SetBinning(binning)) return false;
 
   // INFO: Load InputMap
-  if (!c.SetInputMap()) return false;
+  if (!c->SetInputMap()) return false;
 
   if (!fResults) fResults = new Results();
   fResults->Print();
