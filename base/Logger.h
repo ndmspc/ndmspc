@@ -52,10 +52,12 @@ class Logger {
   Logger & operator=(const Logger &) = delete;
   virtual ~Logger()
   {
-    // printf("Logger destructor called\n");
-    // CleanupTracer();
-    // CleanupLogger();
-    // CleanupOTLLogger();
+    try {
+      Cleanup();
+    }
+    catch (...) {
+      // Handle any exceptions that may occur during cleanup
+    }
   }
 
   static Logger * getInstance(std::string url = "")

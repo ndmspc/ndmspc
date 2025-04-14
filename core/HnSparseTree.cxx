@@ -214,6 +214,7 @@ void HnSparseTree::Print(Option_t * option) const
             if (allBins || GetBinContent(p) > 0) {
 
               std::string pointStr = fPrefix;
+              std::string binStr   = "{";
               if (!fPrefix.empty()) pointStr += "/";
               for (int i = 0; i < GetNdimensions(); i++) {
                 TAxis * a = GetAxis(i);
@@ -224,13 +225,18 @@ void HnSparseTree::Print(Option_t * option) const
                   pointStr += std::to_string(point[i]);
                 }
                 pointStr += "/";
+                binStr += std::to_string(point[i]) + ",";
               }
               // check if pointStr has space and remove it
               if (pointStr.back() == '/') {
                 pointStr.pop_back();
               }
+              if (binStr.back() == ',') {
+                binStr.pop_back();
+              }
+              binStr += "}";
               pointStr += "/" + fPostfix;
-              logger->Info("[%3s] %s", content > 0 ? "YES" : "NO", pointStr.c_str());
+              logger->Info("[%1s] %s\t%s", content > 0 ? "*" : " ", binStr.c_str(), pointStr.c_str());
             }
           }
           else {
