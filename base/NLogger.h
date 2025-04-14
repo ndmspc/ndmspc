@@ -1,0 +1,75 @@
+#ifndef Ndmspc_NLogger_H
+#define Ndmspc_NLogger_H
+#include <cstdarg>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
+#include "opentelemetry/logs/severity.h"
+#include "opentelemetry/logs/logger_provider.h"
+namespace logs_api = opentelemetry::logs;
+
+#include <TObject.h>
+
+namespace Ndmspc {
+
+///
+/// \class NLogger
+///
+/// \brief NLogger object
+///	\author Martin Vala <mvala@cern.ch>
+///
+static const std::unordered_map<std::string, logs_api::Severity> fgSeverityMap = {
+    {"TRACE", logs_api::Severity::kTrace},   {"TRACE2", logs_api::Severity::kTrace2},
+    {"TRACE3", logs_api::Severity::kTrace3}, {"TRACE4", logs_api::Severity::kTrace4},
+    {"DEBUG", logs_api::Severity::kDebug},   {"DEBUG2", logs_api::Severity::kDebug2},
+    {"DEBUG3", logs_api::Severity::kDebug3}, {"DEBUG4", logs_api::Severity::kDebug4},
+    {"INFO", logs_api::Severity::kInfo},     {"INFO2", logs_api::Severity::kInfo2},
+    {"INFO3", logs_api::Severity::kInfo3},   {"INFO4", logs_api::Severity::kInfo4},
+    {"WARN", logs_api::Severity::kWarn},     {"WARN2", logs_api::Severity::kWarn2},
+    {"WARN3", logs_api::Severity::kWarn3},   {"WARN4", logs_api::Severity::kWarn4},
+    {"ERROR", logs_api::Severity::kError},   {"ERROR2", logs_api::Severity::kError2},
+    {"ERROR3", logs_api::Severity::kError3}, {"ERROR4", logs_api::Severity::kError4},
+    {"FATAL", logs_api::Severity::kFatal},   {"FATAL2", logs_api::Severity::kFatal2},
+    {"FATAL3", logs_api::Severity::kFatal3}, {"FATAL4", logs_api::Severity::kFatal4},
+};
+
+class NLogger : public TObject {
+  public:
+  NLogger();
+  virtual ~NLogger();
+  // Delete copy constructor and assignment operator
+  NLogger(const NLogger &)                             = delete;
+  NLogger &                 operator=(const NLogger &) = delete;
+  static logs_api::Severity GetSeverityFromString(const std::string & severity_str);
+  logs_api::Severity        GetMinSeverity() const { return fMinSeverity; }
+  void                      Log(logs_api::Severity level, logs_api::Logger * logger, const char * format, va_list args);
+  void                      Debug(logs_api::Logger * logger, const char * format, ...);
+  void                      Debug(const char * format, ...);
+  void                      Info(logs_api::Logger * logger, const char * format, ...);
+  void                      Info(const char * format, ...);
+  void                      Warning(logs_api::Logger * logger, const char * format, ...);
+  void                      Warning(const char * format, ...);
+  void                      Error(logs_api::Logger * logger, const char * format, ...);
+  void                      Error(const char * format, ...);
+  void                      Fatal(logs_api::Logger * logger, const char * format, ...);
+  void                      Fatal(const char * format, ...);
+  void                      Trace(logs_api::Logger * logger, const char * format, ...);
+  void                      Trace(const char * format, ...);
+  opentelemetry::nostd::shared_ptr<logs_api::Logger> GetDefaultLogger();
+  static NLogger *                                   Instance();
+
+  private:
+  logs_api::Severity              fMinSeverity{logs_api::Severity::kInfo}; ///< Default log level
+  static std::unique_ptr<NLogger> fgLogger;
+  static std::mutex               fgMutex;
+
+  void InitLogger();
+  void CleanupLogger();
+  /// \cond CLASSIMP
+  ClassDef(NLogger, 1);
+  /// \endcond;
+};
+} // namespace Ndmspc
+#endif

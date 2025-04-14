@@ -1,4 +1,4 @@
-set(MODULE GitlabEvent)
+set(MODULE GitlabEvent_legacy)
 set(PACKAGE Ndmspc${MODULE})
 file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx" )
 set (MY_INCLUDE_DIRS )
