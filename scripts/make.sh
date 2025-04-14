@@ -22,7 +22,8 @@ for ARG in $@; do
   case $ARG in
     "clean")
       echo "Cleaning up build directory"
-      rm -rf ${PROJECT_DIR}/build
+      rm -rf ${PROJECT_DIR}/build ${PROJECT_DIR}/include ${PROJECT_DIR}/lib* ${PROJECT_DIR}/bin
+
       ;;
 
     "doc")
@@ -120,7 +121,7 @@ if [[ $BUILDING_DOC == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DBUILD_DOCUMENTATION:bool=ON"
 fi
 
-MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"
+# MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"
 
 if [[ ! -d $PROJECT_DIR/build ]]; then
   echo "Creating build directory"
