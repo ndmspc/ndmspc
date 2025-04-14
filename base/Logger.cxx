@@ -78,7 +78,6 @@ void Logger::InitOTLLogger()
   // auto exporter  = std::unique_ptr<logs_sdk::LogRecordExporter>(new logs_exporter::OStreamLogRecordExporter);
   // 1. Define Resource attributes
   opentelemetry::sdk::resource::ResourceAttributes resource_attributes = {{"service.name", "ndmspc"},
-
                                                                           {"application", "ndmspc-app"}};
   auto resource = opentelemetry::sdk::resource::Resource::Create(resource_attributes);
 
