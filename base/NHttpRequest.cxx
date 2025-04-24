@@ -5,12 +5,8 @@
 #include <TBase64.h>
 #include "NHttpRequest.h"
 
-/// \cond CLASSIMP
-ClassImp(Ndmspc::NHttpRequest);
-/// \endcond
-
 namespace Ndmspc {
-NHttpRequest::NHttpRequest() : NObject(), curl(nullptr), headers(nullptr)
+NHttpRequest::NHttpRequest() : curl(nullptr), headers(nullptr)
 {
   curl_global_init(CURL_GLOBAL_DEFAULT);
   curl = curl_easy_init();

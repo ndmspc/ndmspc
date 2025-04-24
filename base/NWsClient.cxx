@@ -2,11 +2,8 @@
 #include <string>
 #include <chrono>
 #include <cstring>
+#include "NLogger.h"
 #include "NWsClient.h"
-
-/// \cond CLASSIMP
-ClassImp(Ndmspc::NWsClient);
-/// \endcond
 
 namespace Ndmspc {
 
@@ -56,7 +53,7 @@ bool NWsClient::connect(const std::string & url)
     use_ssl  = true;
   }
   else {
-    std::cerr << "Invalid URL scheme. Use ws:// or wss://" << std::endl;
+    NLogger::Error("Invalid URL scheme: '%s' . Use ws:// or wss:// .", url.c_str());
     return false;
   }
 
@@ -95,7 +92,7 @@ bool NWsClient::connect(const std::string & url)
 
   context_ = lws_create_context(&info);
   if (!context_) {
-    std::cerr << "Failed to create LWS context" << std::endl;
+    NLogger::Error("Failed to create LWS context");
     return false;
   }
 
@@ -119,11 +116,12 @@ bool NWsClient::connect(const std::string & url)
   // Connect
   wsi_ = lws_client_connect_via_info(&conn_info);
   if (!wsi_) {
-    std::cerr << "Failed to connect" << std::endl;
+    NLogger::Error("Failed to connect to %s", url.c_str());
     lws_context_destroy(context_);
     context_ = nullptr;
     return false;
   }
+  NLogger::Info("Connecting to %s ...", url.c_str());
 
   // Start service thread
   thread_running_ = true;
@@ -136,6 +134,7 @@ bool NWsClient::connect(const std::string & url)
   // Wait for connection to establish or fail
   std::unique_lock<std::mutex> lock(mutex_);
   cv_.wait_for(lock, std::chrono::seconds(5), [this]() { return connected_ || !thread_running_; });
+  NLogger::Info("Connection status: %s", connected_ ? "Connected" : "Not connected");
 
   return connected_;
 }
@@ -164,7 +163,7 @@ void NWsClient::disconnect()
 bool NWsClient::send(const std::string & message)
 {
   if (!connected_ || !wsi_) {
-    std::cerr << "Not connected" << std::endl;
+    NLogger::Error("Not connected to WebSocket server");
     return false;
   }
 
@@ -244,7 +243,6 @@ int NWsClient::callback_function(struct lws * wsi, enum lws_callback_reasons rea
       std::lock_guard<std::mutex> lock(client->mutex_);
       client->connected_ = true;
       client->cv_.notify_all();
-      std::cout << "Connected to server" << std::endl;
     }
   } break;
 
@@ -294,7 +292,7 @@ int NWsClient::callback_function(struct lws * wsi, enum lws_callback_reasons rea
       client->cv_.notify_all();
 
       if (bytes_sent < 0) {
-        std::cerr << "Error writing to socket" << std::endl;
+        NLogger::Error("Error writing to socket: %d bytes sent", bytes_sent);
         return -1;
       }
     }
@@ -303,8 +301,12 @@ int NWsClient::callback_function(struct lws * wsi, enum lws_callback_reasons rea
   case LWS_CALLBACK_CLIENT_CLOSED:
   case LWS_CALLBACK_CLIENT_CONNECTION_ERROR: {
     if (client) {
-      std::string reason_str = (reason == LWS_CALLBACK_CLIENT_CLOSED) ? "Connection closed" : "Connection error";
-      std::cout << reason_str << std::endl;
+      if (reason == LWS_CALLBACK_CLIENT_CLOSED) {
+        NLogger::Info("Connection closed");
+      }
+      else {
+        NLogger::Error("Connection error");
+      }
 
       std::lock_guard<std::mutex> lock(client->mutex_);
       client->connected_ = false;

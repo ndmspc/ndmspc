@@ -1,7 +1,7 @@
 #!/bin/bash
 
 CLASSNAME=${1-""}
-CLASSNAME_DERIVATIVE=${2-"NObject"}
+CLASSNAME_DERIVATIVE=${2-"TObject"}
 
 [ -n "$CLASSNAME" ] || {
   echo "Set the class name as first argument !!!"

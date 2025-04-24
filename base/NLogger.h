@@ -40,33 +40,31 @@ class NLogger : public TObject {
   NLogger();
   virtual ~NLogger();
   // Delete copy constructor and assignment operator
-  NLogger(const NLogger &)                             = delete;
-  NLogger &                 operator=(const NLogger &) = delete;
+  NLogger(const NLogger &)                                                             = delete;
+  NLogger &                                                 operator=(const NLogger &) = delete;
+  static NLogger *                                          Instance();
+  static opentelemetry::nostd::shared_ptr<logs_api::Logger> GetDefaultLogger();
+
   static logs_api::Severity GetSeverityFromString(const std::string & severity_str);
-  logs_api::Severity        GetMinSeverity() const { return fMinSeverity; }
-  void                      Log(logs_api::Severity level, logs_api::Logger * logger, const char * format, va_list args);
-  void                      Debug(logs_api::Logger * logger, const char * format, ...);
-  void                      Debug(const char * format, ...);
-  void                      Info(logs_api::Logger * logger, const char * format, ...);
-  void                      Info(const char * format, ...);
-  void                      Warning(logs_api::Logger * logger, const char * format, ...);
-  void                      Warning(const char * format, ...);
-  void                      Error(logs_api::Logger * logger, const char * format, ...);
-  void                      Error(const char * format, ...);
-  void                      Fatal(logs_api::Logger * logger, const char * format, ...);
-  void                      Fatal(const char * format, ...);
-  void                      Trace(logs_api::Logger * logger, const char * format, ...);
-  void                      Trace(const char * format, ...);
-  opentelemetry::nostd::shared_ptr<logs_api::Logger> GetDefaultLogger();
-  static NLogger *                                   Instance();
+  // logs_api::Severity        GetMinSeverity() const { return fMinSeverity; }
+
+  static void Log(logs_api::Severity level, const char * format, va_list args);
+  static void Debug(const char * format, ...);
+  static void Info(const char * format, ...);
+  static void Warning(const char * format, ...);
+  static void Error(const char * format, ...);
+  static void Fatal(const char * format, ...);
+  static void Trace(const char * format, ...);
+
+  static std::mutex fgLoggerMutex;
 
   private:
-  logs_api::Severity              fMinSeverity{logs_api::Severity::kInfo}; ///< Default log level
+  // logs_api::Severity              fMinSeverity{logs_api::Severity::kInfo}; ///< Default log level
   static std::unique_ptr<NLogger> fgLogger;
-  static std::mutex               fgMutex;
 
-  void InitLogger();
-  void CleanupLogger();
+  void Init();
+  void Cleanup();
+
   /// \cond CLASSIMP
   ClassDef(NLogger, 1);
   /// \endcond;

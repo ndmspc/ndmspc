@@ -1,10 +1,7 @@
 #ifndef Ndmspc_NHttpRequest_H
 #define Ndmspc_NHttpRequest_H
 #include <curl/curl.h>
-// #include <iostream>
 #include <sstream>
-// #include <stdexcept>
-#include <NObject.h>
 
 namespace Ndmspc {
 
@@ -15,7 +12,7 @@ namespace Ndmspc {
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
-class NHttpRequest : public NObject {
+class NHttpRequest {
   public:
   NHttpRequest();
   virtual ~NHttpRequest();
@@ -38,10 +35,6 @@ class NHttpRequest : public NObject {
   struct curl_slist * headers;
 
   void throw_curl_error(CURLcode res) const;
-
-  /// \cond CLASSIMP
-  ClassDef(NHttpRequest, 1);
-  /// \endcond;
 };
 } // namespace Ndmspc
 #endif
