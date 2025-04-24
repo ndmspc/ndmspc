@@ -5,7 +5,7 @@
 #include <TH1.h>
 #include <TH2.h>
 #include <TH3.h>
-#include <omp.h>
+// #include <omp.h>
 #include <pthread.h>
 #include <vector>
 
@@ -516,46 +516,46 @@ void HnSparseTreeUtils::IterateNDimensionalSpaceParallel(
     const std::function<void(const std::vector<int> &)> & userFunction, int numThreads)
 {
 
-  Logger * logger = Logger::getInstance("");
-  logger->Info("[TODO]Iterating N-dimensional space in parallel ...");
-  if (minBounds.size() != maxBounds.size() || minBounds.empty()) {
-    std::cerr << "Error: Invalid bounds dimensions" << std::endl;
-    return;
-  }
-
-  const int dimensions = minBounds.size();
-
-  // Calculate total number of points
-  long long              totalPoints = 1;
-  std::vector<long long> dimensionSizes(dimensions);
-  for (int i = 0; i < dimensions; i++) {
-    dimensionSizes[i] = maxBounds[i] - minBounds[i] + 1;
-    totalPoints *= dimensionSizes[i];
-  }
-
-  if (numThreads > 0) {
-    omp_set_num_threads(numThreads);
-  }
-
-// Process points in parallel
-#pragma omp parallel
-  {
-    std::vector<int> point(dimensions);
-
-#pragma omp for schedule(dynamic)
-    for (long long idx = 0; idx < totalPoints; idx++) {
-      // Convert linear index to n-dimensional point
-      long long remaining = idx;
-      for (int dim = dimensions - 1; dim >= 0; dim--) {
-        long long dimSize = dimensionSizes[dim];
-        point[dim]        = minBounds[dim] + (remaining % dimSize);
-        remaining /= dimSize;
-      }
-
-      // Apply user function to the current point
-      userFunction(point);
-    }
-  }
+  //   Logger * logger = Logger::getInstance("");
+  //   logger->Info("[TODO]Iterating N-dimensional space in parallel ...");
+  //   if (minBounds.size() != maxBounds.size() || minBounds.empty()) {
+  //     std::cerr << "Error: Invalid bounds dimensions" << std::endl;
+  //     return;
+  //   }
+  //
+  //   const int dimensions = minBounds.size();
+  //
+  //   // Calculate total number of points
+  //   long long              totalPoints = 1;
+  //   std::vector<long long> dimensionSizes(dimensions);
+  //   for (int i = 0; i < dimensions; i++) {
+  //     dimensionSizes[i] = maxBounds[i] - minBounds[i] + 1;
+  //     totalPoints *= dimensionSizes[i];
+  //   }
+  //
+  //   if (numThreads > 0) {
+  //     omp_set_num_threads(numThreads);
+  //   }
+  //
+  // // Process points in parallel
+  // #pragma omp parallel
+  //   {
+  //     std::vector<int> point(dimensions);
+  //
+  // #pragma omp for schedule(dynamic)
+  //     for (long long idx = 0; idx < totalPoints; idx++) {
+  //       // Convert linear index to n-dimensional point
+  //       long long remaining = idx;
+  //       for (int dim = dimensions - 1; dim >= 0; dim--) {
+  //         long long dimSize = dimensionSizes[dim];
+  //         point[dim]        = minBounds[dim] + (remaining % dimSize);
+  //         remaining /= dimSize;
+  //       }
+  //
+  //       // Apply user function to the current point
+  //       userFunction(point);
+  //     }
+  //   }
 }
 
 } // namespace Ndmspc

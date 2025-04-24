@@ -1,5 +1,7 @@
 #include <TSystem.h>
 #include <vector>
+#include <string>
+#include <sstream>
 #include "NLogger.h"
 #include "NUtils.h"
 

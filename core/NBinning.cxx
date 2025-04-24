@@ -330,5 +330,24 @@ std::vector<std::vector<int>> NBinning::GetAll()
 
   return all_bins;
 }
+bool NBinning::AddBinning(std::vector<int> binning, int n)
+{
+  ///
+  /// Add binning
+  ///
+
+  if (fAxes.size() == 0) {
+    NLogger::Error("AddBinning: No axes defined !!!");
+    return false;
+  }
+
+  Int_t * point = new Int_t[binning.size()];
+  for (int i = 0; i < n; i++) {
+    NUtils::VectorToArray(binning, point);
+    fMap->SetBinContent(point, 1);
+  }
+
+  return true;
+}
 
 } // namespace Ndmspc
