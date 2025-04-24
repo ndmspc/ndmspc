@@ -14,41 +14,58 @@ ClassImp(Ndmspc::NLogger);
 
 namespace Ndmspc {
 // Initialize pointer to null
-std::unique_ptr<NLogger> NLogger::fgLogger = nullptr;
-std::mutex               NLogger::fgMutex;
+std::unique_ptr<NLogger> NLogger::fgLogger = std::unique_ptr<NLogger>(new NLogger());
+// std::unique_ptr<NLogger> NLogger::fgLogger = nullptr;
+std::mutex NLogger::fgLoggerMutex;
 
-NLogger::NLogger() : TObject(), fMinSeverity(logs_api::Severity::kInfo)
+NLogger::NLogger() : TObject()
 {
-  // Initialize the logger
-  const char * env_severity = getenv("NDMSPC_LOG_LEVEL");
-  if (env_severity) {
-    fMinSeverity = GetSeverityFromString(env_severity);
-  }
+  ///
+  /// Constructor
+  ///
 
-  InitLogger();
+  // Initialize the logger
+  Init();
 }
 NLogger::~NLogger()
 {
-  CleanupLogger();
+  ///
+  /// Destructor
+  ///
+
+  Cleanup();
 }
 NLogger * NLogger::Instance()
 {
-  std::lock_guard<std::mutex> lock(fgMutex);
+  ///
+  /// Returns the singleton instance of NLogger
+  ///
+
+  std::lock_guard<std::mutex> lock(fgLoggerMutex);
   if (fgLogger == nullptr) {
     fgLogger = std::unique_ptr<NLogger>(new NLogger());
   }
   return fgLogger.get();
 }
-void NLogger::InitLogger()
+void NLogger::Init()
 {
-  // Create ostream log exporter instance
-  // auto exporter  = std::unique_ptr<logs_sdk::LogRecordExporter>(new logs_exporter::OStreamLogRecordExporter);
-  // 1. Define Resource attributes
+  ///
+  /// Init logger
+  ///
+
+  logs_api::Severity min_severity = logs_api::Severity::kInfo;
+  const char *       env_severity = getenv("NDMSPC_LOG_LEVEL");
+  if (env_severity) {
+    min_severity = GetSeverityFromString(env_severity);
+    // if (min_severity < logs_api::Severity::kInfo) {
+    //   std::cout << "NLogger: Setting log level to '" << env_severity << "' ..." << std::endl;
+    // }
+  }
   opentelemetry::sdk::resource::ResourceAttributes resource_attributes = {{"service.name", "ndmspc-service"},
                                                                           {"application", "ndmspc-app"}};
   auto resource = opentelemetry::sdk::resource::Resource::Create(resource_attributes);
 
-  auto exporter  = std::unique_ptr<logs_sdk::LogRecordExporter>(new NLogExporter(std::cout, fMinSeverity));
+  auto exporter  = std::unique_ptr<logs_sdk::LogRecordExporter>(new NLogExporter(std::cout, min_severity));
   auto processor = logs_sdk::SimpleLogRecordProcessorFactory::Create(std::move(exporter));
 
   std::shared_ptr<opentelemetry::sdk::logs::LoggerProvider> sdk_provider(
@@ -60,13 +77,20 @@ void NLogger::InitLogger()
   logs_api::Provider::SetLoggerProvider(api_provider);
 }
 
-void NLogger::CleanupLogger()
+void NLogger::Cleanup()
 {
+  ///
+  /// Cleanup logger
+  ///
+
   std::shared_ptr<logs_api::LoggerProvider> noop;
   logs_api::Provider::SetLoggerProvider(noop);
 }
 logs_api::Severity NLogger::GetSeverityFromString(const std::string & severity_str)
 {
+  ///
+  /// Returns the severity level from a string
+  ///
 
   auto it = fgSeverityMap.find(severity_str);
   if (it != fgSeverityMap.end()) {
@@ -77,116 +101,98 @@ logs_api::Severity NLogger::GetSeverityFromString(const std::string & severity_s
 }
 opentelemetry::nostd::shared_ptr<logs_api::Logger> NLogger::GetDefaultLogger()
 {
+  ///
+  /// Returns the default logger
+  ///
+
   auto provider = logs_api::Provider::GetLoggerProvider();
   return provider->GetLogger("ndmpsc", "ndmspc");
 }
 
-void NLogger::Log(logs_api::Severity level, logs_api::Logger * logger, const char * format, va_list args)
+void NLogger::Log(logs_api::Severity level, const char * format, va_list args)
 {
+  ///
+  /// Log the message with the given severity level
+  ///
+
   std::stringstream ss;
 
   // Format the string using vprintf-like functionality
+  // TODO: Increase size of buffer if needed
   char buffer[1024]; // Adjust size as needed
   vsnprintf(buffer, sizeof(buffer), format, args);
   ss << buffer;
-  if (logger != nullptr) {
-    logger->Log(level, ss.str());
-  }
-  else {
-    GetDefaultLogger()->Log(level, ss.str());
-  }
-}
-
-void NLogger::Debug(logs_api::Logger * logger, const char * format, ...)
-{
-  va_list args;
-  va_start(args, format);
-  Log(logs_api::Severity::kDebug, logger, format, args);
-  va_end(args);
+  GetDefaultLogger()->Log(level, ss.str());
 }
 
 void NLogger::Debug(const char * format, ...)
 {
-  va_list args;
-  va_start(args, format);
-  Log(logs_api::Severity::kDebug, nullptr, format, args);
-  va_end(args);
-}
+  ///
+  /// Debug log
+  ///
 
-void NLogger::Info(logs_api::Logger * logger, const char * format, ...)
-{
   va_list args;
   va_start(args, format);
-  Log(logs_api::Severity::kInfo, logger, format, args);
+  Log(logs_api::Severity::kDebug, format, args);
   va_end(args);
 }
 
 void NLogger::Info(const char * format, ...)
 {
-  va_list args;
-  va_start(args, format);
-  Log(logs_api::Severity::kInfo, nullptr, format, args);
-  va_end(args);
-}
+  ///
+  /// Info log
+  ///
 
-void NLogger::Warning(logs_api::Logger * logger, const char * format, ...)
-{
   va_list args;
   va_start(args, format);
-  Log(logs_api::Severity::kWarn, logger, format, args);
+  Log(logs_api::Severity::kInfo, format, args);
   va_end(args);
 }
 
 void NLogger::Warning(const char * format, ...)
 {
+  ///
+  /// Warning log
+  ///
+
   va_list args;
   va_start(args, format);
-  Log(logs_api::Severity::kWarn, nullptr, format, args);
+  Log(logs_api::Severity::kWarn, format, args);
   va_end(args);
 }
 
-void NLogger::Error(logs_api::Logger * logger, const char * format, ...)
-{
-  va_list args;
-  va_start(args, format);
-  Log(logs_api::Severity::kError, logger, format, args);
-  va_end(args);
-}
 void NLogger::Error(const char * format, ...)
 {
+  ///
+  /// Error log
+  ///
+
   va_list args;
   va_start(args, format);
-  Log(logs_api::Severity::kError, nullptr, format, args);
-  va_end(args);
-}
-void NLogger::Fatal(logs_api::Logger * logger, const char * format, ...)
-{
-  va_list args;
-  va_start(args, format);
-  Log(logs_api::Severity::kFatal, logger, format, args);
+  Log(logs_api::Severity::kError, format, args);
   va_end(args);
 }
 void NLogger::Fatal(const char * format, ...)
 {
-  va_list args;
-  va_start(args, format);
-  Log(logs_api::Severity::kFatal, nullptr, format, args);
-  va_end(args);
-}
+  ///
+  /// Fatal log
+  ///
 
-void NLogger::Trace(logs_api::Logger * logger, const char * format, ...)
-{
   va_list args;
   va_start(args, format);
-  Log(logs_api::Severity::kTrace, logger, format, args);
+  Log(logs_api::Severity::kFatal, format, args);
   va_end(args);
 }
 
 void NLogger::Trace(const char * format, ...)
 {
+  ///
+  /// Trace log
+  ///
+
   va_list args;
   va_start(args, format);
-  Log(logs_api::Severity::kTrace, nullptr, format, args);
+  Log(logs_api::Severity::kTrace, format, args);
   va_end(args);
 }
 

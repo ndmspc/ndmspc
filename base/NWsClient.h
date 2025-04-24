@@ -6,7 +6,6 @@
 #include <mutex>
 #include <condition_variable>
 #include <vector>
-#include <NObject.h>
 
 namespace Ndmspc {
 
@@ -17,7 +16,7 @@ namespace Ndmspc {
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
-class NWsClient : public NObject {
+class NWsClient {
   public:
   NWsClient();
   virtual ~NWsClient();
@@ -49,9 +48,6 @@ class NWsClient : public NObject {
   std::vector<uint8_t>     send_buffer_;
   std::vector<char>        rx_buffer_;         // Use char for binary safety
   std::vector<std::string> received_messages_; // Store complete messages, not fragments
-  /// \cond CLASSIMP
-  ClassDef(NWsClient, 1);
-  /// \endcond;
 };
 } // namespace Ndmspc
 #endif

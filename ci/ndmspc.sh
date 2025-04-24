@@ -4,11 +4,13 @@ tag: "v0.20250322.0"
 requires:
   - ROOT
   - JAliEn-ROOT
+  - libwebsockets
 build_requires:
   - CMake
   - ninja
   - alibuild-recipe-tools
   - opentelemetry-cpp
+  - "OpenSSL:(?!osx)"
 source: https://gitlab.com/ndmspc/ndmspc.git
 incremental_recipe: |
   [[ $ALIBUILD_NDMSPC_TESTS ]] && CXXFLAGS="${CXXFLAGS} -Werror -Wno-error=deprecated-declarations"
@@ -22,6 +24,8 @@ if [[ $ALIBUILD_NDMSPC_TESTS ]]; then
   CXXFLAGS="${CXXFLAGS} -Werror -Wno-error=deprecated-declarations"
 fi
 
+export
+
 # When O2 is built against Gandiva (from Arrow), then we need to use
 # -DLLVM_ROOT=$CLANG_ROOT, since O2's CMake calls into Gandiva's
 # -CMake, which requires it.
@@ -30,6 +34,7 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"          \
       ${CMAKE_BUILD_TYPE:+"-DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"} \
       ${CXXSTD:+"-DCMAKE_CXX_STANDARD=$CXXSTD"}                   \
       ${PROTOBUF_ROOT:+"-DPROTOBUF_ROOT=$PROTOBUF_ROOT"}          \
+      ${LIBWEBSOCKETS_ROOT:+"-DLIBWEBSOCKETS_ROOT=$LIBWEBSOCKETS_ROOT"}          \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build . -- ${JOBS+-j $JOBS} install
