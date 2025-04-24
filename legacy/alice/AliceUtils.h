@@ -18,8 +18,8 @@ namespace Ndmspc {
 
 class AliceUtils : public TObject {
   public:
-  // AliceUtils();
-  // virtual ~AliceUtils();
+  AliceUtils() : TObject() {}
+  virtual ~AliceUtils() {}
 
   static std::string QueryTrainInfo(int id);
   static bool        InputsFromHyperloop(std::string config, std::set<int> ids, std::string analysis = "PWGXX-YYY");

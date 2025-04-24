@@ -26,6 +26,8 @@ class NBinning : public TObject {
   std::vector<std::vector<int>> GetAll();
   int                           FillAll();
 
+  bool AddBinning(std::vector<int> binning, int n = 1);
+
   /// Returns the mapping histogram
   THnSparse *          GetMap() const { return fMap; }
   THnSparse *          GetContent() const { return fContent; }
