@@ -1,0 +1,61 @@
+{
+  "ndmspc": {
+    "environments": {
+      "local": {
+        "ndmspc": {
+          "workspace": {
+            "dir": "$HOME/.ndmspc/analyses"
+          }
+        }
+      },
+      "eos": {
+        "ndmspc": {
+          "workspace": {
+            "dir": "/eos/ndmspc/scratch/ndmspc/dev/alice/analyses",
+            "host": "root://eos.ndmspc.io/"
+          }
+        }
+      }
+    },
+    "environment": "local",
+    "name": "PWGLF-376",
+    "revision": "dev",
+    "base": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/dev/alice",
+    "map": {
+      "file": "hMap.root",
+      "object": "hMap"
+    },
+    "input": {
+      "prefix": "inputs",
+      "directory": "phianalysis-t-hn-sparse_default",
+      "objects": [
+        "unlikepm",
+        "likepp",
+        "likemm",
+        "mixingpm",
+        "mixingmp",
+        "unliketrue",
+        "unlikegen"
+      ]
+    },
+    "workspace": {
+      "dir": "$HOME/.ndmspc/analyses",
+      "host": ""
+    },
+    "options": {
+      "file": {
+        "TFile": {
+          "opt": "?remote=1",
+          "cache": {
+            "enabled": true,
+            "dir": "$HOME/.ndmspc/cache"
+          }
+        }
+      }
+    },
+    "verbose": 0
+  },
+  "user": {
+    "verbose": 0
+  }
+}

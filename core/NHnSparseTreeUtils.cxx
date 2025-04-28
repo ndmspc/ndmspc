@@ -1,8 +1,10 @@
+#include <cstddef>
 #include <set>
 #include <vector>
 #include <string>
 #include "TAxis.h"
 #include "THnSparse.h"
+#include "TObjArray.h"
 #include "TSystem.h"
 #include <TStopwatch.h>
 #include <TH1.h>
@@ -166,7 +168,7 @@ bool NHnSparseTreeUtils::CreateFromDir(std::string dir, std::vector<std::string>
   timer.Print();
   return true;
 }
-bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::string> objNames,
+bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::string> objNames, std::string directory,
                                  std::string hnstFileNameOut)
 {
   ///
@@ -180,81 +182,120 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
     NLogger::Error("Cannot open file '%s'", hnstFileNameIn.c_str());
     return false;
   }
+  hnstIn->Print("PU");
   hnstIn->Print("P");
-  auto binning = hnstIn->GetBinning();
+  auto binning     = hnstIn->GetBinning();
+  int  nBinsFilled = 0;
 
-  // TODO: Add binnings
-  // binning->AddRange(iAxis,rebin,nbins);
-  // binning->AddRange(iAxis,min,max)
-  Int_t   nDims = binning->GetMap()->GetNdimensions();
-  Int_t * point = new Int_t[nDims];
-  NUtils::VectorToArray({1, 1, 1, 1}, point);
-  binning->GetMap()->SetBinContent(point, 1);
-  NUtils::VectorToArray({2, 1, 1, 1}, point);
-  binning->GetMap()->SetBinContent(point, 1);
-  NUtils::VectorToArray({2, 1, 1, 2}, point);
-  binning->GetMap()->SetBinContent(point, 1);
-  NUtils::VectorToArray({2, 1, 1, 3}, point);
-  binning->GetMap()->SetBinContent(point, 1);
-  NUtils::VectorToArray({3, 1, 1, 2}, point);
-  binning->GetMap()->SetBinContent(point, 1);
-  NUtils::VectorToArray({3, 2, 1, 2}, point);
-  binning->GetMap()->SetBinContent(point, 1);
-  NUtils::VectorToArray({4, 2, 1, 1}, point);
-  binning->GetMap()->SetBinContent(point, 1);
-  NUtils::VectorToArray({4, 1, 1, 3}, point);
-  binning->GetMap()->SetBinContent(point, 1);
+  // 1,3,1,15 (data)
+  binning->AddBinning({1, 1, 1, 1}, 1);
+  binning->AddBinning({2, 1, 1, 3}, 1);
+  binning->AddBinning({3, 1, 1, 1}, 1);
+  binning->AddBinning({4, 1, 1, 11}, 1);
+  binning->AddBinning({4, 1, 1, 15}, 1);
+  nBinsFilled += binning->FillAll();
 
-  // auto                          b = binning->GetMap();
-  // std::vector<std::vector<int>> points;
-  // for (int i = 0; i < hnstIn->GetNdimensions(); i++) {
-  //   /// loop axis nbins and push_back
-  //   for (int j = 1; j <= hnstIn->GetAxis(i)->GetNbins(); j++) {
-  //     // TODO: This has to be added by user
-  //     points.push_back({i + 1, 1, 1, j});
-  //   }
-  // }
-  //
-  // // create point
-  // Int_t * point = new Int_t[nDims];
-  // for (int i = 0; i < points.size(); i++) {
-  //   NUtils::VectorToArray(points[i], point);
-  //   b->SetBinContent(point, 1);
-  // }
-  // binning->Print();
+  // binning->GetMap()->Reset();
 
-  // WARN: Think before using this
-  // NUtils::SetAxisRanges(binning->GetMap(), {{1, 1, 1}, {2, 1, 1}, {3, 1, 1}});
+  // 1,1,5,14 (mc)
+  binning->AddBinning({1, 1, 1, 1}, 1);
+  binning->AddBinning({2, 1, 1, 1}, 1);
+  binning->AddBinning({3, 1, 1, 5}, 1);
+  binning->AddBinning({4, 1, 1, 14}, 1);
+  nBinsFilled += binning->FillAll();
 
-  // binning->GetMap()->Projection(0, 1, 3, "O")->Draw();
-  // return true;
-  // std::vector<std::vector<int>> all_points  = binning->GetAll();
-  int nBinsFilled = binning->FillAll();
   NLogger::Info("Filled %d bins", nBinsFilled);
-  // return true;
-  binning->GetContent()->Print();
+
+  // binning->GetContent()->Print();
   // NUtils::SetAxisRanges(binning->GetContent(), {});
   // NUtils::SetAxisRanges(binning->GetContent(), {{5, 2, 2}, {8, 2, 2}, {11, 2, 2}});
   // binning->GetContent()->Projection(5, 8, 11, "O")->Draw();
   // binning->GetContent()->Projection(3, 4, 5, "O")->Draw();
   // binning->GetContent()->Projection(5, 8, 2, "O")->Draw();
 
-  binning->PrintContent();
+  // binning->PrintContent();
   //
-  // // loop over all selected bins via ROOT iterarot for THnSparse
-  // THnSparse *                                     cSparse = binning->GetContent();
-  // Int_t *                                         bins    = new Int_t[cSparse->GetNdimensions()];
-  // Long64_t                                        linBin  = 0;
-  // std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
-  // while ((linBin = iter->Next()) >= 0) {
-  //   Double_t    v         = cSparse->GetBinContent(linBin, bins);
-  //   Long64_t    idx       = cSparse->GetBin(bins);
-  //   std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(bins, cSparse->GetNdimensions()), -1);
-  //   NLogger::Debug("Bin %lld: %s", linBin, binCoords.c_str());
-  // }
-  // delete[] bins;
 
-  NUtils::SetAxisRanges(binning->GetMap(), {});
+  NHnSparseTree * hnstOut = new NHnSparseTreeC(hnstFileNameOut.c_str());
+  if (!hnstOut) {
+    NLogger::Error("Cannot create NHnSparseTree via file '%s'", hnstFileNameOut.c_str());
+    return false;
+  }
+  hnstOut->Print();
+
+  // loop over all selected bins via ROOT iterarot for THnSparse
+  THnSparse *                                     cSparse = binning->GetContent();
+  Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
+  Long64_t                                        linBin  = 0;
+  std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
+  while ((linBin = iter->Next()) >= 0) {
+    Double_t         v             = cSparse->GetBinContent(linBin, cCoords);
+    Long64_t         idx           = cSparse->GetBin(cCoords);
+    std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
+    std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
+    NLogger::Debug("Bin %lld: %s", linBin, binCoordsStr.c_str());
+    std::vector<std::vector<int>> coordsRange = binning->GetCoordsRange(cCoordsVector);
+    NUtils::PrintPointSafe(coordsRange[0], -1); // mins
+    NUtils::PrintPointSafe(coordsRange[1], -1); // maxs
+    // Print linear index in Hnsparse
+    Int_t p[hnstIn->GetNdimensions()];
+    NUtils::VectorToArray(coordsRange[0], p);
+
+    // print full path
+    NLogger::Debug("Bin %lld: %s", hnstIn->GetBin(p), hnstIn->GetFullPath(coordsRange[0]).c_str());
+    std::string fileName = hnstIn->GetFullPath(coordsRange[0]);
+    TFile *     f        = NUtils::OpenFile(fileName.c_str());
+    if (f == nullptr) {
+      NLogger::Error("Cannot open file '%s'", fileName.c_str());
+      continue;
+    }
+    // loop over objNames and print content
+    for (size_t i = 0; i < objNames.size(); i++) {
+      NLogger::Debug("%s", objNames[i].c_str());
+      std::string objName = directory;
+      if (!directory.empty()) {
+        objName += "/";
+      }
+      objName += objNames[i];
+      THnSparse * hns = (THnSparse *)f->Get(objName.c_str());
+      if (hns == nullptr) {
+        NLogger::Error("Cannot find object '%s' in file '%s'", objName.c_str(), fileName.c_str());
+        continue;
+      }
+      if (!hnstOut->GetNdimensions()) {
+        NLogger::Info("Initializing 'hnstOut' from %s", objName.c_str());
+        TObjArray * axes = (TObjArray *)hnstIn->GetListOfAxes()->Clone();
+        // loop over all axes in hns and get axis
+        for (int j = 0; j < hns->GetNdimensions(); j++) {
+          axes->Add(hns->GetAxis(j)->Clone());
+        }
+        hnstOut->InitAxes(axes, hnstIn->GetNdimensions());
+      }
+      hnstOut->AddBranch(objNames[i], nullptr, "THnSparseD");
+      hnstOut->GetBranch(objNames[i])->SetAddress(hns);
+      // hnstOut->Print("");
+    }
+    // Added all points to hnstOut
+    // TODO: This has to be changed and port it to binning content THnSparse
+    // 1. One THnSparse with original axes for data,mc,... nad one integrated bing for imported object
+    // 2. Binning content THnSparse with all axes for current binning
+    std::vector<int> coordsOut(hnstOut->GetNdimensions(), 1);
+    for (size_t i = 0; i < hnstIn->GetNdimensions(); i++) {
+      coordsOut[i] = coordsRange[0][i];
+    }
+
+    hnstOut->SetPoint(coordsOut);
+
+    hnstOut->FillTree();
+    f->Close();
+  }
+  delete[] cCoords;
+  hnstOut->Close(true);
+
+  return true;
+  NLogger::Info("%s", NUtils::GetCoordsString(objNames, -1).c_str());
+
+  // NUtils::SetAxisRanges(binning->GetMap(), {});
   TCanvas * c = new TCanvas("c", "c", 800, 600);
   c->Divide(2, 2);
   c->cd(1);
@@ -267,7 +308,6 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   auto pContentAll = binning->GetContent()->Projection(5, 8, 11, "O");
   pContentAll->SetMinimum(0);
   pContentAll->Draw();
-  delete[] point;
   return true;
 }
 } // namespace Ndmspc

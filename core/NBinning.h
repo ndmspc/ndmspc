@@ -23,8 +23,8 @@ class NBinning : public TObject {
 
   virtual void                  Print(Option_t * option = "") const;
   void                          PrintContent(Option_t * option = "") const;
-  std::vector<std::vector<int>> GetAll();
   int                           FillAll();
+  std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
 
   bool AddBinning(std::vector<int> binning, int n = 1);
 

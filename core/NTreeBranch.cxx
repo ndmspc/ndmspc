@@ -13,8 +13,7 @@ ClassImp(Ndmspc::NTreeBranch);
 /// \endcond
 
 namespace Ndmspc {
-NTreeBranch::NTreeBranch(TTree * tree, const std::string & name, void * address,
-                                         const std::string & objClassName)
+NTreeBranch::NTreeBranch(TTree * tree, const std::string & name, void * address, const std::string & objClassName)
     : TObject(), fName(name), fObjectClassName(objClassName)
 {
   ///
@@ -66,13 +65,12 @@ void NTreeBranch::SetBranchAddress(TTree * tree)
   /// Setting up branch address
   ///
 
-  // auto logger = Ndmspc::Logger::getInstance("");
   if (!tree) {
     NLogger::Error("Tree is nullptr !!!");
     return;
   }
 
-  NLogger::Info("Setting branch address '%s' ...", fName.c_str());
+  NLogger::Trace("Setting branch address '%s' ...", fName.c_str());
   // fObject = nullptr;
 
   tree->SetBranchStatus(fName.c_str(), fBranchStatus);
@@ -85,6 +83,12 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
   ///
   /// Get entry
   ///
+
+  if (tree == nullptr) {
+    NLogger::Error("Tree is not initialized !!!");
+    return -1;
+  }
+
   NLogger::Trace("Getting entry for branch '%s' %lld status=%d ...", fBranch->GetName(), entry,
                  tree->GetBranchStatus(fBranch->GetName()));
 

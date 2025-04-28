@@ -15,7 +15,7 @@ namespace Ndmspc {
 class NTreeBranch : public TObject {
   public:
   NTreeBranch(TTree * tree = nullptr, const std::string & name = "", void * address = nullptr,
-                     const std::string & objClassName = "TObject");
+              const std::string & objClassName = "TObject");
   virtual ~NTreeBranch();
 
   virtual void Print(Option_t * option = "") const;
@@ -30,6 +30,8 @@ class NTreeBranch : public TObject {
   void SetObject(TObject * obj) { fObject = obj; }
   ///< Returns branch
   TBranch * GetBranch() { return fBranch; }
+  ///< Returns branch status
+  int GetBranchStatus() const { return fBranchStatus; }
   ///< Returns Object
   TObject * GetObject() const { return fObject; }
 

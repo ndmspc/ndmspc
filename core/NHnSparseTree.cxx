@@ -4,6 +4,7 @@
 #include <TFile.h>
 #include <TTree.h>
 #include <TAxis.h>
+#include "NDimensionalExecutor.h"
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NHnSparseTree.h"
@@ -39,8 +40,8 @@ NHnSparseTree::NHnSparseTree(const std::string & filename, const std::string & t
   /// Constructor
   ///
   InitTree(filename, treename);
-  fPrefix  = gSystem->GetDirName(filename.c_str());
-  fPostfix = gSystem->BaseName(filename.c_str());
+  fPrefix  = gSystem->GetDirName(fFileName.c_str());
+  fPostfix = gSystem->BaseName(fFileName.c_str());
 }
 
 NHnSparseTree::~NHnSparseTree()
@@ -49,13 +50,14 @@ NHnSparseTree::~NHnSparseTree()
   /// Destructor
   ///
 }
-NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::string & treename,
-                                    const std::string & branches)
+NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::string & branches,
+                                    const std::string & treename)
 {
   ///
   /// Load
   ///
-  NLogger::Info("Loading '%s' ...", filename.c_str());
+
+  NLogger::Info("Opening '%s' ...", filename.c_str());
 
   TFile * file = TFile::Open(filename.c_str());
   if (!file) {
@@ -76,21 +78,25 @@ NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::str
   }
 
   NHnSparseTree * hnst = hnstInfo->GetHnSparseTree();
-  if (!hnst->SetFileTree(file, tree)) return nullptr;
+  if (!hnst->SetFileTree(file, tree, true)) return nullptr;
+
   if (!hnst->InitBinnings()) return nullptr;
   // hnst->Print();
   // Get list of branches
   std::vector<std::string> enabledBranches;
   if (!branches.empty()) {
     enabledBranches = Ndmspc::NUtils::Tokenize(branches, ',');
-    hnst->EnableBranches(enabledBranches);
+    NLogger::Info("Enabled branches: %s", NUtils::GetCoordsString(enabledBranches, -1).c_str());
+    hnst->SetEnabledBranches(enabledBranches);
   }
-
-  /// TODO:: Set Axes correctlry (was commented) needed ???
-  // hnst->SetBranchAddresses();
-
-  // hnst->Print();
-
+  else {
+    // loop over all branches and set address
+    for (auto & kv : hnst->fBranchesMap) {
+      NLogger::Info("Enabled branches: %s", kv.first.c_str());
+    }
+  }
+  // Sett all branches to be read
+  hnst->SetBranchAddresses();
   return hnst;
 }
 
@@ -120,12 +126,12 @@ void NHnSparseTree::Print(Option_t * option) const
       if (labels.back() == ',') {
         labels.pop_back();
       }
-      NLogger::Info("  name='%s' title='%s' nbins=%d labels=[%s]", a->GetName(), a->GetTitle(), a->GetNbins(),
+      NLogger::Info("  [%d] name='%s' title='%s' nbins=%d labels=[%s]", i, a->GetName(), a->GetTitle(), a->GetNbins(),
                     labels.c_str());
     }
     else {
-      NLogger::Info("  name='%s' title='%s' nbins=%d min=%.3f max=%.3f", a->GetName(), a->GetTitle(), a->GetNbins(),
-                    a->GetXmin(), a->GetXmax());
+      NLogger::Info("  [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, a->GetName(), a->GetTitle(),
+                    a->GetNbins(), a->GetXmin(), a->GetXmax());
     }
   }
   NLogger::Info("TTree:");
@@ -140,103 +146,112 @@ void NHnSparseTree::Print(Option_t * option) const
       kv.second.Print();
     }
   }
-
-  std::string pointStr;
-  if (fPoint == nullptr) {
-    pointStr = "n/a";
-  }
   else {
-    // Print current point
-    for (int i = 0; i < GetNdimensions(); i++) {
-      pointStr += std::to_string(fPoint[i]) + " ";
-    }
+    NLogger::Info("  branches: []");
   }
-  NLogger::Info("Current point: %s", pointStr.c_str());
+
+  if (fPoint) {
+    std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
+    NLogger::Info("Current point: %s", pointStr.c_str());
+  }
 
   if (opt.Contains("P")) {
     NLogger::Info("Printing content ...");
-    //   std::vector<int> minBounds;
-    //   std::vector<int> maxBounds;
-    //   std::vector<int> ids;
-    //   std::string      header = "| ";
-    //   for (int i = 0; i < GetNdimensions(); i++) {
-    //     minBounds.push_back(1);
-    //     maxBounds.push_back(GetAxis(i)->GetNbins());
-    //     ids.push_back(i);
-    //     header += GetAxis(i)->GetName();
-    //     header += " | ";
-    //   }
-    //   header += "content |";
-    //   bool allBins   = opt.Contains("A");
-    //   bool urlike    = opt.Contains("U");
-    //   bool forceBins = opt.Contains("B");
+    std::vector<int> mins;
+    std::vector<int> maxs;
+    std::vector<int> ids;
+    std::string      header = "| content | ";
 
-    //   if (!urlike) NLogger::Info("%s", header.c_str());
-    //   Ndmspc::HnSparseTreeUtils::IterateNDimensionalSpace(
-    //       minBounds, maxBounds, [logger, this, &allBins, &urlike, &forceBins](const std::vector<int> & point) {
-    //         // build string from point coordinates
-    //         Int_t p[GetNdimensions()];
-    //         // loop over point and set p
-    //         for (int i = 0; i < GetNdimensions(); i++) {
-    //           p[i] = point[i];
-    //         }
+    Long64_t nShowMax = 100;
+    Long64_t nBins    = 0;
+    for (int i = 0; i < GetNdimensions(); i++) {
+      mins.push_back(1);
+      int max = GetAxis(i)->GetNbins();
+      nBins += max;
+      if (nBins > nShowMax) max = 1;
+      maxs.push_back(max);
+      ids.push_back(i);
+      header += GetAxis(i)->GetName();
+      header += " | ";
+    }
+    bool allBins   = opt.Contains("A");
+    bool urlike    = opt.Contains("U");
+    bool forceBins = opt.Contains("B");
 
-    //         double content = GetBinContent(p);
-    //         if (urlike) {
-    //           if (allBins || GetBinContent(p) > 0) {
+    if (!urlike) NLogger::Info("%s", header.c_str());
+    NDimensionalExecutor executor(mins, maxs);
+    auto                 loop_task = [this, allBins, urlike, forceBins](const std::vector<int> & coords) {
+      Int_t p[GetNdimensions()];
+      NUtils::VectorToArray(coords, p);
 
-    //             std::string pointStr = fPrefix;
-    //             std::string binStr   = "{";
-    //             if (!fPrefix.empty()) pointStr += "/";
-    //             for (int i = 0; i < GetNdimensions(); i++) {
-    //               TAxis * a = GetAxis(i);
-    //               if (a->IsAlphanumeric() && !forceBins) {
-    //                 pointStr += a->GetBinLabel(point[i]);
-    //               }
-    //               else {
-    //                 pointStr += std::to_string(point[i]);
-    //               }
-    //               pointStr += "/";
-    //               binStr += std::to_string(point[i]) + ",";
-    //             }
-    //             // check if pointStr has space and remove it
-    //             if (pointStr.back() == '/') {
-    //               pointStr.pop_back();
-    //             }
-    //             if (binStr.back() == ',') {
-    //               binStr.pop_back();
-    //             }
-    //             binStr += "}";
-    //             pointStr += "/" + fPostfix;
-    //             NLogger::Info("[%1s] %s\t%s", content > 0 ? "*" : " ", binStr.c_str(), pointStr.c_str());
-    //           }
-    //         }
-    //         else {
-    //           if (allBins || GetBinContent(p) > 0) {
-    //             // Print current point
-    //             std::string pointStr = "| ";
-    //             for (int i = 0; i < GetNdimensions(); i++) {
-    //               TAxis * a = GetAxis(i);
-    //               if (a->IsAlphanumeric()) {
-    //                 pointStr += a->GetBinLabel(point[i]);
-    //                 pointStr += " | ";
-    //               }
-    //               else {
-    //                 pointStr += std::to_string(point[i]);
-    //               }
-    //             }
-    //             // check if pointStr has space and remove it
-    //             if (pointStr.back() == ' ') {
-    //               pointStr.pop_back();
-    //             }
-    //             NLogger::Info("%s %.0f |", pointStr.c_str(), content);
-    //           }
-    //         }
-    //       });
+      double content = GetBinContent(p);
+      // content        = 1;
+      if (urlike) {
+        if (allBins || content > 0) {
+
+          std::string pointStr  = GetFullPath(coords);
+          std::string coordsStr = NUtils::GetCoordsString(coords, -1);
+          NLogger::Info("[%1s] %s\t%s", content > 0 ? "*" : " ", coordsStr.c_str(), pointStr.c_str());
+        }
+      }
+      else {
+        if (allBins || content > 0) {
+          // Print current point
+          std::string pointStr = GetPointStr(coords);
+          NLogger::Info("| %.0f %s", content, pointStr.c_str());
+        }
+      }
+    };
+    executor.Execute(loop_task);
   }
 }
 
-bool NHnSparseTree::SetFileTree(TFile * file, TTree * tree)
+std::string NHnSparseTree::GetFullPath(std::vector<int> coords) const
+{
+
+  ///
+  /// Return full path
+  ///
+  std::string pointStr = fPrefix;
+  pointStr += "/";
+  for (int i = 0; i < GetNdimensions(); i++) {
+    TAxis * a = GetAxis(i);
+    if (a->IsAlphanumeric()) {
+      pointStr += a->GetBinLabel(coords[i]);
+    }
+    else {
+      pointStr += std::to_string(coords[i]);
+    }
+    pointStr += "/";
+  }
+  pointStr += fPostfix;
+  return pointStr;
+}
+std::string NHnSparseTree::GetPointStr(std::vector<int> coords) const
+{
+  ///
+  /// Return point string
+  ///
+  std::string pointStr = "| ";
+  for (int i = 0; i < GetNdimensions(); i++) {
+    TAxis * a = GetAxis(i);
+    if (a->IsAlphanumeric()) {
+      pointStr += a->GetBinLabel(coords[i]);
+    }
+    else {
+      pointStr += std::to_string(coords[i]);
+    }
+    pointStr += " | ";
+  }
+  // check if pointStr has space and remove it
+  if (pointStr.back() == ' ') {
+    pointStr.pop_back();
+  }
+
+  return pointStr;
+}
+
+bool NHnSparseTree::SetFileTree(TFile * file, TTree * tree, bool force)
 {
   ///
   /// Set File and tree
@@ -247,7 +262,7 @@ bool NHnSparseTree::SetFileTree(TFile * file, TTree * tree)
   }
   fFile = file;
   fTree = tree;
-  if (fPrefix.empty()) fPrefix = gSystem->GetDirName(file->GetName());
+  if (fPrefix.empty() || force) fPrefix = gSystem->GetDirName(file->GetName());
   if (fPostfix.empty()) fPostfix = gSystem->BaseName(file->GetName());
   // print prefix and postfix
   return true;
@@ -261,10 +276,10 @@ bool NHnSparseTree::InitTree(const std::string & filename, const std::string & t
 
   // Set filename
   if (!filename.empty()) {
-    fFileName = filename;
+    fFileName = gSystem->ExpandPathName(filename.c_str());
   }
 
-  NLogger::Info("Initializing tree '%s' using filename '%s' ...", treename.c_str(), filename.c_str());
+  NLogger::Info("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
 
   // Open file
   fFile = NUtils::OpenFile(fFileName.c_str(), "RECREATE");
@@ -275,11 +290,45 @@ bool NHnSparseTree::InitTree(const std::string & filename, const std::string & t
 
   fTree = new TTree(treename.c_str(), "hnst tree");
   if (!fTree) {
-    NLogger::Error("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), filename.c_str());
+    NLogger::Error("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), fFileName.c_str());
     return false;
   }
-  if (fPrefix.empty()) fPrefix = gSystem->GetDirName(filename.c_str());
-  if (fPostfix.empty()) fPostfix = gSystem->BaseName(filename.c_str());
+  if (fPrefix.empty()) fPrefix = gSystem->GetDirName(fFileName.c_str());
+  if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFileName.c_str());
+
+  return true;
+}
+bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
+{
+  ///
+  /// Init axes
+  ///
+  NLogger::Trace("Initializing axes ...");
+
+  if (newAxes == nullptr) {
+    NLogger::Error("newAxes is nullptr !!!");
+    return false;
+  }
+
+  for (Int_t i = n; i < newAxes->GetEntries(); i++) {
+    TAxis * a = (TAxis *)newAxes->At(i);
+    if (a == nullptr) {
+      NLogger::Error("NHnSparseTree::InitAxes : Axis %d is nullptr !!!", i);
+      return false;
+    }
+    a->Set(1, a->GetXmin(), a->GetXmax());
+  }
+  Init("hnTree", "HnSparseTree", newAxes, kTRUE);
+
+  if (fPoint) {
+    delete[] fPoint;
+    fPoint = nullptr;
+  }
+  fPoint = new Int_t[GetNdimensions()];
+  // Set fPoint elements to -1
+  for (int i = 0; i < GetNdimensions(); i++) {
+    fPoint[i] = -1;
+  }
 
   return true;
 }
@@ -296,6 +345,9 @@ Int_t NHnSparseTree::FillTree()
     return -1;
   }
 
+  // Print point coordinates
+  std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
+  NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
   SetBinContent(fPoint, 1);
 
   fFile->cd();
@@ -308,25 +360,34 @@ Long64_t NHnSparseTree::GetEntry(Long64_t entry)
   /// Get entry
   ///
 
-  NLogger::Debug("Getting entry=%lld nbranches=%d ...", entry, fBranchesMap.size());
+  NLogger::Trace("Getting entry=%lld nbranches=%d ...", entry, fBranchesMap.size());
   // fTree->Print();
 
   Long64_t bytessum = 0;
 
   for (auto & kv : fBranchesMap) {
-    NLogger::Debug("Getting content from '%s' branch ...", kv.first.c_str());
+    NLogger::Trace("Getting content from '%s' branch ...", kv.first.c_str());
+    if (kv.second.GetBranch() == nullptr) {
+      NLogger::Error("Branch '%s' is not initialized !!!", kv.first.c_str());
+      continue;
+    }
+    // check if branch is enabled
+    if (kv.second.GetBranchStatus() == 0) {
+      NLogger::Trace("Branch '%s' is disabled !!! Skipping ...", kv.first.c_str());
+      continue;
+    }
     bytessum += kv.second.GetEntry(fTree, entry);
   }
-  if (fPoint == nullptr) {
-    fPoint = new Int_t[GetNdimensions()];
-  }
+  // if (fPoint == nullptr) {
+  //   fPoint = new Int_t[GetNdimensions()];
+  // }
   // GetBinContent(entry, fPoint);
   // for (int i = 0; i < GetNdimensions(); i++) {
   //   NLogger::Info("Point[%d]=%d", i, fPoint[i]);
   // }
 
   // Print byte sum
-  NLogger::Debug("Bytes read : %.3f MB", (double)bytessum / (1024 * 1024));
+  NLogger::Debug("[entry=%lld] Bytes read : %.3f MB", entry, (double)bytessum / (1024 * 1024));
   return bytessum;
 }
 
@@ -381,6 +442,17 @@ bool NHnSparseTree::AddBranch(const std::string & name, void * address, const st
   fBranchesMap[name] = NTreeBranch(fTree, name, address, className);
   return true;
 }
+TObject * NHnSparseTree::GetBranchObject(const std::string & name)
+{
+  ///
+  /// Return branch object
+  ///
+  auto * branch = GetBranch(name);
+  if (!branch) {
+    return nullptr;
+  }
+  return branch->GetObject();
+}
 
 void NHnSparseTree::SetBranchAddresses()
 {
@@ -402,7 +474,7 @@ void NHnSparseTree::SetBranchAddresses()
   }
 }
 
-void NHnSparseTree::EnableBranches(std::vector<std::string> branches)
+void NHnSparseTree::SetEnabledBranches(std::vector<std::string> branches)
 {
   ///
   /// Enable branches
@@ -423,12 +495,12 @@ void NHnSparseTree::EnableBranches(std::vector<std::string> branches)
   // loop over all branches
   for (auto & kv : fBranchesMap) {
     if (branches.empty() || std::find(branches.begin(), branches.end(), kv.first) != branches.end()) {
-      NLogger::Debug("Enabling branch %s ...", kv.first.c_str());
+      NLogger::Trace("Enabling branch %s ...", kv.first.c_str());
       kv.second.SetBranchStatus(1);
       // fTree->SetBranchStatus(kv.first.c_str(), 1);
     }
     else {
-      NLogger::Debug("Disabling branch %s ...", kv.first.c_str());
+      NLogger::Trace("Disabling branch %s ...", kv.first.c_str());
       kv.second.SetBranchStatus(0);
       // fTree->SetBranchStatus(kv.first.c_str(), 0);
     }
@@ -445,6 +517,9 @@ bool NHnSparseTree::InitBinnings()
   std::vector<TAxis *> axes;
   for (int i = 0; i < dim; i++) {
     axes.push_back(GetAxis(i));
+  }
+  if (fBinning) {
+    delete fBinning;
   }
   fBinning = new NBinning(axes);
   return true;

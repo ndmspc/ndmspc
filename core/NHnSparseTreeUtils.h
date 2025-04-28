@@ -25,8 +25,8 @@ class NHnSparseTreeUtils : public TObject {
                                 std::vector<std::string> axisTitles = {});
   /// Create hnst.root file from directory (just mapping)
   static bool CreateFromDir(std::string dir, std::vector<std::string> axisNames, std::string filter = "");
-  static bool Reshape(std::string hnstFileNameIn, std::vector<std::string> objNames = {},
-                      std::string hnstFileNameOut = "$HOME/.ndmspc/analyses/dev/hnst.root");
+  static bool Reshape(std::string hnstFileNameIn, std::vector<std::string> objNames = {}, std::string directory = "",
+                      std::string hnstFileNameOut = "$HOME/.ndmspc/analyses/dev/myAna/hnst.root");
 
   private:
   NHnSparseTreeUtils();
