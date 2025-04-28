@@ -49,6 +49,7 @@ class NUtils : TObject {
   static std::vector<int> ArrayToVector(Int_t * v1, int size);
   static void             VectorToArray(std::vector<int> v1, Int_t * v2);
   static std::string      GetCoordsString(const std::vector<int> & coords, int index = -1, int width = 0);
+  static std::string      GetCoordsString(const std::vector<std::string> & coords, int index = -1, int width = 0);
   static void             PrintPointSafe(const std::vector<int> & coords, int index = -1);
 
   static std::string              GetJsonString(json j);

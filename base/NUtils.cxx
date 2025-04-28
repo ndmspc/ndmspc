@@ -651,6 +651,20 @@ std::string NUtils::GetCoordsString(const std::vector<int> & coords, int index, 
   msg << "]";
   return msg.str();
 }
+std::string NUtils::GetCoordsString(const std::vector<std::string> & coords, int index, int width)
+{
+  ///
+  /// Get coordinates string
+  ///
+  std::stringstream msg;
+  if (index >= 0) msg << "[" << std::setw(3) << std::setfill('0') << index << "] ";
+  msg << "[";
+  for (size_t i = 0; i < coords.size(); ++i) {
+    msg << std::setw(width) << std::setfill(' ') << coords[i] << (i == coords.size() - 1 ? "" : ",");
+  }
+  msg << "]";
+  return msg.str();
+}
 void NUtils::PrintPointSafe(const std::vector<int> & coords, int index)
 {
   ///

@@ -7,6 +7,7 @@
 #include <TTree.h>
 #include <TBranch.h>
 #include "NBinning.h"
+#include "NUtils.h"
 #include "NTreeBranch.h"
 
 namespace Ndmspc {
@@ -28,11 +29,12 @@ class NHnSparseTree : public THnSparse {
   NHnSparseTree(const char * name, const char * title, Int_t dim, const Int_t * nbins, const Double_t * xmin = 0,
                 const Double_t * xmax = 0, Int_t chunksize = 1024 * 16);
 
-  static NHnSparseTree * Open(const std::string & filename, const std::string & treename = "hnst",
-                              const std::string & branches = "");
+  static NHnSparseTree * Open(const std::string & filename, const std::string & branches = "",
+                              const std::string & treename = "hnst");
   virtual void           Print(Option_t * option = "") const;
 
   bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
+  bool     InitAxes(TObjArray * newAxes, int n = 0);
   bool     InitBinnings();
   Int_t    FillTree();
   Long64_t GetEntry(Long64_t entry);
@@ -44,7 +46,7 @@ class NHnSparseTree : public THnSparse {
   std::string GetFileName() const { return fFileName; }
 
   /// Setting File and tree
-  bool SetFileTree(TFile * file, TTree * tree);
+  bool SetFileTree(TFile * file, TTree * tree, bool force = false);
   /// Returns file
   TFile * GetFile() const { return fFile; }
   /// Returns tree
@@ -60,8 +62,19 @@ class NHnSparseTree : public THnSparse {
   void SetPostfix(const std::string & postfix) { fPostfix = postfix; }
   /// Getting postfix path
   std::string GetPostfix() const { return fPostfix; }
+  std::string GetFullPath(std::vector<int> coords) const;
+  std::string GetPointStr(std::vector<int> coords) const;
+
+  void SetPointAt(int i, int val) { fPoint[i] = val; }
+  void SetPoint(std::vector<int> coords) { NUtils::VectorToArray(coords, fPoint); }
+
   /// Get list of branch names
   std::vector<std::string> GetBrancheNames();
+  bool                     AddBranch(const std::string & name, void * address, const std::string & className);
+  NTreeBranch *            GetBranch(const std::string & name) { return &fBranchesMap[name]; }
+  TObject *                GetBranchObject(const std::string & name);
+  void                     SetEnabledBranches(std::vector<std::string> branches);
+  void                     SetBranchAddresses();
 
   private:
   std::string fFileName{"hnst.root"}; ///< Current filename
@@ -73,11 +86,6 @@ class NHnSparseTree : public THnSparse {
   NBinning *  fBinning{nullptr};      ///<! Binning
 
   std::map<std::string, NTreeBranch> fBranchesMap; ///< Branches map
-
-  bool          AddBranch(const std::string & name, void * address, const std::string & className);
-  NTreeBranch * GetBranch(const std::string & name) { return &fBranchesMap[name]; }
-  void          EnableBranches(std::vector<std::string> branches);
-  void          SetBranchAddresses();
 
   /// \cond CLASSIMP
   ClassDef(NHnSparseTree, 1);

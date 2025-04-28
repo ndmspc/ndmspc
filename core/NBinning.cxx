@@ -91,7 +91,7 @@ NBinning::NBinning(std::vector<TAxis *> axes) : TObject(), fAxes(axes)
     fContent->GetAxis(i)->SetNameTitle(name.c_str(), title.c_str());
   }
   for (int i = 0; i < fContent->GetNdimensions(); i++) {
-    NLogger::Debug("Axis[fContent] %d: %s nbins=%d", i, fContent->GetAxis(i)->GetName(),
+    NLogger::Trace("Axis[fContent] %d: %s nbins=%d", i, fContent->GetAxis(i)->GetName(),
                    fContent->GetAxis(i)->GetNbins());
   }
 
@@ -201,7 +201,7 @@ int NBinning::FillAll()
   ///
   int nBinsFilled = 0;
 
-  fContent->Reset();
+  //  fContent->Reset();
 
   std::vector<int>                           mins(fMap->GetNdimensions(), 1);
   std::vector<int>                           maxs(fMap->GetNdimensions(), 0);
@@ -219,21 +219,7 @@ int NBinning::FillAll()
     maxs[idx] = maxs[idx] + 1;
   }
   delete[] p;
-  // loop over all bins
-  // for (Long64_t i = 0; i < fMap->GetNbins(); i++) {
-  //   Int_t p[fMap->GetNdimensions()];
-  //   fMap->GetBinContent(i, p);
-  //   // NLogger::Debug("Bin %lld: ", p[0]);
-  //   int idx = p[0] - 1;
-  //   content[idx].push_back({p[0], p[1], p[2], p[3]});
-  //   maxs[idx] = maxs[idx] + 1;
-  // }
 
-  /// /// Print all mins and maxs
-  /// for (size_t i = 0; i < mins.size(); i++) {
-  ///   NLogger::Info("Min[%zu]: %d", i, mins[i]);
-  ///   NLogger::Info("Max[%zu]: %d", i, maxs[i]);
-  /// }
   // Loop over all binning combinations
   NDimensionalExecutor executor(mins, maxs);
   auto                 binning_task = [&content, &nBinsFilled, this](const std::vector<int> & coords) {
@@ -255,81 +241,11 @@ int NBinning::FillAll()
   };
   executor.Execute(binning_task);
 
+  fMap->Reset();
+
   return nBinsFilled;
 }
 
-std::vector<std::vector<int>> NBinning::GetAll()
-{
-
-  NLogger::Debug("entries=%lld", fContent->GetEntries());
-  std::vector<std::vector<int>> all_bins;
-  /// set minimum and maximum boundaries
-  std::vector<int>                           mins(fMap->GetNdimensions(), 1);
-  std::vector<int>                           maxs(fMap->GetNdimensions(), 0);
-  std::vector<std::vector<std::vector<int>>> content(fMap->GetNdimensions());
-
-  // loop over all bins
-  for (Long64_t i = 0; i < fMap->GetNbins(); i++) {
-    Int_t p[fMap->GetNdimensions()];
-    fMap->GetBinContent(i, p);
-    // NLogger::Debug("Bin %lld: ", p[0]);
-    int idx = p[0] - 1;
-    content[idx].push_back({p[0], p[1], p[2], p[3]});
-    maxs[idx] = maxs[idx] + 1;
-  }
-
-  /// /// Print all mins and maxs
-  /// for (size_t i = 0; i < mins.size(); i++) {
-  ///   NLogger::Info("Min[%zu]: %d", i, mins[i]);
-  ///   NLogger::Info("Max[%zu]: %d", i, maxs[i]);
-  /// }
-  // Loop over all binning combinations
-  NDimensionalExecutor executor(mins, maxs);
-  auto                 binning_task = [&content, &all_bins, this](const std::vector<int> & coords) {
-    all_bins.push_back(coords);
-    std::vector<int> pointContentVector;
-    int              iContentpoint = 0;
-    for (size_t i = 0; i < coords.size(); i++) {
-      pointContentVector.push_back(content[i][coords[i] - 1][1]);
-      pointContentVector.push_back(content[i][coords[i] - 1][2]);
-      pointContentVector.push_back(content[i][coords[i] - 1][3]);
-    }
-
-    // NUtils::PrintPointSafe(pointContentVector, -1);
-    Int_t nContentDims = fContent->GetNdimensions();
-    Int_t pointContent[nContentDims];
-    NUtils::VectorToArray(pointContentVector, pointContent);
-    // NLogger::Debug("%d %d %d %d %d %d %d %d %d %d %d %d", pointContent[0], pointContent[1], pointContent[2],
-    //                                pointContent[3], pointContent[4], pointContent[5], pointContent[6],
-    //                                pointContent[7], pointContent[8], pointContent[9], pointContent[10],
-    //                                pointContent[11]);
-    // Print linear bin
-    // print number of entries
-    // NLogger::Debug("nBins=%lld", fContent->GetNbins());
-    // if (fContent->GetNbins() < 225) {
-    Long64_t pointContentBin = fContent->GetBin(pointContent);
-    // NLogger::Debug("Point content: %lld", pointContentBin);
-    // NUtils::PrintPointSafe(pointContentVector, -1);
-    fContent->SetBinContent(pointContentBin, 1);
-    // }
-
-    // NUtils::PrintPointSafe(coords, -1);
-    // std::string coords_str = "[";
-    // for (size_t i = 0; i < coords.size(); i++) {
-    //   coords_str += NUtils::GetCoordsString(content[i][coords[i] - 1], -1);
-    //   coords_str += (i == coords.size() - 1 ? "" : ",");
-    // }
-    // coords_str += "]";
-    // NLogger::Info("content: %s", coords_str.c_str());
-  };
-  executor.Execute(binning_task);
-
-  // for (size_t i = 0; i < all_bins.size(); i++) {
-  //   NUtils::PrintPointSafe(all_bins[i], i);
-  // }
-
-  return all_bins;
-}
 bool NBinning::AddBinning(std::vector<int> binning, int n)
 {
   ///
@@ -341,13 +257,42 @@ bool NBinning::AddBinning(std::vector<int> binning, int n)
     return false;
   }
 
-  Int_t * point = new Int_t[binning.size()];
+  Int_t * point = new Int_t[fMap->GetNdimensions()];
+  NUtils::VectorToArray(binning, point);
   for (int i = 0; i < n; i++) {
-    NUtils::VectorToArray(binning, point);
+    NLogger::Trace("Adding binning %d: %d %d %d %d", i, point[0], point[1], point[2], point[3]);
     fMap->SetBinContent(point, 1);
+    point[3] += 1;
   }
+  delete[] point;
 
   return true;
+}
+std::vector<std::vector<int>> NBinning::GetCoordsRange(std::vector<int> c) const
+{
+  std::vector<std::vector<int>> coordsRange;
+  std::vector<int>              mins;
+  std::vector<int>              maxs;
+  int                           iAxis = 0;
+  bool                          isValid;
+  for (int i = 0; i < fContent->GetNdimensions(); i += 3) {
+    int min;
+    int max;
+    isValid = NUtils::GetAxisRangeInBase(fAxes[iAxis], c[i], c[i + 1], c[i + 2], min, max);
+    if (!isValid) {
+      // NLogger::Error("Cannot get axis range for axis %d", iAxis);
+      return {};
+    }
+    // print min max
+    NLogger::Debug("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
+    mins.push_back(min);
+    maxs.push_back(max);
+    iAxis++;
+  }
+
+  coordsRange.push_back(mins);
+  coordsRange.push_back(maxs);
+  return coordsRange;
 }
 
 } // namespace Ndmspc
