@@ -465,7 +465,7 @@ void NHnSparseTree::SetBranchAddresses()
     return;
   }
 
-  // NLogger::Info("Setting branch addresses ...");
+  // NLogger::Trace("Setting branch addresses ...");
 
   // fTree->SetBranchStatus("*", 0);
   for (auto & kv : fBranchesMap) {
@@ -481,7 +481,7 @@ void NHnSparseTree::SetEnabledBranches(std::vector<std::string> branches)
   ///
 
   if (branches.empty()) {
-    NLogger::Debug("Enabling all branches ...");
+    NLogger::Trace("Enabling all branches ...");
     return;
   }
 
