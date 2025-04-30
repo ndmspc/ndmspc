@@ -16,6 +16,12 @@ namespace Ndmspc {
 /// \brief NBinning object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
+
+enum class Binning {
+  kSingle   = 0, ///< No rebin possible
+  kMultiple = 1, ///< Rebin is possible
+};
+
 class NBinning : public TObject {
   public:
   NBinning(std::vector<TAxis *> axes = {});
@@ -37,6 +43,7 @@ class NBinning : public TObject {
   THnSparse *          fMap{nullptr};     ///< Mapping histogram
   THnSparse *          fContent{nullptr}; ///< Content histogram
   std::vector<TAxis *> fAxes;             ///< List of axes
+  std::vector<Binning> fBinningTypes;     ///< Binning types
 
   /// \cond CLASSIMP
   ClassDef(NBinning, 1);

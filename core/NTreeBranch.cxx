@@ -123,9 +123,9 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
         THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, projOpt.c_str());
         // Loop over all bins
         double sum = 0;
-        NLogger::Debug("Projection of %lld ...", out->GetNbins());
+        NLogger::Trace("Projection of %lld ...", out->GetNbins());
         for (Int_t i = 0; i < out->GetNbins(); i++) {
-          NLogger::Debug("Bin %d content=%f", i, out->GetBinContent(i));
+          NLogger::Trace("Bin %d content=%f", i, out->GetBinContent(i));
           sum += out->GetBinContent(i);
         }
         // out->Projection(0)->Print();
@@ -149,8 +149,8 @@ void NTreeBranch::Print(Option_t * option) const
   ///
   /// Print
   ///
-  NLogger::Info("Branch '%s' object='%s' address=%p branch=%p status=%d", fName.c_str(), fObjectClassName.c_str(),
-                fObject, fBranch, fBranchStatus);
+  NLogger::Trace("Branch '%s' object='%s' address=%p branch=%p status=%d", fName.c_str(), fObjectClassName.c_str(),
+                 fObject, fBranch, fBranchStatus);
 }
 
 } // namespace Ndmspc

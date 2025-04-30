@@ -184,8 +184,9 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   }
   hnstIn->Print("PU");
   hnstIn->Print("P");
-  auto binning     = hnstIn->GetBinning();
-  int  nBinsFilled = 0;
+  auto binning = hnstIn->GetBinning();
+
+  int nBinsFilled = 0;
 
   // 1,3,1,15 (data)
   binning->AddBinning({1, 1, 1, 1}, 1);
@@ -194,6 +195,10 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   binning->AddBinning({4, 1, 1, 11}, 1);
   binning->AddBinning({4, 1, 1, 15}, 1);
   nBinsFilled += binning->FillAll();
+  // binning->PrintContent();
+  // return false;
+
+  // return false;
 
   // binning->GetMap()->Reset();
 
@@ -213,7 +218,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   // binning->GetContent()->Projection(3, 4, 5, "O")->Draw();
   // binning->GetContent()->Projection(5, 8, 2, "O")->Draw();
 
-  // binning->PrintContent();
+  binning->PrintContent();
   //
 
   NHnSparseTree * hnstOut = new NHnSparseTreeC(hnstFileNameOut.c_str());
