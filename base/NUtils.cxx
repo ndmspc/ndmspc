@@ -472,7 +472,6 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, 
   ///
   /// Returns axis range in base in min and max variables
   ///
-
   if (a == nullptr) {
     NLogger::Error("Error: Axis is nullptr ...");
     return false;
@@ -484,19 +483,22 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, 
     return false;
   }
 
-  if (rebin > 1) rebin_start = rebin_start / rebin;
-  min = rebin * bin + rebin_start - 1;
+  NLogger::Trace("Getting axis range in base for '%s' rebin=%d rebin_start=%d bin=%d...", a->GetName(), rebin,
+                 rebin_start, bin);
+
+  min = rebin * (bin - 1) + rebin_start;
   max = min + rebin - 1;
+  NLogger::Trace("Axis '%s' min=%d max=%d", a->GetName(), min, max);
 
   if (min < 1) {
-    // NLogger::Error("Error: Axis '%s' min is lower then 1 ...", a->GetName());
+    NLogger::Error("Error: Axis '%s' min=%d is lower then 1 ...", a->GetName(), min);
     min = -1;
     max = -1;
     return false;
   }
 
   if (max > a->GetNbins()) {
-    // NLogger::Error("Error: Axis '%s' max is higher then %d ...", a->GetName(), a->GetNbins());
+    NLogger::Error("Error: Axis '%s' max=%d is higher then %d ...", a->GetName(), max, a->GetNbins());
     min = -1;
     max = -1;
     return false;

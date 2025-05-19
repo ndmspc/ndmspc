@@ -35,7 +35,7 @@ class NHnSparseTree : public THnSparse {
 
   bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
   bool     InitAxes(TObjArray * newAxes, int n = 0);
-  bool     InitBinnings();
+  bool     InitBinnings(std::vector<TAxis *> axes);
   Int_t    FillTree();
   Long64_t GetEntry(Long64_t entry);
   bool     Close(bool write = false);
@@ -83,7 +83,7 @@ class NHnSparseTree : public THnSparse {
   std::string fPostfix{""};           ///< Postfix path
   TTree *     fTree{nullptr};         ///<! Content container
   Int_t *     fPoint{nullptr};        ///<! Point
-  NBinning *  fBinning{nullptr};      ///<! Binning
+  NBinning *  fBinning{nullptr};      ///< Binning
 
   std::map<std::string, NTreeBranch> fBranchesMap; ///< Branches map
 

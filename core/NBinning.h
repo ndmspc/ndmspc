@@ -24,7 +24,8 @@ enum class Binning {
 
 class NBinning : public TObject {
   public:
-  NBinning(std::vector<TAxis *> axes = {});
+  NBinning();
+  NBinning(std::vector<TAxis *> axes);
   virtual ~NBinning();
 
   virtual void                  Print(Option_t * option = "") const;

@@ -219,7 +219,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   // binning->GetContent()->Projection(5, 8, 2, "O")->Draw();
 
   binning->PrintContent();
-  //
+  // return true;
 
   NHnSparseTree * hnstOut = new NHnSparseTreeC(hnstFileNameOut.c_str());
   if (!hnstOut) {
@@ -238,10 +238,10 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
     Long64_t         idx           = cSparse->GetBin(cCoords);
     std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
     std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
-    NLogger::Debug("Bin %lld: %s", linBin, binCoordsStr.c_str());
+    // NLogger::Debug("Bin %lld: %s", linBin, binCoordsStr.c_str());
     std::vector<std::vector<int>> coordsRange = binning->GetCoordsRange(cCoordsVector);
-    NUtils::PrintPointSafe(coordsRange[0], -1); // mins
-    NUtils::PrintPointSafe(coordsRange[1], -1); // maxs
+    // NUtils::PrintPointSafe(coordsRange[0], -1); // mins
+    // NUtils::PrintPointSafe(coordsRange[1], -1); // maxs
     // Print linear index in Hnsparse
     Int_t p[hnstIn->GetNdimensions()];
     NUtils::VectorToArray(coordsRange[0], p);
@@ -256,25 +256,28 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
     }
     // loop over objNames and print content
     for (size_t i = 0; i < objNames.size(); i++) {
-      NLogger::Debug("%s", objNames[i].c_str());
       std::string objName = directory;
       if (!directory.empty()) {
         objName += "/";
       }
       objName += objNames[i];
+      NLogger::Debug("Preparing branch %s from object '%s' ...", objNames[i].c_str(), objName.c_str());
       THnSparse * hns = (THnSparse *)f->Get(objName.c_str());
       if (hns == nullptr) {
-        NLogger::Error("Cannot find object '%s' in file '%s'", objName.c_str(), fileName.c_str());
+        NLogger::Warning("Cannot find object '%s' in file '%s'!!! Skipping ...", objName.c_str(), fileName.c_str());
         continue;
       }
       if (!hnstOut->GetNdimensions()) {
         NLogger::Info("Initializing 'hnstOut' from %s", objName.c_str());
-        TObjArray * axes = (TObjArray *)hnstIn->GetListOfAxes()->Clone();
+        TObjArray * axesNew = (TObjArray *)hnstIn->GetListOfAxes()->Clone();
         // loop over all axes in hns and get axis
         for (int j = 0; j < hns->GetNdimensions(); j++) {
-          axes->Add(hns->GetAxis(j)->Clone());
+          axesNew->Add(hns->GetAxis(j)->Clone());
         }
-        hnstOut->InitAxes(axes, hnstIn->GetNdimensions());
+        // axesNew->Print();
+        hnstOut->InitAxes(axesNew, hnstIn->GetNdimensions());
+        // hnstOut->Print("P");
+        // return false;
       }
       hnstOut->AddBranch(objNames[i], nullptr, "THnSparseD");
       hnstOut->GetBranch(objNames[i])->SetAddress(hns);
@@ -285,15 +288,33 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
     // 1. One THnSparse with original axes for data,mc,... nad one integrated bing for imported object
     // 2. Binning content THnSparse with all axes for current binning
     std::vector<int> coordsOut(hnstOut->GetNdimensions(), 1);
-    for (size_t i = 0; i < hnstIn->GetNdimensions(); i++) {
+    for (int i = 0; i < hnstIn->GetNdimensions(); i++) {
       coordsOut[i] = coordsRange[0][i];
     }
-
     hnstOut->SetPoint(coordsOut);
+    auto binningOut = hnstOut->GetBinning();
+    binningOut->GetMap()->Reset();
+    for (int i = 0; i < hnstIn->GetNdimensions(); i++) {
+      binningOut->AddBinning({i + 1, 1, 1, coordsRange[0][i]}, 1);
+    }
+
+    // add binning for reset of axes
+    for (int i = hnstIn->GetNdimensions(); i < hnstOut->GetNdimensions(); i++) {
+      // print axis
+      TAxis * axis = hnstOut->GetAxis(i);
+      binningOut->AddBinning({i + 1, axis->GetNbins(), 1, 1}, 1);
+    }
+    // binningOut->GetMap()->Projection(0, 1, 3)->Draw();
+    // return false;
+
+    binningOut->FillAll();
+    // binningOut->Print();
 
     hnstOut->FillTree();
     f->Close();
   }
+  auto binningOut = hnstOut->GetBinning();
+  binningOut->Print();
   delete[] cCoords;
   hnstOut->Close(true);
 

@@ -149,8 +149,8 @@ void NTreeBranch::Print(Option_t * option) const
   ///
   /// Print
   ///
-  NLogger::Trace("Branch '%s' object='%s' address=%p branch=%p status=%d", fName.c_str(), fObjectClassName.c_str(),
-                 fObject, fBranch, fBranchStatus);
+  NLogger::Info("Branch '%s' object='%s' address=%p branch=%p status=%d", fName.c_str(), fObjectClassName.c_str(),
+                fObject, fBranch, fBranchStatus);
 }
 
 } // namespace Ndmspc
