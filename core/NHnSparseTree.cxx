@@ -31,7 +31,7 @@ NHnSparseTree::NHnSparseTree(const char * name, const char * title, Int_t dim, c
   /// Constructor
   ///
 
-  InitBinnings();
+  InitBinnings({});
 }
 
 NHnSparseTree::NHnSparseTree(const std::string & filename, const std::string & treename) : THnSparse()
@@ -80,7 +80,7 @@ NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::str
   NHnSparseTree * hnst = hnstInfo->GetHnSparseTree();
   if (!hnst->SetFileTree(file, tree, true)) return nullptr;
 
-  if (!hnst->InitBinnings()) return nullptr;
+  if (!hnst->InitBinnings({})) return nullptr;
   // hnst->Print();
   // Get list of branches
   std::vector<std::string> enabledBranches;
@@ -140,15 +140,12 @@ void NHnSparseTree::Print(Option_t * option) const
   NLogger::Info("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
   NLogger::Info("  prefix='%s'", fPrefix.c_str());
   NLogger::Info("  postfix='%s'", fPostfix.c_str());
-  if (!fBranchesMap.empty()) {
-    NLogger::Info("  branches:");
-    for (auto & kv : fBranchesMap) {
-      kv.second.Print();
-    }
+  NLogger::Info("  branches: [%d]", fBranchesMap.size());
+  for (auto & kv : fBranchesMap) {
+    kv.second.Print();
   }
-  else {
-    NLogger::Info("  branches: []");
-  }
+
+  if (fBinning) fBinning->Print();
 
   if (fPoint) {
     std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
@@ -303,21 +300,31 @@ bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
   ///
   /// Init axes
   ///
-  NLogger::Trace("Initializing axes ...");
+  NLogger::Trace("Initializing axes [%d]...", newAxes->GetEntries());
 
   if (newAxes == nullptr) {
     NLogger::Error("newAxes is nullptr !!!");
     return false;
   }
+  if (fBinning == nullptr) {
+    std::vector<TAxis *> axes;
+    for (Int_t i = 0; i < newAxes->GetEntries(); i++) {
 
-  for (Int_t i = n; i < newAxes->GetEntries(); i++) {
-    TAxis * a = (TAxis *)newAxes->At(i);
-    if (a == nullptr) {
-      NLogger::Error("NHnSparseTree::InitAxes : Axis %d is nullptr !!!", i);
-      return false;
+      TAxis * a = (TAxis *)newAxes->At(i);
+      if (a == nullptr) {
+        NLogger::Error("NHnSparseTree::InitAxes : Axis %d is nullptr !!!", i);
+        return false;
+      }
+      axes.push_back((TAxis *)a->Clone());
     }
-    a->Set(1, a->GetXmin(), a->GetXmax());
+    // if (fBinning) {
+    //   delete fBinning;
+    // }
+    NLogger::Trace("Creating new binning form new axes [%d]...", axes.size());
+    fBinning = new NBinning(axes);
+    // fBinning->Print();
   }
+
   Init("hnTree", "HnSparseTree", newAxes, kTRUE);
 
   if (fPoint) {
@@ -507,20 +514,25 @@ void NHnSparseTree::SetEnabledBranches(std::vector<std::string> branches)
   }
 }
 
-bool NHnSparseTree::InitBinnings()
+bool NHnSparseTree::InitBinnings(std::vector<TAxis *> axes)
 {
   ///
   /// Init binnings
   ///
 
-  int                  dim = GetNdimensions();
-  std::vector<TAxis *> axes;
-  for (int i = 0; i < dim; i++) {
-    axes.push_back(GetAxis(i));
-  }
   if (fBinning) {
-    delete fBinning;
+    NLogger::Trace("Binning already initialized ...");
+    return true;
   }
+  if (axes.empty()) {
+    int dim = GetNdimensions();
+    for (int i = 0; i < dim; i++) {
+      axes.push_back(GetAxis(i));
+    }
+  }
+  // if (fBinning) {
+  //   delete fBinning;
+  // }
   fBinning = new NBinning(axes);
   return true;
 }
