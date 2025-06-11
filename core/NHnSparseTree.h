@@ -33,6 +33,8 @@ class NHnSparseTree : public THnSparse {
                               const std::string & treename = "hnst");
   virtual void           Print(Option_t * option = "") const;
 
+  bool     Import(std::string filename, std::string directory, std::vector<std::string> objNames,
+                  std::map<std::string, std::vector<std::vector<int>>> binning);
   bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
   bool     InitAxes(TObjArray * newAxes, int n = 0);
   bool     InitBinnings(std::vector<TAxis *> axes);
@@ -75,6 +77,7 @@ class NHnSparseTree : public THnSparse {
   TObject *                GetBranchObject(const std::string & name);
   void                     SetEnabledBranches(std::vector<std::string> branches);
   void                     SetBranchAddresses();
+  void SaveEntry(NHnSparseTree * hnstIn, std::vector<std::vector<int>> ranges, bool useProjection = false);
 
   private:
   std::string fFileName{"hnst.root"}; ///< Current filename

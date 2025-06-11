@@ -108,7 +108,7 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
   ///
   /// Save entry
   ///
-  NLogger::Debug("Saving entry for branch=%s ...", fName.c_str());
+  NLogger::Trace("Saving entry for branch=%s ...", fName.c_str());
   // return;
 
   THnSparse * in = (THnSparse *)hnstBranchIn->GetObject();
@@ -123,7 +123,7 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
         THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, projOpt.c_str());
         // Loop over all bins
         double sum = 0;
-        NLogger::Trace("Projection of %lld ...", out->GetNbins());
+        NLogger::Trace("Projection of %s with filled bins %lld ...", in->GetName(), out->GetNbins());
         for (Int_t i = 0; i < out->GetNbins(); i++) {
           NLogger::Trace("Bin %d content=%f", i, out->GetBinContent(i));
           sum += out->GetBinContent(i);
