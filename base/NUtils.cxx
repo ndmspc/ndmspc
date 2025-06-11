@@ -440,7 +440,7 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
   }
   if (sparse->GetNdimensions() == 0) return true;
 
-  NLogger::Debug("Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
+  NLogger::Trace("Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
   /// Reset all axis ranges
   for (int i = 0; i < sparse->GetNdimensions(); i++) {
     if (withOverflow) {
@@ -457,7 +457,7 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
   TAxis * axis = nullptr;
   for (int i = 0; i < ranges.size(); i++) {
     axis = sparse->GetAxis(ranges[i][0]);
-    NLogger::Debug("Setting axis range %s=[%d,%d] ...", axis->GetName(), ranges[i][1], ranges[i][2]);
+    NLogger::Trace("Setting axis range %s=[%d,%d] ...", axis->GetName(), ranges[i][1], ranges[i][2]);
     if (ranges[i].size() != 3) {
       NLogger::Error("Error: Axis range must have 3 values, but has %zu ...", ranges[i].size());
       return false;

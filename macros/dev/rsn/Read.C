@@ -14,7 +14,8 @@ void Read(std::string config = "PWGLF-376-dev.json", std::string enabledBranches
   Ndmspc::NConfig * cfg = Ndmspc::NConfig::Instance(config);
   cfg->SetEnvironment("local");
   cfg->Print();
-  std::string hnstFileNameOut = cfg->GetAnalysisPath() + "/hnst.root";
+  // std::string hnstFileNameOut = cfg->GetAnalysisPath() + "/hnst.root";
+  std::string hnstFileNameOut = "/tmp/hnst.root";
 
   Ndmspc::NHnSparseTree * hnst = Ndmspc::NHnSparseTree::Open(hnstFileNameOut.c_str(), enabledBranches);
   if (hnst == nullptr) {

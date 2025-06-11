@@ -39,7 +39,8 @@ NBinning::NBinning(std::vector<TAxis *> axes) : TObject(), fAxes(axes)
     if (nbins > nbinsMax) {
       nbinsMax = nbins;
     }
-    if (nbins == 1 || axes[i]->IsAlphanumeric()) {
+    // if (nbins == 1 || axes[i]->IsAlphanumeric()) {
+    if (axes[i]->IsAlphanumeric()) {
       binningType = Binning::kSingle;
       nContentDims++;
     }
@@ -352,7 +353,7 @@ int NBinning::FillAll()
   return nBinsFilled;
 }
 
-bool NBinning::AddBinning(std::vector<int> binning, int n)
+bool NBinning::AddBinning(int id, std::vector<int> binning, int n)
 {
   ///
   /// Add binning
@@ -363,6 +364,12 @@ bool NBinning::AddBinning(std::vector<int> binning, int n)
     return false;
   }
 
+  if (id <= 0 || id > fAxes.size()) {
+    NLogger::Error("AddBinning: Invalid binning id %d", id);
+    return false;
+  }
+
+  binning.insert(binning.begin(), id);
   Int_t * point = new Int_t[fMap->GetNdimensions()];
   NUtils::VectorToArray(binning, point);
   if (binning.size() == 2) {
@@ -371,7 +378,7 @@ bool NBinning::AddBinning(std::vector<int> binning, int n)
     point[1] = 1;
   }
   for (int i = 0; i < n; i++) {
-    // NLogger::Debug("Adding binning %d: %d %d %d %d", i, point[0], point[1], point[2], point[3]);
+    NLogger::Debug("Adding binning %d: %d %d %d %d", i, point[0], point[1], point[2], point[3]);
     fMap->SetBinContent(point, 1);
     point[3] += 1;
   }
@@ -379,9 +386,66 @@ bool NBinning::AddBinning(std::vector<int> binning, int n)
 
   return true;
 }
+bool NBinning::AddBinningVariable(int id, std::vector<int> mins)
+{
+  ///
+  /// Add Variable binning
+  ///
+  if (id <= 0 || id > fAxes.size()) {
+    NLogger::Error("AddBinningVariable: Invalid binning id %d", id);
+    return false;
+  }
+
+  // lopp over all mins and set binning
+  for (int i = 1; i < mins.size(); i++) {
+
+    if (mins[i] < 1 || mins[i] > fAxes[id - 1]->GetNbins() + 1) {
+      NLogger::Warning("AddBinningVariable: Invalid binning value mins=%d", mins[i]);
+      return true;
+    }
+    // if (mins[i] == fAxes[id - 1]->GetNbins() || i == mins.size() - 1) mins[i]++;
+    int rebin = mins[i] - mins[i - 1];
+    if (rebin < 1) {
+      NLogger::Error("AddBinningVariable: Invalid binning value rebin=%d", rebin);
+      return false;
+    }
+    int rebin_start = mins[i - 1] % rebin;
+    int bin         = mins[i] / rebin;
+    if (rebin == 1) {
+      rebin_start = 1;
+      bin         = mins[i - 1];
+    }
+    NLogger::Debug("Adding partial binning %d: %d %d %d %d", i - 1, id, rebin, rebin_start, bin);
+    AddBinning(id, {rebin, rebin_start, bin}, 1);
+  }
+
+  return true;
+}
+bool NBinning::AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widths)
+{
+  ///
+  /// Add binning via bin widths
+  ///
+  NLogger::Debug("Adding binning via bin widths for id=%d", id);
+  std::vector<int> mins;
+  // Print vector of widths
+  mins.push_back(1);
+  for (auto & w : widths) {
+    NLogger::Debug("Adding binning via bin widths: %s", NUtils::GetCoordsString(w, -1).c_str());
+    int width   = w[0];
+    int nWidths = w.size() > 1 ? w[1] : 1;
+    for (int iWidth = 0; iWidth < nWidths; iWidth++) {
+      mins.push_back(mins[mins.size() - 1] + width);
+    }
+  }
+
+  return AddBinningVariable(id, mins);
+}
+
 std::vector<std::vector<int>> NBinning::GetCoordsRange(std::vector<int> c) const
 {
   std::vector<std::vector<int>> coordsRange;
+  std::vector<int>              ids;
   std::vector<int>              mins;
   std::vector<int>              maxs;
   int                           iAxis = 0;
@@ -408,14 +472,62 @@ std::vector<std::vector<int>> NBinning::GetCoordsRange(std::vector<int> c) const
       return {};
     }
     // print min max
-    NLogger::Trace("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
+    NLogger::Debug("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
+    ids.push_back(iAxis); // +1 because id starts from 1
     mins.push_back(min);
     maxs.push_back(max);
   }
 
+  coordsRange.push_back(ids);
   coordsRange.push_back(mins);
   coordsRange.push_back(maxs);
   return coordsRange;
+}
+
+Binning NBinning::GetBinningType(int i) const
+{
+  if (i < 0 || i >= fBinningTypes.size()) {
+    NLogger::Error("Invalid binning type %d", i);
+    return Binning::kSingle;
+  }
+  return fBinningTypes[i];
+}
+std::vector<std::vector<int>> NBinning::GetAxisRanges(std::vector<int> c) const
+{
+  ///
+  /// Returns axis ranges for given coordinates
+  ///
+  std::vector<std::vector<int>> axisRanges;
+
+  int  iAxis = 0;
+  bool isValid;
+  int  index = 0;
+  for (int iAxis = 0; iAxis < fAxes.size(); iAxis++) {
+    // for (int i = 0; i < fContent->GetNdimensions(); i += 3) {
+    int min;
+    int max;
+    if (fBinningTypes[iAxis] == Binning::kSingle) {
+      isValid = NUtils::GetAxisRangeInBase(fAxes[iAxis], 1, 1, c[index], min, max);
+      index++;
+    }
+    else if (fBinningTypes[iAxis] == Binning::kMultiple) {
+      isValid = NUtils::GetAxisRangeInBase(fAxes[iAxis], c[index], c[index + 1], c[index + 2], min, max);
+      index += 3;
+    }
+    else {
+      NLogger::Error("Unknown binning type");
+      continue;
+    }
+    if (!isValid) {
+      // NLogger::Error("Cannot get axis range for axis %d", iAxis);
+      return {};
+    }
+    // print min max
+    NLogger::Trace("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
+    axisRanges.push_back({iAxis, min, max});
+  }
+
+  return axisRanges;
 }
 
 } // namespace Ndmspc

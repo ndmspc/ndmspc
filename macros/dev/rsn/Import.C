@@ -8,8 +8,9 @@ void Import(std::string config = "PWGLF-376-dev.json")
   Ndmspc::NConfig * cfg = Ndmspc::NConfig::Instance(config);
   cfg->Print();
 
-  std::string hnstFileNameIn  = cfg->GetAnalysisBasePath() + "/inputs/hnst.root";
-  std::string hnstFileNameOut = cfg->GetAnalysisPath() + "/hnst.root";
+  std::string hnstFileNameIn = cfg->GetAnalysisBasePath() + "/inputs/hnst.root";
+  // std::string hnstFileNameOut = cfg->GetAnalysisPath() + "/hnst.root";
+  std::string hnstFileNameOut = "/tmp/hnst.root";
   Ndmspc::NHnSparseTreeUtils::Reshape(hnstFileNameIn, cfg->GetInputObjectNames(), cfg->GetInputObjectDirecotry(),
                                       hnstFileNameOut);
 }

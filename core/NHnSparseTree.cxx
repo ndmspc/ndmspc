@@ -1,4 +1,5 @@
 #include <map>
+#include <vector>
 #include <THnSparse.h>
 #include <TSystem.h>
 #include <TFile.h>
@@ -315,6 +316,8 @@ bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
         NLogger::Error("NHnSparseTree::InitAxes : Axis %d is nullptr !!!", i);
         return false;
       }
+      NLogger::Debug("Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, a->GetName(), a->GetTitle(),
+                     a->GetNbins(), a->GetXmin(), a->GetXmax());
       axes.push_back((TAxis *)a->Clone());
     }
     // if (fBinning) {
@@ -339,6 +342,27 @@ bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
 
   return true;
 }
+void NHnSparseTree::SaveEntry(NHnSparseTree * hnstIn, std::vector<std::vector<int>> ranges, bool useProjection)
+{
+  ///
+  /// Save entry
+  ///
+  NLogger::Trace("Saving entry in HnSparseTree ...");
+
+  for (auto & kv : fBranchesMap) {
+    NLogger::Trace("Saving content from %s ...", kv.first.c_str());
+    THnSparse * in = (THnSparse *)hnstIn->GetBranch(kv.first)->GetObject();
+    if (ranges.size() > 0) {
+      NUtils::SetAxisRanges(in, ranges);
+    }
+    kv.second.Branch(fTree, nullptr);
+    kv.second.SaveEntry(hnstIn->GetBranch(kv.first), useProjection);
+    // break;
+  }
+
+  // Filling entry to tree
+  FillTree();
+}
 
 Int_t NHnSparseTree::FillTree()
 {
@@ -354,7 +378,7 @@ Int_t NHnSparseTree::FillTree()
 
   // Print point coordinates
   std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
-  NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
+  // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
   SetBinContent(fPoint, 1);
 
   fFile->cd();
@@ -369,6 +393,12 @@ Long64_t NHnSparseTree::GetEntry(Long64_t entry)
 
   NLogger::Trace("Getting entry=%lld nbranches=%d ...", entry, fBranchesMap.size());
   // fTree->Print();
+  // Print warning if entry is out of bounds and return 0
+  if (entry < 0 || entry >= fTree->GetEntries()) {
+    NLogger::Warning("Entry %lld is out of bounds [0, %lld). Reading 0 bytes and objects remain from last valid entry.",
+                     entry, fTree->GetEntries() - 1);
+    return 0;
+  }
 
   Long64_t bytessum = 0;
 
@@ -547,5 +577,106 @@ std::vector<std::string> NHnSparseTree::GetBrancheNames()
     keys.push_back(kv.first);
   }
   return keys;
+}
+bool NHnSparseTree::Import(std::string filename, std::string directory, std::vector<std::string> objNames,
+                           std::map<std::string, std::vector<std::vector<int>>> binning)
+{
+  ///
+  /// Import from THnSparse
+  ///
+  std::string cachedir = TFile::GetCacheFileDir();
+  TFile *     f        = NUtils::OpenFile(filename.c_str(), cachedir.empty() ? "READ" : "CACHEREAD");
+  if (f == nullptr) {
+    NLogger::Error("Cannot open file '%s'", filename.c_str());
+    return false;
+  }
+  // loop over objNames and print content
+  std::map<std::string, THnSparse *> objects;
+  for (size_t i = 0; i < objNames.size(); i++) {
+    std::string objName = directory;
+    if (!directory.empty()) {
+      objName += "/";
+    }
+    objName += objNames[i];
+    NLogger::Info("Initializing 'hnst' from %s", objName.c_str());
+    // THnSparse * hns = (THnSparse *)f->Get(objName.c_str());
+    TObject *   obj      = f->Get(objName.c_str());
+    THnSparse * hns      = dynamic_cast<THnSparse *>(obj);
+    objects[objNames[i]] = hns;
+    if (hns == nullptr) {
+      NLogger::Warning("Cannot find object '%s' in file '%s'!!! Skipping ...", objName.c_str(), filename.c_str());
+      continue;
+    }
+    if (GetNdimensions() == 0) {
+      InitAxes(hns->GetListOfAxes());
+      // Add default binning (integrated binning)
+      fBinning->GetMap()->Reset();
+      // add binningIn for reset of axes
+      for (int iAxis = 0; iAxis < hns->GetNdimensions(); iAxis++) {
+        // print axis
+        TAxis *     axis     = hns->GetAxis(iAxis);
+        std::string axisName = axis->GetName();
+        // NLogger::Debug("XXXXXXX Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", iAxis, axisName.c_str(),
+        //                axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+        if (!binning[axisName].empty()) {
+          // if (axisName == "axis1-pt" || axisName == "axis2-ce" || axisName == "axis5-eta") {
+          fBinning->AddBinningViaBinWidths(iAxis + 1, binning[axisName]);
+        }
+        else {
+          fBinning->AddBinning(iAxis + 1, {axis->GetNbins(), 1, 1}, 1);
+        }
+      }
+      fBinning->FillAll();
+    }
+    // print class name
+    std::string className = obj->IsA()->GetName();
+    NLogger::Debug("Object '%s' class='%s'", objName.c_str(), obj->IsA()->GetName());
+    if (obj->IsA()->InheritsFrom("THnSparseD"))
+      className = "THnSparseD";
+    else if (obj->IsA()->InheritsFrom("THnSparseF"))
+      className = "THnSparseF";
+    else if (obj->IsA()->InheritsFrom("THnSparseL"))
+      className = "THnSparseL";
+    else if (obj->IsA()->InheritsFrom("THnSparseI"))
+      className = "THnSparseI";
+    else if (obj->IsA()->InheritsFrom("THnSparseS"))
+      className = "THnSparseS";
+    else if (obj->IsA()->InheritsFrom("THnSparseC"))
+      className = "THnSparseC";
+    NLogger::Debug("Adding branch %s with class '%s' ...", objNames[i].c_str(), className.c_str());
+    AddBranch(objNames[i], nullptr, className);
+    GetBranch(objNames[i])->SetAddress(objects[objNames[i]]);
+  }
+  // loop over all selected bins via ROOT iterarot for THnSparse
+  THnSparse * cSparse = fBinning->GetContent();
+  // cSparse->GetAxis(3)->SetRange(11, 11);
+  Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
+  Long64_t                                        linBin  = 0;
+  std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
+  while ((linBin = iter->Next()) >= 0) {
+    Double_t         v             = cSparse->GetBinContent(linBin, cCoords);
+    Long64_t         idx           = cSparse->GetBin(cCoords);
+    std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
+    std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
+    NLogger::Debug("Bin %lld: %s", linBin, binCoordsStr.c_str());
+    // std::vector<std::vector<int>> coordsRange = fBinning->GetCoordsRange(cCoordsVector);
+    //
+    // Setting original sparse object
+    for (size_t i = 0; i < objNames.size(); i++) {
+      GetBranch(objNames[i])->SetAddress(objects[objNames[i]]);
+    }
+    std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(cCoordsVector);
+    SaveEntry(this, axisRanges, true);
+  }
+
+  // TODO: Hnalde it via binning and not as point
+  std::vector<int> coords(GetNdimensions(), 1);
+  SetPoint(coords);
+
+  // Fill the tree
+  // FillTree();
+  f->Close();
+
+  return true;
 }
 } // namespace Ndmspc

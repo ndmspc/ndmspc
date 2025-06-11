@@ -32,13 +32,17 @@ class NBinning : public TObject {
   void                          PrintContent(Option_t * option = "") const;
   int                           FillAll();
   std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
+  std::vector<std::vector<int>> GetAxisRanges(std::vector<int> c) const;
 
-  bool AddBinning(std::vector<int> binning, int n = 1);
+  bool AddBinning(int id, std::vector<int> binning, int n = 1);
+  bool AddBinningVariable(int id, std::vector<int> mins);
+  bool AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widths);
 
   /// Returns the mapping histogram
   THnSparse *          GetMap() const { return fMap; }
   THnSparse *          GetContent() const { return fContent; }
   std::vector<TAxis *> GetAxes() const { return fAxes; }
+  Binning              GetBinningType(int i) const;
 
   private:
   THnSparse *          fMap{nullptr};     ///< Mapping histogram
