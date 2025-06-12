@@ -378,7 +378,7 @@ Int_t NHnSparseTree::FillTree()
 
   // Print point coordinates
   std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
-  // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
+  NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
   SetBinContent(fPoint, 1);
 
   fFile->cd();
@@ -608,8 +608,8 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
       continue;
     }
     if (GetNdimensions() == 0) {
-      InitAxes(hns->GetListOfAxes());
       // Add default binning (integrated binning)
+      InitAxes(hns->GetListOfAxes());
       fBinning->GetMap()->Reset();
       // add binningIn for reset of axes
       for (int iAxis = 0; iAxis < hns->GetNdimensions(); iAxis++) {
@@ -621,12 +621,15 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
         if (!binning[axisName].empty()) {
           // if (axisName == "axis1-pt" || axisName == "axis2-ce" || axisName == "axis5-eta") {
           fBinning->AddBinningViaBinWidths(iAxis + 1, binning[axisName]);
+          fBinning->GetDefinition()[axisName] = binning[axisName];
         }
         else {
           fBinning->AddBinning(iAxis + 1, {axis->GetNbins(), 1, 1}, 1);
+          fBinning->GetDefinition()[axisName] = {{axis->GetNbins()}};
         }
       }
       fBinning->FillAll();
+      InitAxes(fBinning->GetListOfAxes());
     }
     // print class name
     std::string className = obj->IsA()->GetName();
@@ -650,6 +653,7 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
   // loop over all selected bins via ROOT iterarot for THnSparse
   THnSparse * cSparse = fBinning->GetContent();
   // cSparse->GetAxis(3)->SetRange(11, 11);
+  NLogger::Info("Number of entries in content: %lld", cSparse->GetNbins());
   Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
   Long64_t                                        linBin  = 0;
   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
@@ -666,15 +670,27 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
       GetBranch(objNames[i])->SetAddress(objects[objNames[i]]);
     }
     std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(cCoordsVector);
+    std::vector<int>              coords(GetNdimensions(), 1);
+    // print axis ranges
+    for (size_t i = 0; i < axisRanges.size(); i++) {
+      std::string rangeStr = NUtils::GetCoordsString(axisRanges[i], -1);
+      NLogger::Trace("Axis %d: %s", i, rangeStr.c_str());
+      TAxis * axis = fBinning->GetAxes()[i];
+
+      double_t min = axis->GetBinLowEdge(axisRanges[i][1]);
+      double_t max = axis->GetBinUpEdge(axisRanges[i][2]);
+      int      bin = GetAxis(i)->FindBin((min + max) / 2.0);
+      NLogger::Trace("Axis %d: name='%s' title='%s' range=[%.3f, %.3f] localBin=%d", i, axis->GetName(),
+                     axis->GetTitle(), min, max, bin);
+      coords[i] = bin;
+    }
+    // TODO: Hnalde it via binning and not as point
+    // fBinning->GetPoint();
+    SetPoint(coords);
+
     SaveEntry(this, axisRanges, true);
   }
 
-  // TODO: Hnalde it via binning and not as point
-  std::vector<int> coords(GetNdimensions(), 1);
-  SetPoint(coords);
-
-  // Fill the tree
-  // FillTree();
   f->Close();
 
   return true;

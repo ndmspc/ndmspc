@@ -7,6 +7,8 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <map>
+#include "TObjArray.h"
 
 namespace Ndmspc {
 
@@ -33,22 +35,25 @@ class NBinning : public TObject {
   int                           FillAll();
   std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
   std::vector<std::vector<int>> GetAxisRanges(std::vector<int> c) const;
+  TObjArray *                   GetListOfAxes() const;
 
   bool AddBinning(int id, std::vector<int> binning, int n = 1);
   bool AddBinningVariable(int id, std::vector<int> mins);
   bool AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widths);
 
   /// Returns the mapping histogram
-  THnSparse *          GetMap() const { return fMap; }
-  THnSparse *          GetContent() const { return fContent; }
-  std::vector<TAxis *> GetAxes() const { return fAxes; }
-  Binning              GetBinningType(int i) const;
+  THnSparse *                                            GetMap() const { return fMap; }
+  THnSparse *                                            GetContent() const { return fContent; }
+  std::vector<TAxis *>                                   GetAxes() const { return fAxes; }
+  Binning                                                GetBinningType(int i) const;
+  std::map<std::string, std::vector<std::vector<int>>> & GetDefinition() { return fDefinition; }
 
   private:
-  THnSparse *          fMap{nullptr};     ///< Mapping histogram
-  THnSparse *          fContent{nullptr}; ///< Content histogram
-  std::vector<TAxis *> fAxes;             ///< List of axes
-  std::vector<Binning> fBinningTypes;     ///< Binning types
+  THnSparse *                                          fMap{nullptr};     ///< Mapping histogram
+  THnSparse *                                          fContent{nullptr}; ///< Content histogram
+  std::vector<TAxis *>                                 fAxes;             ///< List of axes
+  std::vector<Binning>                                 fBinningTypes;     ///< Binning types
+  std::map<std::string, std::vector<std::vector<int>>> fDefinition;       ///< Binning mapping definition
 
   /// \cond CLASSIMP
   ClassDef(NBinning, 1);
