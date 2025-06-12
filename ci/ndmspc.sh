@@ -4,6 +4,7 @@ tag: "v0.20250322.0"
 requires:
   - ROOT
   - JAliEn-ROOT
+  - nlohmann_json
   - libwebsockets
 build_requires:
   - CMake
@@ -46,7 +47,8 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"                \
       ${OPENSSL_ROOT:+-DOPENSSL_INCLUDE_DIRS=$OPENSSL_ROOT/include} \
       ${OPENSSL_ROOT:+-DOPENSSL_LIBRARIES=$OPENSSL_ROOT/lib/libssl.$SONAME;$OPENSSL_ROOT/lib/libcrypto.$SONAME} \
       ${LIBWEBSOCKETS_ROOT:+"-DLIBWEBSOCKETS_ROOT=$LIBWEBSOCKETS_ROOT"} \
-      -DUSE_LATEST=OFF                                                   \
+      ${NLOHMANN_JSON_ROOT:+"-DNLOHMANN_JSON_ROOT=$NLOHMANN_JSON_ROOT"} \
+      -DUSE_LATEST=ON                                                   \
       -DUSE_LEGACY=ON                                                   \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
