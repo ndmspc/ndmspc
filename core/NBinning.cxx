@@ -6,6 +6,7 @@
 #include "NBinning.h"
 #include <string>
 #include <vector>
+#include "TAttAxis.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NBinning);
@@ -192,6 +193,15 @@ void NBinning::Print(Option_t * option) const
   }
   NLogger::Info("    filled bins = %lld", fContent->GetNbins());
   PrintContent(option);
+
+  // loop over definition and print
+  for (const auto & kv : fDefinition) {
+    NLogger::Info("Binning '%s':", kv.first.c_str());
+    for (const auto & v : kv.second) {
+      NLogger::Info("  %s", NUtils::GetCoordsString(v, -1).c_str());
+    }
+  }
+
   // fMap->Print(option);
 
   // // Using executor print all bins
@@ -229,6 +239,8 @@ void NBinning::PrintContent(Option_t * option) const
   /// Print content
   ///
 
+  std::map<std::string, std::vector<int>> binningMap;
+
   TString opt(option);
   // loop over all selected bins via ROOT iterarot for THnSparse
   THnSparse *                                     cSparse = fContent;
@@ -256,6 +268,7 @@ void NBinning::PrintContent(Option_t * option) const
         binCoords += TString::Format(" | (S) %s %d %d %d [%d,%d] [%d,%d]", fAxes[iAxis]->GetName(), 1, 1, bins[index],
                                      min, max, 1, fAxes[iAxis]->GetNbins())
                          .Data();
+        binningMap[fAxes[iAxis]->GetName()] = {1, 1, bins[index]};
         index++;
       }
       else if (fBinningTypes[iAxis] == Binning::kMultiple) {
@@ -263,6 +276,7 @@ void NBinning::PrintContent(Option_t * option) const
         binCoords += TString::Format(" | (M) %s %d %d %d [%d,%d] [%d,%d]", fAxes[iAxis]->GetName(), bins[index],
                                      bins[index + 1], bins[index + 2], min, max, 1, fAxes[iAxis]->GetNbins())
                          .Data();
+        binningMap[fAxes[iAxis]->GetName()] = {bins[index], bins[index + 1], bins[index + 2]};
         index += 3;
       }
       else {
@@ -432,8 +446,9 @@ bool NBinning::AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widt
   mins.push_back(1);
   for (auto & w : widths) {
     NLogger::Debug("Adding binning via bin widths: %s", NUtils::GetCoordsString(w, -1).c_str());
-    int width   = w[0];
-    int nWidths = w.size() > 1 ? w[1] : 1;
+    TAxis * axis    = fAxes[id - 1];
+    int     width   = w[0];
+    int     nWidths = w.size() > 1 ? w[1] : axis->GetNbins() / width;
     for (int iWidth = 0; iWidth < nWidths; iWidth++) {
       mins.push_back(mins[mins.size() - 1] + width);
     }
@@ -529,5 +544,46 @@ std::vector<std::vector<int>> NBinning::GetAxisRanges(std::vector<int> c) const
 
   return axisRanges;
 }
+TObjArray * NBinning::GetListOfAxes() const
+{
+  ///
+  /// Create and return TObjArray of axes
+  ///
 
+  // TODO: Verify memery leak and its posible consequence for user
+
+  TObjArray * axesArray = new TObjArray();
+
+  // loop over all axes and create TObjArray
+  for (int i = 0; i < fAxes.size(); i++) {
+    TAxis * axis    = (TAxis *)fAxes[i];
+    TAxis * axisNew = (TAxis *)axis->Clone();
+
+    NLogger::Info("Binning '%s':", axis->GetName());
+    std::string name = axis->GetName();
+
+    double bins[axis->GetNbins() + 1];
+    int    count  = 0;
+    int    iBin   = 1; // start from bin 1
+    bins[count++] = axis->GetBinLowEdge(1);
+
+    for (auto & v : fDefinition.at(name)) {
+      NLogger::Info("  %s", NUtils::GetCoordsString(v, -1).c_str());
+
+      int n = v.size() > 1 ? v[1] : axis->GetNbins() / v[0];
+      for (int i = 0; i < n; i++) {
+        iBin += v[0];
+        bins[count++] = axis->GetBinLowEdge(iBin);
+      }
+    }
+    // loop over bins and print
+    for (int i = 0; i < count; i++) {
+      NLogger::Debug("  %s: %d %f", axis->GetName(), i + 1, bins[i]);
+    }
+    axisNew->Set(count - 1, bins);
+    axesArray->Add(axisNew);
+  }
+
+  return axesArray;
+}
 } // namespace Ndmspc
