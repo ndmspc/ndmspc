@@ -10,6 +10,7 @@
 #include "NUtils.h"
 #include "NHnSparseTree.h"
 #include "NHnSparseTreeInfo.h"
+#include "ROOT/RConfig.hxx"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NHnSparseTree);
@@ -50,6 +51,8 @@ NHnSparseTree::~NHnSparseTree()
   ///
   /// Destructor
   ///
+  SafeDelete(fPointData);
+  SafeDelete(fBinning);
 }
 NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::string & branches,
                                     const std::string & treename)
@@ -96,8 +99,9 @@ NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::str
       NLogger::Info("Enabled branches: %s", kv.first.c_str());
     }
   }
-  // Sett all branches to be read
+  // Set all branches to be read
   hnst->SetBranchAddresses();
+
   return hnst;
 }
 
@@ -147,11 +151,7 @@ void NHnSparseTree::Print(Option_t * option) const
   }
 
   if (fBinning) fBinning->Print();
-
-  if (fPoint) {
-    std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
-    NLogger::Info("Current point: %s", pointStr.c_str());
-  }
+  if (fPointData) fPointData->Print("A");
 
   if (opt.Contains("P")) {
     NLogger::Info("Printing content ...");
@@ -225,7 +225,7 @@ std::string NHnSparseTree::GetFullPath(std::vector<int> coords) const
   pointStr += fPostfix;
   return pointStr;
 }
-std::string NHnSparseTree::GetPointStr(std::vector<int> coords) const
+std::string NHnSparseTree::GetPointStr(const std::vector<int> & coords) const
 {
   ///
   /// Return point string
@@ -238,6 +238,7 @@ std::string NHnSparseTree::GetPointStr(std::vector<int> coords) const
     }
     else {
       pointStr += std::to_string(coords[i]);
+      // TString::Format("%d [%.3f,%.3f]", coords[i], a->GetBinLowEdge(coords[i]), a->GetBinUpEdge(coords[i])).Data();
     }
     pointStr += " | ";
   }
@@ -247,6 +248,21 @@ std::string NHnSparseTree::GetPointStr(std::vector<int> coords) const
   }
 
   return pointStr;
+}
+void NHnSparseTree::GetPointMinMax(const std::vector<int> & coords, std::vector<double> & min,
+                                   std::vector<double> & max) const
+{
+  ///
+  /// Return point min and max
+  ///
+
+  // loop over all axes and check if coords are valid
+  for (int i = 0; i < GetNdimensions(); i++) {
+    TAxis * a = GetAxis(i);
+
+    min[i] = a->GetBinLowEdge(coords[i]);
+    max[i] = a->GetBinUpEdge(coords[i]);
+  }
 }
 
 bool NHnSparseTree::SetFileTree(TFile * file, TTree * tree, bool force)
@@ -320,25 +336,15 @@ bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
                      a->GetNbins(), a->GetXmin(), a->GetXmax());
       axes.push_back((TAxis *)a->Clone());
     }
-    // if (fBinning) {
-    //   delete fBinning;
-    // }
     NLogger::Trace("Creating new binning form new axes [%d]...", axes.size());
     fBinning = new NBinning(axes);
     // fBinning->Print();
+    if (fPointData) delete fPointData;
+    fPointData = new NHnSparseTreePoint(this);
   }
+  fPointData->Reset();
 
   Init("hnTree", "HnSparseTree", newAxes, kTRUE);
-
-  if (fPoint) {
-    delete[] fPoint;
-    fPoint = nullptr;
-  }
-  fPoint = new Int_t[GetNdimensions()];
-  // Set fPoint elements to -1
-  for (int i = 0; i < GetNdimensions(); i++) {
-    fPoint[i] = -1;
-  }
 
   return true;
 }
@@ -376,10 +382,19 @@ Int_t NHnSparseTree::FillTree()
     return -1;
   }
 
-  // Print point coordinates
-  std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
+  // TODO: Improve point filling
+  // // Print point coordinates
+  // std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
+  // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
+  // SetBinContent(fPoint, 1);
+  NLogger::Error("Filling tree with point '%lld'", fTree->GetEntries());
+  Int_t * point = new Int_t[GetNdimensions()];
+  NUtils::VectorToArray(fPointData->GetPointStorage(), point);
+  std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(point, GetNdimensions()));
   NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
-  SetBinContent(fPoint, 1);
+  SetBinContent(point, 1);
+  SetEntries(fTree->GetEntries() + 1);
+  delete[] point;
 
   fFile->cd();
   return fTree->Fill();
@@ -415,13 +430,10 @@ Long64_t NHnSparseTree::GetEntry(Long64_t entry)
     }
     bytessum += kv.second.GetEntry(fTree, entry);
   }
-  // if (fPoint == nullptr) {
-  //   fPoint = new Int_t[GetNdimensions()];
-  // }
-  // GetBinContent(entry, fPoint);
-  // for (int i = 0; i < GetNdimensions(); i++) {
-  //   NLogger::Info("Point[%d]=%d", i, fPoint[i]);
-  // }
+  Int_t * point = new Int_t[fBinning->GetContent()->GetNdimensions()];
+  fBinning->GetContent()->GetBinContent(entry, point);
+  fPointData->SetPointContent(NUtils::ArrayToVector(point, fBinning->GetContent()->GetNdimensions()));
+  delete[] point;
 
   // Print byte sum
   NLogger::Debug("[entry=%lld] Bytes read : %.3f MB", entry, (double)bytessum / (1024 * 1024));
@@ -564,6 +576,8 @@ bool NHnSparseTree::InitBinnings(std::vector<TAxis *> axes)
   //   delete fBinning;
   // }
   fBinning = new NBinning(axes);
+  if (fPointData) delete fPointData;
+  fPointData = new NHnSparseTreePoint(this);
   return true;
 }
 
@@ -669,24 +683,10 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
     for (size_t i = 0; i < objNames.size(); i++) {
       GetBranch(objNames[i])->SetAddress(objects[objNames[i]]);
     }
-    std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(cCoordsVector);
-    std::vector<int>              coords(GetNdimensions(), 1);
-    // print axis ranges
-    for (size_t i = 0; i < axisRanges.size(); i++) {
-      std::string rangeStr = NUtils::GetCoordsString(axisRanges[i], -1);
-      NLogger::Trace("Axis %d: %s", i, rangeStr.c_str());
-      TAxis * axis = fBinning->GetAxes()[i];
 
-      double_t min = axis->GetBinLowEdge(axisRanges[i][1]);
-      double_t max = axis->GetBinUpEdge(axisRanges[i][2]);
-      int      bin = GetAxis(i)->FindBin((min + max) / 2.0);
-      NLogger::Trace("Axis %d: name='%s' title='%s' range=[%.3f, %.3f] localBin=%d", i, axis->GetName(),
-                     axis->GetTitle(), min, max, bin);
-      coords[i] = bin;
-    }
-    // TODO: Hnalde it via binning and not as point
-    // fBinning->GetPoint();
-    SetPoint(coords);
+    std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(cCoordsVector);
+    fPointData->SetPointContent(cCoordsVector);
+    fPointData->Print("A");
 
     SaveEntry(this, axisRanges, true);
   }

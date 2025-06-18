@@ -194,13 +194,13 @@ void NBinning::Print(Option_t * option) const
   NLogger::Info("    filled bins = %lld", fContent->GetNbins());
   PrintContent(option);
 
-  // loop over definition and print
-  for (const auto & kv : fDefinition) {
-    NLogger::Info("Binning '%s':", kv.first.c_str());
-    for (const auto & v : kv.second) {
-      NLogger::Info("  %s", NUtils::GetCoordsString(v, -1).c_str());
-    }
-  }
+  // // loop over definition and print
+  // for (const auto & kv : fDefinition) {
+  //   NLogger::Info("Binning '%s':", kv.first.c_str());
+  //   for (const auto & v : kv.second) {
+  //     NLogger::Info("  %s", NUtils::GetCoordsString(v, -1).c_str());
+  //   }
+  // }
 
   // fMap->Print(option);
 
@@ -543,6 +543,45 @@ std::vector<std::vector<int>> NBinning::GetAxisRanges(std::vector<int> c) const
   }
 
   return axisRanges;
+}
+std::vector<int> NBinning::GetAxisBinning(int axisId, const std::vector<int> & c) const
+{
+  ///
+  /// Returns axis binning for given axis id
+  ///
+  std::vector<int> binning;
+
+  int iAxis = 0;
+  int index = 0;
+  for (int iAxis = 0; iAxis < fAxes.size(); iAxis++) {
+    // for (int i = 0; i < fContent->GetNdimensions(); i += 3) {
+    int min;
+    int max;
+    if (fBinningTypes[iAxis] == Binning::kSingle) {
+      if (iAxis == axisId) {
+        binning.push_back(1);
+        binning.push_back(1);
+        binning.push_back(c[index]);
+        break;
+      }
+      index++;
+    }
+    else if (fBinningTypes[iAxis] == Binning::kMultiple) {
+      if (iAxis == axisId) {
+        binning.push_back(c[index]);
+        binning.push_back(c[index + 1]);
+        binning.push_back(c[index + 2]);
+        break;
+      }
+      index += 3;
+    }
+    else {
+      NLogger::Error("Unknown binning type");
+      continue;
+    }
+  }
+
+  return binning;
 }
 TObjArray * NBinning::GetListOfAxes() const
 {
