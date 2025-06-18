@@ -7,6 +7,7 @@
 #include <TTree.h>
 #include <TBranch.h>
 #include "NBinning.h"
+#include "NHnSparseTreePoint.h"
 #include "NUtils.h"
 #include "NTreeBranch.h"
 
@@ -34,12 +35,13 @@ class NHnSparseTree : public THnSparse {
   virtual void           Print(Option_t * option = "") const;
 
   bool     Import(std::string filename, std::string directory, std::vector<std::string> objNames,
-                  std::map<std::string, std::vector<std::vector<int>>> binning);
+                  std::map<std::string, std::vector<std::vector<int>>> binning = {{}});
   bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
   bool     InitAxes(TObjArray * newAxes, int n = 0);
   bool     InitBinnings(std::vector<TAxis *> axes);
   Int_t    FillTree();
   Long64_t GetEntry(Long64_t entry);
+  Long64_t GetEntries() const { return fTree ? fTree->GetEntries() : 0; }
   bool     Close(bool write = false);
 
   /// Setting output file name
@@ -65,10 +67,14 @@ class NHnSparseTree : public THnSparse {
   /// Getting postfix path
   std::string GetPostfix() const { return fPostfix; }
   std::string GetFullPath(std::vector<int> coords) const;
-  std::string GetPointStr(std::vector<int> coords) const;
+  std::string GetPointStr(const std::vector<int> & coords) const;
+  void GetPointMinMax(const std::vector<int> & coords, std::vector<double> & min, std::vector<double> & max) const;
 
-  void SetPointAt(int i, int val) { fPoint[i] = val; }
-  void SetPoint(std::vector<int> coords) { NUtils::VectorToArray(coords, fPoint); }
+  // void                 SetPointAt(int i, int val) { fPoint[i] = val; }
+  // void                 SetPoint(std::vector<int> coords) { NUtils::VectorToArray(coords, fPoint); }
+  // Int_t *              GetPoint() { return fPoint; }
+  // std::vector<int>     GetPointVector() const { return NUtils::ArrayToVector(fPoint, GetNdimensions()); }
+  NHnSparseTreePoint * GetPoint() const { return fPointData; }
 
   /// Get list of branch names
   std::vector<std::string> GetBrancheNames();
@@ -85,9 +91,10 @@ class NHnSparseTree : public THnSparse {
   std::string fPrefix{""};            ///< Prefix path
   std::string fPostfix{""};           ///< Postfix path
   TTree *     fTree{nullptr};         ///<! Content container
-  Int_t *     fPoint{nullptr};        ///<! Point
-  NBinning *  fBinning{nullptr};      ///< Binning
-
+  // Int_t *              fPoint{nullptr};        ///<! Point
+  NBinning *           fBinning{nullptr};   ///< Binning
+  NHnSparseTreePoint * fPointData{nullptr}; ///< Point data
+  ///
   std::map<std::string, NTreeBranch> fBranchesMap; ///< Branches map
 
   /// \cond CLASSIMP

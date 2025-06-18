@@ -3,6 +3,7 @@ set (MY_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/legacy/core
   ${CMAKE_SOURCE_DIR}/legacy/http
   ${CMAKE_SOURCE_DIR}/legacy/ndh
+  ${NLOHMANN_JSON_INCLUDE_DIRS}
 )
 include_directories(${MY_INCLUDE_DIRS}
 ${OPENTELEMETRY_CPP_INCLUDE_DIRS}

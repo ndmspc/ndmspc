@@ -5,12 +5,12 @@ requires:
   - ROOT
   - JAliEn-ROOT
   - nlohmann_json
+  - opentelemetry-cpp
   - libwebsockets
 build_requires:
   - CMake
   - ninja
   - alibuild-recipe-tools
-  - opentelemetry-cpp
   - "OpenSSL:(?!osx)"
 source: https://gitlab.com/ndmspc/ndmspc.git
 incremental_recipe: |

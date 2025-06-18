@@ -36,6 +36,7 @@ class NBinning : public TObject {
   std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
   std::vector<std::vector<int>> GetAxisRanges(std::vector<int> c) const;
   TObjArray *                   GetListOfAxes() const;
+  std::vector<int>              GetAxisBinning(int axisId, const std::vector<int> & c) const;
 
   bool AddBinning(int id, std::vector<int> binning, int n = 1);
   bool AddBinningVariable(int id, std::vector<int> mins);
