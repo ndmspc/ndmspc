@@ -39,6 +39,7 @@ class NUtils : TObject {
 
   static std::vector<std::string> Tokenize(std::string_view input, const char delim);
   static std::vector<int>         TokenizeInt(std::string_view input, const char delim);
+  static std::string              Join(const std::vector<std::string> & values, const char delim = ',');
   static std::vector<std::string> Find(std::string path, std::string filename = "");
   static std::vector<std::string> FindLocal(std::string path, std::string filename = "");
   static std::vector<std::string> FindEos(std::string path, std::string filename = "");

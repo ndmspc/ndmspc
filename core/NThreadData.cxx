@@ -2,13 +2,14 @@
 #include <vector>
 #include <thread>
 #include <TString.h>
+#include "NLogger.h"
 #include "NThreadData.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NThreadData);
 /// \endcond
-
 namespace Ndmspc {
+std::mutex NThreadData::fSharedMutex;
 NThreadData::NThreadData() : TObject(), fItemCount(0), fCoordSum(0), fThreadId(), fIdSet(false), fAssignedIndex(0)
 {
   ///
@@ -24,6 +25,9 @@ NThreadData::~NThreadData()
 }
 void NThreadData::Process(const std::vector<int> & coords)
 {
+
+  NLogger::Info("Processing coordinates in thread %llu",
+                (unsigned long long)std::hash<std::thread::id>{}(std::this_thread::get_id()));
   // Use renamed members with lowercase 'f'
   if (!fIdSet) {
     fThreadId = std::this_thread::get_id();

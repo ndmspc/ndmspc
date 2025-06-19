@@ -15,11 +15,12 @@ class NThreadData : public TObject {
   void SetIdSet(bool idSet) { fIdSet = idSet; }
   void SetAssignedIndex(size_t assignedIndex) { fAssignedIndex = assignedIndex; }
 
-  long long       GetItemCount() const { return fItemCount; }
-  long long       GetCoordSum() const { return fCoordSum; }
-  std::thread::id GetThreadId() const { return fThreadId; }
-  bool            GetIdSet() const { return fIdSet; }
-  size_t          GetAssignedIndex() const { return fAssignedIndex; }
+  long long         GetItemCount() const { return fItemCount; }
+  long long         GetCoordSum() const { return fCoordSum; }
+  std::thread::id   GetThreadId() const { return fThreadId; }
+  bool              GetIdSet() const { return fIdSet; }
+  size_t            GetAssignedIndex() const { return fAssignedIndex; }
+  static std::mutex fSharedMutex;
 
   // Default constructor
   NThreadData();
