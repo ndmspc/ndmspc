@@ -49,7 +49,7 @@ void NHnSparseTreePoint::SetPointContent(const std::vector<int> & content)
 
   //
   // Print content coordinates
-  NLogger::Debug("Setting point content: %s", NUtils::GetCoordsString(content, -1).c_str());
+  NLogger::Trace("Setting point content: %s", NUtils::GetCoordsString(content, -1).c_str());
   //
   if (content.size() != fPointContent.size()) {
     NLogger::Error("Content size does not match point size !!!");

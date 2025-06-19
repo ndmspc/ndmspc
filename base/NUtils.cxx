@@ -398,6 +398,21 @@ std::vector<int> NUtils::TokenizeInt(std::string_view input, const char delim)
 
   return out;
 }
+
+std::string NUtils::Join(const std::vector<std::string> & values, const char delim)
+{
+  ///
+  /// Join helper function
+  ///
+
+  std::string out;
+  for (const auto & v : values) {
+    if (!out.empty()) out += delim;
+    out += v;
+  }
+  return out;
+}
+
 std::vector<std::string> NUtils::Truncate(std::vector<std::string> values, std::string value)
 {
   ///

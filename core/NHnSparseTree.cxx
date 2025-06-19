@@ -387,11 +387,11 @@ Int_t NHnSparseTree::FillTree()
   // std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
   // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
   // SetBinContent(fPoint, 1);
-  NLogger::Error("Filling tree with point '%lld'", fTree->GetEntries());
+  // NLogger::Error("Filling tree with point '%lld'", fTree->GetEntries());
   Int_t * point = new Int_t[GetNdimensions()];
   NUtils::VectorToArray(fPointData->GetPointStorage(), point);
   std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(point, GetNdimensions()));
-  NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
+  // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
   SetBinContent(point, 1);
   SetEntries(fTree->GetEntries() + 1);
   delete[] point;
@@ -686,7 +686,7 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
 
     std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(cCoordsVector);
     fPointData->SetPointContent(cCoordsVector);
-    fPointData->Print("A");
+    // fPointData->Print("A");
 
     SaveEntry(this, axisRanges, true);
   }

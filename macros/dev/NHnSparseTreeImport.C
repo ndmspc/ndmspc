@@ -14,7 +14,8 @@ void NHnSparseTreeImport(std::string filename = "root://eos.ndmspc.io//eos/ndmsp
   // b["axis1-pt"] = {{1}};
   b["axis1-pt"] = {{10}};
   b["axis2-mu"] = {{10}};
-  // b["axis5-eta"] = {{2}};
+
+  b["axis5-eta"] = {{2}};
   hnst->Import(filename, dir, objNames, b);
   hnst->Close(true);
 }

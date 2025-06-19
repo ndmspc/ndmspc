@@ -31,5 +31,5 @@
 #pragma link C++ class Ndmspc::NHnSparseTreeInfo + ;
 #pragma link C++ class Ndmspc::NHnSparseTreePoint + ;
 #pragma link C++ class Ndmspc::NHnSparseTreeUtils + ;
-
+#pragma link C++ class Ndmspc::NHnSparseTreeThreadData + ;
 #endif
