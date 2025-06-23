@@ -3,6 +3,7 @@
 #include <vector>
 #include <thread>
 #include <cstddef>
+#include <mutex>
 #include <TObject.h>
 
 namespace Ndmspc {

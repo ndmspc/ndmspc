@@ -1,53 +1,70 @@
 #include <string>
 #include <vector>
-#include <THnSparse.h>
-#include <TROOT.h>
-#include <TH1.h>
-#include <TInterpreter.h>
-#include "NLogger.h"
 #include "NHnSparseTree.h"
-#include "NHnSparseTreePoint.h"
-#include "NDimensionalExecutor.h"
-using ProcessFuncPtr = void (*)(Ndmspc::NHnSparseTreePoint *);
 #include "MyProcess.C"
-// #include "PhiAnalysis.C"
 
-void NHnSparseTreeProcess(std::string filename = "/tmp/hnst.root", std::string enabledBranches = "unlikepm,likepp")
+void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmspc/dev/hnst.root",
+                          std::string enabledBranches = "unlikepm,likepp")
 {
-  TH1::AddDirectory(kFALSE);
 
-  Ndmspc::NHnSparseTree * hnst = Ndmspc::NHnSparseTree::Open(filename.c_str(), enabledBranches);
-  if (hnst == nullptr) {
+  Ndmspc::NHnSparseTree * hnstIn = Ndmspc::NHnSparseTree::Open(filename.c_str(), enabledBranches);
+  if (hnstIn == nullptr) {
     return;
   }
 
+  Ndmspc::NHnSparseTree * hnstOut = new Ndmspc::NHnSparseTreeC("$HOME/.ndmspc/dev/hnst_out.root");
+  if (hnstOut == nullptr) {
+    Ndmspc::NLogger::Error("Cannot create output HnSparseTree");
+    return;
+  }
+
+  std::vector<TAxis *> axesIn  = hnstIn->GetBinning()->GetAxes();
+  TObjArray *          axesOut = new TObjArray();
+  for (auto & axis : axesIn) {
+    TAxis * axisOut = (TAxis *)axis->Clone();
+    axesOut->Add(axisOut);
+  }
+
+  std::vector<std::string> labels;
+  labels.push_back("integral");
+  labels.push_back("mean");
+  labels.push_back("sigma");
+
+  TAxis * resultsAxis = new TAxis(labels.size(), 0, labels.size());
+  resultsAxis->SetNameTitle("results/U", "Results");
+  for (size_t i = 0; i < labels.size(); i++) {
+    resultsAxis->SetBinLabel(i + 1, labels[i].c_str());
+  }
+  axesOut->Add(resultsAxis);
+
+  hnstOut->InitAxes(axesOut);
+
+  // Get binning definition from input HnSparseTree
+  std::map<std::string, std::vector<std::vector<int>>> b = hnstIn->GetBinning()->GetDefinition();
+  // print size of b
+  Ndmspc::NLogger::Info("Binning size: %zu", b.size());
+
+  hnstOut->ImportBinning(b);
+  hnstOut->Print();
+  // return;
+
+  if (hnstOut->GetBinning() == nullptr) {
+    Ndmspc::NLogger::Error("Binning is not initialized in output HnSparseTree");
+    return;
+  }
+
+  if (hnstOut->GetBinning()->GetContent()->GetNbins() <= 0) {
+    Ndmspc::NLogger::Error("No bins in output HnSparseTree");
+    return;
+  }
   std::vector<int> mins = {1};
-  std::vector<int> maxs = {(int)hnst->GetEntries()};
+  std::vector<int> maxs = {(int)hnstOut->GetBinning()->GetContent()->GetNbins()};
   // mins[0]               = 0;
-  maxs[0] = 400;
-  maxs[0] = 1;
+  // maxs[0] = 400;
+  // maxs[0] = 1;
+  //
+  // hnst->Close();
 
-  TMacro * m = nullptr;
-  // TMacro * m =
-  //     Ndmspc::NUtils::OpenMacro(TString::Format("%s/dev/MyProcess.C", gSystem->Getenv("NDMSPC_MACRO_DIR")).Data());
-  // if (m == nullptr) {
-  //   Ndmspc::NLogger::Error("Cannot open macro MyProcess.C");
-  //   return;
-  // }
-  // m->Load();
-
-  // ProcessFuncPtr greet = [](Ndmspc::NHnSparseTreePoint *) { std::cout << "Hello from a lambda!" << std::endl; };
-  Ndmspc::ProcessFuncPtr myfun = MyProcess; // Use the function defined in MyProcess.C
-
-  Ndmspc::NDimensionalExecutor executor(mins, maxs);
-  auto                         task = [hnst, m, myfun](const std::vector<int> & coords) {
-    Ndmspc::NLogger::Info("Processing entry %d of %d", coords[0], hnst->GetEntries());
-    hnst->GetEntry(coords[0] - 1);
-    Ndmspc::NHnSparseTreePoint * hnstPoint = hnst->GetPoint();
-    myfun(hnstPoint, 0); // Call the lambda function
-    // // hnstPoint->Print("A");
-    // Longptr_t ok = gROOT->ProcessLine(
-    //     TString::Format("%s((Ndmspc::NHnSparseTreePoint*)%p);", m->GetName(), (void *)hnstPoint).Data());
-  };
-  executor.Execute(task);
+  hnstOut->Process(NdmspcUserProcess, mins, maxs, nThreads, hnstIn, hnstOut);
+  hnstOut->Close(true);
 }

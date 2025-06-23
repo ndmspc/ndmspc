@@ -1,10 +1,13 @@
 #include <map>
 #include <vector>
+#include <NHnSparseTreeThreadData.h>
 #include <THnSparse.h>
 #include <TSystem.h>
 #include <TFile.h>
 #include <TTree.h>
 #include <TAxis.h>
+#include <TH1.h>
+#include <TROOT.h>
 #include "NDimensionalExecutor.h"
 #include "NLogger.h"
 #include "NUtils.h"
@@ -343,6 +346,15 @@ bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
     fPointData = new NHnSparseTreePoint(this);
   }
   fPointData->Reset();
+  for (Int_t i = 0; i < newAxes->GetEntries(); i++) {
+    TAxis * a = (TAxis *)newAxes->At(i);
+    TString axisname(a->GetName());
+    bool    isUser = axisname.Contains("/U");
+    if (isUser) {
+      axisname.ReplaceAll("/U", "");
+      a->SetName(axisname.Data());
+    }
+  }
 
   Init("hnTree", "HnSparseTree", newAxes, kTRUE);
 
@@ -357,13 +369,17 @@ void NHnSparseTree::SaveEntry(NHnSparseTree * hnstIn, std::vector<std::vector<in
 
   for (auto & kv : fBranchesMap) {
     NLogger::Trace("Saving content from %s ...", kv.first.c_str());
-    THnSparse * in = (THnSparse *)hnstIn->GetBranch(kv.first)->GetObject();
-    if (ranges.size() > 0) {
-      NUtils::SetAxisRanges(in, ranges);
+    if (hnstIn) {
+      THnSparse * in = (THnSparse *)hnstIn->GetBranch(kv.first)->GetObject();
+      if (ranges.size() > 0) {
+        NUtils::SetAxisRanges(in, ranges);
+      }
+      kv.second.Branch(fTree, nullptr);
+      kv.second.SaveEntry(hnstIn->GetBranch(kv.first), useProjection);
     }
-    kv.second.Branch(fTree, nullptr);
-    kv.second.SaveEntry(hnstIn->GetBranch(kv.first), useProjection);
-    // break;
+    else {
+      kv.second.SaveEntry(GetBranch(kv.first), false);
+    }
   }
 
   // Filling entry to tree
@@ -388,11 +404,22 @@ Int_t NHnSparseTree::FillTree()
   // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
   // SetBinContent(fPoint, 1);
   // NLogger::Error("Filling tree with point '%lld'", fTree->GetEntries());
+
+  //  print point storage
+
+  fPointData->Print();
   Int_t * point = new Int_t[GetNdimensions()];
   NUtils::VectorToArray(fPointData->GetPointStorage(), point);
-  std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(point, GetNdimensions()));
+  point[GetNdimensions() - 1] = 1; // Set last dimension to entry number
+  std::string pointStr        = NUtils::GetCoordsString(NUtils::ArrayToVector(point, GetNdimensions()));
   // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
   SetBinContent(point, 1);
+
+  Int_t   contentDim   = fBinning->GetContent()->GetNdimensions();
+  Int_t * contentPoint = new Int_t[contentDim];
+  NUtils::VectorToArray(fPointData->GetPointContent(), contentPoint);
+  // if (fBinning->GetContent()->GetBinContent(contentPoint) == 0)
+  fBinning->GetContent()->SetBinContent(contentPoint, 1);
   SetEntries(fTree->GetEntries() + 1);
   delete[] point;
 
@@ -625,6 +652,7 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
       // Add default binning (integrated binning)
       InitAxes(hns->GetListOfAxes());
       fBinning->GetMap()->Reset();
+      fBinning->SetDefinition(binning);
       // add binningIn for reset of axes
       for (int iAxis = 0; iAxis < hns->GetNdimensions(); iAxis++) {
         // print axis
@@ -692,6 +720,201 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
   }
 
   f->Close();
+
+  return true;
+}
+
+bool NHnSparseTree::ImportBinning(std::map<std::string, std::vector<std::vector<int>>> binning, THnSparse * hnstIn)
+{
+  ///
+  /// Import binning
+  ///
+  if (fBinning == nullptr) {
+    NLogger::Error("Binning is not initialized !!!");
+    return false;
+  }
+  if (binning.empty()) {
+    NLogger::Error("Binning is empty !!!");
+    return false;
+  }
+  if (hnstIn == nullptr) {
+    hnstIn = this;
+  }
+
+  fBinning->GetMap()->Reset();
+  // add binningIn for reset of axes
+  for (int iAxis = 0; iAxis < hnstIn->GetNdimensions(); iAxis++) {
+    // print axis
+    TAxis *     axis     = hnstIn->GetAxis(iAxis);
+    std::string axisName = axis->GetName();
+    // NLogger::Debug("XXXXXXX Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", iAxis, axisName.c_str(),
+    //                axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    if (!binning[axisName].empty()) {
+      // if (axisName == "axis1-pt" || axisName == "axis2-ce" || axisName == "axis5-eta") {
+      fBinning->AddBinningViaBinWidths(iAxis + 1, binning[axisName]);
+      fBinning->GetDefinition()[axisName] = binning[axisName];
+    }
+    else {
+      fBinning->AddBinning(iAxis + 1, {axis->GetNbins(), 1, 1}, 1);
+      fBinning->GetDefinition()[axisName] = {{axis->GetNbins()}};
+    }
+  }
+  fBinning->FillAll();
+  InitAxes(fBinning->GetListOfAxes());
+
+  return true;
+}
+
+bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
+                            int nThreads, NHnSparseTree * hnstIn, NHnSparseTree * hnstOut)
+{
+  ///
+  /// Process function
+  ///
+  TH1::AddDirectory(kFALSE);
+
+  bool batch = gROOT->IsBatch();
+
+  if (func == nullptr) {
+    NLogger::Error("Process function is nullptr !!!");
+    return false;
+  }
+
+  if (nThreads < 0) {
+    NLogger::Error("Number of threads must be greater then or equal 0 !!!");
+    return false;
+  }
+
+  int maxBins = fBinning->GetContent()->GetNbins();
+  if (nThreads > maxBins) {
+    NLogger::Warning("Number of threads (%d) is greater than number of entries (%lld). Using %lld threads.", nThreads,
+                     maxBins, maxBins);
+    nThreads = maxBins;
+  }
+
+  // Print number of threads
+  NLogger::Info("Processing with %d threads ...", nThreads);
+
+  if (nThreads == 1) {
+    Ndmspc::NDimensionalExecutor executor(mins, maxs);
+
+    AddBranch("output", nullptr, "TList");
+
+    auto task = [this, func, hnstIn](const std::vector<int> & coords) {
+      NHnSparseTree * hnstCurrent = hnstIn;
+      if (hnstCurrent == nullptr) {
+        hnstCurrent = this;
+      }
+
+      if (hnstCurrent->GetTree()->GetEntries() > 0) {
+        Ndmspc::NLogger::Info("Processing entry %d of %d", coords[0], hnstCurrent->GetTree()->GetEntries());
+        hnstCurrent->GetEntry(coords[0] - 1);
+      }
+      else {
+        Ndmspc::NLogger::Info("Processing entry %d", coords[0]);
+      }
+      TList * output = new TList();
+      output->SetOwner(true);                   // Set owner to delete objects in the list
+      func(hnstCurrent->GetPoint(), output, 0); // Call the lambda function
+      if (output) {
+        output->Print();
+        GetBranch("output")->SetAddress(output); // Set the output list as branch address
+      }
+      else {
+        Ndmspc::NLogger::Warning("Function returned nullptr !!!");
+      }
+
+      SetPoint(hnstCurrent->GetPoint()); // Set the point in the current HnSparseTree
+
+      SaveEntry();
+
+      delete output; // Clean up the output list
+    };
+    executor.Execute(task);
+  }
+  else {
+
+    // Optional: Suppress ROOT's info messages for cleaner output during thread execution
+    gROOT->SetBatch(kTRUE);
+
+    if (hnstIn == nullptr) {
+      hnstIn = this;
+    }
+
+    std::string enabledBranches;
+    // Generate string of enabled branches from fBranchesMap
+    for (auto & kv : hnstIn->GetBranchesMap()) {
+      if (kv.second.GetBranchStatus() == 1) {
+        NLogger::Info("Enabled branch: %s", kv.first.c_str());
+        enabledBranches += kv.first + ",";
+      }
+    }
+    if (!enabledBranches.empty()) {
+      enabledBranches.pop_back(); // Remove the last comma
+    }
+
+    Ndmspc::NDimensionalExecutor executor_par(mins, maxs);
+    // 1. Create the vector of NThreadData objects
+    size_t num_threads_to_use = nThreads;
+
+    // set num_threads_to_use to the number of available threads
+    if (num_threads_to_use < 1) num_threads_to_use = std::thread::hardware_concurrency();
+    Ndmspc::NLogger::Info("Using %zu threads\n", num_threads_to_use);
+    std::vector<Ndmspc::NHnSparseTreeThreadData> thread_data_vector(num_threads_to_use);
+    for (size_t i = 0; i < thread_data_vector.size(); ++i) {
+      thread_data_vector[i].SetAssignedIndex(i);
+      thread_data_vector[i].SetFileName(hnstIn->GetFileName());
+      thread_data_vector[i].SetEnabledBranches(enabledBranches); // Set enabled branches
+      thread_data_vector[i].SetProcessFunc(func);                // Set the processing function
+      thread_data_vector[i].GetHnstOutput(hnstOut);              // Set the input HnSparseTree
+      // thread_data_vector[i].GetHnSparseTree(); // Initialize the NHnSparseTree
+    }
+
+    auto start_par = std::chrono::high_resolution_clock::now();
+
+    // 2. Define the lambda (type in signature updated)
+    auto parallel_task = [](const std::vector<int> & coords, Ndmspc::NHnSparseTreeThreadData & thread_obj) {
+      thread_obj.Print();
+      thread_obj.Process(coords);
+    };
+
+    // 3. Call ExecuteParallel (template argument updated)
+    // Use renamed class NThreadData
+    executor_par.ExecuteParallel<Ndmspc::NHnSparseTreeThreadData>(parallel_task, thread_data_vector);
+    auto                                      end_par      = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
+
+    Ndmspc::NLogger::Info("Parallel execution completed and it took %.3f s", par_duration.count() / 1000);
+
+    // Print number of results
+    Ndmspc::NLogger::Info("Starting to close %zu results ...", thread_data_vector.size());
+
+    for (auto & data : thread_data_vector) {
+      // Print the thread data
+      // data.Print();
+      // Save the entry to the tree
+      data.GetHnstOutput()->Close(true); // Close the output file and write the tree
+      Ndmspc::NLogger::Info("Thread %zu: File '%s' closed and tree written.", data.GetAssignedIndex(),
+                            data.GetHnstOutput()->GetFileName().c_str());
+    }
+
+    Ndmspc::NLogger::Info("Merging %zu results ...", thread_data_vector.size());
+    Ndmspc::NLogger::Info("Done OK");
+
+    // --- Process Results (Inspect the original vector) ---
+    // Merging results
+    // std::cout << "Results from " << thread_data_vector.size() << " provided TObjects:" << std::endl;
+    // long long total_items = 0;
+    // long long total_sum   = 0;
+    // for (const auto & data : thread_data_vector) {
+    //   data.Print();
+    //   total_items += data.GetItemCount();
+    //   total_sum += data.GetCoordSum();
+    // }
+    // std::cout << "Total items processed: " << total_items << std::endl;
+    // std::cout << "Total coordinate sum: " << total_sum << std::endl;
+    gROOT->SetBatch(batch);
+  }
 
   return true;
 }

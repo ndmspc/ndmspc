@@ -20,6 +20,7 @@ namespace Ndmspc {
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
+using ProcessFuncPtr = void (*)(Ndmspc::NHnSparseTreePoint *, TList *, int);
 class NHnSparseTree : public THnSparse {
 
   public:
@@ -34,8 +35,10 @@ class NHnSparseTree : public THnSparse {
                               const std::string & treename = "hnst");
   virtual void           Print(Option_t * option = "") const;
 
-  bool     Import(std::string filename, std::string directory, std::vector<std::string> objNames,
-                  std::map<std::string, std::vector<std::vector<int>>> binning = {{}});
+  bool Import(std::string filename, std::string directory, std::vector<std::string> objNames,
+              std::map<std::string, std::vector<std::vector<int>>> binning = {{}});
+  bool ImportBinning(std::map<std::string, std::vector<std::vector<int>>> binning = {{}}, THnSparse * hnstIn = nullptr);
+
   bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
   bool     InitAxes(TObjArray * newAxes, int n = 0);
   bool     InitBinnings(std::vector<TAxis *> axes);
@@ -75,15 +78,21 @@ class NHnSparseTree : public THnSparse {
   // Int_t *              GetPoint() { return fPoint; }
   // std::vector<int>     GetPointVector() const { return NUtils::ArrayToVector(fPoint, GetNdimensions()); }
   NHnSparseTreePoint * GetPoint() const { return fPointData; }
+  void                 SetPoint(NHnSparseTreePoint * point) { fPointData = point; }
 
   /// Get list of branch names
-  std::vector<std::string> GetBrancheNames();
-  bool                     AddBranch(const std::string & name, void * address, const std::string & className);
-  NTreeBranch *            GetBranch(const std::string & name) { return &fBranchesMap[name]; }
-  TObject *                GetBranchObject(const std::string & name);
-  void                     SetEnabledBranches(std::vector<std::string> branches);
-  void                     SetBranchAddresses();
-  void SaveEntry(NHnSparseTree * hnstIn, std::vector<std::vector<int>> ranges, bool useProjection = false);
+  std::vector<std::string>           GetBrancheNames();
+  std::map<std::string, NTreeBranch> GetBranchesMap() const { return fBranchesMap; }
+  bool                               AddBranch(const std::string & name, void * address, const std::string & className);
+  NTreeBranch *                      GetBranch(const std::string & name) { return &fBranchesMap[name]; }
+  TObject *                          GetBranchObject(const std::string & name);
+  void                               SetEnabledBranches(std::vector<std::string> branches);
+  void                               SetBranchAddresses();
+  void SaveEntry(NHnSparseTree * hnstIn = nullptr, std::vector<std::vector<int>> ranges = {},
+                 bool useProjection = false);
+
+  bool Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
+               int nThreads = 1, NHnSparseTree * hnstIn = nullptr, NHnSparseTree * hnstOut = nullptr);
 
   private:
   std::string fFileName{"hnst.root"}; ///< Current filename

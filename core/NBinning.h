@@ -20,8 +20,10 @@ namespace Ndmspc {
 ///
 
 enum class Binning {
-  kSingle   = 0, ///< No rebin possible
-  kMultiple = 1, ///< Rebin is possible
+  kSingle    = 0, ///< No rebin possible
+  kMultiple  = 1, ///< Rebin is possible
+  kUser      = 2, ///< No rebin possible, but axis range is as single bin (User must set bin as needed)
+  kUndefined = 3  ///< Undefined binning type
 };
 
 class NBinning : public TObject {
@@ -48,6 +50,7 @@ class NBinning : public TObject {
   std::vector<TAxis *>                                   GetAxes() const { return fAxes; }
   Binning                                                GetBinningType(int i) const;
   std::map<std::string, std::vector<std::vector<int>>> & GetDefinition() { return fDefinition; }
+  void SetDefinition(const std::map<std::string, std::vector<std::vector<int>>> & def) { fDefinition = def; }
 
   private:
   THnSparse *                                          fMap{nullptr};     ///< Mapping histogram

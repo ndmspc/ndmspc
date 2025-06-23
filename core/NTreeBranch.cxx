@@ -111,36 +111,45 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
   NLogger::Trace("Saving entry for branch=%s ...", fName.c_str());
   // return;
 
-  THnSparse * in = (THnSparse *)hnstBranchIn->GetObject();
-  if (in) {
-    if (in->GetNdimensions() > 0) {
-      if (useProjection) {
-        // in->Print();
-        Int_t dims[in->GetNdimensions()];
-        for (Int_t iDim = 0; iDim < in->GetNdimensions(); iDim++) {
-          dims[iDim] = iDim;
+  TString classNameStr = hnstBranchIn->ClassName();
+
+  if (classNameStr.BeginsWith("THnSparse")) {
+
+    THnSparse * in = (THnSparse *)hnstBranchIn->GetObject();
+    if (in) {
+      if (in->GetNdimensions() > 0) {
+        if (useProjection) {
+          // in->Print();
+          Int_t dims[in->GetNdimensions()];
+          for (Int_t iDim = 0; iDim < in->GetNdimensions(); iDim++) {
+            dims[iDim] = iDim;
+          }
+          THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, projOpt.c_str());
+          // Loop over all bins
+          double sum = 0;
+          NLogger::Trace("Projection of %s with filled bins %lld ...", in->GetName(), out->GetNbins());
+          for (Int_t i = 0; i < out->GetNbins(); i++) {
+            NLogger::Trace("Bin %d content=%f", i, out->GetBinContent(i));
+            sum += out->GetBinContent(i);
+          }
+          // out->Projection(0)->Print();
+          out->SetEntries(sum);
+          out->SetNameTitle(in->GetName(), in->GetTitle());
+          // out->Print();
+          SetAddress(out);
         }
-        THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, projOpt.c_str());
-        // Loop over all bins
-        double sum = 0;
-        NLogger::Trace("Projection of %s with filled bins %lld ...", in->GetName(), out->GetNbins());
-        for (Int_t i = 0; i < out->GetNbins(); i++) {
-          NLogger::Trace("Bin %d content=%f", i, out->GetBinContent(i));
-          sum += out->GetBinContent(i);
+        else {
+          SetAddress(in);
         }
-        // out->Projection(0)->Print();
-        out->SetEntries(sum);
-        out->SetNameTitle(in->GetName(), in->GetTitle());
-        // out->Print();
-        SetAddress(out);
-      }
-      else {
-        SetAddress(in);
       }
     }
     else {
       SetAddress(nullptr);
     }
+  }
+  else {
+    NLogger::Trace("Class '%s' is stored default method !!!", classNameStr.Data());
+    // return;
   }
 }
 
