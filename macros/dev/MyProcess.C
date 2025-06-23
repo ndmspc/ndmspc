@@ -5,6 +5,7 @@
 #include <NHnSparseTree.h>
 #include <NHnSparseTreePoint.h>
 #include <NHnSparseTreeThreadData.h>
+#include "TROOT.h"
 static std::mutex g_func_name_mutex;
 
 Double_t Pol1(double * x, double * par)
@@ -40,7 +41,7 @@ Double_t Voigt(double * x, double * par)
   return par[0] * TMath::Voigt(x[0] - par[1], par[3], par[2]);
 }
 
-Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, int thread_id) {
+Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TList * output, int thread_id) {
   // Print point
   // p->Print("A");
 
@@ -74,12 +75,18 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, in
     // fit 10 times
     hist->Fit(func, "RQN0"); // "S" for fit statistics, "Q" for quiet
   }
-  for (int i = 0; i < 10000; ++i) {
+  for (int i = 0; i < 10; ++i) {
     // Ndmspc::NLogger::Info("Fit iteration %d", i);
     hist->Fit(func, "RQN0"); // "S" for fit statistics, "Q" for quiet
   }
   int status = hist->Fit(func, "R"); // "S" for fit statistics, "Q" for quiet
-  hist->DrawCopy("");
+  if (!gROOT->IsBatch()) {
+    Ndmspc::NLogger::Info("Fit status: %d", status);
+    hist->DrawCopy("");
+  }
+
+  // Storing histogram in output list
+  output->Add(hist); // Add histogram to output list
   //
   delete func;
 };

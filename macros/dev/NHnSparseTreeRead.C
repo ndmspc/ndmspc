@@ -5,7 +5,7 @@
 #include "NLogger.h"
 #include "NHnSparseTree.h"
 #include "NHnSparseTreePoint.h"
-void NHnSparseTreeRead(int timeout = 100, std::string filename = "/tmp/hnst.root",
+void NHnSparseTreeRead(int timeout = 100, std::string filename = "$HOME/.ndmspc/dev/hnst.root",
                        std::string enabledBranches = "unlikepm")
 {
   TH1::AddDirectory(kFALSE);

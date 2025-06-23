@@ -14,7 +14,6 @@ namespace Ndmspc {
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
-using ProcessFuncPtr = void (*)(Ndmspc::NHnSparseTreePoint *, int);
 class NHnSparseTreeThreadData : public NThreadData {
   public:
   NHnSparseTreeThreadData();
@@ -27,17 +26,17 @@ class NHnSparseTreeThreadData : public NThreadData {
   void        SetEnabledBranches(const std::string & enabledBranches) { fEnabledBranches = enabledBranches; }
 
   virtual void    Process(const std::vector<int> & coords);
-  NHnSparseTree * GetHnSparseTree();
-  void            SetMacro(TMacro * macro) { fMacro = macro; }
+  NHnSparseTree * GetHnstInput();
+  NHnSparseTree * GetHnstOutput(NHnSparseTree * hnstOut = nullptr);
 
   void SetProcessFunc(ProcessFuncPtr func) { fProcessFunc = func; }
 
   private:
-  NHnSparseTree * fHnSparseTree{nullptr}; ///< Pointer to the NHnSparseTree object
-  TMacro *        fMacro{nullptr};        ///< Pointer to the macro to be executed
-  std::string     fFileName;              ///< HnSparseTree file name
-  std::string     fEnabledBranches;       ///< Enabled branches in the HnSparseTree
-  ProcessFuncPtr  fProcessFunc{nullptr};  ///< Function pointer to the processing function
+  NHnSparseTree * fHnstIn{nullptr};      ///< Pointer to the input NHnSparseTree object
+  std::string     fFileName;             ///< HnSparseTree inpuy file name
+  std::string     fEnabledBranches;      ///< Enabled branches in the HnSparseTree
+  NHnSparseTree * fHnstOut{nullptr};     ///< Pointer to the output NHnSparseTree object
+  ProcessFuncPtr  fProcessFunc{nullptr}; ///< Function pointer to the processing function
 
   /// \cond CLASSIMP
   ClassDef(NHnSparseTreeThreadData, 1);
