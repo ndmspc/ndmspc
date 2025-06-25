@@ -34,6 +34,7 @@ class NHnSparseTree : public THnSparse {
   static NHnSparseTree * Open(const std::string & filename, const std::string & branches = "",
                               const std::string & treename = "hnst");
   virtual void           Print(Option_t * option = "") const;
+  virtual Long64_t       Merge(TCollection * list);
 
   bool Import(std::string filename, std::string directory, std::vector<std::string> objNames,
               std::map<std::string, std::vector<std::vector<int>>> binning = {{}});
@@ -84,7 +85,7 @@ class NHnSparseTree : public THnSparse {
   std::vector<std::string>           GetBrancheNames();
   std::map<std::string, NTreeBranch> GetBranchesMap() const { return fBranchesMap; }
   bool                               AddBranch(const std::string & name, void * address, const std::string & className);
-  NTreeBranch *                      GetBranch(const std::string & name) { return &fBranchesMap[name]; }
+  NTreeBranch *                      GetBranch(const std::string & name);
   TObject *                          GetBranchObject(const std::string & name);
   void                               SetEnabledBranches(std::vector<std::string> branches);
   void                               SetBranchAddresses();

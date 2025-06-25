@@ -10,10 +10,12 @@
 #include <TROOT.h>
 #include "NDimensionalExecutor.h"
 #include "NLogger.h"
+#include "NTreeBranch.h"
 #include "NUtils.h"
 #include "NHnSparseTree.h"
 #include "NHnSparseTreeInfo.h"
 #include "ROOT/RConfig.hxx"
+#include "RtypesCore.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NHnSparseTree);
@@ -64,23 +66,24 @@ NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::str
   /// Load
   ///
 
-  NLogger::Info("Opening '%s' ...", filename.c_str());
+  NLogger::Info("Opening '%s' with branches='%s' and treename='%s' ...", filename.c_str(), branches.c_str(),
+                treename.c_str());
 
   TFile * file = TFile::Open(filename.c_str());
   if (!file) {
-    NLogger::Error("Cannot open file '%s'", filename.c_str());
+    NLogger::Error("NHnSparseTree::Open: Cannot open file '%s'", filename.c_str());
     return nullptr;
   }
 
   TTree * tree = (TTree *)file->Get(treename.c_str());
   if (!tree) {
-    NLogger::Error("Cannot get tree '%s' from file '%s'", treename.c_str(), filename.c_str());
+    NLogger::Error("NHnSparseTree::Open: Cannot get tree '%s' from file '%s'", treename.c_str(), filename.c_str());
     return nullptr;
   }
 
   NHnSparseTreeInfo * hnstInfo = (NHnSparseTreeInfo *)tree->GetUserInfo()->FindObject("hnstInfo");
   if (!hnstInfo) {
-    NLogger::Error("Cannot get HnSparseTree from tree '%s'", treename.c_str());
+    NLogger::Error("NHnSparseTree::Open: Cannot get HnSparseTree from tree '%s'", treename.c_str());
     return nullptr;
   }
 
@@ -93,13 +96,13 @@ NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::str
   std::vector<std::string> enabledBranches;
   if (!branches.empty()) {
     enabledBranches = Ndmspc::NUtils::Tokenize(branches, ',');
-    NLogger::Info("Enabled branches: %s", NUtils::GetCoordsString(enabledBranches, -1).c_str());
+    NLogger::Trace("Enabled branches: %s", NUtils::GetCoordsString(enabledBranches, -1).c_str());
     hnst->SetEnabledBranches(enabledBranches);
   }
   else {
     // loop over all branches and set address
     for (auto & kv : hnst->fBranchesMap) {
-      NLogger::Info("Enabled branches: %s", kv.first.c_str());
+      NLogger::Trace("Enabled branches: %s", kv.first.c_str());
     }
   }
   // Set all branches to be read
@@ -296,7 +299,7 @@ bool NHnSparseTree::InitTree(const std::string & filename, const std::string & t
     fFileName = gSystem->ExpandPathName(filename.c_str());
   }
 
-  NLogger::Info("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
+  NLogger::Trace("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
 
   // Open file
   fFile = NUtils::OpenFile(fFileName.c_str(), "RECREATE");
@@ -323,7 +326,7 @@ bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
   NLogger::Trace("Initializing axes [%d]...", newAxes->GetEntries());
 
   if (newAxes == nullptr) {
-    NLogger::Error("newAxes is nullptr !!!");
+    NLogger::Error("NHnSparseTree::InitAxes: newAxes is nullptr !!!");
     return false;
   }
   if (fBinning == nullptr) {
@@ -335,7 +338,7 @@ bool NHnSparseTree::InitAxes(TObjArray * newAxes, int n)
         NLogger::Error("NHnSparseTree::InitAxes : Axis %d is nullptr !!!", i);
         return false;
       }
-      NLogger::Debug("Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, a->GetName(), a->GetTitle(),
+      NLogger::Trace("Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, a->GetName(), a->GetTitle(),
                      a->GetNbins(), a->GetXmin(), a->GetXmax());
       axes.push_back((TAxis *)a->Clone());
     }
@@ -398,27 +401,17 @@ Int_t NHnSparseTree::FillTree()
     return -1;
   }
 
-  // TODO: Improve point filling
-  // // Print point coordinates
-  // std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(fPoint, GetNdimensions()));
-  // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
-  // SetBinContent(fPoint, 1);
-  // NLogger::Error("Filling tree with point '%lld'", fTree->GetEntries());
-
-  //  print point storage
-
-  fPointData->Print();
+  // fPointData->Print();
   Int_t * point = new Int_t[GetNdimensions()];
   NUtils::VectorToArray(fPointData->GetPointStorage(), point);
   point[GetNdimensions() - 1] = 1; // Set last dimension to entry number
   std::string pointStr        = NUtils::GetCoordsString(NUtils::ArrayToVector(point, GetNdimensions()));
-  // NLogger::Debug("Filling tree with point: %s", pointStr.c_str());
+  NLogger::Trace("Filling tree with point: %s", pointStr.c_str());
   SetBinContent(point, 1);
 
   Int_t   contentDim   = fBinning->GetContent()->GetNdimensions();
   Int_t * contentPoint = new Int_t[contentDim];
   NUtils::VectorToArray(fPointData->GetPointContent(), contentPoint);
-  // if (fBinning->GetContent()->GetBinContent(contentPoint) == 0)
   fBinning->GetContent()->SetBinContent(contentPoint, 1);
   SetEntries(fTree->GetEntries() + 1);
   delete[] point;
@@ -463,7 +456,8 @@ Long64_t NHnSparseTree::GetEntry(Long64_t entry)
   delete[] point;
 
   // Print byte sum
-  NLogger::Debug("[entry=%lld] Bytes read : %.3f MB", entry, (double)bytessum / (1024 * 1024));
+  NLogger::Debug("[entry=%lld] Bytes read : %.3f MB file='%s'", entry, (double)bytessum / (1024 * 1024),
+                 fFileName.c_str());
   return bytessum;
 }
 
@@ -472,7 +466,6 @@ bool NHnSparseTree::Close(bool write)
   ///
   /// Close
   ///
-  NLogger::Info("Closing file %s ...", fFileName.c_str());
 
   if (fFile) {
     if (write) {
@@ -488,10 +481,11 @@ bool NHnSparseTree::Close(bool write)
 
       fTree->Write("", TObject::kOverwrite);
       fFile->Close();
-      NLogger::Info("Output was stored in '%s' ...", fFileName.c_str());
+      NLogger::Info("Output was stored in file '%s'", fFileName.c_str());
     }
     else {
       fFile->Close();
+      NLogger::Info("File '%s' was closed", fFileName.c_str());
     }
     fFile = nullptr;
     fTree = nullptr;
@@ -814,10 +808,10 @@ bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> 
         Ndmspc::NLogger::Info("Processing entry %d", coords[0]);
       }
       TList * output = new TList();
-      output->SetOwner(true);                   // Set owner to delete objects in the list
+      // output->SetOwner(true);                   // Set owner to delete objects in the list
       func(hnstCurrent->GetPoint(), output, 0); // Call the lambda function
       if (output) {
-        output->Print();
+        // output->Print();
         GetBranch("output")->SetAddress(output); // Set the output list as branch address
       }
       else {
@@ -887,19 +881,26 @@ bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> 
     Ndmspc::NLogger::Info("Parallel execution completed and it took %.3f s", par_duration.count() / 1000);
 
     // Print number of results
-    Ndmspc::NLogger::Info("Starting to close %zu results ...", thread_data_vector.size());
-
+    Ndmspc::NLogger::Info("Closing %zu results ...", thread_data_vector.size());
     for (auto & data : thread_data_vector) {
-      // Print the thread data
-      // data.Print();
-      // Save the entry to the tree
       data.GetHnstOutput()->Close(true); // Close the output file and write the tree
-      Ndmspc::NLogger::Info("Thread %zu: File '%s' closed and tree written.", data.GetAssignedIndex(),
-                            data.GetHnstOutput()->GetFileName().c_str());
+      Ndmspc::NLogger::Trace("Thread %zu: File '%s' closed and tree written", data.GetAssignedIndex(),
+                             data.GetHnstOutput()->GetFileName().c_str());
     }
 
-    Ndmspc::NLogger::Info("Merging %zu results ...", thread_data_vector.size());
-    Ndmspc::NLogger::Info("Done OK");
+    Ndmspc::NLogger::Info("Merging %zu results in to '%s' ...", thread_data_vector.size(),
+                          hnstOut->GetFileName().c_str());
+    TList *                           mergeList  = new TList();
+    Ndmspc::NHnSparseTreeThreadData * outputData = new Ndmspc::NHnSparseTreeThreadData();
+    outputData->SetHnstOutput(hnstOut);
+
+    for (auto & data : thread_data_vector) {
+      // Ndmspc::NLogger::Trace("Adding thread data %zu to merge list file=%s ...", data.GetAssignedIndex(),
+      //                        data.GetHnstOutput()->GetFileName().c_str());
+      mergeList->Add(&data);
+    }
+    Long64_t nmerged = outputData->Merge(mergeList);
+    Ndmspc::NLogger::Info("Merged %lld objects successfully", nmerged);
 
     // --- Process Results (Inspect the original vector) ---
     // Merging results
@@ -917,5 +918,90 @@ bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> 
   }
 
   return true;
+}
+
+Long64_t NHnSparseTree::Merge(TCollection * list)
+{
+  ///
+  /// Merge function
+  ///
+
+  if (!list) return 0; // No list to merge from
+  NLogger::Trace("Merging %zu objects via NHnSparseTree::Merge ...", list->GetEntries());
+  Long64_t        nmerged = list->GetEntries();
+  TIter           next(list);
+  NHnSparseTree * obj     = nullptr;
+  THnSparse *     cSparse = fBinning->GetContent();
+  if (cSparse == nullptr) {
+    NLogger::Error("NHnSparseTree::Merge: Content is nullptr !!! Cannot merge and exiting ...");
+    return 0;
+  }
+  NLogger::Trace("Number of entries in content: %lld", cSparse->GetNbins());
+  Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
+  Long64_t                                        linBin  = 0;
+  std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
+  while ((linBin = iter->Next()) >= 0) {
+    Double_t         v             = cSparse->GetBinContent(linBin, cCoords);
+    Long64_t         idx           = cSparse->GetBin(cCoords);
+    std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
+    std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
+    NLogger::Trace("Bin %lld(idx=%lld): %s", linBin, idx, binCoordsStr.c_str());
+
+    // if (linBin >= cSparse->GetNbins()) break;
+    // continue;
+
+    while ((obj = dynamic_cast<NHnSparseTree *>(next()))) {
+      if (obj == this || !obj) continue;
+      // NLogger::Info("Searching object '%s' with %lld entries ...", obj->GetFileName().c_str(),
+      //               obj->GetTree()->GetEntries());
+      Long64_t bin = obj->GetBinning()->GetContent()->GetBin(cCoords);
+      if (bin < obj->GetTree()->GetEntries()) {
+        // obj->Print();
+        obj->GetEntry(bin);
+        // Lopp over all branches in the object
+        for (auto & kv : obj->GetBranchesMap()) {
+          NLogger::Trace("Merging branch '%s' ...", kv.first.c_str());
+          if (kv.second.GetBranchStatus() == 0) {
+            NLogger::Trace("Branch '%s' is disabled !!! Skipping ...", kv.first.c_str());
+            continue;
+          }
+          // Get the branch object
+          TObject * branchObj = kv.second.GetObject();
+          if (!branchObj) {
+            NLogger::Warning("NHnSparseTree::Merge: Branch '%s' object is nullptr !!! Skipping ...", kv.first.c_str());
+            continue;
+          }
+
+          NTreeBranch * b = GetBranch(kv.first);
+          if (b == nullptr) {
+            AddBranch(kv.first, kv.second.GetObject(), branchObj->IsA()->GetName());
+            b = GetBranch(kv.first);
+          }
+          b->SetAddress(branchObj); // Set the branch address
+        }
+        SetPoint(obj->GetPoint()); // Set the point in the current HnSparseTree
+        SaveEntry();
+      }
+    }
+    next.Reset(); // Reset the iterator to start from the beginning again
+  }
+  return nmerged;
+}
+NTreeBranch * NHnSparseTree::GetBranch(const std::string & name)
+{
+  ///
+  /// Return branch by name
+  ///
+  if (name.empty()) {
+    NLogger::Error("Branch name is empty !!!");
+    return nullptr;
+  }
+
+  if (fBranchesMap.find(name) == fBranchesMap.end()) {
+    // NLogger::Error("Branch '%s' not found !!!", name.c_str());
+    return nullptr;
+  }
+
+  return &fBranchesMap[name];
 }
 } // namespace Ndmspc

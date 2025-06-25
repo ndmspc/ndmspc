@@ -54,9 +54,9 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
   }
   // Ndmspc::NLogger::Info("Point title: '%s'", p->GetTitle("Unlike").c_str());
   sUnlikePM->SetTitle(p->GetTitle("Unlike").c_str());
-  sUnlikePM->Print();
+  // sUnlikePM->Print();
   TH1D * hist = sUnlikePM->Projection(0);
-  hist->Print();
+  // hist->Print();
 
   std::string name;
   TF1 *       func = nullptr;
@@ -72,21 +72,24 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
     func = new TF1("VoigtPol2", VoigtPol2, 0.997, 1.050, 7);
     func->SetParameters(hist->GetMaximum(), phi_mass, phi_width, phi_sigma, 0.0, 0.0, 0.0);
     func->FixParameter(3, phi_sigma); // Fix sigma parameter
-    // fit 10 times
-    hist->Fit(func, "RQN0"); // "S" for fit statistics, "Q" for quiet
+    hist->Fit(func, "RQN0");          // "S" for fit statistics, "Q" for quiet
   }
-  for (int i = 0; i < 10; ++i) {
+  // fit 10 times
+  int nFits = 10;
+  for (int i = 0; i < nFits; ++i) {
     // Ndmspc::NLogger::Info("Fit iteration %d", i);
     hist->Fit(func, "RQN0"); // "S" for fit statistics, "Q" for quiet
   }
-  int status = hist->Fit(func, "R"); // "S" for fit statistics, "Q" for quiet
+  hist->GetListOfFunctions()->Add(func); // Add the function to the histogram's list of functions
   if (!gROOT->IsBatch()) {
+    int status = hist->Fit(func, "RQ"); // "S" for fit statistics, "Q" for quiet
     Ndmspc::NLogger::Info("Fit status: %d", status);
-    hist->DrawCopy("");
+    hist->DrawCopy("hist");
   }
 
   // Storing histogram in output list
   output->Add(hist); // Add histogram to output list
+  // output->Add(func); // Add histogram to output list
   //
-  delete func;
+  // delete func;
 };

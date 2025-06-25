@@ -33,7 +33,8 @@ class NTreeBranch : public TObject {
   ///< Returns branch status
   int GetBranchStatus() const { return fBranchStatus; }
   ///< Returns Object
-  TObject * GetObject() const { return fObject; }
+  TObject *   GetObject() const { return fObject; }
+  std::string GetObjectClassName() const { return fObjectClassName; }
 
   TBranch * Branch(TTree * tree, void * address);
   void      SetAddress(void * address);
