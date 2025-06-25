@@ -28,8 +28,11 @@ class NHnSparseTreeThreadData : public NThreadData {
   virtual void    Process(const std::vector<int> & coords);
   NHnSparseTree * GetHnstInput();
   NHnSparseTree * GetHnstOutput(NHnSparseTree * hnstOut = nullptr);
+  void            SetHnstInput(NHnSparseTree * hnstIn) { fHnstIn = hnstIn; }
+  void            SetHnstOutput(NHnSparseTree * hnstOut) { fHnstOut = hnstOut; }
 
-  void SetProcessFunc(ProcessFuncPtr func) { fProcessFunc = func; }
+  void     SetProcessFunc(ProcessFuncPtr func) { fProcessFunc = func; }
+  Long64_t Merge(TCollection * list);
 
   private:
   NHnSparseTree * fHnstIn{nullptr};      ///< Pointer to the input NHnSparseTree object

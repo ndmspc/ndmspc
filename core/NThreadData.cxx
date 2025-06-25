@@ -26,8 +26,8 @@ NThreadData::~NThreadData()
 void NThreadData::Process(const std::vector<int> & coords)
 {
 
-  NLogger::Info("Processing coordinates in thread %llu",
-                (unsigned long long)std::hash<std::thread::id>{}(std::this_thread::get_id()));
+  NLogger::Trace("Processing coordinates in thread %llu",
+                 (unsigned long long)std::hash<std::thread::id>{}(std::this_thread::get_id()));
   // Use renamed members with lowercase 'f'
   if (!fIdSet) {
     fThreadId = std::this_thread::get_id();
@@ -42,11 +42,8 @@ void NThreadData::Process(const std::vector<int> & coords)
 
 void NThreadData::Print(Option_t * /*option*/) const
 {
-  TString info;
-  // Use renamed members with lowercase 'f'
-  info.Form("NThreadData [Index: %zu, ThreadId: %llu, Items: %lld, Sum: %lld]", fAssignedIndex,
-            (unsigned long long)std::hash<std::thread::id>{}(fThreadId), fItemCount, fCoordSum);
-  std::cout << info.Data() << std::endl;
+  NLogger::Trace("NThreadData [Index: %zu, ThreadId: %llu, Items: %lld, Sum: %lld]", fAssignedIndex,
+                 (unsigned long long)std::hash<std::thread::id>{}(fThreadId), fItemCount, fCoordSum);
 }
 
 } // namespace Ndmspc

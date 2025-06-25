@@ -111,8 +111,8 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
   NLogger::Trace("Saving entry for branch=%s ...", fName.c_str());
   // return;
 
-  TString classNameStr = hnstBranchIn->ClassName();
-
+  TString classNameStr = hnstBranchIn->GetObject()->ClassName();
+  NLogger::Trace("NTreeBranch::SaveEntry: Obj class name %s ...", classNameStr.Data());
   if (classNameStr.BeginsWith("THnSparse")) {
 
     THnSparse * in = (THnSparse *)hnstBranchIn->GetObject();
@@ -158,8 +158,8 @@ void NTreeBranch::Print(Option_t * option) const
   ///
   /// Print
   ///
-  NLogger::Info("Branch '%s' object='%s' address=%p branch=%p status=%d", fName.c_str(), fObjectClassName.c_str(),
-                fObject, fBranch, fBranchStatus);
+  NLogger::Info("Branch name='%s' objClassName='%s' address=%p branch=%p status=%d", fName.c_str(),
+                fObjectClassName.c_str(), fObject, fBranch, fBranchStatus);
 }
 
 } // namespace Ndmspc
