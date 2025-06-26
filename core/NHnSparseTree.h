@@ -5,6 +5,9 @@
 #include <TSystem.h>
 #include <THnSparse.h>
 #include <TTree.h>
+#include <TH1.h>
+#include <TH2.h>
+#include <TH3.h>
 #include <TBranch.h>
 #include "NBinning.h"
 #include "NHnSparseTreePoint.h"
@@ -94,6 +97,10 @@ class NHnSparseTree : public THnSparse {
 
   bool Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
                int nThreads = 1, NHnSparseTree * hnstIn = nullptr, NHnSparseTree * hnstOut = nullptr);
+
+  TH1D * Projection(const std::string & name, int xaxis);
+  TH2D * Projection(const std::string & name, int yaxis, int xaxis);
+  TH3D * Projection(const std::string & name, int xaxis, int yaxis, int zaxis);
 
   private:
   std::string fFileName{"hnst.root"}; ///< Current filename
