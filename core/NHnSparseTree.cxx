@@ -1004,4 +1004,59 @@ NTreeBranch * NHnSparseTree::GetBranch(const std::string & name)
 
   return &fBranchesMap[name];
 }
+TH1D * NHnSparseTree::Projection(const std::string & name, int xaxis)
+{
+  ///
+  /// Returns projection for TH1
+  ///
+  TObject * obj = GetBranchObject(name);
+  if (!obj) {
+    NLogger::Error("NHnSparseTree::Projection: Branch '%s' not found !!!", name.c_str());
+    return nullptr;
+  }
+  if (!obj->IsA()->InheritsFrom("THnSparse")) {
+    NLogger::Error("NHnSparseTree::Projection: Object '%s' is not a THnSparse !!!", name.c_str());
+    return nullptr;
+  }
+  THnSparse * hns = (THnSparse *)obj;
+
+  return hns->Projection(xaxis);
+}
+TH2D * NHnSparseTree::Projection(const std::string & name, int yaxis, int xaxis)
+{
+  ///
+  /// Returns projection for TH2
+  ///
+  TObject * obj = GetBranchObject(name);
+  if (!obj) {
+    NLogger::Error("NHnSparseTree::Projection: Branch '%s' not found !!!", name.c_str());
+    return nullptr;
+  }
+  if (!obj->IsA()->InheritsFrom("THnSparse")) {
+    NLogger::Error("NHnSparseTree::Projection: Object '%s' is not a THnSparse !!!", name.c_str());
+    return nullptr;
+  }
+  THnSparse * hns = (THnSparse *)obj;
+
+  return hns->Projection(yaxis, xaxis);
+}
+TH3D * NHnSparseTree::Projection(const std::string & name, int xaxis, int yaxis, int zaxis)
+{
+  ///
+  /// Returns projection for TH3
+  ///
+  TObject * obj = GetBranchObject(name);
+  if (!obj) {
+    NLogger::Error("NHnSparseTree::Projection: Branch '%s' not found !!!", name.c_str());
+    return nullptr;
+  }
+  if (!obj->IsA()->InheritsFrom("THnSparse")) {
+    NLogger::Error("NHnSparseTree::Projection: Object '%s' is not a THnSparse !!!", name.c_str());
+    return nullptr;
+  }
+  THnSparse * hns = (THnSparse *)obj;
+
+  return hns->Projection(xaxis, yaxis, zaxis);
+}
+
 } // namespace Ndmspc

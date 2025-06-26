@@ -46,16 +46,12 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
   // p->Print("A");
 
   // Access object
-  Ndmspc::NHnSparseTree * hnst      = p->GetHnSparseTree();
-  THnSparse *             sUnlikePM = (THnSparse *)hnst->GetBranchObject("unlikepm");
-  if (sUnlikePM == nullptr) {
-    Ndmspc::NLogger::Error("Cannot get object 'unlikepm'");
+  Ndmspc::NHnSparseTree * hnst = p->GetHnSparseTree();
+  TH1D *                  hist = hnst->Projection("unlikepm", 0);
+  if (!hist) {
+    Ndmspc::NLogger::Error("Histogram 'unlikepm' not found in HnSparseTree '%s'", hnst->GetName());
     return;
   }
-  // Ndmspc::NLogger::Info("Point title: '%s'", p->GetTitle("Unlike").c_str());
-  sUnlikePM->SetTitle(p->GetTitle("Unlike").c_str());
-  // sUnlikePM->Print();
-  TH1D * hist = sUnlikePM->Projection(0);
   // hist->Print();
 
   std::string name;
