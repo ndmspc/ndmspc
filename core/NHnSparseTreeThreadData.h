@@ -31,15 +31,19 @@ class NHnSparseTreeThreadData : public NThreadData {
   void            SetHnstInput(NHnSparseTree * hnstIn) { fHnstIn = hnstIn; }
   void            SetHnstOutput(NHnSparseTree * hnstOut) { fHnstOut = hnstOut; }
 
+  void    SetOutputGlobal(TList * outputGlobal) { fOutputGlobal = outputGlobal; }
+  TList * GetOutputGlobal() const { return fOutputGlobal; }
+
   void     SetProcessFunc(ProcessFuncPtr func) { fProcessFunc = func; }
   Long64_t Merge(TCollection * list);
 
   private:
-  NHnSparseTree * fHnstIn{nullptr};      ///< Pointer to the input NHnSparseTree object
-  std::string     fFileName;             ///< HnSparseTree inpuy file name
-  std::string     fEnabledBranches;      ///< Enabled branches in the HnSparseTree
-  NHnSparseTree * fHnstOut{nullptr};     ///< Pointer to the output NHnSparseTree object
-  ProcessFuncPtr  fProcessFunc{nullptr}; ///< Function pointer to the processing function
+  NHnSparseTree * fHnstIn{nullptr};       ///< Pointer to the input NHnSparseTree object
+  std::string     fFileName;              ///< HnSparseTree inpuy file name
+  std::string     fEnabledBranches;       ///< Enabled branches in the HnSparseTree
+  NHnSparseTree * fHnstOut{nullptr};      ///< Pointer to the output NHnSparseTree object
+  ProcessFuncPtr  fProcessFunc{nullptr};  ///< Function pointer to the processing function
+  TList *         fOutputGlobal{nullptr}; ///< Global output list for the thread
 
   /// \cond CLASSIMP
   ClassDef(NHnSparseTreeThreadData, 1);

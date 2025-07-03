@@ -30,6 +30,7 @@ class NHnSparseTreePoint : public TObject {
   double              GetPointMax(int axisId) const;
   std::vector<int>    GetPointBinning(Int_t axisId) const;
   NHnSparseTree *     GetHnSparseTree() const { return fHnst; }
+  std::vector<int>    GetVariableAxisIndexes() const;
 
   void SetHnSparseTree(NHnSparseTree * hnst) { fHnst = hnst; }
   void SetPointContent(const std::vector<int> & content);

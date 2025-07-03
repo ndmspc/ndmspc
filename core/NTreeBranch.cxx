@@ -70,7 +70,7 @@ void NTreeBranch::SetBranchAddress(TTree * tree)
     return;
   }
 
-  NLogger::Trace("Setting branch address '%s' ...", fName.c_str());
+  NLogger::Trace("NTreeBranch::SetBranchAddress: Setting branch address '%s' ...", fName.c_str());
   // fObject = nullptr;
 
   tree->SetBranchStatus(fName.c_str(), fBranchStatus);

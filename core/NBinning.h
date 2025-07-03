@@ -26,6 +26,12 @@ enum class Binning {
   kUndefined = 3  ///< Undefined binning type
 };
 
+enum class AxisType {
+  kFixed     = 0, ///< fixed axis type
+  kVariable  = 1, ///< variable axis type
+  kUndefined = 2, ///< Undefined axis type
+};
+
 class NBinning : public TObject {
   public:
   NBinning();
@@ -43,12 +49,15 @@ class NBinning : public TObject {
   bool AddBinning(int id, std::vector<int> binning, int n = 1);
   bool AddBinningVariable(int id, std::vector<int> mins);
   bool AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widths);
+  bool SetAxisType(int id, AxisType type);
 
   /// Returns the mapping histogram
   THnSparse *                                            GetMap() const { return fMap; }
   THnSparse *                                            GetContent() const { return fContent; }
   std::vector<TAxis *>                                   GetAxes() const { return fAxes; }
   Binning                                                GetBinningType(int i) const;
+  AxisType                                               GetAxisType(int i) const;
+  char                                                   GetAxisTypeChar(int i) const;
   std::map<std::string, std::vector<std::vector<int>>> & GetDefinition() { return fDefinition; }
   void SetDefinition(const std::map<std::string, std::vector<std::vector<int>>> & def) { fDefinition = def; }
 
@@ -57,6 +66,7 @@ class NBinning : public TObject {
   THnSparse *                                          fContent{nullptr}; ///< Content histogram
   std::vector<TAxis *>                                 fAxes;             ///< List of axes
   std::vector<Binning>                                 fBinningTypes;     ///< Binning types
+  std::vector<AxisType>                                fAxisTypes;        ///< Axis types
   std::map<std::string, std::vector<std::vector<int>>> fDefinition;       ///< Binning mapping definition
 
   /// \cond CLASSIMP

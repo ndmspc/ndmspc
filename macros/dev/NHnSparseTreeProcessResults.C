@@ -1,23 +1,20 @@
 #include <string>
 #include <vector>
 #include "NHnSparseTree.h"
-#include "MyProcess.C"
+#include "MyProcessResults.C"
 
-void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmspc/dev/hnst.root",
-                          std::string enabledBranches = "unlikepm,mixingpm")
+void NHnSparseTreeProcessResults(int nThreads = 1, std::string filename = "$HOME/.ndmspc/dev/hnst_out.root",
+                                 std::string enabledBranches = "")
 {
-
-  TH1D * h = new TH1D("h", "Test Histogram", 20, -10, 10);
-  h->FillRandom("gaus", 1000);
-  TF1 * f1 = new TF1("f1", "gaus", 0, 10);
-  h->Fit(f1, "QN");
 
   Ndmspc::NHnSparseTree * hnstIn = Ndmspc::NHnSparseTree::Open(filename.c_str(), enabledBranches);
   if (hnstIn == nullptr) {
     return;
   }
+  // hnstIn->Print("P");
+  // return;
 
-  Ndmspc::NHnSparseTree * hnstOut = new Ndmspc::NHnSparseTreeC("$HOME/.ndmspc/dev/hnst_out.root");
+  Ndmspc::NHnSparseTree * hnstOut = new Ndmspc::NHnSparseTreeC("$HOME/.ndmspc/dev/hnst_out_results.root");
   if (hnstOut == nullptr) {
     Ndmspc::NLogger::Error("Cannot create output HnSparseTree");
     return;
@@ -57,6 +54,6 @@ void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmsp
   //
   // hnst->Close();
 
-  hnstOut->Process(NdmspcUserProcess, mins, maxs, nThreads, hnstIn, hnstOut);
+  hnstOut->Process(NdmspcUserProcessResults, mins, maxs, nThreads, hnstIn, hnstOut);
   hnstOut->Close(true);
 }
