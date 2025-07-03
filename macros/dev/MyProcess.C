@@ -5,87 +5,58 @@
 #include <NHnSparseTree.h>
 #include <NHnSparseTreePoint.h>
 #include <NHnSparseTreeThreadData.h>
-#include "TROOT.h"
-static std::mutex g_func_name_mutex;
+#include <AnalysisFunctions.h>
+#include <AnalysisUtils.h>
+#include <vector>
+// static std::mutex g_func_name_mutex;
 
-Double_t Pol1(double * x, double * par)
-{
-  return par[0] + x[0] * par[1];
-}
-Double_t Pol2(double * x, double * par)
-{
-  return par[0] + x[0] * par[1] + x[0] * x[0] * par[2];
-}
+Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TList * output, TList * outputGlobal,
+                                              int thread_id) {
+  json cfg;
+  cfg["norm"]["min"]   = 1.050;
+  cfg["norm"]["max"]   = 1.060;
+  cfg["fit"]["name"]   = "VoigtPol2";
+  cfg["fit"]["min"]    = 1.000;
+  cfg["fit"]["max"]    = 1.040;
+  cfg["fit"]["params"] = {1.0, 1.019, 0.0045, 0.001, 0.0, 0.0, 0.0};
+  cfg["parameters"]    = {"integral", "mass", "sigma", "width"};
 
-Double_t VoigtPol1(double * x, double * par)
-{
-  return par[0] * TMath::Voigt(x[0] - par[1], par[3], par[2]) + Pol1(x, &par[4]);
-}
+  std::vector<std::string> labels  = cfg["parameters"].get<std::vector<std::string>>();
+  TH1D *                   results = new TH1D("results", "Results", labels.size(), 0, labels.size());
+  for (size_t i = 0; i < labels.size(); i++) {
+    results->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
+  }
 
-Double_t VoigtPol2(double * x, double * par)
-{
-  return par[0] * TMath::Voigt(x[0] - par[1], par[3], par[2]) + Pol2(x, &par[4]);
-}
-
-Double_t GausPol2(double * x, double * par)
-{
-  return par[0] * TMath::Gaus(x[0], par[1], par[2]) + Pol2(x, &par[3]);
-}
-
-Double_t BreitWigner(double * x, double * par)
-{
-  return par[0] * TMath::BreitWigner(x[0], par[1], par[2]);
-}
-Double_t Voigt(double * x, double * par)
-{
-  return par[0] * TMath::Voigt(x[0] - par[1], par[3], par[2]);
-}
-
-Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TList * output, int thread_id) {
   // Print point
   // p->Print("A");
 
-  // Access object
   Ndmspc::NHnSparseTree * hnst = p->GetHnSparseTree();
-  TH1D *                  hist = hnst->Projection("unlikepm", 0);
-  if (!hist) {
-    Ndmspc::NLogger::Error("Histogram 'unlikepm' not found in HnSparseTree '%s'", hnst->GetName());
+
+  TH1D * hSigBg = hnst->ProjectionFromObject("unlikepm", 0);
+  if (!hSigBg) {
+    Ndmspc::NLogger::Error("Histogram 'unlikepm' not found !!!");
     return;
   }
-  // hist->Print();
+  hSigBg->SetTitle(p->GetTitle("Signal Background").c_str());
 
-  std::string name;
-  TF1 *       func = nullptr;
-  {
-
-    std::lock_guard<std::mutex> lock(g_func_name_mutex); // Protect the counter
-    // name+= std::to_string(thread_id);
-    // Ndmspc::NLogger::Error("Fitting histogram '%s' with thread %d", hist->GetName(), thread_id);
-    Double_t phi_mass  = 1.019; // Initial mass
-    Double_t phi_width = 0.004; // Initial width
-    Double_t phi_sigma = 0.001; // Initial sigma
-
-    func = new TF1("VoigtPol2", VoigtPol2, 0.997, 1.050, 7);
-    func->SetParameters(hist->GetMaximum(), phi_mass, phi_width, phi_sigma, 0.0, 0.0, 0.0);
-    func->FixParameter(3, phi_sigma); // Fix sigma parameter
-    hist->Fit(func, "RQN0");          // "S" for fit statistics, "Q" for quiet
+  TH1D * hBg = hnst->ProjectionFromObject("mixingpm", 0);
+  if (!hBg) {
+    Ndmspc::NLogger::Error("Histogram 'mixingpm' not found !!!");
+    return;
   }
-  // fit 10 times
-  int nFits = 10;
-  for (int i = 0; i < nFits; ++i) {
-    // Ndmspc::NLogger::Info("Fit iteration %d", i);
-    hist->Fit(func, "RQN0"); // "S" for fit statistics, "Q" for quiet
-  }
-  hist->GetListOfFunctions()->Add(func); // Add the function to the histogram's list of functions
-  if (!gROOT->IsBatch()) {
-    int status = hist->Fit(func, "RQ"); // "S" for fit statistics, "Q" for quiet
-    Ndmspc::NLogger::Info("Fit status: %d", status);
-    hist->DrawCopy("hist");
-  }
+  hBg->SetTitle(p->GetTitle("Background").c_str());
 
-  // Storing histogram in output list
-  output->Add(hist); // Add histogram to output list
-  // output->Add(func); // Add histogram to output list
-  //
-  // delete func;
+  std::string fitFunction_name = cfg["fit"]["name"].get<std::string>();
+  Double_t    phi_mass         = cfg["fit"]["params"][1].get<double>(); // Initial mass
+  Double_t    phi_width        = cfg["fit"]["params"][2].get<double>(); // Initial width
+  Double_t    phi_sigma        = cfg["fit"]["params"][3].get<double>(); // Initial sigma
+  Double_t    fit_min          = cfg["fit"]["min"].get<double>();
+  Double_t    fit_max          = cfg["fit"]["max"].get<double>();
+  TF1 *       peakFunc         = Ndmspc::AnalysisFunctions::VoigtPol2(fitFunction_name.c_str(), fit_min, fit_max);
+  peakFunc->SetParameters(0, phi_mass, phi_width, phi_sigma, 0.0, 0.0, 0.0);
+  peakFunc->FixParameter(3, phi_sigma); // Fix sigma parameter
+
+  Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, peakFunc, cfg, output, results);
+
+  // delete peakFunc;
 };

@@ -23,7 +23,7 @@ namespace Ndmspc {
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
-using ProcessFuncPtr = void (*)(Ndmspc::NHnSparseTreePoint *, TList *, int);
+using ProcessFuncPtr = void (*)(Ndmspc::NHnSparseTreePoint *, TList *, TList *, int);
 class NHnSparseTree : public THnSparse {
 
   public:
@@ -98,9 +98,10 @@ class NHnSparseTree : public THnSparse {
   bool Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
                int nThreads = 1, NHnSparseTree * hnstIn = nullptr, NHnSparseTree * hnstOut = nullptr);
 
-  TH1D * Projection(const std::string & name, int xaxis);
-  TH2D * Projection(const std::string & name, int yaxis, int xaxis);
-  TH3D * Projection(const std::string & name, int xaxis, int yaxis, int zaxis);
+  virtual TH1D * ProjectionFromObject(const std::string & name, int xaxis, Option_t * option = "");
+  virtual TH2D * ProjectionFromObject(const std::string & name, int yaxis, int xaxis, Option_t * option = "");
+  virtual TH3D * ProjectionFromObject(const std::string & name, int xaxis, int yaxis, int zaxis,
+                                      Option_t * option = "");
 
   private:
   std::string fFileName{"hnst.root"}; ///< Current filename

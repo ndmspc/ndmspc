@@ -52,7 +52,7 @@ void NHnSparseTreePoint::SetPointContent(const std::vector<int> & content)
   NLogger::Trace("Setting point content: %s", NUtils::GetCoordsString(content, -1).c_str());
   //
   if (content.size() != fPointContent.size()) {
-    NLogger::Error("Content size does not match point size !!!");
+    NLogger::Error("Content size does not match point size %d != %d !!!", content.size(), fPointContent.size());
     return;
   }
   fPointContent = content;
@@ -112,8 +112,9 @@ void NHnSparseTreePoint::Print(Option_t * option) const
       double_t min = axis->GetBinLowEdge(axisRanges[i][1]);
       double_t max = axis->GetBinUpEdge(axisRanges[i][2]);
       int      bin = fHnst->GetAxis(i)->FindBin((min + max) / 2.0);
-      NLogger::Info("    [%d] name='%s' title='%s' range=[%.3f,%.3f] localBin=%d baseRange[%d,%d]", i, axis->GetName(),
-                    axis->GetTitle(), min, max, bin, axisRanges[i][1], axisRanges[i][2]);
+      NLogger::Info("    [%d] [%c] name='%s' title='%s' range=[%.3f,%.3f] localBin=%d baseRange[%d,%d]", i,
+                    fHnst->GetBinning()->GetAxisTypeChar(i), axis->GetName(), axis->GetTitle(), min, max, bin,
+                    axisRanges[i][1], axisRanges[i][2]);
     }
   }
 }
@@ -194,4 +195,20 @@ double NHnSparseTreePoint::GetPointMax(int axisId) const
   return fPointMax[axisId];
 }
 
+std::vector<int> NHnSparseTreePoint::GetVariableAxisIndexes() const
+{
+  ///
+  /// Returns variable axis indexes
+  ///
+
+  std::vector<int> variableAxes;
+  if (fHnst && fHnst->GetBinning()) {
+    for (int i = 0; i < fHnst->GetNdimensions(); i++) {
+      if (fHnst->GetBinning()->GetAxisType(i) == AxisType::kVariable) {
+        variableAxes.push_back(i);
+      }
+    }
+  }
+  return variableAxes;
+}
 } // namespace Ndmspc

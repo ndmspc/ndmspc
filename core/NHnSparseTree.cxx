@@ -102,11 +102,12 @@ NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::str
   else {
     // loop over all branches and set address
     for (auto & kv : hnst->fBranchesMap) {
-      NLogger::Trace("Enabled branches: %s", kv.first.c_str());
+      NLogger::Debug("Enabled branches: %s", kv.first.c_str());
     }
   }
   // Set all branches to be read
   hnst->SetBranchAddresses();
+  hnst->GetPoint()->SetHnSparseTree(hnst);
 
   return hnst;
 }
@@ -386,7 +387,9 @@ void NHnSparseTree::SaveEntry(NHnSparseTree * hnstIn, std::vector<std::vector<in
   }
 
   // Filling entry to tree
-  FillTree();
+  Int_t nBytes = FillTree();
+  NLogger::Debug("[entry=%lld] Bytes written : %.3f MB file='%s'", fTree->GetEntries() - 1,
+                 (Double_t)nBytes / (1024 * 1024), fTree->GetCurrentFile()->GetName());
 }
 
 Int_t NHnSparseTree::FillTree()
@@ -537,9 +540,12 @@ void NHnSparseTree::SetBranchAddresses()
 
   // NLogger::Trace("Setting branch addresses ...");
 
+  // Print size of branches map
+  NLogger::Trace("NHnSparseTree::SetBranchAddresses: Setting branch addresses for %d branches ...",
+                 fBranchesMap.size());
   // fTree->SetBranchStatus("*", 0);
   for (auto & kv : fBranchesMap) {
-
+    NLogger::Trace("NHnSparseTree::SetBranchAddresses: Setting branch address '%s' ...", kv.first.c_str());
     kv.second.SetBranchAddress(fTree);
   }
 }
@@ -792,39 +798,45 @@ bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> 
   if (nThreads == 1) {
     Ndmspc::NDimensionalExecutor executor(mins, maxs);
 
+    // fBranchesMap.clear(); // Clear branches map to avoid conflicts
     AddBranch("output", nullptr, "TList");
 
-    auto task = [this, func, hnstIn](const std::vector<int> & coords) {
+    TList * outputGlobal = new TList();
+    auto    task         = [this, func, hnstIn, outputGlobal](const std::vector<int> & coords) {
       NHnSparseTree * hnstCurrent = hnstIn;
       if (hnstCurrent == nullptr) {
         hnstCurrent = this;
       }
 
       if (hnstCurrent->GetTree()->GetEntries() > 0) {
-        Ndmspc::NLogger::Info("Processing entry %d of %d", coords[0], hnstCurrent->GetTree()->GetEntries());
+        Ndmspc::NLogger::Debug("Processing entry %d of %d", coords[0], hnstCurrent->GetTree()->GetEntries());
         hnstCurrent->GetEntry(coords[0] - 1);
+        // hnstCurrent->GetBranch("output")->Print();
+        // return; // Skip processing if entry is already processed
+        // hnstCurrent->GetPoint()->SetHnSparseTree(hnstCurrent);
       }
       else {
-        Ndmspc::NLogger::Info("Processing entry %d", coords[0]);
+        Ndmspc::NLogger::Trace("Processing entry %d", coords[0]);
       }
       TList * output = new TList();
       // output->SetOwner(true);                   // Set owner to delete objects in the list
-      func(hnstCurrent->GetPoint(), output, 0); // Call the lambda function
-      if (output) {
+      func(hnstCurrent->GetPoint(), output, outputGlobal, 0); // Call the lambda function
+
+      if (output && output->GetEntries() > 0) {
         // output->Print();
         GetBranch("output")->SetAddress(output); // Set the output list as branch address
+        SetPoint(hnstCurrent->GetPoint());       // Set the point in the current HnSparseTree
+
+        SaveEntry();
       }
       else {
-        Ndmspc::NLogger::Warning("Function returned nullptr !!!");
+        Ndmspc::NLogger::Warning("Function output is nullptr !!!");
       }
-
-      SetPoint(hnstCurrent->GetPoint()); // Set the point in the current HnSparseTree
-
-      SaveEntry();
 
       delete output; // Clean up the output list
     };
     executor.Execute(task);
+    outputGlobal->Draw("APE");
   }
   else {
 
@@ -861,6 +873,7 @@ bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> 
       thread_data_vector[i].SetEnabledBranches(enabledBranches); // Set enabled branches
       thread_data_vector[i].SetProcessFunc(func);                // Set the processing function
       thread_data_vector[i].GetHnstOutput(hnstOut);              // Set the input HnSparseTree
+      thread_data_vector[i].SetOutputGlobal(new TList());        // Set global output list
       // thread_data_vector[i].GetHnSparseTree(); // Initialize the NHnSparseTree
     }
 
@@ -997,14 +1010,19 @@ NTreeBranch * NHnSparseTree::GetBranch(const std::string & name)
     return nullptr;
   }
 
+  // Print all branches
+  // for (const auto & kv : fBranchesMap) {
+  //   NLogger::Debug("Branch '%s' : %s", kv.first.c_str(), kv.second.GetBranchStatus() ? "enabled" : "disabled");
+  // }
+
   if (fBranchesMap.find(name) == fBranchesMap.end()) {
-    // NLogger::Error("Branch '%s' not found !!!", name.c_str());
+    // NLogger::Error("NHnSparseTree::GetBranch: Branch '%s' not found !!!", name.c_str());
     return nullptr;
   }
 
   return &fBranchesMap[name];
 }
-TH1D * NHnSparseTree::Projection(const std::string & name, int xaxis)
+TH1D * NHnSparseTree::ProjectionFromObject(const std::string & name, int xaxis, Option_t * option)
 {
   ///
   /// Returns projection for TH1
@@ -1020,9 +1038,9 @@ TH1D * NHnSparseTree::Projection(const std::string & name, int xaxis)
   }
   THnSparse * hns = (THnSparse *)obj;
 
-  return hns->Projection(xaxis);
+  return hns->Projection(xaxis, option);
 }
-TH2D * NHnSparseTree::Projection(const std::string & name, int yaxis, int xaxis)
+TH2D * NHnSparseTree::ProjectionFromObject(const std::string & name, int yaxis, int xaxis, Option_t * option)
 {
   ///
   /// Returns projection for TH2
@@ -1038,9 +1056,9 @@ TH2D * NHnSparseTree::Projection(const std::string & name, int yaxis, int xaxis)
   }
   THnSparse * hns = (THnSparse *)obj;
 
-  return hns->Projection(yaxis, xaxis);
+  return hns->Projection(yaxis, xaxis, option);
 }
-TH3D * NHnSparseTree::Projection(const std::string & name, int xaxis, int yaxis, int zaxis)
+TH3D * NHnSparseTree::ProjectionFromObject(const std::string & name, int xaxis, int yaxis, int zaxis, Option_t * option)
 {
   ///
   /// Returns projection for TH3
@@ -1056,7 +1074,7 @@ TH3D * NHnSparseTree::Projection(const std::string & name, int xaxis, int yaxis,
   }
   THnSparse * hns = (THnSparse *)obj;
 
-  return hns->Projection(xaxis, yaxis, zaxis);
+  return hns->Projection(xaxis, yaxis, zaxis, option);
 }
 
 } // namespace Ndmspc

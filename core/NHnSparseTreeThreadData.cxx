@@ -28,15 +28,16 @@ void NHnSparseTreeThreadData::Process(const std::vector<int> & coords)
   TList *              output    = new TList();
 
   output->SetOwner(true); // Set owner to true to delete objects in the list automatically
-  fProcessFunc(hnstPoint, output, GetAssignedIndex());
+  fProcessFunc(hnstPoint, output, fOutputGlobal, GetAssignedIndex());
   // output->Print();
-  if (fHnstOut) {
+  // NLogger::Error("Thread %d processed entry %d with output size %zu", GetAssignedIndex(), coords[0],
+  //                output->GetEntries());
+  if (fHnstOut && output->GetEntries() > 0) {
     std::lock_guard<std::mutex> lock(fSharedMutex);
-    NLogger::Trace("Saving output for thread %d %p", GetAssignedIndex(), (void *)fHnstOut->GetBranch("output"));
 
     fHnstOut->GetBranch("output")->SetAddress(output); // Set the output list as branch address
     std::vector<int> coordsOut = hnstPoint->GetPointContent();
-    coordsOut.push_back(1);
+    // coordsOut.push_back(1);
     fHnstOut->GetPoint()->SetPointContent(coordsOut); // Set the point in the current HnSparseTree
 
     fHnstOut->SaveEntry();

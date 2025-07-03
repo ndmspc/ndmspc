@@ -61,6 +61,7 @@ NBinning::NBinning(std::vector<TAxis *> axes) : TObject(), fAxes(axes)
       nContentDims += 3;
     }
     fBinningTypes.push_back(binningType);
+    fAxisTypes.push_back(AxisType::kFixed);
   }
   int        dimBinning   = 4;
   Int_t *    nbinsBinning = new Int_t[dimBinning];
@@ -158,19 +159,6 @@ NBinning::NBinning(std::vector<TAxis *> axes) : TObject(), fAxes(axes)
       iContentAxis++;
     }
   }
-  // WARN: Remove it
-  // for (int i = 0; i < fContent->GetNdimensions(); i++) {
-  //
-  //   int         idim = i / 3;
-  //   int         imod = i % 3;
-  //   std::string name = axes[idim]->GetName();
-  //   name += "_" + types[imod];
-  //   std::string title = axes[idim]->GetName();
-  //   title += " (" + types[imod] + ")";
-  //
-  //   fContent->GetAxis(i)->SetNameTitle(name.c_str(), title.c_str());
-  // }
-  //
   for (int i = 0; i < fContent->GetNdimensions(); i++) {
     NLogger::Trace("Axis[fContent] %d: %s nbins=%d", i, fContent->GetAxis(i)->GetName(),
                    fContent->GetAxis(i)->GetNbins());
@@ -288,17 +276,18 @@ void NBinning::PrintContent(Option_t * option) const
       //                fBinningTypes[iAxis] == Binning::kSingle ? "S" : "M");
       if (fBinningTypes[iAxis] == Binning::kSingle) {
         isValid = NUtils::GetAxisRangeInBase(fAxes[iAxis], 1, 1, bins[index], min, max);
-        binCoords += TString::Format(" | (S) %s %d %d %d [%d,%d] [%d,%d]", fAxes[iAxis]->GetName(), 1, 1, bins[index],
-                                     min, max, 1, fAxes[iAxis]->GetNbins())
+        binCoords += TString::Format(" | (S%c) %s %d %d %d [%d,%d] [%d,%d]", GetAxisTypeChar(iAxis),
+                                     fAxes[iAxis]->GetName(), 1, 1, bins[index], min, max, 1, fAxes[iAxis]->GetNbins())
                          .Data();
         binningMap[fAxes[iAxis]->GetName()] = {1, 1, bins[index]};
         index++;
       }
       else if (fBinningTypes[iAxis] == Binning::kMultiple) {
         isValid = NUtils::GetAxisRangeInBase(fAxes[iAxis], bins[index], bins[index + 1], bins[index + 2], min, max);
-        binCoords += TString::Format(" | (M) %s %d %d %d [%d,%d] [%d,%d]", fAxes[iAxis]->GetName(), bins[index],
-                                     bins[index + 1], bins[index + 2], min, max, 1, fAxes[iAxis]->GetNbins())
-                         .Data();
+        binCoords +=
+            TString::Format(" | (M%c) %s %d %d %d [%d,%d] [%d,%d]", GetAxisTypeChar(iAxis), fAxes[iAxis]->GetName(),
+                            bins[index], bins[index + 1], bins[index + 2], min, max, 1, fAxes[iAxis]->GetNbins())
+                .Data();
         binningMap[fAxes[iAxis]->GetName()] = {bins[index], bins[index + 1], bins[index + 2]};
         index += 3;
       }
@@ -373,6 +362,17 @@ int NBinning::FillAll()
     maxs[idx] = maxs[idx] + 1;
   }
   delete[] p;
+
+  // loop over content vector and set axis types
+  for (size_t i = 0; i < content.size(); i++) {
+    if (content[i].size() == 0) {
+      NLogger::Warning("No content for binning %zu", i);
+      continue;
+    }
+
+    if (content[i].size() > 1) fAxisTypes[i] = AxisType::kVariable;
+    NLogger::Debug("Binning %zu: %d", i, content[i].size());
+  }
 
   // NLogger::Debug("Filling All ...");
   // Loop over all binning combinations
@@ -684,4 +684,43 @@ TObjArray * NBinning::GetListOfAxes() const
 
   return axesArray;
 }
+
+bool NBinning::SetAxisType(int axisId, AxisType at)
+{
+  ///
+  /// Set axis type
+  ///
+  if (axisId < 0 || axisId >= fAxes.size()) {
+    NLogger::Error("Invalid axis id %d", axisId);
+    return false;
+  }
+  fAxisTypes[axisId] = at;
+  return true;
+}
+
+AxisType NBinning::GetAxisType(int i) const
+{
+  ///
+  /// Get axis type
+  ///
+  if (i < 0 || i >= fAxisTypes.size()) {
+    NLogger::Error("Invalid axis type %d", i);
+    return AxisType::kUndefined; // Undefined
+  }
+  return fAxisTypes[i];
+}
+char NBinning::GetAxisTypeChar(int i) const
+{
+  if (i < 0 || i >= fAxisTypes.size()) {
+    NLogger::Error("Invalid axis type %d", i);
+    return 'X'; // Undefined
+  }
+  switch (fAxisTypes[i]) {
+  case AxisType::kFixed: return 'F';
+  case AxisType::kVariable: return 'V';
+  case AxisType::kUndefined:
+  default: return 'X';
+  }
+}
+
 } // namespace Ndmspc
