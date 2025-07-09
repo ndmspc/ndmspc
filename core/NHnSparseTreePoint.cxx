@@ -201,14 +201,8 @@ std::vector<int> NHnSparseTreePoint::GetVariableAxisIndexes() const
   /// Returns variable axis indexes
   ///
 
-  std::vector<int> variableAxes;
-  if (fHnst && fHnst->GetBinning()) {
-    for (int i = 0; i < fHnst->GetNdimensions(); i++) {
-      if (fHnst->GetBinning()->GetAxisType(i) == AxisType::kVariable) {
-        variableAxes.push_back(i);
-      }
-    }
-  }
-  return variableAxes;
+  if (fHnst && fHnst->GetBinning()) return fHnst->GetBinning()->GetAxisIndexes(AxisType::kVariable);
+
+  return {};
 }
 } // namespace Ndmspc

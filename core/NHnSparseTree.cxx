@@ -825,7 +825,8 @@ bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> 
       if (output && output->GetEntries() > 0) {
         // output->Print();
         GetBranch("output")->SetAddress(output); // Set the output list as branch address
-        SetPoint(hnstCurrent->GetPoint());       // Set the point in the current HnSparseTree
+
+        if (fBinning) SetPoint(hnstCurrent->GetPoint()); // Set the point in the current HnSparseTree
 
         SaveEntry();
       }
