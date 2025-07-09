@@ -35,16 +35,21 @@ enum class AxisType {
 class NBinning : public TObject {
   public:
   NBinning();
+  NBinning(TObjArray * axes);
   NBinning(std::vector<TAxis *> axes);
   virtual ~NBinning();
+
+  void Initialize();
 
   virtual void                  Print(Option_t * option = "") const;
   void                          PrintContent(Option_t * option = "") const;
   int                           FillAll();
   std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
   std::vector<std::vector<int>> GetAxisRanges(std::vector<int> c) const;
+  void                          GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const;
   TObjArray *                   GetListOfAxes() const;
   std::vector<int>              GetAxisBinning(int axisId, const std::vector<int> & c) const;
+  std::vector<int>              GetAxisIndexes(AxisType type) const;
 
   bool AddBinning(int id, std::vector<int> binning, int n = 1);
   bool AddBinningVariable(int id, std::vector<int> mins);
@@ -55,6 +60,7 @@ class NBinning : public TObject {
   THnSparse *                                            GetMap() const { return fMap; }
   THnSparse *                                            GetContent() const { return fContent; }
   std::vector<TAxis *>                                   GetAxes() const { return fAxes; }
+  std::vector<TAxis *>                                   GetAxesByType(AxisType type) const;
   Binning                                                GetBinningType(int i) const;
   AxisType                                               GetAxisType(int i) const;
   char                                                   GetAxisTypeChar(int i) const;

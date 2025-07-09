@@ -4,9 +4,11 @@
 #include "NThreadData.h"
 #include "RtypesCore.h"
 #include "NBinning.h"
+#include <cstddef>
 #include <string>
 #include <vector>
 #include "TAttAxis.h"
+#include "TObjArray.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NBinning);
@@ -23,6 +25,44 @@ NBinning::NBinning(std::vector<TAxis *> axes) : TObject(), fAxes(axes)
 {
   ///
   /// Constructor
+  ///
+
+  Initialize();
+}
+NBinning::NBinning(TObjArray * axes) : TObject()
+{
+  ///
+  /// Constructor
+  ///
+
+  if (axes == nullptr) {
+    NLogger::Error("NBinning(TObjArray * axes) : axes is nullptr");
+    return;
+  }
+
+  for (int i = 0; i < axes->GetEntriesFast(); i++) {
+    TAxis * axis = dynamic_cast<TAxis *>(axes->At(i));
+    if (axis) {
+      fAxes.push_back(axis);
+    }
+    else {
+      NLogger::Error("NBinning: Axis %d is not a TAxis", i);
+    }
+  }
+
+  Initialize();
+}
+NBinning::~NBinning()
+{
+  ///
+  /// Destructor
+  ///
+}
+
+void NBinning::Initialize()
+{
+  ///
+  /// Initialize binning
   ///
 
   if (fAxes.size() == 0) {
@@ -168,12 +208,7 @@ NBinning::NBinning(std::vector<TAxis *> axes) : TObject(), fAxes(axes)
   delete[] xminBinning;
   delete[] xmaxBinning;
 }
-NBinning::~NBinning()
-{
-  ///
-  /// Destructor
-  ///
-}
+
 void NBinning::Print(Option_t * option) const
 {
   ///
@@ -642,6 +677,30 @@ std::vector<int> NBinning::GetAxisBinning(int axisId, const std::vector<int> & c
 
   return binning;
 }
+
+void NBinning::GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const
+{
+  ///
+  /// Get axis range for given axis id
+  ///
+  if (axisId < 0 || axisId >= fAxes.size()) {
+    NLogger::Error("Invalid axis id %d", axisId);
+    return;
+  }
+  int    minBin  = 0;
+  int    maxBin  = 0;
+  Bool_t isValid = false;
+  if (fBinningTypes[axisId] == Binning::kSingle) {
+    isValid = NUtils::GetAxisRangeInBase(fAxes[axisId], 1, 1, c[0], minBin, maxBin);
+  }
+  else if (fBinningTypes[axisId] == Binning::kMultiple) {
+    isValid = NUtils::GetAxisRangeInBase(fAxes[axisId], c[0], c[1], c[2], minBin, maxBin);
+  }
+
+  min = fAxes[axisId]->GetBinLowEdge(minBin);
+  max = fAxes[axisId]->GetBinUpEdge(maxBin);
+}
+
 TObjArray * NBinning::GetListOfAxes() const
 {
   ///
@@ -723,4 +782,39 @@ char NBinning::GetAxisTypeChar(int i) const
   }
 }
 
+std::vector<int> NBinning::GetAxisIndexes(AxisType type) const
+{
+  ///
+  /// Get axis indexes by axes type
+  ///
+  std::vector<int> ids;
+  for (int i = 0; i < fAxes.size(); i++) {
+    if (fAxisTypes[i] == type) {
+      NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      ids.push_back(i);
+    }
+    else {
+      NLogger::Trace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
+    }
+  }
+  return ids;
+}
+
+std::vector<TAxis *> NBinning::GetAxesByType(AxisType type) const
+{
+  ///
+  /// Get axes by type
+  ///
+  std::vector<TAxis *> axes;
+  for (int i = 0; i < fAxes.size(); i++) {
+    if (fAxisTypes[i] == type) {
+      NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      axes.push_back(fAxes[i]);
+    }
+    else {
+      NLogger::Trace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
+    }
+  }
+  return axes;
+}
 } // namespace Ndmspc

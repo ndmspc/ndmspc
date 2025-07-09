@@ -2,6 +2,7 @@
 #define Ndmspc_NHnSparseTreePoint_H
 #include <TObject.h>
 #include <vector>
+#include "NHnSparseObject.h"
 
 namespace Ndmspc {
 
@@ -11,7 +12,9 @@ namespace Ndmspc {
 /// \brief NHnSparseTreePoint object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
+class NHnSparseObject;
 class NHnSparseTree;
+
 class NHnSparseTreePoint : public TObject {
   public:
   NHnSparseTreePoint(NHnSparseTree * hnst = nullptr);
@@ -35,14 +38,18 @@ class NHnSparseTreePoint : public TObject {
   void SetHnSparseTree(NHnSparseTree * hnst) { fHnst = hnst; }
   void SetPointContent(const std::vector<int> & content);
   // void SetPointStorage(const std::vector<int> & storage);
+  //
+  NHnSparseObject * GetHnSparseObject() const { return fHnsObj; }
+  void              SetHnSparseObject(NHnSparseObject * hnsObj) { fHnsObj = hnsObj; }
 
   private:
-  NHnSparseTree *          fHnst{nullptr}; ///! Binning object
-  std::vector<int>         fPointContent;  ///< Point coordinates of content
-  std::vector<int>         fPointStorage;  ///< Point coordinates of storage
-  std::vector<double>      fPointMin;      ///< Point coordinates of min
-  std::vector<double>      fPointMax;      ///< Point coordinates of max
-  std::vector<std::string> fPointLabel;    ///< Point coordinates of label
+  NHnSparseTree *          fHnst{nullptr};   ///! Binning object
+  std::vector<int>         fPointContent;    ///< Point coordinates of content
+  std::vector<int>         fPointStorage;    ///< Point coordinates of storage
+  std::vector<double>      fPointMin;        ///< Point coordinates of min
+  std::vector<double>      fPointMax;        ///< Point coordinates of max
+  std::vector<std::string> fPointLabel;      ///< Point coordinates of label
+  NHnSparseObject *        fHnsObj{nullptr}; ///< HnSparseObject
 
   /// \cond CLASSIMP
   ClassDef(NHnSparseTreePoint, 1);
