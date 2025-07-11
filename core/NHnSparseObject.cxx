@@ -83,7 +83,8 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
     int              currentFillIndex = coords[iVarAxis * 3 + 2];
     // NLogger::Debug("Current fill index for axis %d: %d", idAxis, currentFillIndex);
     currentCoords[iVarAxis * 3 + 2] = 0;
-    // NLogger::Info("Current coords for axis %d: %s", idAxis, NUtils::GetCoordsString(currentCoords, -1).c_str());
+    NLogger::Info("XXXXXXXXXXXX Current coords for axis %d: %s", idAxis,
+                  NUtils::GetCoordsString(currentCoords, -1).c_str());
     h->Print();
     for (int i = 0; i < h->GetNbinsX(); i++) {
       std::string binLabel = h->GetXaxis()->GetBinLabel(i + 1);
@@ -124,8 +125,14 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
                   std::to_string(currentCoords[iVarAxisCut * 3 + 1]) + "_" +
                   std::to_string(currentCoords[iVarAxisCut * 3 + 2]) + ")";
         }
-        name              = binLabel + NUtils::GetCoordsString(currentCoords, -1);
-        std::string title = "AAA" + name;
+        name = binLabel;
+        name += NUtils::GetCoordsString(currentCoords, -1);
+
+        // double min, max;
+        // fBinning->GetAxisRange(2, min, max, {p[projIds[2] * 3], p[projIds[2] * 3 + 1], p[projIds[2] * 3 + 2]});
+        // stackTitle += projNames.size() > 2 ? " for " + projNames[2] + " " + Form(" [%f,%f]", min, max) : "";
+
+        std::string title = name;
         hist->SetNameTitle(name.c_str(), title.c_str());
 
         // if (i == 0) NLogger::Debug("fBinning->GetAxes()[idAxis=%d]", iVarAxis);

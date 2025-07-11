@@ -40,6 +40,7 @@ class NUtils : TObject {
   static std::vector<std::string> Tokenize(std::string_view input, const char delim);
   static std::vector<int>         TokenizeInt(std::string_view input, const char delim);
   static std::string              Join(const std::vector<std::string> & values, const char delim = ',');
+  static std::string              Join(const std::vector<int> & values, const char delim = ',');
   static std::vector<std::string> Find(std::string path, std::string filename = "");
   static std::vector<std::string> FindLocal(std::string path, std::string filename = "");
   static std::vector<std::string> FindEos(std::string path, std::string filename = "");
@@ -52,6 +53,8 @@ class NUtils : TObject {
   static std::string      GetCoordsString(const std::vector<int> & coords, int index = -1, int width = 0);
   static std::string      GetCoordsString(const std::vector<std::string> & coords, int index = -1, int width = 0);
   static void             PrintPointSafe(const std::vector<int> & coords, int index = -1);
+
+  static std::vector<std::vector<int>> Permutations(const std::vector<int> & v);
 
   static std::string              GetJsonString(json j);
   static int                      GetJsonInt(json j);

@@ -412,6 +412,19 @@ std::string NUtils::Join(const std::vector<std::string> & values, const char del
   }
   return out;
 }
+std::string NUtils::Join(const std::vector<int> & values, const char delim)
+{
+  ///
+  /// Join helper function
+  ///
+
+  std::string out;
+  for (const auto & v : values) {
+    if (!out.empty()) out += delim;
+    out += std::to_string(v);
+  }
+  return out;
+}
 
 std::vector<std::string> NUtils::Truncate(std::vector<std::string> values, std::string value)
 {
@@ -689,5 +702,26 @@ void NUtils::PrintPointSafe(const std::vector<int> & coords, int index)
   ///
 
   NLogger::Info("%s", GetCoordsString(coords, index).c_str());
+}
+
+std::vector<std::vector<int>> NUtils::Permutations(const std::vector<int> & v)
+{
+  ///
+  /// Return all permutations of a vector
+  ///
+  std::vector<std::vector<int>> result;
+  std::vector<int>              current = v;
+  std::sort(current.begin(), current.end());
+  do {
+    result.push_back(current);
+  } while (std::next_permutation(current.begin(), current.end()));
+
+  // print the permutations
+  NLogger::Debug("Permutations of vector: %s", GetCoordsString(v).c_str());
+  for (const auto & perm : result) {
+    NLogger::Debug("Permutation: %s", GetCoordsString(perm).c_str());
+  }
+
+  return result;
 }
 } // namespace Ndmspc

@@ -26,7 +26,7 @@ class NHnSparseObject : public TObject {
   TObject *              GetObject(const std::string & name, int index = 0) const;
   NBinning *             GetBinning() const { return fBinning; }
 
-  private:
+  protected:
   NBinning *                                    fBinning{nullptr}; ///< Binning object
   std::map<std::string, std::vector<TObject *>> fObjectContentMap; ///< Object content map
 
