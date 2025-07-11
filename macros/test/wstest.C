@@ -2,10 +2,16 @@
 #include <string>
 #include "TSystem.h"
 #include <TH1.h>
+#include <TH2.h>
+#include <TH3.h>
 #include <TCanvas.h>
 #include <TBufferJSON.h>
 #include "NWsClient.h"
-
+#include "NLogger.h"
+///
+/// Start server in another terminal:
+/// $ ndmspc-cli serve stress
+///
 bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::string message = "", int timeout = 60 * 000)
 {
 
@@ -43,18 +49,50 @@ bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::stri
 
         i++;
         // std::cout << response << std::endl;
-        std::cout << "Event: " << i << std::endl;
-        TH1 * h = (TH1 *)TBufferJSON::ConvertFromJSON(response.c_str());
-        if (h) {
-          if (!c) c = new TCanvas("c", "c", 800, 600);
-          h->Draw();
-          c->Update();
-          c->Modified();
+
+        // remove string ": " and brackets from response
+        // response.erase(0, response.find(": ") + 2);
+
+        if (response[0] != '{') {
+          Ndmspc::NLogger::Warning("Response '%s' is not json object !!!", response.c_str());
+          continue;
+          // client.disconnect();
+          // return false;
+        }
+
+        TObjArray * arr = (TObjArray *)TBufferJSON::ConvertFromJSON(response.c_str());
+        if (arr) {
+
+          if (!c) {
+            c = new TCanvas("c", "c", 800, 600);
+            c->Divide(2, 2);
+          }
+          TH1 * h = (TH1 *)arr->At(0);
+          if (h) {
+            c->cd(1);
+            h->Draw();
+          }
+          TH2 * h2 = (TH2 *)arr->At(1);
+          if (h2) {
+            c->cd(2);
+            h2->Draw("colz");
+          }
+          TH2 * h3 = (TH2 *)arr->At(2);
+          if (h3) {
+            c->cd(3);
+            h3->Draw("colz");
+          }
+          TH3 * h4 = (TH3 *)arr->At(3);
+          if (h4) {
+            c->cd(4);
+            h4->Draw("colz");
+          }
+
+          c->ModifiedUpdate();
         }
       }
     }
   }
-  std::cout << "AAAA" << std::endl;
 
   client.disconnect();
   return true;
