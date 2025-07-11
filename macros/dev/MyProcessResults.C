@@ -4,7 +4,7 @@
 #include <TGraphErrors.h>
 #include <NLogger.h>
 #include <NHnSparseObject.h>
-#include <NHnSparseTree.h>
+#include <NProjection.h>
 #include <NHnSparseTreePoint.h>
 #include <NHnSparseTreeThreadData.h>
 #include <AnalysisFunctions.h>
@@ -21,7 +21,7 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcessResults = [](Ndmspc::NHnSparseTreePoint 
   Ndmspc::NHnSparseObject * hnsObj = p->GetHnSparseObject();
   if (hnsObj == nullptr) {
     std::vector<TAxis *> axes = hnst->GetBinning()->GetAxesByType(Ndmspc::AxisType::kVariable);
-    hnsObj                    = new Ndmspc::NHnSparseObject(axes);
+    hnsObj                    = new Ndmspc::NProjection(axes);
     p->SetHnSparseObject(hnsObj);
     // Ndmspc::NLogger::Error("HnSparseObject is not set in NHnSparseTreePoint !!!");
     // return;
@@ -45,25 +45,4 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcessResults = [](Ndmspc::NHnSparseTreePoint 
   }
 
   hnsObj->Fill(hResults, p);
-
-  // // hResults->Print();
-  // // Print all bin contents
-  // TGraphErrors * massGraph = (TGraphErrors *)outputGlobal->FindObject("mass");
-  // if (massGraph == nullptr) {
-  //   massGraph = new TGraphErrors();
-  //   massGraph->SetName("mass");
-  //   massGraph->SetMarkerStyle(20);
-  //   massGraph->SetMarkerColor(kRed);
-  //   massGraph->SetMarkerSize(1);
-  //   outputGlobal->Add(massGraph);
-  // }
-  // Int_t binMass = hResults->GetXaxis()->FindBin("mass");
-  // Ndmspc::NLogger::Info("Bin for mass: %d", binMass);
-  // Double_t mass      = hResults->GetBinContent(binMass);
-  // Double_t massError = hResults->GetBinError(binMass);
-  // Double_t min       = p->GetPointMin(1);
-  // Double_t max       = p->GetPointMax(1);
-  // Ndmspc::NLogger::Info("Mass: %f, Min: %f, Max: %f center=%f", mass, min, max, (min + max) / 2);
-  // massGraph->SetPoint(massGraph->GetN(), (min + max) / 2, mass);
-  // massGraph->SetPointError(massGraph->GetN() - 1, (max - min) / 2, massError);
 };

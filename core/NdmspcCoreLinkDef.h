@@ -10,6 +10,7 @@
 #pragma link C++ class Ndmspc::NDimensionalExecutor + ;
 #pragma link C++ class Ndmspc::NBinning + ;
 #pragma link C++ class Ndmspc::NHnSparseObject + ;
+#pragma link C++ class Ndmspc::NProjection + ;
 #pragma link C++ class Ndmspc::NTreeBranch + ;
 #pragma link C++ class Ndmspc::NHnSparseTree + ;
 #pragma link C++ class Ndmspc::NHnSparseTreeT < TArrayD> + ;

@@ -817,4 +817,58 @@ std::vector<TAxis *> NBinning::GetAxesByType(AxisType type) const
   }
   return axes;
 }
+
+std::vector<int> NBinning::GetAxisIndexesByNames(std::vector<std::string> names) const
+{
+  ///
+  /// Get axis indexes by names
+  ///
+  std::vector<int> ids;
+  for (auto & name : names) {
+    for (int i = 0; i < fAxes.size(); i++) {
+      if (fAxes[i]->GetName() == name) {
+        NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+        ids.push_back(i);
+        break; // break inner loop if found
+      }
+    }
+  }
+  return ids;
+}
+
+std::vector<std::string> NBinning::GetAxisNamesByType(AxisType type) const
+{
+  ///
+  /// Get axis names by type
+  ///
+  std::vector<std::string> names;
+  for (int i = 0; i < fAxes.size(); i++) {
+    if (fAxisTypes[i] == type) {
+      NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      names.push_back(fAxes[i]->GetName());
+      continue;
+    }
+    else {
+      NLogger::Trace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
+    }
+  }
+  return names;
+}
+std::vector<std::string> NBinning::GetAxisNamesByIndexes(std::vector<int> ids) const
+{
+  ///
+  /// Get axis names by indexes
+  ///
+  std::vector<std::string> names;
+  for (auto & id : ids) {
+    if (id < 0 || id >= fAxes.size()) {
+      NLogger::Error("Invalid axis id %d", id);
+      continue;
+    }
+    NLogger::Trace("Axis %d: %s type=%d", id, fAxes[id]->GetName(), fAxisTypes[id]);
+    names.push_back(fAxes[id]->GetName());
+  }
+  return names;
+}
+
 } // namespace Ndmspc

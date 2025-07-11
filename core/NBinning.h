@@ -50,6 +50,9 @@ class NBinning : public TObject {
   TObjArray *                   GetListOfAxes() const;
   std::vector<int>              GetAxisBinning(int axisId, const std::vector<int> & c) const;
   std::vector<int>              GetAxisIndexes(AxisType type) const;
+  std::vector<int>              GetAxisIndexesByNames(std::vector<std::string> axisNames) const;
+  std::vector<std::string>      GetAxisNamesByType(AxisType type) const;
+  std::vector<std::string>      GetAxisNamesByIndexes(std::vector<int> axisIds) const;
 
   bool AddBinning(int id, std::vector<int> binning, int n = 1);
   bool AddBinningVariable(int id, std::vector<int> mins);
