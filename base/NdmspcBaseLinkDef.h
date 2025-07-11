@@ -5,8 +5,6 @@
 #pragma link off all functions;
 
 #pragma link C++ class Ndmspc::NLogger + ;
-#pragma link C++ class Ndmspc::NHttpRequest + ;
-#pragma link C++ class Ndmspc::NWsClient + ;
-#pragma link C++ class Ndmspc::NUtils + ;
+
 
 #endif

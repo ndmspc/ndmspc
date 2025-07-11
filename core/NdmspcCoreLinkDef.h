@@ -5,6 +5,7 @@
 #pragma link off all functions;
 
 #pragma link C++ nestedclasses;
+#pragma link C++ class Ndmspc::NUtils + ;
 #pragma link C++ class Ndmspc::NConfig + ;
 #pragma link C++ class Ndmspc::NThreadData + ;
 #pragma link C++ class Ndmspc::NDimensionalExecutor + ;
