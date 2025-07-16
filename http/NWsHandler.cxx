@@ -1,13 +1,12 @@
 #include "NWsHandler.h"
-#include <NLogger.h>
-#include <iostream>
-#include "THttpCallArg.h"
-#include "TDatime.h"
-#include "TTimer.h"
+#include <THttpCallArg.h>
+#include <TTimer.h>
+#include "NLogger.h"
+#include "NUtils.h"
 // ClassImp(Ndmspc::NWsHandler);
 //
 namespace Ndmspc {
-NWsHandler::NWsHandler(const char * name, const char * title) : THttpWSHandler(name, title) {}
+NWsHandler::NWsHandler(const char * name, const char * title) : THttpWSHandler(name, title, kFALSE) {}
 NWsHandler::~NWsHandler() {}
 
 Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
@@ -18,17 +17,18 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
   std::lock_guard<std::mutex> lock(fMutex);
 
   if (arg->IsMethod("WS_CONNECT")) {
-    NLogger::Debug("WS_CONNECT received for path: /%s", arg->GetPathName());
+    NLogger::Trace("WS_CONNECT received for path: /%s", arg->GetPathName());
     return true;
   }
 
   if (arg->IsMethod("WS_READY")) {
     ULong_t currentWsId = arg->GetWSId();
-    NLogger::Debug("WS_READY received. Connection established with ID: %lld", currentWsId);
+    NLogger::Trace("WS_READY received. Connection established with ID: %lld", currentWsId);
 
     std::string username  = "User_" + std::to_string(currentWsId);
     fClients[currentWsId] = NWsClientInfo(currentWsId, username); // Use the constructor
 
+    NLogger::Debug("New client connected with ID %lld and username '%s'.", currentWsId, username.c_str());
     // Call the global SendCharStarWS function
     SendCharStarWS(currentWsId, ("Welcome, " + username + "!").c_str());
 
@@ -43,7 +43,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 
   if (arg->IsMethod("WS_CLOSE")) {
     ULong_t closedWsId = arg->GetWSId();
-    NLogger::Debug("WS_CLOSE received for ID: %lld", closedWsId);
+    NLogger::Trace("WS_CLOSE received for ID: %lld", closedWsId);
 
     std::string username = "Unknown";
     auto        it       = fClients.find(closedWsId);
@@ -60,11 +60,9 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
   }
 
   if (arg->IsMethod("WS_DATA")) {
-    ULong_t senderWsId = arg->GetWSId();
-    NLogger::Debug("WS_DATA received from ID: %lld", senderWsId);
+    ULong_t     senderWsId = arg->GetWSId();
     std::string receivedStr((const char *)arg->GetPostData(), arg->GetPostDataLength());
-
-    NLogger::Debug("WS_DATA from ID %lld: %s", senderWsId, receivedStr.c_str());
+    NLogger::Trace("WS_DATA from ID %lld: %s", senderWsId, receivedStr.c_str());
 
     std::string senderUsername = "Unknown";
     auto        it             = fClients.find(senderWsId);
@@ -74,15 +72,24 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
     }
 
     std::string replyMsg = "Server received from " + senderUsername + ": " + receivedStr;
+    // return kTRUE;
     // std::string broadcastMsg = senderUsername + ": " + receivedStr;
     std::string broadcastMsg = receivedStr;
 
+    // return kTRUE;
     // Call the global SendCharStarWS function
-    SendCharStarWS(senderWsId, replyMsg.c_str());
+    // SendCharStarWS(senderWsId, replyMsg.c_str());
+
+    // Cache only the most recent message for each client
+    static std::unordered_map<ULong_t, std::string> recentMessages;
+    recentMessages[senderWsId] = broadcastMsg;
 
     for (const auto & pair : fClients) {
       if (pair.first != senderWsId) {
-        SendCharStarWS(pair.first, broadcastMsg.c_str());
+        auto itMsg = recentMessages.find(senderWsId);
+        if (itMsg != recentMessages.end()) {
+          SendCharStarWS(pair.first, itMsg->second.c_str());
+        }
       }
     }
 
@@ -110,49 +117,17 @@ void NWsHandler::BroadcastUnsafe(const std::string & message)
   }
 }
 
-// Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
-// {
-//   NLogger::Debug("ProcessWS: WSId: %d", arg->GetWSId());
-//
-//   if (!arg || (arg->GetWSId() == 0)) return kTRUE;
-//   //
-//   NLogger::Debug("Method %s", arg->GetMethod());
-//
-//   if (arg->IsMethod("WS_CONNECT")) {
-//     // accept only if connection not established
-//     return fWSId == 0;
-//   }
-//
-//   if (arg->IsMethod("WS_READY")) {
-//     fWSId = arg->GetWSId();
-//     printf("Client connected %d\n", fWSId);
-//     return kTRUE;
-//   }
-//   //
-//   // if (arg->IsMethod("WS_CLOSE")) {
-//   //   fWSId = 0;
-//   //   printf("Client disconnected\n");
-//   //   return kTRUE;
-//   // }
-//   //
-//   // if (arg->IsMethod("WS_DATA")) {
-//   //   TString str;
-//   //   str.Append((const char *)arg->GetPostData(), arg->GetPostDataLength());
-//   //   printf("Client msg: %s\n", str.Data());
-//   //   TDatime now;
-//   //   SendCharStarWS(arg->GetWSId(), TString::Format("Server replies:%s server counter:%d", now.AsString(),
-//   //   fServCnt++)); return kTRUE;
-//   // }
-//
-//   return kFALSE;
-// }
-//
-/// per timeout sends data portion to the client
 Bool_t NWsHandler::HandleTimer(TTimer *)
 {
-  // TDatime now;
-  // if (fWSId)
-  //   SendCharStarWS(fWSId, TString::Format("Server sends data:%s server counter:%d", now.AsString(), fServCnt++));
+  ///
+  /// Handle timer event for heartbeat
+  ///
+
+  json data;
+  data["event"]            = "heartbeat";
+  data["payload"]["count"] = ++fServCnt;
+  BroadcastUnsafe(data.dump());
+
   return kTRUE;
 }
 

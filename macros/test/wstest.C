@@ -1,6 +1,9 @@
 #include <iostream>
 #include <string>
-#include "TSystem.h"
+#include "TMath.h"
+#include <NUtils.h>
+#include <TSystem.h>
+#include <TROOT.h>
 #include <TH1.h>
 #include <TH2.h>
 #include <TH3.h>
@@ -12,88 +15,118 @@
 /// Start server in another terminal:
 /// $ ndmspc-cli serve stress
 ///
-bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::string message = "", int timeout = 60 * 000)
+bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::string message = "")
 {
 
-  Ndmspc::NWsClient client;
-  if (!client.connect(url)) {
-    std::cout << "Failed to connect to " << url << std::endl;
+  // enable ROOT multithreading
+  ROOT::EnableThreadSafety();
+  // Enable IMT with default number of threads (usually number of CPU cores)
+  ROOT::EnableImplicitMT();
 
+  // Check if IMT is enabled
+  if (ROOT::IsImplicitMTEnabled()) {
+    std::cout << "IMT is enabled with " << ROOT::GetThreadPoolSize() << " threads" << std::endl;
+  }
+
+  // TH1::AddDirectory(kFALSE);
+  //
+
+  Ndmspc::NWsClient client;
+  if (!client.Connect(url)) {
+    Ndmspc::NLogger::Error("Failed to connect to '%s' !!!", url.c_str());
     return false;
   }
 
-  std::cout << "Connected to " << url << std::endl;
+  Ndmspc::NLogger::Info("Connected to %s", url.c_str());
 
   if (!message.empty()) {
-    if (!client.send(message)) {
-      std::cout << "Failed to send message" << std::endl;
-      client.disconnect();
+    if (!client.Send(message)) {
+      Ndmspc::NLogger::Error("Failed to send message `%s`", message.c_str());
+      client.Disconnect();
       return false;
     }
 
-    std::cout << "Sent: " << message << std::endl;
+    Ndmspc::NLogger::Info("Sent: %s", message.c_str());
   }
-  TCanvas * c = nullptr;
-  int       i = 0;
-  while (!gSystem->ProcessEvents()) {
-    std::string response = client.receive(timeout); // 2 second timeout
-    if (!response.empty()) {
+  TCanvas * c           = new TCanvas("c", "c", 800, 600);
+  int       i           = 0;
+  int       lastEntries = 0;
+  client.SetOnMessageCallback([&c, &lastEntries](const std::string & msg) {
+    // Ndmspc::NLogger::Debug("Interactive: [User Callback] Received message: %s", msg.c_str());
+
+    // std::cout << "Received message: " << msg << std::endl;
+    // return;
+    if (!msg.empty()) {
       // Check if this is our echo
-      if (!message.empty()) {
-        if (response == message || response.find(message) != std::string::npos) {
-          std::cout << "✓ Echo received successfully!" << std::endl;
-          break; // Stop after receiving the echo
-        }
+      // remove string ": " and brackets from response
+      // response.erase(0, response.find(": ") + 2);
+
+      if (msg[0] != '{') {
+        Ndmspc::NLogger::Warning("Response '%s' is not json object !!!", msg.c_str());
+        return;
       }
-      else {
 
-        i++;
-        // std::cout << response << std::endl;
+      json j = json::parse(msg);
+      if (j.contains("event") && j["event"] == "heartbeat") {
+        Ndmspc::NLogger::Debug("Heartbeat received: %s", msg.c_str());
+        return;
+      }
 
-        // remove string ": " and brackets from response
-        // response.erase(0, response.find(": ") + 2);
+      // Ndmspc::NLogger::Debug("%s", j.dump(2).c_str());
 
-        if (response[0] != '{') {
-          Ndmspc::NLogger::Warning("Response '%s' is not json object !!!", response.c_str());
-          continue;
-          // client.disconnect();
-          // return false;
+      TObjArray * arr = (TObjArray *)TBufferJSON::ConvertFromJSON(msg.c_str());
+      if (arr == nullptr) {
+        Ndmspc::NLogger::Error("Failed to convert JSON to TObjArray: %s", msg.c_str());
+        return;
+      }
+      // arr->Print();
+      // Ndmspc::NLogger::Debug("Received message: %p", (void *)arr);
+      if (arr) {
+
+        if (c == nullptr || arr->GetEntries() != lastEntries) {
+          lastEntries = arr->GetEntries();
+          Int_t cx    = TMath::Sqrt(lastEntries);
+          Int_t cy    = TMath::Ceil(lastEntries / (double)cx);
+          c->Clear();
+          c->Divide(cx, cy);
+        }
+        for (int i = 0; i < arr->GetEntries(); i++) {
+          TObject * obj = arr->At(i);
+          if (obj) {
+            c->cd(i + 1);
+            if (obj->InheritsFrom("TH1")) {
+              TH1 * h = (TH1 *)obj;
+              h->SetDirectory(nullptr); // avoid memory issues
+              h->Draw();
+            }
+            else if (obj->InheritsFrom("TH2")) {
+              TH2 * h2 = (TH2 *)obj;
+              h2->SetDirectory(nullptr); // avoid memory issues
+              h2->Draw("colz");
+            }
+            else if (obj->InheritsFrom("TH3")) {
+              TH3 * h3 = (TH3 *)obj;
+              h3->SetDirectory(nullptr); // avoid memory issues
+              h3->Draw("colz");
+            }
+            // else {
+            //   Ndmspc::NLogger::Warning("Object %d is not a histogram: %s", i, obj->ClassName());
+            // }
+          }
+          else {
+            return;
+          }
         }
 
-        TObjArray * arr = (TObjArray *)TBufferJSON::ConvertFromJSON(response.c_str());
-        if (arr) {
-
-          if (!c) {
-            c = new TCanvas("c", "c", 800, 600);
-            c->Divide(2, 2);
-          }
-          TH1 * h = (TH1 *)arr->At(0);
-          if (h) {
-            c->cd(1);
-            h->Draw();
-          }
-          TH2 * h2 = (TH2 *)arr->At(1);
-          if (h2) {
-            c->cd(2);
-            h2->Draw("colz");
-          }
-          TH2 * h3 = (TH2 *)arr->At(2);
-          if (h3) {
-            c->cd(3);
-            h3->Draw("colz");
-          }
-          TH3 * h4 = (TH3 *)arr->At(3);
-          if (h4) {
-            c->cd(4);
-            h4->Draw("colz");
-          }
-
-          c->ModifiedUpdate();
-        }
+        c->ModifiedUpdate();
       }
     }
+  });
+
+  while (!gSystem->ProcessEvents()) {
+    gSystem->Sleep(100);
   }
 
-  client.disconnect();
+  if (client.IsConnected()) client.Disconnect();
   return true;
 }

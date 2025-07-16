@@ -1,322 +1,370 @@
-#include <iostream>
-#include <string>
-#include <chrono>
-#include <cstring>
-#include "NLogger.h"
 #include "NWsClient.h"
+#include "NLogger.h"
 
-namespace Ndmspc {
+#include <regex>
+#include <algorithm>
+#include <cstring>
 
-// Define the protocols array
-struct lws_protocols NWsClient::protocols_[] = {
-    {"ws-protocol", NWsClient::callback_function, 0, 8192, 0, nullptr, 0},
-    {nullptr, nullptr, 0, 0, 0, nullptr, 0} // terminator
-};
-NWsClient::NWsClient() : context_(nullptr), wsi_(nullptr), connected_(false), thread_running_(false), pending_tx_(false)
+// The global LWS callback function.
+static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in,
+                                    size_t len)
 {
-  ///
-  /// Constructor
-  ///
-
-  // Silent websocket logging
-  lws_set_log_level(LLL_ERR, NULL);
-}
-
-NWsClient::~NWsClient()
-{
-  ///
-  /// Destructor
-  ///
-
-  disconnect();
-}
-
-bool NWsClient::connect(const std::string & url)
-{
-  ///
-  /// Connect to the WebSocket server
-  ///
-
-  // Parse URL
-  std::string protocol, address, path;
-  int         port;
-  bool        use_ssl = false;
-
-  if (url.substr(0, 5) == "ws://") {
-    protocol = "ws";
-    address  = url.substr(5);
-    use_ssl  = false;
-  }
-  else if (url.substr(0, 6) == "wss://") {
-    protocol = "wss";
-    address  = url.substr(6);
-    use_ssl  = true;
-  }
-  else {
-    NLogger::Error("Invalid URL scheme: '%s' . Use ws:// or wss:// .", url.c_str());
-    return false;
-  }
-
-  // Extract host, port, and path
-  size_t path_pos = address.find('/');
-  if (path_pos != std::string::npos) {
-    path    = address.substr(path_pos);
-    address = address.substr(0, path_pos);
-  }
-  else {
-    path = "/";
-  }
-
-  size_t port_pos = address.find(':');
-  if (port_pos != std::string::npos) {
-    port    = std::stoi(address.substr(port_pos + 1));
-    address = address.substr(0, port_pos);
-  }
-  else {
-    port = use_ssl ? 443 : 80;
-  }
-
-  // Store for later use
-  host_ = address;
-
-  // Create libwebsocket context
-  struct lws_context_creation_info info;
-  memset(&info, 0, sizeof(info));
-
-  info.port      = CONTEXT_PORT_NO_LISTEN;
-  info.protocols = protocols_;
-  info.gid       = -1;
-  info.uid       = -1;
-  info.options   = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-  info.user      = this; // Store this pointer for later retrieval
-
-  context_ = lws_create_context(&info);
-  if (!context_) {
-    NLogger::Error("Failed to create LWS context");
-    return false;
-  }
-
-  // Set up connection info
-  struct lws_client_connect_info conn_info;
-  memset(&conn_info, 0, sizeof(conn_info));
-
-  conn_info.context  = context_;
-  conn_info.address  = address.c_str();
-  conn_info.port     = port;
-  conn_info.path     = path.c_str();
-  conn_info.host     = address.c_str();
-  conn_info.origin   = address.c_str();
-  conn_info.protocol = protocols_[0].name;
-  conn_info.userdata = this; // Pass the client instance as user data
-
-  if (use_ssl) {
-    conn_info.ssl_connection = LCCSCF_USE_SSL;
-  }
-
-  // Connect
-  wsi_ = lws_client_connect_via_info(&conn_info);
-  if (!wsi_) {
-    NLogger::Error("Failed to connect to %s", url.c_str());
-    lws_context_destroy(context_);
-    context_ = nullptr;
-    return false;
-  }
-  NLogger::Info("Connecting to %s ...", url.c_str());
-
-  // Start service thread
-  thread_running_ = true;
-  service_thread_ = std::thread([this]() {
-    while (thread_running_ && context_) {
-      lws_service(context_, 50);
-    }
-  });
-
-  // Wait for connection to establish or fail
-  std::unique_lock<std::mutex> lock(mutex_);
-  cv_.wait_for(lock, std::chrono::seconds(5), [this]() { return connected_ || !thread_running_; });
-  NLogger::Info("Connection status: %s", connected_ ? "Connected" : "Not connected");
-
-  return connected_;
-}
-
-void NWsClient::disconnect()
-{
-  ///
-  /// Disconnect from the WebSocket server
-  ///
-
-  thread_running_ = false;
-
-  if (service_thread_.joinable()) {
-    service_thread_.join();
-  }
-
-  if (context_) {
-    lws_context_destroy(context_);
-    context_ = nullptr;
-  }
-
-  wsi_       = nullptr;
-  connected_ = false;
-}
-
-bool NWsClient::send(const std::string & message)
-{
-  if (!connected_ || !wsi_) {
-    NLogger::Error("Not connected to WebSocket server");
-    return false;
-  }
-
-  // Prepare message with LWS_PRE padding
-  send_buffer_.resize(LWS_PRE + message.size());
-  memcpy(send_buffer_.data() + LWS_PRE, message.data(), message.size());
-
-  pending_tx_ = true;
-
-  // Request a callback for writable
-  lws_callback_on_writable(wsi_);
-
-  // Wait for the message to be sent
-  std::unique_lock<std::mutex> lock(mutex_);
-  bool result = cv_.wait_for(lock, std::chrono::seconds(5), [this]() { return !pending_tx_ || !connected_; });
-
-  return result && connected_;
-}
-
-std::string NWsClient::receive(int timeout_ms)
-{
-  ///
-  /// Receive a message from the WebSocket server
-  ///
-
-  std::unique_lock<std::mutex> lock(mutex_);
-
-  bool success = cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
-                              [this]() { return !received_messages_.empty() || !connected_; });
-
-  if (!success || !connected_ || received_messages_.empty()) {
-    return "";
-  }
-
-  std::string message = received_messages_.front();
-  received_messages_.erase(received_messages_.begin());
-  return message;
-}
-
-bool NWsClient::is_connected() const
-{
-  ///
-  /// Check if the client is connected
-  ///
-
-  return connected_;
-}
-
-int NWsClient::callback_function(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in, size_t len)
-{
-  ///
-  /// WebSocket callback function
-  ///
-
-  // Get client instance from user data
-  NWsClient * client = nullptr;
-
-  // Try to get the client instance from the per-connection user data
-  client = (NWsClient *)lws_wsi_user(wsi);
-
+  Ndmspc::NLogger::Trace("LWS Callback Reason: %d", reason);
+  Ndmspc::NWsClient * client = static_cast<Ndmspc::NWsClient *>(lws_wsi_user(wsi));
   // If not found in wsi user data, try to get from context
   if (!client) {
-    client = (NWsClient *)lws_context_user(lws_get_context(wsi));
+    client = (Ndmspc::NWsClient *)lws_context_user(lws_get_context(wsi));
   }
 
-  if (!client && reason != LWS_CALLBACK_PROTOCOL_INIT) {
-    return 0;
-  }
+  // if (!client && reason != LWS_CALLBACK_PROTOCOL_INIT) {
+  //   return 0;
+  // }
+  // if (!client) {
+  //   Ndmspc::NLogger::Error("LWS Callback Error: NWsClient instance pointer is NULL. This is critical.");
+  //   return -1;
+  // }
 
+  // Ndmspc::NLogger::Debug("LWS Callback Reason: %d", reason);
   switch (reason) {
-  case LWS_CALLBACK_PROTOCOL_INIT:
-    // Nothing to do here since we can't modify the protocol's user field
+  case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+    Ndmspc::NLogger::Error("Connection attempt failed, setting connected to false.");
+    client->fConnected                 = false;
+    client->fConnectionAttemptComplete = true;
+    client->fWsi                       = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(client->fOutgoingMutex);
+      std::queue<std::string>     empty_queue;
+      std::swap(client->fOutgoingMessageQueue, empty_queue);
+    }
+    client->fConnectCv.notify_all();
     break;
 
-  case LWS_CALLBACK_CLIENT_ESTABLISHED: {
-    if (client) {
-      std::lock_guard<std::mutex> lock(client->mutex_);
-      client->connected_ = true;
-      client->cv_.notify_all();
-    }
-  } break;
+  case LWS_CALLBACK_CLIENT_ESTABLISHED:
+    Ndmspc::NLogger::Trace("LWS_CALLBACK_CLIENT_ESTABLISHED");
+
+    client->fConnected                 = true;
+    client->fWsi                       = wsi;
+    client->fConnectionAttemptComplete = true;
+    client->fConnectCv.notify_all();
+    lws_callback_on_writable(wsi);
+    break;
 
   case LWS_CALLBACK_CLIENT_RECEIVE: {
-    if (client) {
+    // Accumulate message fragments
+    static std::string messageBuffer;
+    // static std::mutex  messageBufferMutex;
 
-      bool is_first = lws_is_first_fragment(wsi);
-      bool is_final = lws_is_final_fragment(wsi);
+    {
+      // std::lock_guard<std::mutex> lock(messageBufferMutex);
+      messageBuffer.append(reinterpret_cast<char *>(in), len);
 
-      unsigned char * payload = (unsigned char *)in;
-      // bool is_first = lws_rx_flag_first(wsi);
-      // bool is_final = lws_rx_flag_final(wsi);
-      // // bool is_text = lws_rx_flag_text(wsi); // Assuming text for simplicity.
-      //
-      if (is_first) {
-        client->rx_buffer_.clear();
+      // Check if this is the final fragment
+      bool isFinalFragment = lws_is_final_fragment(wsi);
+
+      if (isFinalFragment) {
+        Ndmspc::NLogger::Trace("Received: %s ", messageBuffer.c_str());
+
+        if (client->fOnMessageCallback) {
+          try {
+            client->fOnMessageCallback(messageBuffer);
+          }
+          catch (const std::exception & e) {
+            Ndmspc::NLogger::Error("LWS Callback Error: User OnMessageCallback threw an exception: %s", e.what());
+          }
+        }
+        messageBuffer.clear();
       }
-
-      client->rx_buffer_.insert(client->rx_buffer_.end(), payload, payload + len);
-
-      if (is_final) {
-        std::lock_guard<std::mutex> lock(client->mutex_);
-        std::string                 received_message(client->rx_buffer_.begin(), client->rx_buffer_.end());
-        client->received_messages_.push_back(received_message);
-        client->rx_buffer_.clear();
-        client->cv_.notify_one(); // Notify receive()
-        // client->cv_.notify_all();
-      }
-
-      // // Handle received data
-      // std::cout << "Received message: len:" << len << std::endl;
-      // std::string                 message(static_cast<char *>(in), len);
-      // std::lock_guard<std::mutex> lock(client->mutex_);
-      // client->received_messages_.push_back(message);
-      // client->cv_.notify_all();
     }
   } break;
 
   case LWS_CALLBACK_CLIENT_WRITEABLE: {
-    if (client && client->pending_tx_) {
-      // Write pending message
-      int bytes_sent =
-          lws_write(wsi, client->send_buffer_.data() + LWS_PRE, client->send_buffer_.size() - LWS_PRE, LWS_WRITE_TEXT);
+    Ndmspc::NLogger::Trace("LWS_CALLBACK_CLIENT_WRITEABLE triggered for %s", client->fHost.c_str());
+    std::lock_guard<std::mutex> lock(client->fOutgoingMutex);
+    if (!client->fOutgoingMessageQueue.empty()) {
+      const std::string & message = client->fOutgoingMessageQueue.front();
 
-      std::lock_guard<std::mutex> lock(client->mutex_);
-      client->pending_tx_ = false;
-      client->cv_.notify_all();
+      client->fSendBuffer.resize(LWS_PRE + message.size());
+      memcpy(client->fSendBuffer.data() + LWS_PRE, message.data(), message.size());
 
-      if (bytes_sent < 0) {
-        NLogger::Error("Error writing to socket: %d bytes sent", bytes_sent);
-        return -1;
+      int n = lws_write(wsi, client->fSendBuffer.data() + LWS_PRE, message.size(), LWS_WRITE_TEXT);
+
+      if (n < (int)message.size()) {
+        Ndmspc::NLogger::Error(
+            "LWS Callback Error: lws_write failed to send the full message, sent %d bytes, expected %zu bytes.", n,
+            message.size());
+      }
+      client->fOutgoingMessageQueue.pop();
+
+      if (!client->fOutgoingMessageQueue.empty()) {
+        lws_callback_on_writable(wsi);
       }
     }
+
   } break;
 
-  case LWS_CALLBACK_CLIENT_CLOSED:
-  case LWS_CALLBACK_CLIENT_CONNECTION_ERROR: {
-    if (client) {
-      if (reason == LWS_CALLBACK_CLIENT_CLOSED) {
-        NLogger::Info("Connection closed");
-      }
-      else {
-        NLogger::Error("Connection error");
-      }
-
-      std::lock_guard<std::mutex> lock(client->mutex_);
-      client->connected_ = false;
-      client->cv_.notify_all();
+  case LWS_CALLBACK_CLOSED:
+    Ndmspc::NLogger::Trace("LWS_CALLBACK_CLOSED: Connection closed by server or client.");
+    client->fConnected = false;
+    client->fWsi       = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(client->fOutgoingMutex);
+      std::queue<std::string>     empty_queue;
+      std::swap(client->fOutgoingMessageQueue, empty_queue);
     }
-  } break;
+    client->fConnectionAttemptComplete = true;
+    client->fConnectCv.notify_all();
+    break;
 
   default: break;
   }
-
   return 0;
 }
+
+namespace Ndmspc {
+
+// lws_protocols NWsClient::fProtocols[] = {
+//     {NWsClient::fgProtocolName, lws_callback_client_impl, sizeof(Ndmspc::NWsClient *), 0}, {NULL, NULL, 0, 0}};
+lws_protocols Ndmspc::NWsClient::fProtocols[] = {
+    {Ndmspc::NWsClient::fgProtocolName, lws_callback_client_impl, sizeof(Ndmspc::NWsClient *), 4096},
+    LWS_PROTOCOL_LIST_TERM /* terminator */
+};
+NWsClient::NWsClient(int maxRetries, int retryDelayMs)
+    : fLwsContext(nullptr), fWsi(nullptr), fConnected(false), fShutdownRequested(false),
+      fConnectionAttemptComplete(false), fMaxRetries(maxRetries), fRetryDelayMs(retryDelayMs)
+{
+  // Silent websocket logging
+  lws_set_log_level(LLL_ERR, NULL);
+  // lws_set_log_level(LLL_DEBUG | LLL_PARSER | LLL_HEADER, NULL);
+}
+
+NWsClient::~NWsClient()
+{
+  Disconnect();
+  NLogger::Debug("NWsClient destructor finished.");
+}
+
+bool NWsClient::Connect(const std::string & uriString)
+{
+  int attempt = 0;
+  while (attempt < fMaxRetries) {
+    NLogger::Info("NWsClient: Attempting to connect to %s (attempt %d)", uriString.c_str(), attempt + 1);
+    if (fConnected.load()) {
+      NLogger::Error("NWsClient: Already connected.");
+      return true;
+    }
+    if (fLwsContext) {
+      NLogger::Error("NWsClient: Context already exists, disconnect first.");
+      return false;
+    }
+
+    fShutdownRequested         = false;
+    fConnectionAttemptComplete = false;
+    fWsi                       = nullptr;
+
+    WS_URI parsedUri;
+    try {
+      parsedUri = ParseUri(uriString);
+    }
+    catch (const std::runtime_error & e) {
+      NLogger::Error("NWsClient: URI parsing error: %s", e.what());
+      return false;
+    }
+
+    fHost = parsedUri.fHost;
+    fPort = parsedUri.fPort;
+    fPath = parsedUri.fPath;
+
+    lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+
+    info.port      = CONTEXT_PORT_NO_LISTEN;
+    info.protocols = fProtocols;
+    info.gid       = -1;
+    info.uid       = -1;
+
+    if (parsedUri.fScheme == "wss") {
+      info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    }
+    info.user = this;
+
+    fLwsContext = lws_create_context(&info);
+    if (!fLwsContext) {
+      NLogger::Error("Failed to create libwebsockets context.");
+      return false;
+    }
+
+    struct lws_client_connect_info cci;
+    memset(&cci, 0, sizeof(cci));
+    cci.context = fLwsContext;
+    cci.address = fHost.c_str();
+    cci.port    = fPort;
+    cci.path    = fPath.c_str();
+    cci.host    = fHost.c_str();
+    cci.origin  = fHost.c_str();
+
+    cci.protocol = fgProtocolName;
+    cci.userdata = this;
+
+    if (parsedUri.fScheme == "wss") {
+      cci.ssl_connection = LCCSCF_USE_SSL;
+    }
+    else {
+      cci.ssl_connection = 0;
+    }
+
+    NLogger::Trace("NWsClient: Initiating connection to %s (attempt %d)", uriString.c_str(), attempt + 1);
+
+    fWsi = lws_client_connect_via_info(&cci);
+    if (!fWsi) {
+      NLogger::Error("NWsClient: Failed to connect to WebSocket server at %s (attempt %d)", uriString.c_str(),
+                     attempt + 1);
+      lws_context_destroy(fLwsContext);
+      fLwsContext = nullptr;
+      attempt++;
+      if (attempt < fMaxRetries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(fRetryDelayMs));
+        continue;
+      }
+      return false;
+    }
+    cci.pwsi = &fWsi;
+
+    fLwsServiceThread = std::thread(&NWsClient::LwsServiceLoop, this);
+
+    {
+      std::unique_lock<std::mutex> lock(fConnectMutex);
+      fConnectCv.wait(lock, [this]() { return fConnectionAttemptComplete.load() || fShutdownRequested.load(); });
+    }
+    if (!fConnected.load()) {
+      NLogger::Error("NWsClient: Connection to %s failed or shutdown requested (attempt %d).", uriString.c_str(),
+                     attempt + 1);
+      Disconnect();
+      attempt++;
+      if (attempt < fMaxRetries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(fRetryDelayMs));
+        continue;
+      }
+      return false;
+    }
+
+    return true;
+  }
+  return false;
+}
+
+void NWsClient::Disconnect()
+{
+  NLogger::Trace("NWsClient: Disconnect requested.");
+  if (fLwsContext) {
+    fShutdownRequested         = true;
+    fConnectionAttemptComplete = true;
+    fConnectCv.notify_all();
+
+    lws_cancel_service(fLwsContext);
+
+    if (fLwsServiceThread.joinable()) {
+      fLwsServiceThread.join();
+    }
+
+    if (fWsi) {
+      fWsi = nullptr;
+    }
+
+    lws_context_destroy(fLwsContext);
+    fLwsContext = nullptr;
+    fConnected  = false;
+
+    std::queue<std::string>     empty_queue;
+    std::lock_guard<std::mutex> lock(fOutgoingMutex);
+    std::swap(fOutgoingMessageQueue, empty_queue);
+
+    NLogger::Trace("NWsClient: LWS context destroyed.");
+  }
+}
+
+bool NWsClient::Send(const std::string & message)
+{
+  if (!fConnected.load() || !fWsi) {
+    NLogger::Error("NWsClient: Cannot send, not connected to WebSocket server.");
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(fOutgoingMutex);
+    fOutgoingMessageQueue.push(message);
+  }
+
+  lws_callback_on_writable(fWsi);
+  NLogger::Trace("NWsClient: Called lws_callback_on_writable for message. Queue size: %lld",
+                 fOutgoingMessageQueue.size()); // <-- ADD THIS
+
+  return true;
+}
+
+void NWsClient::LwsServiceLoop()
+{
+  NLogger::Trace("NWsClient: LWS service loop started.");
+  int n = 0;
+  while (!fShutdownRequested.load()) {
+    n = lws_service(fLwsContext, -1);
+    // NLogger::Debug("NWsClient: lws_service returned %d", n);
+    if (n < 0) {
+      NLogger::Error("NWsClient: lws_service returned error or was cancelled, stopping loop.");
+      fShutdownRequested         = true;
+      fConnected                 = false;
+      fConnectionAttemptComplete = true;
+      fConnectCv.notify_all();
+      break;
+    }
+    // sleep for a short duration to avoid busy-waiting
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  NLogger::Trace("NWsClient: LWS service loop stopped.");
+}
+
+WS_URI NWsClient::ParseUri(const std::string & uriString)
+{
+  WS_URI parsed;
+  parsed.fPort = 0;
+
+  std::regex  uriRegex(R"((ws|wss)://([a-zA-Z0-9\-\.]+)(:([0-9]+))?(/.*)?)");
+  std::smatch matches;
+
+  if (!std::regex_match(uriString, matches, uriRegex)) {
+    throw std::runtime_error("Invalid WebSocket URI format: " + uriString);
+  }
+
+  parsed.fScheme = matches[1].str();
+  std::transform(parsed.fScheme.begin(), parsed.fScheme.end(), parsed.fScheme.begin(), ::tolower);
+
+  parsed.fHost = matches[2].str();
+
+  if (matches[4].matched) {
+    try {
+      parsed.fPort = std::stoi(matches[4].str());
+    }
+    catch (const std::exception & e) {
+      throw std::runtime_error("Invalid port number in URI: " + matches[4].str());
+    }
+  }
+  else {
+    if (parsed.fScheme == "ws") {
+      parsed.fPort = 80;
+    }
+    else if (parsed.fScheme == "wss") {
+      parsed.fPort = 443;
+    }
+    else {
+      throw std::runtime_error("Unknown scheme for default port: " + parsed.fScheme);
+    }
+  }
+
+  parsed.fPath = matches[5].str();
+  if (parsed.fPath.empty()) {
+    parsed.fPath = "/";
+  }
+
+  return parsed;
+}
+
 } // namespace Ndmspc

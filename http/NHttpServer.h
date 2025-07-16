@@ -17,7 +17,7 @@ namespace Ndmspc {
 ///
 class NHttpServer : public THttpServer {
   public:
-  NHttpServer(const char * engine = "http:8080", bool ws = true);
+  NHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000);
 
   NWsHandler * GetWebSocketHandler() const { return fNWsHandler; }
 
