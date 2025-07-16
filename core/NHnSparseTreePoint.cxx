@@ -205,4 +205,21 @@ std::vector<int> NHnSparseTreePoint::GetVariableAxisIndexes() const
 
   return {};
 }
+
+Long64_t NHnSparseTreePoint::GetEntryNumber() const
+{
+  ///
+  /// Returns entry number
+  ///
+
+  if (fHnst) {
+    Int_t * p = new Int_t[fHnst->GetBinning()->GetContent()->GetNdimensions()];
+    NUtils::VectorToArray(fPointContent, p);
+    Long64_t entry = fHnst->GetBinning()->GetContent()->GetBin(p);
+    delete[] p;
+    return entry;
+  }
+  NLogger::Error("NHnSparseTreePoint::GetEntryNumber: HnSparseTree is not set");
+  return -1;
+}
 } // namespace Ndmspc

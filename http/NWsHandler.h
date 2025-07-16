@@ -34,12 +34,12 @@ class NWsHandler : public THttpWSHandler {
   Bool_t ProcessWS(THttpCallArg * arg) override; // Method to broadcast a message to all connected clients
   void   BroadcastUnsafe(const std::string & message);
   void   Broadcast(const std::string & message);
-  /// Allow processing of WS actions in arbitrary thread
-  Bool_t AllowMTProcess() const override { return kTRUE; }
-
-  /// Allows usage of special threads for send operations
-  Bool_t AllowMTSend() const override { return kTRUE; }
-  /// per timeout sends data portion to the client
+  /// /// Allow processing of WS actions in arbitrary thread
+  /// Bool_t AllowMTProcess() const override { return kTRUE; }
+  ///
+  /// /// Allows usage of special threads for send operations
+  /// Bool_t AllowMTSend() const override { return kTRUE; }
+  /// /// per timeout sends data portion to the client
   Bool_t HandleTimer(TTimer *) override;
 
   // ClassDefOverride(NWsHandler, 1);
@@ -48,7 +48,7 @@ class NWsHandler : public THttpWSHandler {
   // Map to store information about each active client
   std::map<ULong_t, NWsClientInfo> fClients;
   std::mutex                       fMutex; // Protect fClients map for thread safety
-  // Int_t  fServCnt{0};
+  Int_t                            fServCnt{0};
 };
 
 } // namespace Ndmspc

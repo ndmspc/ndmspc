@@ -78,9 +78,13 @@ int main(int argc, char ** argv)
             Ndmspc::NLogger::Error("Server was not created !!!");
             exit(1);
           }
+
+          int timeout = 100;
+          // serv->SetTimer(0, kTRUE);
           // press Ctrl-C to stop macro
           // while (!gSystem->ProcessEvents()) {
-          //   gSystem->Sleep(100);
+          //   // Ndmspc::NLogger::Debug("Waiting for requests ...");
+          //   gSystem->Sleep(timeout);
           // }
           //
           Ndmspc::NLogger::Info("Starting server on port %d ...", port);

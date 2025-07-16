@@ -3,10 +3,10 @@
 #include <THttpCallArg.h>
 #include <cstring>
 #include <THttpServer.h>
-#include <Rtypes.h>
 
 #include "NCloudEvent.h"
 #include "NHttpServer.h"
+#include "NLogger.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NHttpServer);
@@ -14,17 +14,20 @@ ClassImp(Ndmspc::NHttpServer);
 
 namespace Ndmspc {
 
-NHttpServer::NHttpServer(const char * engine, bool ws) : THttpServer(engine)
+NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms) : THttpServer(engine)
 {
   if (ws) {
     fNWsHandler = new NWsHandler("ws", "ws");
     Register("/", fNWsHandler);
+    TTimer * heartbeat = new TTimer(fNWsHandler, heartbeat_ms);
+    heartbeat->Start();
   }
 }
 
 void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {
 
+  // NLogger::Info("NHttpServer::ProcessRequest");
   NCloudEvent ce(arg.get());
   if (ce.IsValid()) {
     NHttpServer::ProcessNCloudEventRequest(&ce, arg);
