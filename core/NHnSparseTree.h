@@ -38,6 +38,9 @@ class NHnSparseTree : public THnSparse {
                               const std::string & treename = "hnst");
   virtual void           Print(Option_t * option = "") const;
   virtual Long64_t       Merge(TCollection * list);
+  bool ExportNavigatorObject(NHnSparseObject * obj, std::vector<std::vector<int>> levels, int level = 0,
+                             std::map<int, std::vector<int>> ranges     = {},
+                             std::map<int, std::vector<int>> rangesBase = {});
 
   bool Import(std::string filename, std::string directory, std::vector<std::string> objNames,
               std::map<std::string, std::vector<std::vector<int>>> binning = {{}});
@@ -95,13 +98,16 @@ class NHnSparseTree : public THnSparse {
   void SaveEntry(NHnSparseTree * hnstIn = nullptr, std::vector<std::vector<int>> ranges = {},
                  bool useProjection = false);
 
-  bool Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
-               int nThreads = 1, NHnSparseTree * hnstIn = nullptr, NHnSparseTree * hnstOut = nullptr);
+  bool           Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
 
-  virtual TH1D * ProjectionFromObject(const std::string & name, int xaxis, Option_t * option = "");
-  virtual TH2D * ProjectionFromObject(const std::string & name, int yaxis, int xaxis, Option_t * option = "");
-  virtual TH3D * ProjectionFromObject(const std::string & name, int xaxis, int yaxis, int zaxis,
+                         int nThreads = 1, NHnSparseTree * hnstIn = nullptr, NHnSparseTree * hnstOut = nullptr);
+  THnSparse *    GetTHnSparseFromObject(const std::string & name, std::map<int, std::vector<int>> ranges = {});
+  virtual TH1D * ProjectionFromObject(const std::string & name, int xaxis, std::map<int, std::vector<int>> ranges = {},
                                       Option_t * option = "");
+  virtual TH2D * ProjectionFromObject(const std::string & name, int yaxis, int xaxis,
+                                      std::map<int, std::vector<int>> ranges = {}, Option_t * option = "");
+  virtual TH3D * ProjectionFromObject(const std::string & name, int xaxis, int yaxis, int zaxis,
+                                      std::map<int, std::vector<int>> ranges = {}, Option_t * option = "");
 
   private:
   std::string fFileName{"hnst.root"}; ///< Current filename

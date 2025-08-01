@@ -19,11 +19,13 @@ void NHnSparseTreeImport(
   // b["axis1-pt"] = {{5, 2}};
   // b["axis1-pt"] = {{1}};
   // b["axis1-pt"] = {{10}};
-  // b["axis1-pt"] = {{50}};
-  // b["axis2-ce"] = {{50}};
   // b["axis2-ce"]  = {{10}};
   // b["axis5-eta"] = {{4, 2}, {1, 1}, {4, 2}};
-  // b["axis5-eta"] = {{5}};
+
+  // small
+  // b["axis1-pt"] = {{50}};
+  // b["axis2-ce"] = {{50}};
+  // b["axis5-eta"] = {{8}};
   hnst->Import(filename, dir, objNames, b);
   hnst->Close(true);
 }

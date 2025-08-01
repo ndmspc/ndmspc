@@ -1,8 +1,12 @@
 #ifndef Ndmspc_NHnSparseObject_H
 #define Ndmspc_NHnSparseObject_H
-#include <TObject.h>
 #include <vector>
+#include "TVirtualPad.h"
+#include <TObject.h>
+#include <TH1.h>
 #include "NBinning.h"
+#include "NUtils.h"
+#include "Rtypes.h"
 
 namespace Ndmspc {
 
@@ -19,19 +23,61 @@ class NHnSparseObject : public TObject {
   NHnSparseObject(TObjArray * axes);
   virtual ~NHnSparseObject();
 
-  virtual void Print(Option_t * option = "") const;
+  virtual void Print(Option_t * option = "") const override;
+  void         Export(std::string filename);
+  void         ExportJson(json & j, NHnSparseObject * obj);
+  virtual void Draw(Option_t * option = "") override;
+  virtual void Paint(Option_t * option = "") override;
 
-  int                    Fill(TH1 * h, NHnSparseTreePoint * point = nullptr);
+  Int_t        DistancetoPrimitive(Int_t px, Int_t py) override;
+  virtual void ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
+
+  int                                           Fill(TH1 * h, NHnSparseTreePoint * point = nullptr);
+  std::map<std::string, std::vector<TObject *>> GetObjectContentMap() const { return fObjectContentMap; }
+  void                   ResizeObjectContentMap(const std::string & name, int n) { fObjectContentMap[name].resize(n); };
   std::vector<TObject *> GetObjects(const std::string & name) const;
   TObject *              GetObject(const std::string & name, int index = 0) const;
   NBinning *             GetBinning() const { return fBinning; }
+  void                   SetObject(const std::string & name, TObject * obj, int index = -1);
+
+  void        SetHnSparse(THnSparse * hnSparse) { fHnSparse = hnSparse; }
+  THnSparse * GetHnSparse() const { return fHnSparse; }
+  void        SetProjection(TH1 * projection) { fProjection = projection; }
+  TH1 *       GetProjection() const { return fProjection; }
+
+  std::vector<NHnSparseObject *> GetChildren() const { return fChildren; }
+  void                           SetChildrenSize(int n) { fChildren.resize(n); }
+  NHnSparseObject *              GetChild(int index) const;
+  void                           SetChild(NHnSparseObject * child, int index = -1);
+  NHnSparseObject *              GetParent() const { return fParent; }
+  void                           SetParent(NHnSparseObject * parent) { fParent = parent; }
+  void                           SetLastHoverBin(Int_t bin) { fLastHoverBin = bin; }
+  Int_t                          GetLastHoverBin() const { return fLastHoverBin; }
+  void                           SetNLevels(Int_t n);
+  void                           SetLevel(Int_t level) { fLevel = level; }
+
+  void  SetLastIndexSelected(Int_t index) { fLastIndexSelected = index; }
+  Int_t GetLastIndexSelected() const { return fLastIndexSelected; }
 
   protected:
-  NBinning *                                    fBinning{nullptr}; ///< Binning object
-  std::map<std::string, std::vector<TObject *>> fObjectContentMap; ///< Object content map
+  NBinning *                                    fBinning{nullptr};   ///< Binning object
+  std::map<std::string, std::vector<TObject *>> fObjectContentMap{}; ///< Object content map
+
+  NHnSparseObject *              fParent{nullptr};   ///< Parent object
+  std::vector<NHnSparseObject *> fChildren{};        ///< Children objects
+  THnSparse *                    fHnSparse{nullptr}; ///< Histogram object
+
+  // TVirtualPad *                  fPad{nullptr};      ///< Pad for drawing
+
+  TH1 * fProjection{nullptr}; ///< Projection histogram for 2D
+  Int_t fLastHoverBin{0};     ///< To avoid spamming the console on hover
+  Int_t fNLevels{1};          ///< Number of levels in the hierarchy
+  Int_t fLevel{0};            ///< Level of the object in the hierarchy
+  // std::vector<NHnSparseObject *> fPoint;                ///< Stack of current pads
+  Int_t fLastIndexSelected{0}; ///< last selected index in the object
 
   /// \cond CLASSIMP
-  ClassDef(NHnSparseObject, 1);
+  ClassDefOverride(NHnSparseObject, 2);
   /// \endcond;
 };
 } // namespace Ndmspc
