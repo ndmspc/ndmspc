@@ -8,6 +8,7 @@
 #include "NHnSparseTree.h"
 #include "NHnSparseTreePoint.h"
 #include <nlohmann/json.hpp>
+#include "TVirtualPad.h"
 using json = nlohmann::json;
 
 #include "NWsClient.h"
@@ -76,6 +77,10 @@ void Interactive()
   Long64_t entry = hnst->GetPoint()->GetEntryNumber(); // Update the entry number
   Ndmspc::NLogger::Debug("Interactive: entry=%lld, binx=%d, biny=%d", entry, binx, biny);
   hnst->GetEntry(entry); // Load the entry in the HnSparseTree)
+  //
+  Ndmspc::NLogger::Debug("Interactive: selected object name='%s', title='%s'", select->GetName(), select->GetTitle());
+  ((TNamed *)select)->SetTitle(hnst->GetPoint()->GetTitle("Map").c_str());
+  gPad->GetCanvas()->ModifiedUpdate();
 
   TObjArray * arr = new TObjArray();
   arr->SetOwner(kTRUE);
@@ -154,20 +159,15 @@ void Interactive()
   // Ndmspc::NLogger::Debug("Interactive: data=%s", data.dump().c_str());
   // Ndmspc::NLogger::Debug("Interactive: data=%s", data.c_str());
   if (wsClient->IsConnected()) {
-    Ndmspc::NLogger::Trace("NHnSparseTreeDraw: sending data to WebSocket server");
-    // bool rc = wsClient->Send(data.dump());
-    static std::chrono::steady_clock::time_point lastSentTime = std::chrono::steady_clock::now();
-    static std::string                           cachedMsg;
-    static const std::chrono::milliseconds       sendTimeout(250); // 500ms throttle
-
-    auto now  = std::chrono::steady_clock::now();
-    cachedMsg = data; // Always cache the most recent message
-
-    if (now - lastSentTime >= sendTimeout) {
-      bool rc      = wsClient->Send(cachedMsg);
-      lastSentTime = now;
-      cachedMsg.clear();
+    static std::chrono::steady_clock::time_point lastSendTime;
+    static constexpr auto                        debounceInterval = std::chrono::milliseconds(10);
+    auto                                         now              = std::chrono::steady_clock::now();
+    if (now - lastSendTime < debounceInterval) {
+      return;
     }
+    lastSendTime = now;
+    Ndmspc::NLogger::Trace("NHnSparseTreeDraw: sending data to WebSocket server");
+    bool rc = wsClient->Send(data.c_str());
   }
 }
 

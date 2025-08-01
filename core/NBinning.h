@@ -46,7 +46,8 @@ class NBinning : public TObject {
   int                           FillAll();
   std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
   std::vector<std::vector<int>> GetAxisRanges(std::vector<int> c) const;
-  void                          GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const;
+  bool                          GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const;
+  bool                          GetAxisRangeInBase(int axisId, int & min, int & max, std::vector<int> c) const;
   TObjArray *                   GetListOfAxes() const;
   std::vector<int>              GetAxisBinning(int axisId, const std::vector<int> & c) const;
   std::vector<int>              GetAxisIndexes(AxisType type) const;

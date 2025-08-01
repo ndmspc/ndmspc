@@ -4,6 +4,8 @@
 #include <TFile.h>
 #include <TAxis.h>
 #include <TMacro.h>
+#include <TH2.h>
+#include <TH3.h>
 #include <THnSparse.h>
 #include <nlohmann/json.hpp>
 #include <set>
@@ -31,9 +33,14 @@ class NUtils : TObject {
   static std::string OpenRawFile(std::string filename);
   static bool        SaveRawFile(std::string filename, std::string content);
   static TMacro *    OpenMacro(std::string filename);
-  static bool        SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>>, bool withOverflow = false);
-  static bool        GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, int & min, int & max);
+  static bool        SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow = false);
+  static bool SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow = false);
+  static bool GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, int & min, int & max);
+  static bool GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int & minBase, int & maxBase);
 
+  static THnSparse * Convert(TH1 * h1, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
+  static THnSparse * Convert(TH2 * h2, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
+  static THnSparse * Convert(TH3 * h3, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
   static THnSparse * ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, std::vector<TAxis *> newAxes = {},
                                        std::vector<int> newPoint = {}, Option_t * option = "E");
 

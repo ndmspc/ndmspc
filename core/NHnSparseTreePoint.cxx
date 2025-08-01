@@ -49,7 +49,7 @@ void NHnSparseTreePoint::SetPointContent(const std::vector<int> & content)
 
   //
   // Print content coordinates
-  NLogger::Trace("Setting point content: %s", NUtils::GetCoordsString(content, -1).c_str());
+  NLogger::Debug("Setting point content: %s", NUtils::GetCoordsString(content, -1).c_str());
   //
   if (content.size() != fPointContent.size()) {
     NLogger::Error("Content size does not match point size %d != %d !!!", content.size(), fPointContent.size());
@@ -58,7 +58,12 @@ void NHnSparseTreePoint::SetPointContent(const std::vector<int> & content)
   fPointContent = content;
 
   std::vector<std::vector<int>> axisRanges = fHnst->GetBinning()->GetAxisRanges(content);
-  std::vector<int>              coords(fHnst->GetNdimensions(), 1);
+
+  // for (size_t i = 0; i < axisRanges.size(); i++) {
+  //   NLogger::Trace("Axis %zu: %s", i, NUtils::GetCoordsString(axisRanges[i], -1).c_str());
+  // }
+
+  std::vector<int> coords(fHnst->GetNdimensions(), 1);
   // print axis ranges
   // NLogger::Debug("Setting point storage coordinates:");
   // NLogger::Debug("  %s", NUtils::GetCoordsString(coords, -1).c_str());

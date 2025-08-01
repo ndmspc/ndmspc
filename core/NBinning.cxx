@@ -678,15 +678,32 @@ std::vector<int> NBinning::GetAxisBinning(int axisId, const std::vector<int> & c
   return binning;
 }
 
-void NBinning::GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const
+bool NBinning::GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const
+{
+  ///
+  /// Get axis range for given axis id
+  ///
+  int    minBin  = 0;
+  int    maxBin  = 0;
+  Bool_t isValid = GetAxisRangeInBase(axisId, minBin, maxBin, c);
+
+  min = fAxes[axisId]->GetBinLowEdge(minBin);
+  max = fAxes[axisId]->GetBinUpEdge(maxBin);
+  return isValid;
+}
+
+bool NBinning::GetAxisRangeInBase(int axisId, int & min, int & max, std::vector<int> c) const
 {
   ///
   /// Get axis range for given axis id
   ///
   if (axisId < 0 || axisId >= fAxes.size()) {
     NLogger::Error("Invalid axis id %d", axisId);
-    return;
+    return false;
   }
+
+  // Generate c if not provided
+
   int    minBin  = 0;
   int    maxBin  = 0;
   Bool_t isValid = false;
@@ -697,8 +714,9 @@ void NBinning::GetAxisRange(int axisId, double & min, double & max, std::vector<
     isValid = NUtils::GetAxisRangeInBase(fAxes[axisId], c[0], c[1], c[2], minBin, maxBin);
   }
 
-  min = fAxes[axisId]->GetBinLowEdge(minBin);
-  max = fAxes[axisId]->GetBinUpEdge(maxBin);
+  min = minBin;
+  max = maxBin;
+  return isValid;
 }
 
 TObjArray * NBinning::GetListOfAxes() const

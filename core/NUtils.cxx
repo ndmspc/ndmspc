@@ -2,6 +2,7 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include "THnSparse.h"
 #include "NLogger.h"
 #include "NUtils.h"
 
@@ -12,6 +13,233 @@ ClassImp(Ndmspc::NUtils);
 /// \endcond
 
 namespace Ndmspc {
+
+THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vector<std::string> titles)
+{
+  ///
+  /// Convert TH1 to THnSparse
+  ///
+
+  if (h1 == nullptr) {
+    NLogger::Error("TH1 h1 is null");
+    return nullptr;
+  }
+
+  NLogger::Info("Converting TH1 '%s' to THnSparse ...", h1->GetName());
+
+  int      nDims = 1;
+  Int_t    bins[nDims];
+  Double_t xmin[nDims];
+  Double_t xmax[nDims];
+
+  TAxis * aIn = h1->GetXaxis();
+  bins[0]     = aIn->GetNbins();
+  xmin[0]     = aIn->GetXmin();
+  xmax[0]     = aIn->GetXmax();
+
+  THnSparse * hns = new THnSparseD(h1->GetName(), h1->GetTitle(), nDims, bins, xmin, xmax);
+
+  // loop over all axes
+  for (int i = 0; i < nDims; i++) {
+    TAxis * a   = hns->GetAxis(i);
+    TAxis * aIn = h1->GetXaxis();
+    a->SetName(aIn->GetName());
+    a->SetTitle(aIn->GetTitle());
+    if (aIn->GetXbins()->GetSize() > 0) {
+      Double_t arr[aIn->GetNbins() + 1];
+      arr[0] = aIn->GetBinLowEdge(1);
+      for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
+        arr[iBin] = aIn->GetBinUpEdge(iBin);
+      }
+      a->Set(a->GetNbins(), arr);
+    }
+  }
+
+  for (size_t i = 0; i < nDims; i++) {
+    if (!names[i].empty()) hns->GetAxis(i)->SetName(names[i].c_str());
+    if (!titles[i].empty()) hns->GetAxis(i)->SetTitle(titles[i].c_str());
+  }
+
+  // fill the sparse with the content of the TH3
+  for (Int_t i = 0; i <= h1->GetNbinsX() + 1; i++) {
+    double content = h1->GetBinContent(i);
+    Int_t  p[1]    = {i}; // bin indices in TH3
+    hns->SetBinContent(p, content);
+  }
+
+  hns->SetEntries(h1->GetEntries());
+  if (h1->GetSumw2N() > 0) {
+    hns->Sumw2();
+  }
+
+  return hns;
+}
+
+THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vector<std::string> titles)
+{
+  ///
+  /// Convert TH2 to THnSparse
+  ///
+  if (h2 == nullptr) {
+    NLogger::Error("TH2 h2 is null");
+    return nullptr;
+  }
+  NLogger::Info("Converting TH2 '%s' to THnSparse ...", h2->GetName());
+  int      nDims = 2;
+  Int_t    bins[nDims];
+  Double_t xmin[nDims];
+  Double_t xmax[nDims];
+
+  for (int i = 0; i < nDims; i++) {
+    TAxis * aIn = nullptr;
+    if (i == 0)
+      aIn = h2->GetXaxis();
+    else if (i == 1)
+      aIn = h2->GetYaxis();
+    else {
+      NLogger::Error("Invalid axis index %d", i);
+      return nullptr;
+    }
+    bins[i] = aIn->GetNbins();
+    xmin[i] = aIn->GetXmin();
+    xmax[i] = aIn->GetXmax();
+  }
+
+  THnSparse * hns = new THnSparseD(h2->GetName(), h2->GetTitle(), nDims, bins, xmin, xmax);
+
+  for (int i = 0; i < nDims; i++) {
+    TAxis * a   = hns->GetAxis(i);
+    TAxis * aIn = nullptr;
+    if (i == 0)
+      aIn = h2->GetXaxis();
+    else if (i == 1)
+      aIn = h2->GetYaxis();
+    else {
+      NLogger::Error("Invalid axis index %d", i);
+      delete hns;
+      return nullptr;
+    }
+    a->SetName(aIn->GetName());
+    a->SetTitle(aIn->GetTitle());
+    if (aIn->GetXbins()->GetSize() > 0) {
+      Double_t arr[aIn->GetNbins() + 1];
+      arr[0] = aIn->GetBinLowEdge(1);
+      for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
+        arr[iBin] = aIn->GetBinUpEdge(iBin);
+      }
+      a->Set(a->GetNbins(), arr);
+    }
+  }
+
+  for (size_t i = 0; i < nDims; i++) {
+    if (!names[i].empty()) hns->GetAxis(i)->SetName(names[i].c_str());
+    if (!titles[i].empty()) hns->GetAxis(i)->SetTitle(titles[i].c_str());
+  }
+
+  // fill the sparse with the content of the TH2
+  for (Int_t i = 0; i <= h2->GetNbinsX() + 1; i++) {
+    for (Int_t j = 0; j <= h2->GetNbinsY() + 1; j++) {
+      double content = h2->GetBinContent(i, j);
+      Int_t  p[2]    = {i, j}; // bin indices in TH3
+      hns->SetBinContent(p, content);
+    }
+  }
+
+  hns->SetEntries(h2->GetEntries());
+  if (h2->GetSumw2N() > 0) {
+    hns->Sumw2();
+  }
+
+  return hns;
+}
+
+THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vector<std::string> titles)
+{
+  ///
+  /// Convert TH3 to THnSparse
+  ///
+
+  if (h3 == nullptr) {
+    NLogger::Error("TH3 h3 is null");
+    return nullptr;
+  }
+
+  NLogger::Info("Converting TH3 '%s' to THnSparse ...", h3->GetName());
+
+  int      nDims = 3;
+  Int_t    bins[nDims];
+  Double_t xmin[nDims];
+  Double_t xmax[nDims];
+
+  for (int i = 0; i < nDims; i++) {
+    TAxis * aIn = nullptr;
+    if (i == 0)
+      aIn = h3->GetXaxis();
+    else if (i == 1)
+      aIn = h3->GetYaxis();
+    else if (i == 2)
+      aIn = h3->GetZaxis();
+    else {
+      NLogger::Error("Invalid axis index %d", i);
+      return nullptr;
+    }
+    bins[i] = aIn->GetNbins();
+    xmin[i] = aIn->GetXmin();
+    xmax[i] = aIn->GetXmax();
+  }
+
+  THnSparse * hns = new THnSparseD(h3->GetName(), h3->GetTitle(), nDims, bins, xmin, xmax);
+
+  // loop over all axes
+  for (int i = 0; i < nDims; i++) {
+    TAxis * a   = hns->GetAxis(i);
+    TAxis * aIn = nullptr;
+    if (i == 0)
+      aIn = h3->GetXaxis();
+    else if (i == 1)
+      aIn = h3->GetYaxis();
+    else if (i == 2)
+      aIn = h3->GetZaxis();
+    else {
+      NLogger::Error("Invalid axis index %d", i);
+      delete hns;
+      return nullptr;
+    }
+    a->SetName(aIn->GetName());
+    a->SetTitle(aIn->GetTitle());
+    if (aIn->GetXbins()->GetSize() > 0) {
+      Double_t arr[aIn->GetNbins() + 1];
+      arr[0] = aIn->GetBinLowEdge(1);
+      for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
+        arr[iBin] = aIn->GetBinUpEdge(iBin);
+      }
+      a->Set(a->GetNbins(), arr);
+    }
+  }
+
+  for (size_t i = 0; i < nDims; i++) {
+    if (!names[i].empty()) hns->GetAxis(i)->SetName(names[i].c_str());
+    if (!titles[i].empty()) hns->GetAxis(i)->SetTitle(titles[i].c_str());
+  }
+
+  // fill the sparse with the content of the TH3
+  for (Int_t i = 0; i <= h3->GetNbinsX() + 1; i++) {
+    for (Int_t j = 0; j <= h3->GetNbinsY() + 1; j++) {
+      for (Int_t k = 0; k <= h3->GetNbinsZ() + 1; k++) {
+        double content = h3->GetBinContent(i, j, k);
+        Int_t  p[3]    = {i, j, k}; // bin indices in TH3
+        hns->SetBinContent(p, content);
+      }
+    }
+  }
+
+  hns->SetEntries(h3->GetEntries());
+  if (h3->GetSumw2N() > 0) {
+    hns->Sumw2();
+  }
+
+  return hns;
+}
 
 THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, std::vector<TAxis *> newAxes,
                                       std::vector<int> newPoint, Option_t * option)
@@ -91,7 +319,6 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
 
   THnSparse * hnsNew = new THnSparseD(hns->GetName(), hns->GetTitle(), nDims, bins, xmin, xmax);
 
-  // return hnsNew;
   // loop over all axes
   for (int i = 0; i < hnsNew->GetNdimensions(); i++) {
     TAxis * aIn = nullptr;
@@ -149,7 +376,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     NLogger::Info("Axis %d: %s %s %d %.2f %.2f", i, a->GetName(), a->GetTitle(), a->GetNbins(), a->GetXmin(),
                   a->GetXmax());
   }
-  hnsNew->Print();
+  hnsNew->Print("all");
   return hnsNew;
 }
 
@@ -495,6 +722,41 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
   return true;
 }
 
+bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow)
+{
+  ///
+  /// Set axis ranges
+  ///
+  ///
+
+  if (sparse == nullptr) {
+    NLogger::Error("NUtils::SetAxisRanges: Sparse is nullptr ...");
+    return false;
+  }
+  if (sparse->GetNdimensions() == 0) return true;
+
+  NLogger::Trace("NUtils::SetAxisRanges: Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
+  /// Reset all axis ranges
+  for (int i = 0; i < sparse->GetNdimensions(); i++) {
+    if (withOverflow) {
+      NLogger::Trace("NUtils::SetAxisRanges: Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
+      sparse->GetAxis(i)->SetRange(0, 0);
+    }
+    else {
+      NLogger::Trace("NUtils::SetAxisRanges: Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1,
+                     sparse->GetAxis(i)->GetNbins());
+      sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
+    }
+  }
+
+  TAxis * axis = nullptr;
+  for (const auto & [key, val] : ranges) {
+    axis = sparse->GetAxis(key);
+    NLogger::Trace("NUtils::SetAxisRanges: Setting axis range %s=[%d,%d] ...", axis->GetName(), val[0], val[1]);
+    axis->SetRange(val[0], val[1]);
+  }
+  return true;
+}
 bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, int & min, int & max)
 {
   ///
@@ -531,6 +793,28 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, 
     max = -1;
     return false;
   }
+
+  return true;
+}
+bool NUtils::GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int & minBase, int & maxBase)
+{
+  ///
+  /// Gets axis range in base
+  ///
+  ///
+  int rebin = base->GetNbins() / a->GetNbins();
+
+  // TODO: Improve handling of rebin_start correctly (depending on axis min and max of first bin)
+  int rebin_start = (base->GetNbins() % a->GetNbins()) + 1;
+  rebin_start     = rebin != 1 ? rebin_start : 1; // start from 1
+
+  NLogger::Trace("Getting axis range in base for '%s' min=%d max=%d rebin=%d rebin_start=%d...", a->GetName(), min, max,
+                 rebin, rebin_start);
+
+  int tmp;
+  GetAxisRangeInBase(base, rebin, rebin_start, min, minBase, tmp);
+  GetAxisRangeInBase(base, rebin, rebin_start, max, tmp, maxBase);
+  NLogger::Trace("Axis '%s' minBase=%d maxBase=%d", a->GetName(), minBase, maxBase);
 
   return true;
 }

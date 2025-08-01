@@ -1,9 +1,18 @@
+#include <fstream>
+#include "TMathBase.h"
+#include "TString.h"
+#include <TMath.h>
+#include <TROOT.h>
+#include <TVirtualPad.h>
+#include <TPad.h>
+#include <TCanvas.h>
+#include <TLatex.h>
 #include <TH1.h>
+#include <TBufferJSON.h>
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NHnSparseTreePoint.h"
 #include "NHnSparseTree.h"
-#include "RtypesCore.h"
 #include "NHnSparseObject.h"
 
 /// \cond CLASSIMP
@@ -19,7 +28,16 @@ NHnSparseObject::~NHnSparseObject()
   /// Destructor
   ///
 
+  for (auto & child : fChildren) {
+    if (child) {
+      child->SetParent(nullptr); // Clear parent pointer in child
+      delete child;              // Delete child object
+    }
+  }
+
   SafeDelete(fBinning);
+  SafeDelete(fHnSparse);
+  SafeDelete(fProjection);
 }
 void NHnSparseObject::Print(Option_t * option) const
 {
@@ -83,8 +101,6 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
     int              currentFillIndex = coords[iVarAxis * 3 + 2];
     // NLogger::Debug("Current fill index for axis %d: %d", idAxis, currentFillIndex);
     currentCoords[iVarAxis * 3 + 2] = 0;
-    NLogger::Info("XXXXXXXXXXXX Current coords for axis %d: %s", idAxis,
-                  NUtils::GetCoordsString(currentCoords, -1).c_str());
     h->Print();
     for (int i = 0; i < h->GetNbinsX(); i++) {
       std::string binLabel = h->GetXaxis()->GetBinLabel(i + 1);
@@ -202,5 +218,402 @@ TObject * NHnSparseObject::GetObject(const std::string & name, int index) const
     return it->second[index];
   }
   return nullptr;
+}
+
+void NHnSparseObject::SetObject(const std::string & name, TObject * obj, int index)
+{
+  ///
+  /// Set object for given name and index
+  ///
+  if (obj) {
+    if (index < 0) {
+      fObjectContentMap[name].push_back(obj);
+    }
+    else {
+      // if (index >= (int)fObjectContentMap[name].size()) {
+      //   fObjectContentMap[name].resize(index + 1, nullptr);
+      // }
+      fObjectContentMap[name][index] = obj;
+    }
+  }
+}
+
+NHnSparseObject * NHnSparseObject::GetChild(int index) const
+{
+  ///
+  /// Returns child object at given index
+  ///
+  NLogger::Debug("XXXX NHnSparseObject::GetChild: index=%d, size=%zu", index, fChildren.size());
+  return (index >= 0 && index < fChildren.size()) ? fChildren[index] : nullptr;
+}
+void NHnSparseObject::SetChild(NHnSparseObject * child, int index)
+{
+  ///
+  /// Set child object at given index
+  ///
+  if (child) {
+    fChildren[index < 0 ? fChildren.size() : index] = child;
+    child->SetParent(this);
+  }
+}
+
+void NHnSparseObject::Export(std::string filename)
+{
+  ///
+  /// Export object to file
+  ///
+  NLogger::Info("Exporting NHnSparseObject to file: %s", filename.c_str());
+  // if filename ends with .root, remove it
+  if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".root") {
+    NLogger::Info("Exporting NHnSparseObject to ROOT file: %s", filename.c_str());
+    TFile * file = TFile::Open(filename.c_str(), "RECREATE");
+    if (!file || file->IsZombie()) {
+      NLogger::Error("Failed to open file: %s", filename.c_str());
+      return;
+    }
+    file->cd();
+    this->Write();
+    file->Close();
+    delete file;
+  }
+  else if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".json") {
+    NLogger::Info("Exporting NHnSparseObject to JSON file: %s", filename.c_str());
+    json              objJson;
+    NHnSparseObject * obj = const_cast<NHnSparseObject *>(this);
+    ExportJson(objJson, obj);
+    // std::cout << objJson.dump(2) << std::endl;
+    std::ofstream outFile(filename);
+    outFile << objJson.dump();
+    outFile.close();
+  }
+  else {
+    NLogger::Error("Unsupported file format for export: %s", filename.c_str());
+    return;
+  }
+
+  NLogger::Info("Exported NHnSparseObject to file: %s", filename.c_str());
+}
+
+void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
+{
+  ///
+  /// Export object to JSON
+  ///
+
+  if (obj == nullptr) {
+    NLogger::Error("NHnSparseObject::ExportJson: Object is nullptr !!!");
+    return;
+  }
+
+  THnSparse * hns = obj->GetHnSparse();
+  if (hns == nullptr) {
+    // NLogger::Error("NHnSparseObject::ExportJson: HnSparse is nullptr !!!");
+    return;
+  }
+
+  std::string name        = hns->GetName();
+  std::string title       = hns->GetTitle();
+  int         nDimensions = hns->GetNdimensions();
+  NLogger::Debug("ExportJson : %s [%dD]", title.c_str(), nDimensions);
+
+  if (obj->GetChildren().empty()) {
+    return;
+  }
+
+  TH1 * h;
+  if (nDimensions == 1) {
+    TAxis * xAxis = hns->GetAxis(0);
+    TH1 *   temp  = hns->Projection(0);
+    h             = new TH2D(name.c_str(), title.c_str(), xAxis->GetNbins(), xAxis->GetXmin(), xAxis->GetXmax(), 1, 0,
+                             1); // Create a dummy 2D histogram for 1D projection
+    h->GetXaxis()->SetName(xAxis->GetName());
+    h->GetXaxis()->SetTitle(xAxis->GetTitle());
+    for (int i = 1; i <= temp->GetNbinsX(); ++i) {
+      h->SetBinContent(i, 1, temp->GetBinContent(i));
+      h->SetBinError(i, 1, temp->GetBinError(i));
+    }
+    obj->SetProjection(h);
+
+    h = hns->Projection(0);
+
+    // obj->SetProjection(h);
+  }
+  else if (nDimensions == 2) {
+    h = hns->Projection(1, 0);
+    obj->SetProjection(h);
+  }
+  else if (nDimensions == 3) {
+    h = hns->Projection(0, 1, 2);
+    obj->SetProjection(h);
+  }
+  else {
+    NLogger::Error("NHnSparseObject::ExportJson: Unsupported number of dimensions: %d", nDimensions);
+    return;
+  }
+
+  if (h == nullptr) {
+    NLogger::Error("NHnSparseObject::ExportJson: Projection is nullptr !!!");
+    return;
+  }
+
+  h->SetNameTitle(name.c_str(), title.c_str());
+  h->SetMinimum(0);
+  h->SetStats(kFALSE); // Turn off stats box for clarity
+  // h->SetDirectory(nullptr); // Avoid ROOT trying to save the histogram in a file
+
+  j = json::parse(TBufferJSON::ConvertToJSON(h).Data());
+  // loop over content map and add objects
+  double min = 0, max = 0;
+  for (const auto & [key, val] : obj->GetObjectContentMap()) {
+    for (size_t i = 0; i < val.size(); i++) {
+      TObject * objContent = val[i];
+
+      json objJson = json::parse(TBufferJSON::ConvertToJSON(objContent).Data());
+
+      if (objContent) {
+        min = TMath::Min(min, ((TH1 *)objContent)->GetMinimum());
+        max = TMath::Max(max, ((TH1 *)objContent)->GetMaximum());
+      }
+      j["children"][key].push_back(objJson);
+    }
+  }
+  // j["fMinimum"] = min;
+  // j["fMaximum"] = max;
+  for (const auto & child : obj->GetChildren()) {
+    // if (child == nullptr) {
+    //   NLogger::Error("NHnSparseObject::ExportJson: Child is nullptr !!!");
+    //   continue;
+    // }
+    json childJson;
+    if (child != nullptr) {
+      ExportJson(childJson, child);
+    }
+    j["children"]["content"].push_back(childJson);
+  }
+  // loop over j["children"]["content"] and remove empty objects"
+  bool hasContent = false;
+  for (auto & c : j["children"]["content"]) {
+    if (c != nullptr) {
+      hasContent = true;
+      break;
+    }
+  }
+
+  if (!hasContent) {
+    j["children"].erase("content");
+    obj->GetChildren().clear(); // Clear children if no content is present
+  }
+}
+
+void NHnSparseObject::Draw(Option_t * option)
+{
+  ///
+  /// Draw object
+  ///
+  ///
+
+  std::string name;
+  if (!gPad) {
+    NLogger::Error("NHnSparseObject::Draw: gPad is nullptr !!!");
+    gROOT->MakeDefCanvas();
+    if (!gPad->IsEditable()) return;
+    Int_t cy = TMath::Sqrt(fNLevels);
+    Int_t cx = TMath::Ceil(fNLevels / (Double_t)cy);
+    gPad->Divide(cy, cx); // Divide the pad into a grid based on the number of levels
+  }
+
+  if (fHnSparse == nullptr) {
+    NLogger::Error("NHnSparseObject::Draw: HnSparse is nullptr !!!");
+    return;
+  }
+
+  TVirtualPad *     originalPad = gPad; // Save the original pad
+  NHnSparseObject * obj;
+  for (int level = 0; level < fNLevels; level++) {
+    NLogger::Debug("NHnSparseObject::Draw: Drawing level %d", level);
+    TVirtualPad * pad = originalPad->cd(level + 1);
+    if (pad) {
+      // NLogger::Debug("NHnSparseObject::Draw: Clearing pad %d", level + 1);
+      pad->Clear();
+      gPad = pad; // Set the current pad to the level + 1 pad
+      if (level == 0) {
+        obj = this; // For the first level, use the current object
+        NLogger::Debug("NHnSparseObject::Draw: Using current object at level %d: %s", level, obj->GetName());
+      }
+      else {
+
+        // obj = nullptr; // Reset the object for the next level
+        for (int i = 0; i < obj->GetChildren().size(); i++) {
+          NHnSparseObject * child = obj->GetChild(i);
+          if (child) {
+            NLogger::Debug("NHnSparseObject::Draw: Found child at level %d: %s", level,
+                           child->GetProjection()->GetTitle());
+            obj = child; // Get the child object at the current level
+            break;
+          }
+        }
+        NLogger::Debug("NHnSparseObject::Draw: Using child object at level %d: %s", level,
+                       obj ? obj->GetName() : "nullptr");
+      }
+      if (obj == nullptr) {
+        NLogger::Error("NHnSparseObject::Draw: Child object at level %d is nullptr !!!", level);
+        continue; // Skip to the next level if the child is nullptr
+      }
+      obj->GetProjection()->SetMinimum(0);
+      obj->GetProjection()->SetStats(kFALSE); // Turn off stats box for clarity
+      obj->Draw(option);                      // Draw the object at the current level
+      obj->AppendPad(option);                 // Append the pad to the current pad stack
+    }
+    else {
+      NLogger::Error("NHnSparseObject::Draw: Pad %d is nullptr !!!", level + 1);
+    }
+  }
+  gPad = originalPad; // Restore the original pad
+}
+
+void NHnSparseObject::Paint(Option_t * option)
+{
+  ///
+  /// Paint object
+  ///
+  // NLogger::Info("NHnSparseObject::Paint: Painting object ...");
+  if (fProjection) {
+    NLogger::Debug("NHnSparseObject::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
+                   fProjection->GetName(), fProjection->GetTitle());
+    // fProjection->Paint(option);
+    fProjection->Paint("colz text");
+  }
+}
+
+Int_t NHnSparseObject::DistancetoPrimitive(Int_t px, Int_t py)
+{
+  ///
+  /// This method tells the pad if the mouse is "on" our object.
+  ///
+
+  if (!fProjection) {
+    return 9999; // Not drawn, so we are infinitely far.
+  }
+
+  return fProjection->DistancetoPrimitive(px, py);
+}
+
+void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
+{
+  ///
+  /// Execute event
+  ///
+  ///
+
+  if (!fProjection || !gPad) return;
+
+  // gPad = gPad->GetMother();
+  // NLogger::Debug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d, gPad=%s title=%s", event, px, py,
+  //                gPad->GetName(), gPad->GetTitle());
+  // NLogger::Debug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
+
+  // Step 1: Convert absolute pixel coordinates to the pad's normalized coordinates (0-1 range)
+  Double_t x_pad = gPad->AbsPixeltoX(px);
+  Double_t y_pad = gPad->AbsPixeltoY(py);
+
+  // Step 2: Convert the pad's normalized coordinates to the user's coordinate system (the histogram axes)
+  Double_t x_user = gPad->PadtoX(x_pad);
+  Double_t y_user = gPad->PadtoY(y_pad);
+
+  Int_t bin = fProjection->FindBin(x_user, y_user);
+
+  // --- MOUSE HOVER LOGIC ---
+  if (event == kMouseMotion) {
+    if (bin != fLastHoverBin) {
+      // Check if the cursor is inside a bin with content
+      if (fProjection->GetBinContent(bin) > 0) {
+        Int_t binx, biny, binz;
+        fProjection->GetBinXYZ(bin, binx, biny, binz);
+        NLogger::Debug("[%s]Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
+                       x_user, y_user, fLevel, fNLevels);
+      }
+      fLastHoverBin = bin;
+      NLogger::Debug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
+    }
+  }
+
+  TVirtualPad * originalPad = gPad; // Save the original pad
+  // --- MOUSE CLICK LOGIC ---
+  if (event == kButton1Down) {
+    Int_t binx, biny, binz;
+    fProjection->GetBinXYZ(bin, binx, biny, binz);
+    Double_t content = fProjection->GetBinContent(bin);
+    NLogger::Info("[%s]Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  level=%d nLevels=%d",
+                  gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
+
+    int nDimensions = fHnSparse->GetNdimensions();
+
+    Int_t index = fProjection->FindFixBin(fProjection->GetXaxis()->GetBinCenter(binx),
+                                          fProjection->GetYaxis()->GetBinCenter(biny));
+    if (nDimensions == 1) {
+      // For 1D histograms, we need to find the index correctly
+      index = fProjection->GetXaxis()->FindFixBin(fProjection->GetXaxis()->GetBinCenter(binx));
+    }
+    NLogger::Debug("Index in histogram: %d level=%d", index, fLevel);
+    NHnSparseObject * child   = GetChild(index);
+    TCanvas *         cObject = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("cObject");
+    if (child && child->GetProjection()) {
+      NLogger::Debug("[%s]Child object '%p' found at index %d", gPad->GetName(), child->GetProjection(), index);
+      // originalPad->Clear();               // Clear the original pad
+      gPad              = originalPad->GetMother(); // Get the mother pad to avoid clearing the current pad
+      TVirtualPad * pad = gPad->cd(fLevel + 1 + 1); // Ensure we are in the correct pad
+      pad->Clear();                                 // Clear the pad for the child object
+
+      SetLastIndexSelected(index);
+      TH1 * hProj = child->GetProjection();
+      hProj->SetStats(kFALSE);  // Turn off stats box for clarity
+      hProj->SetMinimum(0);     // Set minimum to 0 for better visibility
+      hProj->Draw("text colz"); // Draw the projection histogram of the child
+      child->AppendPad();
+      NLogger::Debug("NHnSparseObject::ExecuteEvent: %d", child->GetLastIndexSelected());
+      if (cObject) {
+        cObject->Clear(); // Clear the existing canvas if it exists
+        cObject->cd();    // Set the current canvas to cObject
+                          // Add text with note about the projection
+
+        TLatex latex;
+        latex.SetNDC();
+        latex.SetTextAlign(22); // center
+        latex.SetTextSize(0.05);
+        latex.DrawLatex(0.5, 0.5, "Select bottom pad to see projection");
+        // delete cObject; // Delete the existing canvas if it exists
+      }
+    }
+    else {
+
+      // TH1 * projection = child->GetProjection();
+      // index            = projection->GetXaxis()->FindFixBin(projection->GetXaxis()->GetBinCenter(binx));
+      NLogger::Warning("No child object found at index %d", index);
+      TH1 * hProj = (TH1 *)GetObject("unlikepm", index);
+      if (hProj == nullptr) {
+        NLogger::Error("No histogram found for index %d", index);
+        return;
+      }
+      hProj->Print();
+      if (cObject == nullptr) {
+        cObject = new TCanvas("cObject", "cObject", 800, 600);
+      }
+      cObject->cd();
+      // gPad = cObject->GetPad(0); // Get the current pad
+      // hProj->SetTitle(Form("Projection of %s at index %d", fProjection->GetName(), index));
+      hProj->Draw(); // Draw the projection histogram
+    }
+    // else {
+    // }
+    gPad->ModifiedUpdate(); // Force pad to redraw
+  }
+  gPad = originalPad; // Restore the original pad
+}
+void NHnSparseObject::SetNLevels(Int_t n)
+{
+  ///
+  /// Set number of levels in the hierarchy
+  ///
+  fNLevels = n;
 }
 } // namespace Ndmspc
