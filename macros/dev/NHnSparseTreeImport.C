@@ -11,6 +11,7 @@ void NHnSparseTreeImport(
   Ndmspc::NHnSparseTree * hnst = new Ndmspc::NHnSparseTreeC("$HOME/.ndmspc/dev/hnst.root", "hnst");
   std::map<std::string, std::vector<std::vector<int>>> b;
   // b["axis1-pt"] = {{4, 1}, {1, 46}, {2, 15}, {5, 2}, {10, 1}, {20, 1}, {30, 1}, {50, 1}};
+  // b["axis1-pt"] = {{1}};
   b["axis1-pt"] = {{10}};
   b["axis2-ce"] = {{10}};
 
@@ -21,6 +22,7 @@ void NHnSparseTreeImport(
   // b["axis1-pt"] = {{10}};
   // b["axis2-ce"]  = {{10}};
   // b["axis5-eta"] = {{4, 2}, {1, 1}, {4, 2}};
+  b["axis5-eta"] = {{8}};
 
   // small
   // b["axis1-pt"] = {{50}};

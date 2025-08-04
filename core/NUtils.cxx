@@ -380,6 +380,73 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   return hnsNew;
 }
 
+void NUtils::GetTrueHistogramMinMax(const TH1 * h, double & min_val, double & max_val, bool include_overflow_underflow)
+{
+  ///
+  /// Retrieve the true min and max values of a histogram, ignoring underflow and overflow bins
+  ///
+  if (!h) {
+    max_val = 0.0;
+    min_val = 0.0;
+    return;
+  }
+
+  max_val = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+  min_val = std::numeric_limits<double>::max();  // Initialize with largest possible double
+
+  int first_bin_x = include_overflow_underflow ? 0 : 1;
+  int last_bin_x  = include_overflow_underflow ? h->GetNbinsX() + 1 : h->GetNbinsX();
+
+  int first_bin_y = include_overflow_underflow ? 0 : 1;
+  int last_bin_y  = include_overflow_underflow ? h->GetNbinsY() + 1 : h->GetNbinsY();
+
+  int first_bin_z = include_overflow_underflow ? 0 : 1;
+  int last_bin_z  = include_overflow_underflow ? h->GetNbinsZ() + 1 : h->GetNbinsZ();
+
+  // Determine the dimensionality of the histogram
+  if (h->GetDimension() == 1) { // TH1
+    for (int i = first_bin_x; i <= last_bin_x; ++i) {
+      double content = h->GetBinContent(i);
+      if (content > max_val) max_val = content;
+      if (content < min_val) min_val = content;
+    }
+  }
+  else if (h->GetDimension() == 2) { // TH2
+    for (int i = first_bin_x; i <= last_bin_x; ++i) {
+      for (int j = first_bin_y; j <= last_bin_y; ++j) {
+        double content = h->GetBinContent(i, j);
+        if (content > max_val) max_val = content;
+        if (content < min_val) min_val = content;
+      }
+    }
+  }
+  else if (h->GetDimension() == 3) { // TH3
+    for (int i = first_bin_x; i <= last_bin_x; ++i) {
+      for (int j = first_bin_y; j <= last_bin_y; ++j) {
+        for (int k = first_bin_z; k <= last_bin_z; ++k) {
+          double content = h->GetBinContent(i, j, k);
+          if (content > max_val) max_val = content;
+          if (content < min_val) min_val = content;
+        }
+      }
+    }
+  }
+  else {
+    NLogger::Warning("GetTrueHistogramMinMax: Histogram '%s' has unsupported dimension %d. "
+                     "Using GetMaximum/GetMinimum as fallback.",
+                     h->GetName(), h->GetDimension());
+    // As a fallback, try to get from GetMaximum/GetMinimum if dimension not 1,2,3
+    max_val = h->GetMaximum();
+    min_val = h->GetMinimum();
+  }
+
+  // Handle the case where all bins might be empty or zero
+  if (max_val == -std::numeric_limits<double>::max() && min_val == std::numeric_limits<double>::max()) {
+    max_val = 0.0; // If no content was found, assume 0
+    min_val = 0.0;
+  }
+}
+
 TFile * NUtils::OpenFile(std::string filename, std::string mode, bool createLocalDir)
 {
   ///

@@ -43,6 +43,8 @@ class NUtils : TObject {
   static THnSparse * Convert(TH3 * h3, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
   static THnSparse * ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, std::vector<TAxis *> newAxes = {},
                                        std::vector<int> newPoint = {}, Option_t * option = "E");
+  static void        GetTrueHistogramMinMax(const TH1 * h, double & min_val, double & max_val,
+                                            bool include_overflow_underflow = false);
 
   static std::vector<std::string> Tokenize(std::string_view input, const char delim);
   static std::vector<int>         TokenizeInt(std::string_view input, const char delim);
