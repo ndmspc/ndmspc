@@ -45,4 +45,5 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcessResults = [](Ndmspc::NHnSparseTreePoint 
   }
 
   hnsObj->Fill(hResults, p);
+  hnsObj->Draw("colz text");
 };

@@ -358,37 +358,76 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
 
   h->SetNameTitle(name.c_str(), title.c_str());
   h->SetMinimum(0);
+  // After the projection, force update statistics
+
   h->SetStats(kFALSE); // Turn off stats box for clarity
   // h->SetDirectory(nullptr); // Avoid ROOT trying to save the histogram in a file
 
   j = json::parse(TBufferJSON::ConvertToJSON(h).Data());
   // loop over content map and add objects
-  double min = 0, max = 0;
+  double entries = 0.0;
+  // int    idx     = 0;
   for (const auto & [key, val] : obj->GetObjectContentMap()) {
+    double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+    double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+    entries    = 0.0;                                 // Reset entries for each key
     for (size_t i = 0; i < val.size(); i++) {
       TObject * objContent = val[i];
 
       json objJson = json::parse(TBufferJSON::ConvertToJSON(objContent).Data());
 
       if (objContent) {
-        min = TMath::Min(min, ((TH1 *)objContent)->GetMinimum());
-        max = TMath::Max(max, ((TH1 *)objContent)->GetMaximum());
+        double objMin, objMax;
+        NUtils::GetTrueHistogramMinMax((TH1 *)objContent, objMin, objMax, false);
+        // NLogger::Debug("NHnSparseObject::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
+        //                objMax);
+
+        min = TMath::Min(min, objMin);
+        max = TMath::Max(max, objMax);
+        entries += ((TH1 *)objContent)->GetEntries();
+        // NLogger::Debug("NHnSparseObject::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
+        // min,
+        //                max);
+        // j["fArray"][i] = entries / val.size(); // Store the average entries for this object
+        j["fArray"][i] = entries;
       }
       j["children"][key].push_back(objJson);
     }
+    j["ndmspc"][key]["fMinimum"] = min;
+    j["ndmspc"][key]["fMaximum"] = max;
+    // j["ndmspc"][key]["fEntries"] = entries;
+    // NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // idx++;
   }
-  // j["fMinimum"] = min;
-  // j["fMaximum"] = max;
+  double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+  double              max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+  std::vector<double> tmpContent;
   for (const auto & child : obj->GetChildren()) {
     // if (child == nullptr) {
     //   NLogger::Error("NHnSparseObject::ExportJson: Child is nullptr !!!");
     //   continue;
     // }
-    json childJson;
+    json   childJson;
+    TH1 *  childProjection = nullptr;
+    double objMin, objMax;
+    double entries = 0.0; // Reset entries for each child
     if (child != nullptr) {
       ExportJson(childJson, child);
+
+      childProjection = (TH1 *)TBufferJSON::ConvertFromJSON(childJson.dump().c_str());
+      if (childProjection) {
+        childProjection->Draw("colz text");
+        NUtils::GetTrueHistogramMinMax((TH1 *)childProjection, objMin, objMax, false);
+        // min = TMath::Min(min, objMin);
+        min     = 0;
+        max     = TMath::Max(max, objMax);
+        entries = childProjection->GetEntries();
+        NLogger::Debug("NHnSparseObject::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
+                       objMax);
+      }
     }
     j["children"]["content"].push_back(childJson);
+    // j["fArray"][j["children"]["content"].size() - 1] = 5;
   }
   // loop over j["children"]["content"] and remove empty objects"
   bool hasContent = false;
@@ -402,6 +441,38 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
   if (!hasContent) {
     j["children"].erase("content");
     obj->GetChildren().clear(); // Clear children if no content is present
+    // j["ndmspc"]["content"]["fMinimum"] = min;
+    // j["ndmspc"]["content"]["fMaximum"] = max;
+  }
+  else {
+    j["ndmspc"]["content"]["fMinimum"] = min;
+    j["ndmspc"]["content"]["fMaximum"] = max;
+    NLogger::Debug("NHnSparseObject::ExportJson: XXXX max=%f", max);
+  }
+
+  if (obj->GetParent() == nullptr) {
+    NLogger::Debug("NHnSparseObject::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
+    int i = -1;
+    for (const auto & child : j["children"]["content"]) {
+      i++;
+      if (child == nullptr) {
+        // NLogger::Error("NHnSparseObject::ExportJson: Child is nullptr !!!");
+        j["fArray"][i] = 0; // Store the maximum value for the content
+        continue;
+      }
+      // std::cout << child["fTitle"].dump() << std::endl;
+      double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+      double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+      // loop over all keys in "ndmspc"
+      for (auto & [key, value] : child["ndmspc"].items()) {
+        if (value.is_object()) {
+          // min = TMath::Min(min, value["fMinimum"].get<double>());
+          min = 0;
+          max = TMath::Max(max, value["fMaximum"].get<double>());
+        }
+      }
+      j["fArray"][i] = max; // Store the maximum value for the content
+    }
   }
 }
 

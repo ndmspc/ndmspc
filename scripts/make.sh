@@ -14,6 +14,7 @@ PRINT_DEBUG=${PRINT_DEBUG-false}
 MY_CMAKE_OPTS=""
 MY_MAKE_OPTS=""
 MY_BUILDSYS="make"
+MY_CMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE-"Debug"}
 
 CXX=""
 CC=""
@@ -23,16 +24,14 @@ for ARG in $@; do
     "clean")
       echo "Cleaning up build directory"
       rm -rf ${PROJECT_DIR}/build ${PROJECT_DIR}/include ${PROJECT_DIR}/lib* ${PROJECT_DIR}/bin
-
       ;;
-
     "doc")
       BUILDING_DOC=true
       ;;
 
     "release")
       echo "Building release version"
-      MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_BUILD_TYPE=RelWithDebInfo"
+      MY_CMAKE_BUILD_TYPE=RelWithDebInfo
       BUILDING_DOC=true
       # RUNNING_TEST=true;
       ;;
@@ -114,7 +113,9 @@ if [[ $BEING_STRICT == true && $USING_CLANG == false ]]; then
   echo "Cannot use strict mode without Clang compiler! Exiting..."
   exit 2
 fi
-[ -z $MY_CMAKE_OPTS ] && MY_CMAKE_OPTS="-DCMAKE_BUILD_TYPE=Debug"
+
+echo "MY_CMAKE_BUILD_TYPE=$MY_CMAKE_BUILD_TYPE"
+MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE}"
 
 if [[ $BUILDING_DOC == true ]]; then
   echo "Building with documentation"
