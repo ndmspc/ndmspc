@@ -1,4 +1,5 @@
 #include <TSystem.h>
+#include <TROOT.h>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -13,6 +14,25 @@ ClassImp(Ndmspc::NUtils);
 /// \endcond
 
 namespace Ndmspc {
+
+void NUtils::EnableMT(UInt_t numthreads)
+{
+  ///
+  /// Enable multithreading
+  ///
+  ///
+
+  if (ROOT::IsImplicitMTEnabled()) {
+    ROOT::DisableImplicitMT();
+  }
+  // Enable IMT with default number of threads (usually number of CPU cores)
+  ROOT::EnableImplicitMT(numthreads);
+
+  // Check if IMT is enabled
+  if (ROOT::IsImplicitMTEnabled()) {
+    NLogger::Info("IMT is enabled with number of threads: %d", ROOT::GetThreadPoolSize());
+  }
+}
 
 THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vector<std::string> titles)
 {
