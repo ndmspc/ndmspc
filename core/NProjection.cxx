@@ -151,10 +151,16 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
         Ndmspc::NLogger::Error("No histogram found for bin %lld", linBin);
         continue;
       }
-      double min, max;
-      fBinning->GetAxisRange(projIds[1], min, max, {p[projIds[1] * 3], p[projIds[1] * 3 + 1], p[projIds[1] * 3 + 2]});
-      std::string histTitle = projNames.size() > 1 ? projNames[1] + " " + Form(" [%.3f,%.3f]", min, max) : "";
-      hTmp->SetTitle(Form("%s", histTitle.c_str()));
+
+      if (projIds.size() > 1) {
+        double min, max;
+        fBinning->GetAxisRange(projIds[0], min, max, {p[projIds[0] * 3], p[projIds[0] * 3 + 1], p[projIds[0] * 3 + 2]});
+        std::string histTitle = projNames.size() > 0 ? projNames[0] + " " + Form(" [%.3f,%.3f]", min, max) : "";
+        hTmp->SetTitle(Form("%s", histTitle.c_str()));
+      }
+      else {
+        hTmp->SetTitle("");
+      }
       hTmp->Print("");
       hTmp->SetMarkerStyle(20);
       hTmp->SetMarkerColor(iStack + 1);

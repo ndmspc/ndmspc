@@ -5,6 +5,7 @@
 #include <sstream>
 #include "THnSparse.h"
 #include "NLogger.h"
+#include "RtypesCore.h"
 #include "NUtils.h"
 
 using std::ifstream;
@@ -1037,6 +1038,20 @@ void NUtils::VectorToArray(std::vector<int> v1, Int_t * v2)
   for (size_t i = 0; i < v1.size(); i++) {
     v2[i] = v1[i];
   }
+}
+std::string NUtils::GetCoordsString(const std::vector<Long64_t> & coords, int index, int width)
+{
+  ///
+  /// Get coordinates string
+  ///
+  std::stringstream msg;
+  if (index >= 0) msg << "[" << std::setw(3) << std::setfill('0') << index << "] ";
+  msg << "[";
+  for (size_t i = 0; i < coords.size(); ++i) {
+    msg << std::setw(width) << std::setfill(' ') << coords[i] << (i == coords.size() - 1 ? "" : ",");
+  }
+  msg << "]";
+  return msg.str();
 }
 std::string NUtils::GetCoordsString(const std::vector<int> & coords, int index, int width)
 {

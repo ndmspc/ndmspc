@@ -9,7 +9,12 @@
 #pragma link C++ class Ndmspc::NConfig + ;
 #pragma link C++ class Ndmspc::NThreadData + ;
 #pragma link C++ class Ndmspc::NDimensionalExecutor + ;
+#pragma link C++ class Ndmspc::NBinningDef + ;
 #pragma link C++ class Ndmspc::NBinning + ;
+#pragma link C++ class Ndmspc::NBinningPoint + ;
+#pragma link C++ class Ndmspc::NHnSparsePoint + ;
+#pragma link C++ class Ndmspc::NHnSparseThreadData + ;
+#pragma link C++ class Ndmspc::NHnSparseBase + ;
 #pragma link C++ class Ndmspc::NHnSparseObject + ;
 #pragma link C++ class Ndmspc::NProjection + ;
 #pragma link C++ class Ndmspc::NTreeBranch + ;

@@ -1,12 +1,12 @@
 #ifndef Ndmspc_NHnSparseObject_H
 #define Ndmspc_NHnSparseObject_H
 #include <vector>
-#include "TVirtualPad.h"
+#include <TVirtualPad.h>
 #include <TObject.h>
 #include <TH1.h>
 #include "NBinning.h"
+#include "NHnSparseBase.h"
 #include "NUtils.h"
-#include "Rtypes.h"
 
 namespace Ndmspc {
 
@@ -17,7 +17,7 @@ namespace Ndmspc {
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 class NHnSparseTreePoint;
-class NHnSparseObject : public TObject {
+class NHnSparseObject : public NHnSparseBase {
   public:
   NHnSparseObject(std::vector<TAxis *> axes = {});
   NHnSparseObject(TObjArray * axes);
@@ -60,7 +60,6 @@ class NHnSparseObject : public TObject {
   Int_t GetLastIndexSelected() const { return fLastIndexSelected; }
 
   protected:
-  NBinning *                                    fBinning{nullptr};   ///< Binning object
   std::map<std::string, std::vector<TObject *>> fObjectContentMap{}; ///< Object content map
 
   NHnSparseObject *              fParent{nullptr};   ///< Parent object

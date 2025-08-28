@@ -3,12 +3,16 @@
 #include <TObject.h>
 #include <THnSparse.h>
 #include <TAxis.h>
+#include <cstddef>
 #include <iostream>
 #include <mutex>
 #include <thread>
 #include <vector>
 #include <map>
 #include "TObjArray.h"
+#include "NBinningDef.h"
+#include "NBinningPoint.h"
+#include "RtypesCore.h"
 
 namespace Ndmspc {
 
@@ -43,12 +47,12 @@ class NBinning : public TObject {
 
   virtual void                  Print(Option_t * option = "") const;
   void                          PrintContent(Option_t * option = "") const;
-  int                           FillAll();
+  Long64_t                      FillAll(std::vector<Long64_t> & ids);
   std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
   std::vector<std::vector<int>> GetAxisRanges(std::vector<int> c) const;
   bool                          GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const;
   bool                          GetAxisRangeInBase(int axisId, int & min, int & max, std::vector<int> c) const;
-  TObjArray *                   GetListOfAxes() const;
+  TObjArray *                   GenerateListOfAxes();
   std::vector<int>              GetAxisBinning(int axisId, const std::vector<int> & c) const;
   std::vector<int>              GetAxisIndexes(AxisType type) const;
   std::vector<int>              GetAxisIndexesByNames(std::vector<std::string> axisNames) const;
@@ -61,23 +65,34 @@ class NBinning : public TObject {
   bool SetAxisType(int id, AxisType type);
 
   /// Returns the mapping histogram
-  THnSparse *                                            GetMap() const { return fMap; }
-  THnSparse *                                            GetContent() const { return fContent; }
-  std::vector<TAxis *>                                   GetAxes() const { return fAxes; }
-  std::vector<TAxis *>                                   GetAxesByType(AxisType type) const;
-  Binning                                                GetBinningType(int i) const;
-  AxisType                                               GetAxisType(int i) const;
-  char                                                   GetAxisTypeChar(int i) const;
-  std::map<std::string, std::vector<std::vector<int>>> & GetDefinition() { return fDefinition; }
-  void SetDefinition(const std::map<std::string, std::vector<std::vector<int>>> & def) { fDefinition = def; }
+  THnSparse *          GetMap() const { return fMap; }
+  THnSparse *          GetContent() const { return fContent; }
+  std::vector<TAxis *> GetAxes() const { return fAxes; }
+  std::vector<TAxis *> GetAxesByType(AxisType type) const;
+  Binning              GetBinningType(int i) const;
+  AxisType             GetAxisType(int i) const;
+  char                 GetAxisTypeChar(int i) const;
+  NBinningDef *        GetDefinition(const std::string & name = "");
+  std::string          GetCurrentDefinitionName() const { return fCurrentDefinitionName; }
+
+  void AddBinningDefinition(std::string name, std::map<std::string, std::vector<std::vector<int>>> binning,
+                            bool forceDefault = false);
+
+  NBinningPoint * GetPoint() const { return fPoint; }
+  NBinningPoint * GetPoint(int id, const std::string binning = "");
 
   private:
-  THnSparse *                                          fMap{nullptr};     ///< Mapping histogram
-  THnSparse *                                          fContent{nullptr}; ///< Content histogram
-  std::vector<TAxis *>                                 fAxes;             ///< List of axes
-  std::vector<Binning>                                 fBinningTypes;     ///< Binning types
-  std::vector<AxisType>                                fAxisTypes;        ///< Axis types
-  std::map<std::string, std::vector<std::vector<int>>> fDefinition;       ///< Binning mapping definition
+  THnSparse *                          fMap{nullptr};              ///< Mapping histogram
+  THnSparse *                          fContent{nullptr};          ///< Content histogram
+  std::vector<TAxis *>                 fAxes;                      ///< List of axes
+  std::vector<Binning>                 fBinningTypes;              ///< Binning types
+  std::vector<AxisType>                fAxisTypes;                 ///< Axis types
+  std::string                          fCurrentDefinitionName{""}; ///< Current definition name
+  std::map<std::string, NBinningDef *> fDefinitions;               ///< Binning definitions
+  NBinningPoint *                      fPoint{nullptr};            ///<! Binning point object
+
+  // TODO: remove
+  // std::map<std::string, std::vector<std::vector<int>>> fDefinition; ///< Binning mapping definition
 
   /// \cond CLASSIMP
   ClassDef(NBinning, 1);

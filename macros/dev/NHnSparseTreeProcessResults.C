@@ -1,3 +1,4 @@
+#include <NBinningDef.h>
 #include <string>
 #include <vector>
 #include "NHnSparseTree.h"
@@ -30,13 +31,14 @@ void NHnSparseTreeProcessResults(int nThreads = 1, std::string filename = "$HOME
   hnstOut->InitAxes(axesOut);
 
   // Get binning definition from input HnSparseTree
-  std::map<std::string, std::vector<std::vector<int>>> b = hnstIn->GetBinning()->GetDefinition();
+  std::string binningName = hnstIn->GetBinning()->GetCurrentDefinitionName();
+  Ndmspc::NLogger::Info("Using binning definition: '%s'", binningName.c_str());
+  Ndmspc::NBinningDef *                                def = hnstIn->GetBinning()->GetDefinition(binningName);
+  std::map<std::string, std::vector<std::vector<int>>> b   = def->GetDefinition();
   // print size of b
-  Ndmspc::NLogger::Info("Binning size: %zu", b.size());
-
-  hnstOut->ImportBinning(b);
+  Ndmspc::NLogger::Info("Binning size: %zu [%s]", b.size(), binningName.c_str());
+  hnstOut->ImportBinning(binningName, b);
   hnstOut->Print();
-  // return;
 
   if (hnstOut->GetBinning() == nullptr) {
     Ndmspc::NLogger::Error("Binning is not initialized in output HnSparseTree");
@@ -57,6 +59,7 @@ void NHnSparseTreeProcessResults(int nThreads = 1, std::string filename = "$HOME
 
   hnstOut->Process(NdmspcUserProcessResults, mins, maxs, nThreads, hnstIn, hnstOut);
 
+  //
   Ndmspc::NProjection * hnsObj = (Ndmspc::NProjection *)hnstIn->GetPoint()->GetHnSparseObject();
   std::vector<int>      projIds(hnsObj->GetBinning()->GetAxes().size());
   std::iota(projIds.begin(), projIds.end(), 0); // Fill projIds with 0, 1, 2, ..., n-1
