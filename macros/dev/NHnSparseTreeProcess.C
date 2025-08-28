@@ -32,11 +32,19 @@ void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmsp
   hnstOut->InitAxes(axesOut);
 
   // Get binning definition from input HnSparseTree
-  std::map<std::string, std::vector<std::vector<int>>> b = hnstIn->GetBinning()->GetDefinition();
+  Ndmspc::NBinningDef * def = hnstIn->GetBinning()->GetDefinition();
+  if (!def) {
+    Ndmspc::NLogger::Error("Binning definition is nullptr in input HnSparseTree");
+    return;
+  }
+  std::map<std::string, std::vector<std::vector<int>>> b = def->GetDefinition();
   // print size of b
   Ndmspc::NLogger::Info("Binning size: %zu", b.size());
 
-  hnstOut->ImportBinning(b);
+  if (!hnstOut->ImportBinning("default", b)) {
+    Ndmspc::NLogger::Error("Cannot import binning to output HnSparseTree");
+    return;
+  }
   hnstOut->Print();
   // return;
 

@@ -39,7 +39,7 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 set(ROOT_LIBRARY_DIRS ${ROOT_LIBRARY_DIR})
 
-set(rootlibs Core Cint RIO Net Hist Graf Graf3d Gpad Tree Rint Postscript Matrix Physics MathCore Thread)
+set(rootlibs Core Cint RIO Net Hist Graf Graf3d Gpad Tree Rint Postscript Matrix Physics MathCore Gui Thread)
 set(ROOT_LIBRARIES)
 foreach(_cpt ${rootlibs} ${ROOT_FIND_COMPONENTS})
   find_library(ROOT_${_cpt}_LIBRARY ${_cpt} HINTS ${ROOT_LIBRARY_DIR})
@@ -53,7 +53,7 @@ foreach(_cpt ${rootlibs} ${ROOT_FIND_COMPONENTS})
 endforeach()
 
 if(ROOT_LIBRARIES)
-list(REMOVE_DUPLICATES ROOT_LIBRARIES)
+  list(REMOVE_DUPLICATES ROOT_LIBRARIES)
 endif()
 
 execute_process(
@@ -77,7 +77,7 @@ endforeach()
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(Root DEFAULT_MSG ROOT_CONFIG_EXECUTABLE
-	ROOTSYS ROOT_VERSION ROOT_INCLUDE_DIR ROOT_LIBRARIES ROOT_LIBRARY_DIR)
+ ROOTSYS ROOT_VERSION ROOT_INCLUDE_DIR ROOT_LIBRARIES ROOT_LIBRARY_DIR)
 message("-- Found Root version : ${ROOT_VERSION}")
 mark_as_advanced(ROOT_CONFIG_EXECUTABLE)
 
@@ -97,7 +97,7 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
   get_directory_property(incdirs INCLUDE_DIRECTORIES)
   set(includedirs)
   foreach( d ${incdirs})
-     set(includedirs ${includedirs} -I${d})
+    set(includedirs ${includedirs} -I${d})
   endforeach()
   #---Get the list of header files-------------------------
   set(headerfiles)
@@ -163,7 +163,7 @@ function(REFLEX_GENERATE_DICTIONARY dictionary)
   #---Get preprocessor definitions--------------------------
   get_directory_property(defs COMPILE_DEFINITIONS)
   foreach( d ${defs})
-   set(definitions ${definitions} -D${d})
+    set(definitions ${definitions} -D${d})
   endforeach()
   #---Nanes and others---------------------------------------
   set(gensrcdict ${dictionary}.cpp)

@@ -10,7 +10,7 @@ variables:
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
   stage: build
-  script: scripts/make.sh release
+  script: scripts/make.sh release test
   except:
     - main
     - tags

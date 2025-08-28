@@ -44,7 +44,8 @@ class NHnSparseTree : public THnSparse {
 
   bool Import(std::string filename, std::string directory, std::vector<std::string> objNames,
               std::map<std::string, std::vector<std::vector<int>>> binning = {{}});
-  bool ImportBinning(std::map<std::string, std::vector<std::vector<int>>> binning = {{}}, THnSparse * hnstIn = nullptr);
+  bool ImportBinning(std::string                                          binningName = "default",
+                     std::map<std::string, std::vector<std::vector<int>>> binning = {{}}, THnSparse * hnstIn = nullptr);
 
   bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
   bool     InitAxes(TObjArray * newAxes, int n = 0);
@@ -98,9 +99,9 @@ class NHnSparseTree : public THnSparse {
   void SaveEntry(NHnSparseTree * hnstIn = nullptr, std::vector<std::vector<int>> ranges = {},
                  bool useProjection = false);
 
-  bool           Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
+  bool Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> & mins, const std::vector<int> & maxs,
+               int nThreads = 1, NHnSparseTree * hnstIn = nullptr, NHnSparseTree * hnstOut = nullptr);
 
-                         int nThreads = 1, NHnSparseTree * hnstIn = nullptr, NHnSparseTree * hnstOut = nullptr);
   THnSparse *    GetTHnSparseFromObject(const std::string & name, std::map<int, std::vector<int>> ranges = {});
   virtual TH1D * ProjectionFromObject(const std::string & name, int xaxis, std::map<int, std::vector<int>> ranges = {},
                                       Option_t * option = "");

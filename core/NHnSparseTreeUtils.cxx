@@ -195,7 +195,8 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   binningIn->AddBinning(3, {1, 1, 1}, 1);
   // binningIn->AddBinning(4, {1, 1, 11}, 1);
   binningIn->AddBinning(4, {1, 1, 15}, 1);
-  nBinsFilled += binningIn->FillAll();
+  std::vector<Long64_t> entries;
+  nBinsFilled += binningIn->FillAll(entries);
   // binningIn->PrintContent();
   // return false;
 
@@ -204,11 +205,12 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   // binningIn->GetMap()->Reset();
 
   // 1,1,5,14 (mc)
+  std::vector<Long64_t> entriesMc;
   binningIn->AddBinning(1, {1, 1, 1}, 1);
   binningIn->AddBinning(2, {1, 1, 1}, 1);
   binningIn->AddBinning(3, {1, 1, 5}, 1);
   binningIn->AddBinning(4, {1, 1, 14}, 1);
-  nBinsFilled += binningIn->FillAll();
+  nBinsFilled += binningIn->FillAll(entriesMc);
 
   NLogger::Info("Filled %d bins", nBinsFilled);
 
@@ -365,7 +367,8 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
       i++;
       // binningOut->GetMap()->Reset();
     }
-    binningOut->FillAll();
+    std::vector<Long64_t> entries;
+    binningOut->FillAll(entries);
   }
   binningOut->Print();
 

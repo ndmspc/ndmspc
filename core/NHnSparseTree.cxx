@@ -10,6 +10,7 @@
 #include <TAxis.h>
 #include <TH1.h>
 #include <TROOT.h>
+#include "NBinningDef.h"
 #include "NHnSparseObject.h"
 #include "NHnSparseTreeThreadData.h"
 #include "NDimensionalExecutor.h"
@@ -657,26 +658,36 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
       // Add default binning (integrated binning)
       InitAxes(hns->GetListOfAxes());
       fBinning->GetMap()->Reset();
-      fBinning->SetDefinition(binning);
+      // fBinning->SetDefinitigon(binning);
+      fBinning->AddBinningDefinition("default", binning, true);
+      fBinning->Print();
+      NBinningDef * def = fBinning->GetDefinition("default");
       // add binningIn for reset of axes
       for (int iAxis = 0; iAxis < hns->GetNdimensions(); iAxis++) {
         // print axis
         TAxis *     axis     = hns->GetAxis(iAxis);
         std::string axisName = axis->GetName();
-        // NLogger::Debug("XXXXXXX Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", iAxis, axisName.c_str(),
-        //                axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+        NLogger::Debug("XXXXXXX Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", iAxis, axisName.c_str(),
+                       axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
         if (!binning[axisName].empty()) {
           // if (axisName == "axis1-pt" || axisName == "axis2-ce" || axisName == "axis5-eta") {
           fBinning->AddBinningViaBinWidths(iAxis + 1, binning[axisName]);
-          fBinning->GetDefinition()[axisName] = binning[axisName];
+          def->SetAxisDefinition(axisName, binning[axisName]);
+          // def.Print();
+          // fBinning->GetDefinition()[axisName] = binning[axisName];
         }
         else {
           fBinning->AddBinning(iAxis + 1, {axis->GetNbins(), 1, 1}, 1);
-          fBinning->GetDefinition()[axisName] = {{axis->GetNbins()}};
+          // fBinning->GetDefinition()[axisName] = {{axis->GetNbins()}};
+          def->SetAxisDefinition(axisName, {{axis->GetNbins()}});
         }
       }
-      fBinning->FillAll();
-      InitAxes(fBinning->GetListOfAxes());
+      def->Print();
+      std::vector<Long64_t> entries;
+      fBinning->FillAll(entries);
+      NLogger::Debug("Here is the binning definition: [1]");
+      InitAxes(fBinning->GenerateListOfAxes());
+      NLogger::Debug("Here is the binning definition: [2]");
     }
     // print class name
     std::string className = obj->IsA()->GetName();
@@ -729,7 +740,8 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
   return true;
 }
 
-bool NHnSparseTree::ImportBinning(std::map<std::string, std::vector<std::vector<int>>> binning, THnSparse * hnstIn)
+bool NHnSparseTree::ImportBinning(std::string binningName, std::map<std::string, std::vector<std::vector<int>>> binning,
+                                  THnSparse * hnstIn)
 {
   ///
   /// Import binning
@@ -747,25 +759,34 @@ bool NHnSparseTree::ImportBinning(std::map<std::string, std::vector<std::vector<
   }
 
   fBinning->GetMap()->Reset();
+  fBinning->AddBinningDefinition(binningName, binning, true);
+  NBinningDef * def = fBinning->GetDefinition(binningName);
+  if (def == nullptr) {
+    NLogger::Error("Binning definition is nullptr !!!");
+    return false;
+  }
   // add binningIn for reset of axes
   for (int iAxis = 0; iAxis < hnstIn->GetNdimensions(); iAxis++) {
     // print axis
     TAxis *     axis     = hnstIn->GetAxis(iAxis);
     std::string axisName = axis->GetName();
-    // NLogger::Debug("XXXXXXX Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", iAxis, axisName.c_str(),
-    //                axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    NLogger::Debug("XXXXXXX Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", iAxis, axisName.c_str(),
+                   axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     if (!binning[axisName].empty()) {
       // if (axisName == "axis1-pt" || axisName == "axis2-ce" || axisName == "axis5-eta") {
       fBinning->AddBinningViaBinWidths(iAxis + 1, binning[axisName]);
-      fBinning->GetDefinition()[axisName] = binning[axisName];
+      // fBinning->GetDefinition()[axisName] = binning[axisName];
+      def->SetAxisDefinition(axisName, binning[axisName]);
     }
     else {
       fBinning->AddBinning(iAxis + 1, {axis->GetNbins(), 1, 1}, 1);
-      fBinning->GetDefinition()[axisName] = {{axis->GetNbins()}};
+      // fBinning->GetDefinition()[axisName] = {{axis->GetNbins()}};
+      def->SetAxisDefinition(axisName, {{axis->GetNbins()}});
     }
   }
-  fBinning->FillAll();
-  InitAxes(fBinning->GetListOfAxes());
+  std::vector<Long64_t> entries;
+  fBinning->FillAll(entries);
+  InitAxes(fBinning->GenerateListOfAxes());
 
   return true;
 }

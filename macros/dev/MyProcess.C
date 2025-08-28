@@ -56,6 +56,7 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
   peakFunc->SetParameters(0, phi_mass, phi_width, phi_sigma, 0.0, 0.0, 0.0);
   peakFunc->FixParameter(3, phi_sigma); // Fix sigma parameter
 
+  hSigBg->Print();
   Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, peakFunc, cfg, output, results);
 
   // delete peakFunc;

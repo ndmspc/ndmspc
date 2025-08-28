@@ -9,6 +9,7 @@
 #include <TLatex.h>
 #include <TH1.h>
 #include <TBufferJSON.h>
+#include "NHnSparseBase.h"
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NHnSparseTreePoint.h"
@@ -20,8 +21,8 @@ ClassImp(Ndmspc::NHnSparseObject);
 /// \endcond
 
 namespace Ndmspc {
-NHnSparseObject::NHnSparseObject(std::vector<TAxis *> axes) : TObject(), fBinning(new NBinning(axes)) {}
-NHnSparseObject::NHnSparseObject(TObjArray * axes) : TObject(), fBinning(new NBinning(axes)) {}
+NHnSparseObject::NHnSparseObject(std::vector<TAxis *> axes) : NHnSparseBase(axes) {}
+NHnSparseObject::NHnSparseObject(TObjArray * axes) : NHnSparseBase(axes) {}
 NHnSparseObject::~NHnSparseObject()
 {
   ///

@@ -48,10 +48,12 @@ i
 !.vscode/launch.json
 !.vscode/tasks.json
 runs
+Testing
 #*.txt
 compile_commands.json
 .cache
 .ndmspc_cache_dir*
 *.root
+!macros/test/cernstaff.root
 test.C
 notes
