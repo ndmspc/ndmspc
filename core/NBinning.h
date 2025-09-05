@@ -3,10 +3,6 @@
 #include <TObject.h>
 #include <THnSparse.h>
 #include <TAxis.h>
-#include <cstddef>
-#include <iostream>
-#include <mutex>
-#include <thread>
 #include <vector>
 #include <map>
 #include "TObjArray.h"
