@@ -6,6 +6,8 @@
 #include <THnSparse.h>
 #include "NHnSparseBase.h"
 #include "NLogger.h"
+#include "NUtils.h"
+#include "NConfig.h"
 void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
 {
   std::string fn = filename;
@@ -57,15 +59,20 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
                                                    int                     threadId) {
     // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
     if (point) {
+      const json & cfg = point->GetCfg();
       point->RecalculateStorageCoords();
-      point->Print();
-      // point->Print("A");
+      std::string opt = cfg.contains("opt") ? cfg["opt"].get<std::string>() : "";
+      point->Print(opt.c_str());
     }
     gSystem->Sleep(100); // Simulate some processing time
   };
+
+  json cfg = json::object();
+  // cfg["opt"] = "A";
+
   // hnsb->Process(processFunc, {1}, {1});
   // hnsb->Process(processFunc, "");
-  hnsb->Process(processFunc, "b2");
+  hnsb->Process(processFunc, "b2", cfg);
 
   // Clean up
   delete hnsb;

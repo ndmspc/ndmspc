@@ -62,7 +62,7 @@ void NHnSparseBase::Print(Option_t * option) const
   }
 }
 
-bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::string binningName)
+bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::string binningName, const json & cfg)
 {
   ///
   /// Process the sparse object with the given function
@@ -73,6 +73,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::string binningNam
     return false;
   }
 
+  fBinning->SetCfg(cfg); // Set configuration to binning point
   // Get the binning definition
   auto binningDef = fBinning->GetDefinition(binningName);
   if (!binningDef) {
@@ -90,11 +91,11 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::string binningNam
 
   NLogger::Debug("Processing with binning definition '%s' with %zu entries", binningName.c_str(),
                  binningDef->GetIds().size());
-  return Process(func, mins, maxs, binningDef);
+  return Process(func, mins, maxs, binningDef, cfg);
 }
 
 bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins, std::vector<int> maxs,
-                            NBinningDef * binningDef)
+                            NBinningDef * binningDef, const json & cfg)
 {
   ///
   /// Process the sparse object with the given function

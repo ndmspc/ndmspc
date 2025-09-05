@@ -1015,15 +1015,25 @@ NBinningPoint * NBinning::GetPoint(int id, std::string binning)
     return nullptr;
   }
 
-  if (fPoint == nullptr) {
-    fPoint = new NBinningPoint(this);
-  }
-
   Long64_t linBin = def->GetId(id);
   fContent->GetBinContent(linBin, fPoint->GetCoords());
   fPoint->RecalculateStorageCoords();
 
   return fPoint;
+}
+
+bool NBinning::SetCfg(const json & cfg)
+{
+  ///
+  /// Set configuration
+  ///
+  if (fPoint == nullptr) {
+    NLogger::Error("NBinning::SetCfg: Point not initialized");
+    return false;
+  }
+  fPoint->SetCfg(cfg);
+
+  return true;
 }
 
 } // namespace Ndmspc

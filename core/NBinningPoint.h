@@ -1,5 +1,6 @@
 #ifndef Ndmspc_NBinningPoint_H
 #define Ndmspc_NBinningPoint_H
+#include <NConfig.h>
 #include <TObject.h>
 
 namespace Ndmspc {
@@ -20,10 +21,13 @@ class NBinningPoint : public TObject {
 
   Int_t   GetNDimensions() const { return fNDimensions; }
   Int_t * GetCoords() const { return fContentCoords; }
+  void    RecalculateStorageCoords();
 
-  void RecalculateStorageCoords();
+  json & GetCfg() { return fCfg; }
+  void   SetCfg(const json & cfg) { fCfg = cfg; }
 
   private:
+  json                     fCfg{};                  ///< Configuration object
   NBinning *               fBinning{nullptr};       ///< Binning object
   Int_t                    fContentNDimensions{1};  ///< Number of dimensions in content histogram
   Int_t *                  fContentCoords{nullptr}; ///< Coordinates of the point

@@ -80,6 +80,7 @@ class NBinning : public TObject {
 
   NBinningPoint * GetPoint() const { return fPoint; }
   NBinningPoint * GetPoint(int id, const std::string binning = "");
+  bool            SetCfg(const json & cfg);
 
   private:
   THnSparse *                          fMap{nullptr};              ///< Mapping histogram

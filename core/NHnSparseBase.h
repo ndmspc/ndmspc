@@ -25,9 +25,9 @@ class NHnSparseBase : public TObject {
 
   NBinning * GetBinning() const { return fBinning; }
 
-  bool Process(NHnSparseProcessFuncPtr func, std::string binningName = "");
+  bool Process(NHnSparseProcessFuncPtr func, std::string binningName = "", const json & cfg = json::object());
   bool Process(NHnSparseProcessFuncPtr func, std::vector<int> mins, std::vector<int> maxs,
-               NBinningDef * binningDef = nullptr);
+               NBinningDef * binningDef = nullptr, const json & cfg = json::object());
 
   protected:
   NBinning * fBinning{nullptr}; ///< Binning object
