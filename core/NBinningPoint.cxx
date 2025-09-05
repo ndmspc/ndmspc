@@ -32,15 +32,19 @@ NBinningPoint::NBinningPoint(NBinning * b) : TObject(), fBinning(b)
   fStorageCoords      = new Int_t[fNDimensions];
   fMins               = new Double_t[fNDimensions];
   fMaxs               = new Double_t[fNDimensions];
+  fBaseBinMin         = new Int_t[fNDimensions];
+  fBaseBinMax         = new Int_t[fNDimensions];
   fLabels.resize(fNDimensions);
 }
 NBinningPoint::~NBinningPoint()
 {
-  // delete[] fContentCoords;
-  // delete[] fStorageCoords;
-  // delete[] fMins;
-  // delete[] fMaxs;
-  // fLabels.clear();
+  delete[] fContentCoords;
+  delete[] fStorageCoords;
+  delete[] fMins;
+  delete[] fMaxs;
+  delete[] fBaseBinMin;
+  delete[] fBaseBinMax;
+  fLabels.clear();
 }
 void NBinningPoint::Print(Option_t * option) const
 {
@@ -92,14 +96,55 @@ void NBinningPoint::RecalculateStorageCoords()
     // axisStorage->GetName(),
     //                axisStorage->GetTitle(), axisStorage->GetNbins(), axisStorage->GetXmin(), axisStorage->GetXmax());
     //
-    fMins[i]   = axis->GetBinLowEdge(axisRanges[i][1]);
-    fMaxs[i]   = axis->GetBinUpEdge(axisRanges[i][2]);
-    fLabels[i] = axis->GetBinLabel(i + 1);
+    fBaseBinMin[i] = axisRanges[i][1];
+    fBaseBinMax[i] = axisRanges[i][2];
+    fMins[i]       = axis->GetBinLowEdge(axisRanges[i][1]);
+    fMaxs[i]       = axis->GetBinUpEdge(axisRanges[i][2]);
+    fLabels[i]     = axis->GetBinLabel(i + 1);
     // NLogger::Debug("XXXXX Axis %d: min=%.3f max=%.3f label='%s' %d %d", i, fMins[i], fMaxs[i], fLabels[i].c_str(),
     //                axis->GetNbins(), axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0));
     fStorageCoords[i] = axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0);
     // NLogger::Debug("  Storage bin: %d", fStorageCoords[i]);
   }
+}
+
+std::map<int, std::vector<int>> NBinningPoint::GetBaseAxisRanges() const
+{
+  ///
+  /// Get base axis ranges as map of axis id to vector of {min, max}
+  ///
+  std::map<int, std::vector<int>> axisRanges;
+  for (Int_t i = 0; i < fNDimensions; ++i) {
+    axisRanges[i] = {fBaseBinMin[i], fBaseBinMax[i]};
+  }
+  return axisRanges;
+}
+
+std::string NBinningPoint::GetTitle(const std::string & prefix) const
+{
+
+  ///
+  /// Returns point title
+  ///
+
+  std::string title = !prefix.empty() ? prefix + " " : "";
+  for (int i = 0; i < fNDimensions; i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogger::Error("NBinningPoint::GetTitle: Axis %d is nullptr !!!", i);
+      continue;
+    }
+
+    if (a->GetNbins() > 1) {
+      title += TString::Format("%s[%.3f,%.3f] ", a->GetName(), a->GetBinLowEdge(fBaseBinMin[i]),
+                               a->GetBinUpEdge(fBaseBinMax[i]))
+                   .Data();
+    }
+  }
+  if (title.back() == ' ') {
+    title.pop_back(); // remove last space
+  }
+  return title;
 }
 
 } // namespace Ndmspc

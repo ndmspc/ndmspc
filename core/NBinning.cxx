@@ -971,8 +971,8 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   for (size_t i = 0; i < fAxes.size(); i++) {
     TAxis *     axis     = fAxes[i];
     std::string axisName = axis->GetName();
-    // Ndmspc::NLogger::Debug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
-    //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    Ndmspc::NLogger::Debug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
+                           axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     if (!binning[axisName].empty()) {
       AddBinningViaBinWidths(i + 1, binning[axisName]);
       // GetDefinition()[axisName] = binning[axisName];

@@ -26,6 +26,9 @@ class NBinningPoint : public TObject {
   json & GetCfg() { return fCfg; }
   void   SetCfg(const json & cfg) { fCfg = cfg; }
 
+  std::map<int, std::vector<int>> GetBaseAxisRanges() const;
+  std::string                     GetTitle(const std::string & prefix = "") const;
+
   private:
   json                     fCfg{};                  ///< Configuration object
   NBinning *               fBinning{nullptr};       ///< Binning object
@@ -35,6 +38,8 @@ class NBinningPoint : public TObject {
   Int_t *                  fStorageCoords{nullptr}; ///< Storage coordinates of the point
   Double_t *               fMins{nullptr};          ///< Minimum values for each axis
   Double_t *               fMaxs{nullptr};          ///< Maximum values for each axis
+  Int_t *                  fBaseBinMin{nullptr};    ///< Base bin minimum (for variable binning)
+  Int_t *                  fBaseBinMax{nullptr};    ///< Base bin maximum (for variable binning)
   std::vector<std::string> fLabels{};               ///< Labels for each axis
 
   /// \cond CLASSIMP
