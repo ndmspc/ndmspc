@@ -109,6 +109,7 @@ void NBinning::Initialize()
       nContentDims++;
     }
     else if (fAxes[i]->IsAlphanumeric()) {
+      // TODO: Optimized beiing for alphanumeric axis (maybe no need to fix)
       // binningType = Binning::kSingle;
       // nContentDims++;
       binningType = Binning::kMultiple;
