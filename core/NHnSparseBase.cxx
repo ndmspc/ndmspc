@@ -176,7 +176,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
 
       // TODO: Store the outputPoint list to the tree
       //
-      delete outputPoint; // Clean up the output list
+      if (outputPoint) delete outputPoint; // Clean up the output list
     };
     executor.Execute(task);
   }
