@@ -19,13 +19,20 @@ class NHnSparseThreadData : public NThreadData {
   virtual ~NHnSparseThreadData();
 
   void SetProcessFunc(NHnSparseProcessFuncPtr func) { fProcessFunc = func; }
+  // void SetOutput(TList * output) { fOutput = output; }
+  void SetBinning(NBinning * binning) { fBinning = binning; }
+  void SetBinningDef(NBinningDef * def) { fBinningDef = def; }
+
+  TList * GetOutput() const { return fOutput; }
 
   virtual void     Process(const std::vector<int> & coords);
   virtual Long64_t Merge(TCollection * list);
 
   private:
-  NHnSparseProcessFuncPtr fProcessFunc{nullptr};  ///< Function pointer to the processing function
-  TList *                 fOutputGlobal{nullptr}; ///< Global output list for the thread
+  NHnSparseProcessFuncPtr fProcessFunc{nullptr}; ///< Function pointer to the processing function
+  TList *                 fOutput{nullptr};      ///< Global output list for the thread
+  NBinning *              fBinning{nullptr};     ///< Binning object for the thread
+  NBinningDef *           fBinningDef{nullptr};  ///< Binning definition for the thread
 
   /// \cond CLASSIMP
   ClassDef(NHnSparseThreadData, 1);

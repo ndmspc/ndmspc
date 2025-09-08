@@ -118,8 +118,10 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].SetAssignedIndex(i);
       threadDataVector[i].SetProcessFunc(func); // Set the processing function
+      threadDataVector[i].SetBinning(fBinning);
+      threadDataVector[i].SetBinningDef(binningDef);
       // thread_data_vector[i].GetHnstOutput(hnstOut);       // Set the input HnSparseTree
-      // thread_data_vector[i].SetOutputGlobal(new TList()); // Set global output list
+      // thread_data_vector[i].SetOutput(new TList()); // Set global output list
       // thread_data_vector[i].GetHnSparseTree(); // Initialize the NHnSparseTree
     }
 
@@ -155,7 +157,15 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
       Ndmspc::NLogger::Error("Failed to merge thread data, exiting ...");
       return false;
     }
-    Ndmspc::NLogger::Info("Merged %lld objects successfully", nmerged);
+    Ndmspc::NLogger::Info("Merged %lld outputs successfully", nmerged);
+
+    TIter next(outputData->GetOutput());
+    while (auto obj = next()) {
+      Ndmspc::NLogger::Trace("Adding object '%s' to binning '%s' ...", obj->GetName(),
+                             fBinning->GetCurrentDefinitionName().c_str());
+      GetOutput()->Add(obj);
+    }
+    NLogger::Info("Output list contains %d objects", GetOutput()->GetEntries());
   }
   else {
 
@@ -186,6 +196,10 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
 }
 TList * NHnSparseBase::GetOutput(std::string name)
 {
+  ///
+  /// Get output list for the given binning definition name
+  ///
+
   if (name.empty()) {
     name = fBinning->GetCurrentDefinitionName();
   }
