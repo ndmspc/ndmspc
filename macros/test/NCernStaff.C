@@ -48,9 +48,9 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
   hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
   // Print the sparse object
-  // hnsb->Print();
+  hnsb->Print();
 
-  return;
+  // return;
 
   if (nThreads != 1) {
     ROOT::EnableImplicitMT(nThreads); // Enable multithreading
@@ -102,8 +102,8 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
     gSystem->Sleep(100); // Simulate some processing time
   };
 
-  json cfg                 = json::object();
-  cfg["opt"]               = "A";
+  json cfg = json::object();
+  // cfg["opt"]               = "A";
   cfg["input"]["filename"] = fn;
   cfg["input"]["object"]   = "hsparse";
 

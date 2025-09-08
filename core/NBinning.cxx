@@ -109,8 +109,10 @@ void NBinning::Initialize()
       nContentDims++;
     }
     else if (fAxes[i]->IsAlphanumeric()) {
-      binningType = Binning::kSingle;
-      nContentDims++;
+      // binningType = Binning::kSingle;
+      // nContentDims++;
+      binningType = Binning::kMultiple;
+      nContentDims += 3;
     }
     else {
       binningType = Binning::kMultiple;
@@ -415,6 +417,7 @@ Long64_t NBinning::FillAll(std::vector<Long64_t> & ids)
     int idx = p[0] - 1;
     NLogger::Trace("Bin %lld: %d %d %d %d type=%d", linBin, p[0], p[1], p[2], p[3], fBinningTypes[idx]);
     if (fBinningTypes[idx] == Binning::kSingle) {
+
       content[idx].push_back({p[0], p[3]});
     }
     else if (fBinningTypes[idx] == Binning::kMultiple) {
