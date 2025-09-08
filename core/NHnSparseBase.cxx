@@ -105,6 +105,9 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
   gROOT->SetBatch(kTRUE);
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
 
+  // Initialize output list
+  TList * output = GetOutput(fBinning->GetCurrentDefinitionName());
+
   // check if ImplicitMT is enabled
   if (ROOT::IsImplicitMTEnabled()) {
 
@@ -158,8 +161,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
 
     Ndmspc::NDimensionalExecutor executor(mins, maxs);
 
-    TList * outputGlobal = new TList();
-    auto    task         = [this, func, outputGlobal, binningDef](const std::vector<int> & coords) {
+    auto task = [this, func, binningDef](const std::vector<int> & coords) {
       Long64_t entry = 0;
       if (binningDef) {
         entry = binningDef->GetId(coords[0]); // Get the binning definition ID for the first axis
@@ -168,15 +170,30 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
             entry, fBinning->GetPoint()->GetCoords()); // Get the bin content for the given entry
       }
 
-      TList * output = new TList();
-      // output->SetOwner(true);                   // Set owner to delete objects in the list
-      func(fBinning->GetPoint(), output, outputGlobal, 0); // Call the lambda function
-      delete output;                                       // Clean up the output list
+      TList * outputPoint = new TList();
+      // outputPoint->SetOwner(true);                   // Set owner to delete objects in the list
+      func(fBinning->GetPoint(), this->GetOutput(), outputPoint, 0); // Call the lambda function
+
+      // TODO: Store the outputPoint list to the tree
+      //
+      delete outputPoint; // Clean up the output list
     };
     executor.Execute(task);
   }
 
   gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
+}
+TList * NHnSparseBase::GetOutput(std::string name)
+{
+  if (name.empty()) {
+    name = fBinning->GetCurrentDefinitionName();
+  }
+
+  if (fOutputs.find(name) == fOutputs.end()) {
+    fOutputs[name] = new TList();
+    // fOutputs[name]->SetOwner(true);
+  }
+  return fOutputs[name];
 }
 } // namespace Ndmspc

@@ -37,10 +37,10 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
   Ndmspc::NHnSparseBase * hnsb = new Ndmspc::NHnSparseBase(hsparse->GetListOfAxes());
 
   // Define the binning for the axes
-  // std::map<std::string, std::vector<std::vector<int>>> b;
-  // b["Nation"]   = {{1}};
-  // b["Division"] = {{1}};
-  // hnsb->GetBinning()->AddBinningDefinition("default", b);
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  b["Nation"]   = {{1}};
+  b["Division"] = {{1}};
+  hnsb->GetBinning()->AddBinningDefinition("default", b);
 
   std::map<std::string, std::vector<std::vector<int>>> b2;
   b2["Flag"]     = {{1}};
@@ -50,16 +50,29 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
   // Print the sparse object
   hnsb->Print();
 
+  json cfg = json::object();
+  // cfg["opt"]               = "A";
+  cfg["input"]["filename"] = fn;
+  cfg["input"]["object"]   = "hsparse";
+
   // return;
 
   if (nThreads != 1) {
     ROOT::EnableImplicitMT(nThreads); // Enable multithreading
   }
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*list*/, TList * /*list2*/,
-                                                   int                     threadId) {
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
+                                                   int threadId) {
     // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
     if (point) {
       point->RecalculateStorageCoords();
+
+      TH1 * h = (TH1 *)output->FindObject("test");
+      if (!h) {
+        h = new TH1F("test", "test", 10, 0, 10);
+        output->Add(h);
+      }
+
+      h->Fill(2);
 
       const json & cfg = point->GetCfg();
       std::string  opt = cfg.contains("opt") ? cfg["opt"].get<std::string>() : "";
@@ -90,6 +103,7 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
           if (hProj->GetEntries() > 0) {
             Ndmspc::NLogger::Info("%s", hProj->GetTitle());
             hProj->Print();
+            outputPoint->Add(hProj);
           }
         }
         else {
@@ -99,17 +113,27 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
         file->Close();
       }
     }
-    gSystem->Sleep(100); // Simulate some processing time
+    // gSystem->Sleep(100); // Simulate some processing time
   };
 
-  json cfg = json::object();
-  // cfg["opt"]               = "A";
-  cfg["input"]["filename"] = fn;
-  cfg["input"]["object"]   = "hsparse";
-
   // hnsb->Process(processFunc, {1}, {1});
-  // hnsb->Process(processFunc, "default", cfg);
+  hnsb->Process(processFunc, "default", cfg);
   hnsb->Process(processFunc, "b2", cfg);
+
+  TCanvas * c1 = new TCanvas("c1", "c1", 800, 600);
+  c1->Divide(2, 1);
+  TH1 * htest = (TH1 *)hnsb->GetOutput("default")->FindObject("test");
+  if (htest) {
+    htest->Print();
+    c1->cd(1);
+    htest->DrawCopy();
+  }
+  TH1 * htestb2 = (TH1 *)hnsb->GetOutput("b2")->FindObject("test");
+  if (htestb2) {
+    htestb2->Print();
+    c1->cd(2);
+    htestb2->DrawCopy();
+  }
 
   // Clean up
   delete hnsb;

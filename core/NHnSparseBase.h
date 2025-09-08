@@ -24,13 +24,15 @@ class NHnSparseBase : public TObject {
   virtual void Print(Option_t * option = "") const override;
 
   NBinning * GetBinning() const { return fBinning; }
+  TList *    GetOutput(std::string name = "");
 
   bool Process(NHnSparseProcessFuncPtr func, std::string binningName = "", const json & cfg = json::object());
   bool Process(NHnSparseProcessFuncPtr func, std::vector<int> mins, std::vector<int> maxs,
                NBinningDef * binningDef = nullptr, const json & cfg = json::object());
 
   protected:
-  NBinning * fBinning{nullptr}; ///< Binning object
+  NBinning *                     fBinning{nullptr}; ///< Binning object
+  std::map<std::string, TList *> fOutputs;          ///< Binning definitions
 
   /// \cond CLASSIMP
   ClassDefOverride(NHnSparseBase, 1);
