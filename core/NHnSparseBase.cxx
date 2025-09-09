@@ -5,7 +5,7 @@
 #include "NHnSparseThreadData.h"
 #include "NLogger.h"
 #include "NUtils.h"
-#include "RtypesCore.h"
+#include "NStorageTree.h"
 #include "NHnSparseBase.h"
 
 /// \cond CLASSIMP
@@ -26,6 +26,8 @@ NHnSparseBase::NHnSparseBase(std::vector<TAxis *> axes) : TObject()
   else {
     fBinning = new NBinning(axes);
   }
+
+  fTreeStorage = new NStorageTree();
 }
 NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
 {

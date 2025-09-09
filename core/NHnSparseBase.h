@@ -3,6 +3,7 @@
 #include <TObject.h>
 #include "NBinning.h"
 #include "NBinningPoint.h"
+#include "NStorageTree.h"
 
 namespace Ndmspc {
 
@@ -31,8 +32,9 @@ class NHnSparseBase : public TObject {
                NBinningDef * binningDef = nullptr, const json & cfg = json::object());
 
   protected:
-  NBinning *                     fBinning{nullptr}; ///< Binning object
-  std::map<std::string, TList *> fOutputs;          ///< Binning definitions
+  NBinning *                     fBinning{nullptr};     ///< Binning object
+  std::map<std::string, TList *> fOutputs;              ///< Binning definitions
+  NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
 
   /// \cond CLASSIMP
   ClassDefOverride(NHnSparseBase, 1);
