@@ -2,6 +2,7 @@
 #define Ndmspc_NBinningPoint_H
 #include <NConfig.h>
 #include <TObject.h>
+#include "RtypesCore.h"
 
 namespace Ndmspc {
 
@@ -25,6 +26,10 @@ class NBinningPoint : public TObject {
 
   json & GetCfg() { return fCfg; }
   void   SetCfg(const json & cfg) { fCfg = cfg; }
+
+  Long64_t Fill();
+
+  bool SetPointContentFromLinearIndex(Long64_t linBin);
 
   std::map<int, std::vector<int>> GetBaseAxisRanges() const;
   std::string                     GetTitle(const std::string & prefix = "") const;

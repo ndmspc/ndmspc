@@ -4,6 +4,7 @@
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NBinning.h"
+#include "RtypesCore.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NBinningPoint);
@@ -145,6 +146,49 @@ std::string NBinningPoint::GetTitle(const std::string & prefix) const
     title.pop_back(); // remove last space
   }
   return title;
+}
+Long64_t NBinningPoint::Fill()
+{
+  ///
+  /// Fill the content histogram at the current point
+  ///
+  if (fBinning == nullptr || fBinning->GetContent() == nullptr) {
+    NLogger::Error("NBinningPoint::Fill: Binning or content is nullptr");
+    return -1;
+  }
+
+  // TODO: Find more efficient way to verify if bin exists
+  Long64_t bin = fBinning->GetContent()->GetBin(fContentCoords, kFALSE);
+  if (bin < 0) {
+    NLogger::Error("NBinningPoint::Fill: Bin for content already exists for coordinates: %s",
+                   NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
+    return -1;
+  }
+  bin = fBinning->GetContent()->GetBin(fContentCoords, kTRUE);
+  fBinning->GetContent()->SetBinContent(fContentCoords, 1);
+
+  return bin;
+}
+
+bool NBinningPoint::SetPointContentFromLinearIndex(Long64_t linBin)
+{
+  ///
+  /// Set point content coordinates from linear index
+  ///
+  if (fBinning == nullptr || fBinning->GetContent() == nullptr) {
+    NLogger::Error("NBinningPoint::SetPointContentFromLinearIndex: Binning or content is nullptr");
+    return false;
+  }
+
+  if (linBin < 0 || linBin >= fBinning->GetContent()->GetNbins()) {
+    NLogger::Error("NBinningPoint::SetPointContentFromLinearIndex: Invalid linear bin index: %lld", linBin);
+    return false;
+  }
+
+  fBinning->GetContent()->GetBinContent(linBin, fContentCoords);
+  RecalculateStorageCoords();
+
+  return true;
 }
 
 } // namespace Ndmspc

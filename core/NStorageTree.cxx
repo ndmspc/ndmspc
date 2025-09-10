@@ -1,11 +1,364 @@
+#include <TSystem.h>
+#include "NBinningPoint.h"
+#include "NLogger.h"
+#include "NUtils.h"
 #include "NStorageTree.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NStorageTree);
 /// \endcond
 
-namespace Ndmspc
+namespace Ndmspc {
+NStorageTree::NStorageTree() : TObject()
 {
-NStorageTree::NStorageTree() : TObject() {}
-NStorageTree::~NStorageTree() {}
+  ///
+  /// Constructor
+  ///
+}
+NStorageTree::~NStorageTree()
+{
+  ///
+  /// Destructor
+  ///
+}
+
+void NStorageTree::Print(Option_t * option) const
+{
+  ///
+  /// Print object
+  ///
+
+  TString opt(option);
+  opt.ToUpper();
+
+  NLogger::Info("TTree:");
+  NLogger::Info("  filename='%s'", fFileName.c_str());
+  NLogger::Info("  tree name='%s'", fTree ? fTree->GetName() : "n/a");
+  NLogger::Info("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
+  NLogger::Info("  prefix='%s'", fPrefix.c_str());
+  NLogger::Info("  postfix='%s'", fPostfix.c_str());
+  NLogger::Info("  branches: [%d]", fBranchesMap.size());
+
+  if (opt.Contains("A")) {
+    for (auto & kv : fBranchesMap) {
+      kv.second.Print();
+    }
+  }
+}
+bool NStorageTree::InitTree(const std::string & filename, const std::string & treename)
+{
+  ///
+  /// Init tree
+  ///
+
+  // Set filename
+  if (!filename.empty()) {
+    fFileName = gSystem->ExpandPathName(filename.c_str());
+  }
+
+  NLogger::Trace("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
+
+  // Open file
+  fFile = NUtils::OpenFile(fFileName.c_str(), "RECREATE");
+  if (!fFile) {
+    NLogger::Error("Cannot open file '%s'", fFileName.c_str());
+    return false;
+  }
+
+  fTree = new TTree(treename.c_str(), "hnst tree");
+  if (!fTree) {
+    NLogger::Error("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), fFileName.c_str());
+    return false;
+  }
+  if (fPrefix.empty()) fPrefix = gSystem->GetDirName(fFileName.c_str());
+  if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFileName.c_str());
+
+  return true;
+}
+Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point)
+{
+  ///
+  /// Get entry
+  ///
+
+  NLogger::Trace("Getting entry=%lld nbranches=%d ...", entry, fBranchesMap.size());
+  // fTree->Print();
+  // Print warning if entry is out of bounds and return 0
+  if (entry < 0 || entry >= fTree->GetEntries()) {
+    NLogger::Warning("Entry %lld is out of bounds [0, %lld). Reading 0 bytes and objects remain from last valid entry.",
+                     entry, fTree->GetEntries() - 1);
+    return 0;
+  }
+
+  Long64_t bytessum = 0;
+
+  for (auto & kv : fBranchesMap) {
+    NLogger::Trace("Getting content from '%s' branch ...", kv.first.c_str());
+    if (kv.second.GetBranch() == nullptr) {
+      NLogger::Error("Branch '%s' is not initialized !!!", kv.first.c_str());
+      continue;
+    }
+    // check if branch is enabled
+    if (kv.second.GetBranchStatus() == 0) {
+      NLogger::Trace("Branch '%s' is disabled !!! Skipping ...", kv.first.c_str());
+      continue;
+    }
+    bytessum += kv.second.GetEntry(fTree, entry);
+  }
+  // TODO: Need to set the point data from the binning content
+  // Int_t * point = new Int_t[fBinning->GetContent()->GetNdimensions()];
+  // fBinning->GetContent()->GetBinContent(entry, point);
+  // fPointData->SetPointContent(NUtils::ArrayToVector(point, fBinning->GetContent()->GetNdimensions()));
+  // delete[] point;
+  point->SetPointContentFromLinearIndex(entry);
+
+  // Print byte sum
+  NLogger::Debug("[entry=%lld] Bytes read : %.3f MB file='%s'", entry, (double)bytessum / (1024 * 1024),
+                 fFileName.c_str());
+  return bytessum;
+}
+
+// Int_t NStorageTree::Fill(NBinningPoint * point)
+// {
+//   ///
+//   /// Fill tree
+//   ///
+//   NLogger::Info("NStorageTree::Fill: Filling tree ...");
+//   if (!point) {
+//     NLogger::Error("NStorageTree::Fill: Point is nullptr !!!");
+//     return -1;
+//   }
+//
+//   if (fTree == nullptr) {
+//     NLogger::Error("NStorageTree::Fill: Tree is not initialized !!! Run 'NStorageTree::InitTree(...)' first !!!");
+//     return -1;
+//   }
+//
+//   // TODO: Cleanup
+//   // // fPointData->Print();
+//   // Int_t * point = new Int_t[GetNdimensions()];
+//   // NUtils::VectorToArray(fPointData->GetPointStorage(), point);
+//   // // point[GetNdimensions() - 1] = 1; // Set last dimension to entry number
+//   // std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(point, GetNdimensions()));
+//   // NLogger::Trace("Filling tree with point: %s", pointStr.c_str());
+//   // SetBinContent(point, 1);
+//   // Int_t   contentDim   = fBinning->GetContent()->GetNdimensions();
+//   // Int_t * contentPoint = new Int_t[contentDim];
+//   // NUtils::VectorToArray(fPointData->GetPointContent(), contentPoint);
+//   // fBinning->GetContent()->SetBinContent(contentPoint, 1);
+//   // SetEntries(fTree->GetEntries() + 1);
+//   // delete[] point;
+//   Long64_t bin = point->Fill();
+//   if (bin < 0) {
+//     NLogger::Error("NStorageTree::Fill: Failed to fill point !!!");
+//     return -1;
+//   }
+//
+//   NLogger::Info("NStorageTree::Fill: Filled bin %lld and tree entries %lld !!!", bin, fTree->GetEntries());
+//   if (bin > fTree->GetEntries() + 1) {
+//     NLogger::Error("NStorageTree::Fill: Filled bin %lld is greater than tree entries %lld !!!", bin,
+//                    fTree->GetEntries());
+//     return -1;
+//   }
+//
+//   fFile->cd();
+//   return fTree->Fill();
+// }
+Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vector<std::vector<int>> ranges,
+                         bool useProjection)
+{
+  ///
+  /// Save entry
+  ///
+  NLogger::Trace("NStorageTree::Fill: Filling entry in NStorageTree ...");
+
+  for (auto & kv : fBranchesMap) {
+    NLogger::Trace("NStorageTree::Fill: Saving content from %s ...", kv.first.c_str());
+    if (hnstIn) {
+      THnSparse * in = (THnSparse *)hnstIn->GetBranch(kv.first)->GetObject();
+      if (ranges.size() > 0) {
+        NUtils::SetAxisRanges(in, ranges);
+      }
+      kv.second.Branch(fTree, nullptr);
+      kv.second.SaveEntry(hnstIn->GetBranch(kv.first), useProjection);
+    }
+    else {
+      kv.second.SaveEntry(GetBranch(kv.first), false);
+    }
+  }
+
+  Long64_t bin = point->Fill();
+  if (bin < 0) {
+    NLogger::Error("NStorageTree::Fill: Failed to fill point !!!");
+    return -2;
+  }
+
+  NLogger::Info("NStorageTree::Fill: Filled bin %lld and tree entries %lld !!!", bin, fTree->GetEntries());
+  if (bin > fTree->GetEntries() + 1) {
+    NLogger::Error("NStorageTree::Fill: Filled bin %lld is greater than tree entries %lld !!!", bin,
+                   fTree->GetEntries());
+    return -2;
+  }
+
+  fFile->cd();
+  Int_t nBytes = fTree->Fill();
+  // Filling entry to tree
+  NLogger::Debug("[entry=%lld] Bytes written : %.3f MB file='%s'", fTree->GetEntries() - 1,
+                 (Double_t)nBytes / (1024 * 1024), fTree->GetCurrentFile()->GetName());
+
+  return nBytes;
+}
+
+bool NStorageTree::Close(bool write)
+{
+  ///
+  /// Close
+  ///
+
+  if (fFile) {
+    if (write) {
+      fFile->cd();
+
+      // TList * userInfo = fTree->GetUserInfo();
+      // SetNameTitle("hnstMap", "HnSparseTree mapping");
+      // userInfo->Add((THnSparse *)Clone());
+      // NHnSparseTreeInfo * info = new NHnSparseTreeInfo();
+      // // info->SetHnSparseTree(this);
+      // info->SetHnSparseTree((NStorageTree *)Clone());
+      // userInfo->Add(info);
+
+      fTree->Write("", TObject::kOverwrite);
+      fFile->Close();
+      NLogger::Info("Output was stored in file '%s'", fFileName.c_str());
+    }
+    else {
+      fFile->Close();
+      NLogger::Info("File '%s' was closed", fFileName.c_str());
+    }
+    fFile = nullptr;
+    fTree = nullptr;
+  }
+  else {
+    NLogger::Error("File is nullptr !!!");
+    return false;
+  }
+  return true;
+}
+
+std::vector<std::string> NStorageTree::GetBrancheNames()
+{
+  ///
+  /// Get branch names
+  ///
+  std::vector<std::string> keys;
+  for (auto & kv : fBranchesMap) {
+    keys.push_back(kv.first);
+  }
+  return keys;
+}
+bool NStorageTree::AddBranch(const std::string & name, void * address, const std::string & className)
+{
+
+  if (fBranchesMap.find(name) != fBranchesMap.end()) {
+    return fBranchesMap[name].GetBranch();
+  }
+
+  if (fTree == nullptr) {
+    NLogger::Error("Tree is not initialized !!! Run 'HnSparseTree::InitTree(...)' first !!!");
+    return false;
+  }
+
+  fBranchesMap[name] = NTreeBranch(fTree, name, address, className);
+  return true;
+}
+NTreeBranch * NStorageTree::GetBranch(const std::string & name)
+{
+  ///
+  /// Return branch by name
+  ///
+  if (name.empty()) {
+    NLogger::Error("NStorageTree::GetBranch: Branch name is empty !!!");
+    return nullptr;
+  }
+
+  // Print all branches
+  // for (const auto & kv : fBranchesMap) {
+  //   NLogger::Debug("NStorageTree::GetBranch: Branch '%s' : %s", kv.first.c_str(), kv.second.GetBranchStatus() ?
+  //   "enabled" : "disabled");
+  // }
+
+  if (fBranchesMap.find(name) == fBranchesMap.end()) {
+    // NLogger::Error("NStorageTree::GetBranch: Branch '%s' not found !!!", name.c_str());
+    return nullptr;
+  }
+
+  return &fBranchesMap[name];
+}
+TObject * NStorageTree::GetBranchObject(const std::string & name)
+{
+  ///
+  /// Return branch object
+  ///
+  auto * branch = GetBranch(name);
+  if (!branch) {
+    return nullptr;
+  }
+  return branch->GetObject();
+}
+
+void NStorageTree::SetBranchAddresses()
+{
+  ///
+  /// Set branch addresses
+  ///
+
+  if (!fTree) {
+    NLogger::Error("NStorageTree::SetBranchAddresses:Tree is nullptr !!!");
+    return;
+  }
+
+  // NLogger::Trace("Setting branch addresses ...");
+
+  // Print size of branches map
+  NLogger::Trace("NStorageTree::SetBranchAddresses: Setting branch addresses for %d branches ...", fBranchesMap.size());
+  // fTree->SetBranchStatus("*", 0);
+  for (auto & kv : fBranchesMap) {
+    NLogger::Trace("NStorageTree::SetBranchAddresses: Setting branch address '%s' ...", kv.first.c_str());
+    kv.second.SetBranchAddress(fTree);
+  }
+}
+
+void NStorageTree::SetEnabledBranches(std::vector<std::string> branches)
+{
+  ///
+  /// Enable branches
+  ///
+
+  if (branches.empty()) {
+    NLogger::Trace("Enabling all branches ...");
+    return;
+  }
+
+  // if (!fTree) {
+  //   NLogger::Error("Tree is nullptr !!!");
+  //   return;
+  // }
+  //
+  // fTree->SetBranchStatus("*", 0);
+
+  // loop over all branches
+  for (auto & kv : fBranchesMap) {
+    if (branches.empty() || std::find(branches.begin(), branches.end(), kv.first) != branches.end()) {
+      NLogger::Trace("Enabling branch %s ...", kv.first.c_str());
+      kv.second.SetBranchStatus(1);
+      // fTree->SetBranchStatus(kv.first.c_str(), 1);
+    }
+    else {
+      NLogger::Trace("Disabling branch %s ...", kv.first.c_str());
+      kv.second.SetBranchStatus(0);
+      // fTree->SetBranchStatus(kv.first.c_str(), 0);
+    }
+  }
+}
+
 } // namespace Ndmspc
