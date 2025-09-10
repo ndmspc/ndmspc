@@ -57,8 +57,8 @@ Long64_t NHnSparseThreadData::Merge(TCollection * list)
   for (auto obj : *list) {
     if (obj->IsA() == NHnSparseThreadData::Class()) {
       NHnSparseThreadData * hnsttd = (NHnSparseThreadData *)obj;
-      NLogger::Debug("Processing thread %zu", hnsttd->GetAssignedIndex());
-      hnsttd->GetOutput()->Print();
+      NLogger::Trace("Merging thread %zu", hnsttd->GetAssignedIndex());
+      // hnsttd->GetOutput()->Print();
 
       if (fOutput == nullptr) {
         fOutput = hnsttd->GetOutput();
@@ -72,7 +72,7 @@ Long64_t NHnSparseThreadData::Merge(TCollection * list)
   }
   NLogger::Debug("Total entries to merge: %lld", nmerged);
   fOutput->Merge(listOut);
-  fOutput->Print();
+  // fOutput->Print();
 
   /// \cond CLASSIMP
   // NLogger::Error("NHnSparseThreadData::Merge: Not implemented !!!");

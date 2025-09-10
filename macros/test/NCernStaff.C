@@ -102,7 +102,7 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
 
           if (hProj->GetEntries() > 0) {
             Ndmspc::NLogger::Info("%s", hProj->GetTitle());
-            hProj->Print();
+            // hProj->Print();
             outputPoint->Add(hProj);
           }
         }
@@ -124,13 +124,13 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
   c1->Divide(2, 1);
   TH1 * htest = (TH1 *)hnsb->GetOutput("default")->FindObject("test");
   if (htest) {
-    htest->Print();
+    // htest->Print();
     c1->cd(1);
     htest->DrawCopy();
   }
   TH1 * htestb2 = (TH1 *)hnsb->GetOutput("b2")->FindObject("test");
   if (htestb2) {
-    htestb2->Print();
+    // htestb2->Print();
     c1->cd(2);
     htestb2->DrawCopy();
   }
