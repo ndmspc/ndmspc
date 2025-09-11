@@ -64,7 +64,6 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
                                                    int threadId) {
     // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
     if (point) {
-      point->RecalculateStorageCoords();
 
       TH1 * h = (TH1 *)output->FindObject("test");
       if (!h) {
@@ -100,10 +99,10 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
         if (hProj) {
           hProj->SetTitle(point->GetTitle().c_str());
 
-          if (hProj->GetEntries() > 0) {
+          if (hProj->GetEntries() > -1) {
             Ndmspc::NLogger::Info("%s", hProj->GetTitle());
-            // hProj->Print();
             outputPoint->Add(hProj);
+            outputPoint->Print();
           }
         }
         else {
@@ -119,7 +118,11 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
   // hnsb->Process(processFunc, {1}, {1});
   hnsb->Process(processFunc, "default", cfg);
   hnsb->Process(processFunc, "b2", cfg);
+  hnsb->Close(true);
 
+  // fTreeStorage->Close(true, fBinning); // Close the storage tree and write to file
+
+  // return;
   TCanvas * c1 = new TCanvas("c1", "c1", 800, 600);
   c1->Divide(2, 1);
   TH1 * htest = (TH1 *)hnsb->GetOutput("default")->FindObject("test");

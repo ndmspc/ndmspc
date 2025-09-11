@@ -14,6 +14,7 @@ NStorageTree::NStorageTree() : TObject()
   ///
   /// Constructor
   ///
+  InitTree("/tmp/hnst.root", "hnst");
 }
 NStorageTree::~NStorageTree()
 {
@@ -33,7 +34,8 @@ void NStorageTree::Print(Option_t * option) const
 
   NLogger::Info("TTree:");
   NLogger::Info("  filename='%s'", fFileName.c_str());
-  NLogger::Info("  tree name='%s'", fTree ? fTree->GetName() : "n/a");
+  NLogger::Info("  tree name='%s' entries=%lld address=%p", fTree ? fTree->GetName() : "n/a",
+                fTree ? fTree->GetEntries() : -1, fTree);
   NLogger::Info("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
   NLogger::Info("  prefix='%s'", fPrefix.c_str());
   NLogger::Info("  postfix='%s'", fPostfix.c_str());
@@ -56,7 +58,7 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
     fFileName = gSystem->ExpandPathName(filename.c_str());
   }
 
-  NLogger::Trace("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
+  NLogger::Info("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
 
   // Open file
   fFile = NUtils::OpenFile(fFileName.c_str(), "RECREATE");
@@ -210,12 +212,17 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vect
     return -2;
   }
 
-  NLogger::Info("NStorageTree::Fill: Filled bin %lld and tree entries %lld !!!", bin, fTree->GetEntries());
-  if (bin > fTree->GetEntries() + 1) {
-    NLogger::Error("NStorageTree::Fill: Filled bin %lld is greater than tree entries %lld !!!", bin,
-                   fTree->GetEntries());
+  if (fTree == nullptr) {
+    NLogger::Error("NStorageTree::Fill: Tree is not initialized !!! Run 'NStorageTree::InitTree(...)' first !!!");
     return -2;
   }
+
+  // NLogger::Info("NStorageTree::Fill: bin=%lld -> tree entries=%lld", bin, fTree->GetEntries());
+  // if (bin > fTree->GetEntries()) {
+  //   NLogger::Error("NStorageTree::Fill: Filled bin %lld is greater than tree entries %lld !!!", bin,
+  //                  fTree->GetEntries());
+  //   return -2;
+  // }
 
   // Filling entry to tree
   fFile->cd();

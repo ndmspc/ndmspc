@@ -4,6 +4,7 @@
 #include "NDimensionalExecutor.h"
 #include "NHnSparseThreadData.h"
 #include "NLogger.h"
+#include "NTreeBranch.h"
 #include "NUtils.h"
 #include "NStorageTree.h"
 #include "NHnSparseBase.h"
@@ -22,11 +23,10 @@ NHnSparseBase::NHnSparseBase(std::vector<TAxis *> axes) : TObject()
   if (axes.empty()) {
     NLogger::Error("NHnSparseBase::NHnSparseBase: No axes provided, binning is nullptr.");
     // fBinning = new NBinning();
+    MakeZombie();
+    return;
   }
-  else {
-    fBinning = new NBinning(axes);
-  }
-
+  fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree();
 }
 NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
@@ -36,11 +36,11 @@ NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
   ///
   if (axes == nullptr && axes->GetEntries() == 0) {
     NLogger::Error("NHnSparseBase::NHnSparseBase: No axes provided, binning is nullptr.");
-    // fBinning = new NBinning();
+    MakeZombie();
+    return;
   }
-  else {
-    fBinning = new NBinning(axes);
-  }
+  fBinning     = new NBinning(axes);
+  fTreeStorage = new NStorageTree();
 }
 NHnSparseBase::NHnSparseBase(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTreeStorage(s)
 {
@@ -76,6 +76,12 @@ void NHnSparseBase::Print(Option_t * option) const
   }
   else {
     NLogger::Error("Binning is not initialized in NHnSparseBase !!!");
+  }
+  if (fTreeStorage) {
+    fTreeStorage->Print(option);
+  }
+  else {
+    NLogger::Error("Storage tree is not initialized in NHnSparseBase !!!");
   }
 }
 
@@ -124,6 +130,8 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
 
   // Initialize output list
   TList * output = GetOutput(fBinning->GetCurrentDefinitionName());
+  // Disable TH1 add directory feature
+  TH1::AddDirectory(kFALSE);
 
   // check if ImplicitMT is enabled
   if (ROOT::IsImplicitMTEnabled()) {
@@ -137,6 +145,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
       threadDataVector[i].SetProcessFunc(func); // Set the processing function
       threadDataVector[i].SetBinning(fBinning);
       threadDataVector[i].SetBinningDef(binningDef);
+      threadDataVector[i].InitStorage();
       // thread_data_vector[i].GetHnstOutput(hnstOut);       // Set the input HnSparseTree
       // thread_data_vector[i].SetOutput(new TList()); // Set global output list
       // thread_data_vector[i].GetHnSparseTree(); // Initialize the NHnSparseTree
@@ -188,6 +197,10 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
 
     Ndmspc::NDimensionalExecutor executor(mins, maxs);
 
+    NTreeBranch * b = fTreeStorage->GetBranch("output");
+    if (!b) fTreeStorage->AddBranch("output", nullptr, "TList");
+
+    // Print();
     auto task = [this, func, binningDef](const std::vector<int> & coords) {
       Long64_t entry = 0;
       if (binningDef) {
@@ -198,12 +211,12 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins,
       }
 
       TList * outputPoint = new TList();
-      // outputPoint->SetOwner(true);                   // Set owner to delete objects in the list
+      fBinning->GetPoint()->RecalculateStorageCoords();
       func(fBinning->GetPoint(), this->GetOutput(), outputPoint, 0); // Call the lambda function
 
-      // TODO: Store the outputPoint list to the tree
-      //
-      if (outputPoint) delete outputPoint; // Clean up the output list
+      fTreeStorage->GetBranch("output")->SetAddress(outputPoint); // Set the output list as branch address
+      fTreeStorage->Fill(fBinning->GetPoint(), nullptr, {}, false);
+      delete outputPoint; // Clean up the output list
     };
     executor.Execute(task);
   }
@@ -287,5 +300,17 @@ NHnSparseBase * NHnSparseBase::Open(const std::string & filename, const std::str
   // hnst->GetPoint()->SetHnSparseTree(hnst);
 
   return hnst;
+}
+bool NHnSparseBase::Close(bool write)
+{
+  ///
+  /// Close the storage tree
+  ///
+
+  if (!fTreeStorage) {
+    NLogger::Error("Storage tree is not initialized in NHnSparseBase !!!");
+    return false;
+  }
+  return fTreeStorage->Close(write, fBinning);
 }
 } // namespace Ndmspc

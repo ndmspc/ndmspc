@@ -56,6 +56,7 @@ void NTreeBranch::SetAddress(void * address)
   ///
   /// Setting up address
   ///
+  NLogger::Trace("NTreeBranch::SetAddress: Setting address %p for branch '%s' ...", address, fName.c_str());
   fObject = (TObject *)address;
   fBranch->SetAddress(&fObject);
 }

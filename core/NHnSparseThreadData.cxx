@@ -39,7 +39,10 @@ void NHnSparseThreadData::Process(const std::vector<int> & coords)
   }
 
   TList * outputPoint = new TList();
+  fBinning->GetPoint()->RecalculateStorageCoords();
   fProcessFunc(fBinning->GetPoint(), fOutput, outputPoint, GetAssignedIndex());
+  fTreeStorage->Fill(fBinning->GetPoint(), nullptr, {}, false);
+
   // if (outputPoint) delete outputPoint; // Clean up the output list
 }
 
@@ -78,5 +81,25 @@ Long64_t NHnSparseThreadData::Merge(TCollection * list)
   // NLogger::Error("NHnSparseThreadData::Merge: Not implemented !!!");
   /// \endcond;
   return nmerged;
+}
+
+bool NHnSparseThreadData::InitStorage()
+{
+  ///
+  /// Initialize storage tree
+  ///
+  if (fTreeStorage) {
+    NLogger::Warning("NHnSparseThreadData::InitStorage: Storage tree is already initialized !!!");
+    return true;
+  }
+
+  if (fBinning == nullptr) {
+    NLogger::Error("NHnSparseThreadData::InitStorage: Binning is not set !!!");
+    return false;
+  }
+
+  fTreeStorage = new NStorageTree();
+
+  return true;
 }
 } // namespace Ndmspc

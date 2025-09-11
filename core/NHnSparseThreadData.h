@@ -1,5 +1,6 @@
 #ifndef Ndmspc_NHnSparseThreadData_H
 #define Ndmspc_NHnSparseThreadData_H
+#include "NStorageTree.h"
 #include "NThreadData.h"
 #include "NHnSparseBase.h"
 #include "Rtypes.h"
@@ -23,6 +24,8 @@ class NHnSparseThreadData : public NThreadData {
   void SetBinning(NBinning * binning) { fBinning = binning; }
   void SetBinningDef(NBinningDef * def) { fBinningDef = def; }
 
+  bool InitStorage();
+
   TList * GetOutput() const { return fOutput; }
 
   virtual void     Process(const std::vector<int> & coords);
@@ -32,6 +35,7 @@ class NHnSparseThreadData : public NThreadData {
   NHnSparseProcessFuncPtr fProcessFunc{nullptr}; ///< Function pointer to the processing function
   TList *                 fOutput{nullptr};      ///< Global output list for the thread
   NBinning *              fBinning{nullptr};     ///< Binning object for the thread
+  NStorageTree *          fTreeStorage{nullptr}; ///< Tree storage for the thread
   NBinningDef *           fBinningDef{nullptr};  ///< Binning definition for the thread
 
   /// \cond CLASSIMP

@@ -34,6 +34,7 @@ class NHnSparseBase : public TObject {
 
   static NHnSparseBase * Open(const std::string & filename, const std::string & branches = "",
                               const std::string & treename = "hnst");
+  bool                   Close(bool write = false);
 
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
