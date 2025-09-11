@@ -1,10 +1,9 @@
-#include "NBinningPoint.h"
 #include <vector>
-#include "TAxis.h"
+#include <TAxis.h>
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NBinning.h"
-#include "RtypesCore.h"
+#include "NBinningPoint.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NBinningPoint);

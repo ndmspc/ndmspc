@@ -1,5 +1,5 @@
 #include <TSystem.h>
-#include "NBinningPoint.h"
+#include "NBinning.h"
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NStorageTree.h"
@@ -75,6 +75,23 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
 
   return true;
 }
+bool NStorageTree::SetFileTree(TFile * file, TTree * tree, bool force)
+{
+  ///
+  /// Set File and tree
+  ///
+  if (!file || !tree) {
+    NLogger::Error("NStorageTree::SetFileTree: File or tree is nullptr !!!");
+    return false;
+  }
+  fFile = file;
+  fTree = tree;
+  if (fPrefix.empty() || force) fPrefix = gSystem->GetDirName(file->GetName());
+  if (fPostfix.empty()) fPostfix = gSystem->BaseName(file->GetName());
+  // print prefix and postfix
+  return true;
+}
+
 Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point)
 {
   ///
@@ -200,16 +217,16 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vect
     return -2;
   }
 
+  // Filling entry to tree
   fFile->cd();
   Int_t nBytes = fTree->Fill();
-  // Filling entry to tree
   NLogger::Debug("[entry=%lld] Bytes written : %.3f MB file='%s'", fTree->GetEntries() - 1,
                  (Double_t)nBytes / (1024 * 1024), fTree->GetCurrentFile()->GetName());
 
   return nBytes;
 }
 
-bool NStorageTree::Close(bool write)
+bool NStorageTree::Close(bool write, NBinning * binning)
 {
   ///
   /// Close
@@ -219,7 +236,16 @@ bool NStorageTree::Close(bool write)
     if (write) {
       fFile->cd();
 
-      // TList * userInfo = fTree->GetUserInfo();
+      TList * userInfo = fTree->GetUserInfo();
+      if (binning) {
+        userInfo->Add(binning->Clone());
+      }
+      else {
+        NLogger::Error("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
+                       "Skipping to store tree content also ...");
+        fFile->Close();
+        return false;
+      }
       // SetNameTitle("hnstMap", "HnSparseTree mapping");
       // userInfo->Add((THnSparse *)Clone());
       // NHnSparseTreeInfo * info = new NHnSparseTreeInfo();
@@ -239,7 +265,7 @@ bool NStorageTree::Close(bool write)
     fTree = nullptr;
   }
   else {
-    NLogger::Error("File is nullptr !!!");
+    NLogger::Error("NStorageTree::Close: fFile is nullptr !!!");
     return false;
   }
   return true;

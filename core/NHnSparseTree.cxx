@@ -19,8 +19,6 @@
 #include "NUtils.h"
 #include "NHnSparseTree.h"
 #include "NHnSparseTreeInfo.h"
-#include "ROOT/RConfig.hxx"
-#include "RtypesCore.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NHnSparseTree);

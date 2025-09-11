@@ -42,6 +42,21 @@ NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
     fBinning = new NBinning(axes);
   }
 }
+NHnSparseBase::NHnSparseBase(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTreeStorage(s)
+{
+  ///
+  /// Constructor
+  ///
+  if (fBinning == nullptr) {
+    NLogger::Error("NHnSparseBase::NHnSparseBase: Binning is nullptr.");
+    MakeZombie();
+  }
+  if (fTreeStorage == nullptr) {
+    NLogger::Error("NHnSparseBase::NHnSparseBase: Storage tree is nullptr.");
+    MakeZombie();
+  }
+}
+
 NHnSparseBase::~NHnSparseBase()
 {
   ///
@@ -211,5 +226,66 @@ TList * NHnSparseBase::GetOutput(std::string name)
     // fOutputs[name]->SetOwner(true);
   }
   return fOutputs[name];
+}
+
+NHnSparseBase * NHnSparseBase::Open(const std::string & filename, const std::string & branches,
+                                    const std::string & treename)
+{
+  ///
+  /// Load
+  ///
+
+  NLogger::Info("Opening '%s' with branches='%s' and treename='%s' ...", filename.c_str(), branches.c_str(),
+                treename.c_str());
+
+  TFile * file = TFile::Open(filename.c_str());
+  if (!file) {
+    NLogger::Error("NHnSparseBase::Open: Cannot open file '%s'", filename.c_str());
+    return nullptr;
+  }
+
+  TTree * tree = (TTree *)file->Get(treename.c_str());
+  if (!tree) {
+    NLogger::Error("NHnSparseBase::Open: Cannot get tree '%s' from file '%s'", treename.c_str(), filename.c_str());
+    return nullptr;
+  }
+
+  NBinning * hnstBinning = (NBinning *)tree->GetUserInfo()->At(0);
+  if (!hnstBinning) {
+    NLogger::Error("NHnSparseBase::Open: Cannot get binning from tree '%s'", treename.c_str());
+    return nullptr;
+  }
+  NStorageTree * hnstStorageTree = (NStorageTree *)tree->GetUserInfo()->At(1);
+  if (!hnstStorageTree) {
+    NLogger::Error("NHnSparseBase::Open: Cannot get tree storage info from tree '%s'", treename.c_str());
+    return nullptr;
+  }
+
+  NHnSparseBase * hnst = new NHnSparseBase(hnstBinning, hnstStorageTree);
+  hnstStorageTree->SetFileTree(file, tree, true);
+
+  if (!hnstStorageTree->SetFileTree(file, tree, true)) return nullptr;
+  // if (!hnst->InitBinnings({})) return nullptr;
+  // // hnst->Print();
+  // Get list of branches
+  std::vector<std::string> enabledBranches;
+  if (!branches.empty()) {
+    enabledBranches = Ndmspc::NUtils::Tokenize(branches, ',');
+    NLogger::Trace("Enabled branches: %s", NUtils::GetCoordsString(enabledBranches, -1).c_str());
+    hnstStorageTree->SetEnabledBranches(enabledBranches);
+  }
+  else {
+    // loop over all branches and set address
+    for (auto & kv : hnstStorageTree->GetBranchesMap()) {
+      NLogger::Debug("Enabled branches: %s", kv.first.c_str());
+    }
+  }
+  // Set all branches to be read
+  hnstStorageTree->SetBranchAddresses();
+
+  // TODO: Check if this is needed
+  // hnst->GetPoint()->SetHnSparseTree(hnst);
+
+  return hnst;
 }
 } // namespace Ndmspc
