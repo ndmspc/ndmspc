@@ -1007,16 +1007,33 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   }
 }
 
+NBinningPoint * NBinning::GetPoint()
+{
+  ///
+  /// Return binning point
+  ///
+  if (fPoint == nullptr) {
+    fPoint = new NBinningPoint(this);
+  }
+  return fPoint;
+}
+
 NBinningPoint * NBinning::GetPoint(int id, std::string binning)
 {
   ///
   /// Get binning point by id and binning name
   ///
 
+  // TODO: Optimize speed here
+
   NBinningDef * def = GetDefinition(binning);
   if (def == nullptr) {
     NLogger::Error("NBinning::FillPoint: Definition '%s' not found", binning.c_str());
     return nullptr;
+  }
+
+  if (fPoint == nullptr) {
+    fPoint = new NBinningPoint(this);
   }
 
   Long64_t linBin = def->GetId(id);

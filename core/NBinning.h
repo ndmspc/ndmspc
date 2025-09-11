@@ -74,7 +74,7 @@ class NBinning : public TObject {
   void AddBinningDefinition(std::string name, std::map<std::string, std::vector<std::vector<int>>> binning,
                             bool forceDefault = false);
 
-  NBinningPoint * GetPoint() const { return fPoint; }
+  NBinningPoint * GetPoint();
   NBinningPoint * GetPoint(int id, const std::string binning = "");
   bool            SetCfg(const json & cfg);
 

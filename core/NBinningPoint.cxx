@@ -35,6 +35,8 @@ NBinningPoint::NBinningPoint(NBinning * b) : TObject(), fBinning(b)
   fBaseBinMin         = new Int_t[fNDimensions];
   fBaseBinMax         = new Int_t[fNDimensions];
   fLabels.resize(fNDimensions);
+
+  Reset();
 }
 NBinningPoint::~NBinningPoint()
 {
@@ -46,6 +48,29 @@ NBinningPoint::~NBinningPoint()
   delete[] fBaseBinMax;
   fLabels.clear();
 }
+
+void NBinningPoint::Reset()
+{
+  ///
+  /// Reset the point coordinates
+  ///
+  if (fContentNDimensions <= 0 || fNDimensions <= 0 || fContentCoords == nullptr) {
+    NLogger::Error("NBinningPoint::Reset: Invalid dimensions or coordinates");
+    return;
+  }
+  for (Int_t i = 0; i < fContentNDimensions; ++i) {
+    fContentCoords[i] = 0;
+  }
+  for (Int_t i = 0; i < fNDimensions; ++i) {
+    fStorageCoords[i] = 0;
+    fMins[i]          = 0;
+    fMaxs[i]          = 0;
+    fBaseBinMin[i]    = 0;
+    fBaseBinMax[i]    = 0;
+    fLabels[i]        = "";
+  }
+}
+
 void NBinningPoint::Print(Option_t * option) const
 {
   /// Print the binning point

@@ -28,6 +28,8 @@ NHnSparseBase::NHnSparseBase(std::vector<TAxis *> axes) : TObject()
   }
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree();
+  // TODO: Handle filename and treename by user
+  fTreeStorage->InitTree();
 }
 NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
 {
@@ -41,6 +43,8 @@ NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
   }
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree();
+  // TODO: Handle filename and treename by user
+  fTreeStorage->InitTree();
 }
 NHnSparseBase::NHnSparseBase(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTreeStorage(s)
 {
@@ -55,6 +59,7 @@ NHnSparseBase::NHnSparseBase(NBinning * b, NStorageTree * s) : TObject(), fBinni
     NLogger::Error("NHnSparseBase::NHnSparseBase: Storage tree is nullptr.");
     MakeZombie();
   }
+  // fBinning->Initialize();
 }
 
 NHnSparseBase::~NHnSparseBase()
@@ -275,11 +280,10 @@ NHnSparseBase * NHnSparseBase::Open(const std::string & filename, const std::str
   }
 
   NHnSparseBase * hnst = new NHnSparseBase(hnstBinning, hnstStorageTree);
-  hnstStorageTree->SetFileTree(file, tree, true);
 
   if (!hnstStorageTree->SetFileTree(file, tree, true)) return nullptr;
   // if (!hnst->InitBinnings({})) return nullptr;
-  // // hnst->Print();
+  // hnst->Print();
   // Get list of branches
   std::vector<std::string> enabledBranches;
   if (!branches.empty()) {
@@ -313,4 +317,18 @@ bool NHnSparseBase::Close(bool write)
   }
   return fTreeStorage->Close(write, fBinning);
 }
+
+Int_t NHnSparseBase::GetEntry(Long64_t entry)
+{
+  ///
+  /// Get entry
+  ///
+  if (!fTreeStorage) {
+    NLogger::Error("NHnSparseBase::GetEntry: Storage tree is not initialized in NHnSparseBase !!!");
+    return -1;
+  }
+
+  return fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()));
+}
+
 } // namespace Ndmspc

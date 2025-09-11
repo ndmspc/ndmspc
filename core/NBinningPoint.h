@@ -19,6 +19,7 @@ class NBinningPoint : public TObject {
   virtual ~NBinningPoint();
 
   virtual void Print(Option_t * option = "") const;
+  virtual void Reset();
 
   Int_t   GetNDimensions() const { return fNDimensions; }
   Int_t * GetCoords() const { return fContentCoords; }

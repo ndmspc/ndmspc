@@ -14,7 +14,7 @@ NStorageTree::NStorageTree() : TObject()
   ///
   /// Constructor
   ///
-  InitTree("/tmp/hnst.root", "hnst");
+  // InitTree("/tmp/hnst.root", "hnst");
 }
 NStorageTree::~NStorageTree()
 {
@@ -253,6 +253,9 @@ bool NStorageTree::Close(bool write, NBinning * binning)
         fFile->Close();
         return false;
       }
+
+      userInfo->Add(Clone());
+
       // SetNameTitle("hnstMap", "HnSparseTree mapping");
       // userInfo->Add((THnSparse *)Clone());
       // NHnSparseTreeInfo * info = new NHnSparseTreeInfo();

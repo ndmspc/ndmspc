@@ -25,8 +25,13 @@ class NHnSparseBase : public TObject {
 
   virtual void Print(Option_t * option = "") const override;
 
-  NBinning * GetBinning() const { return fBinning; }
-  TList *    GetOutput(std::string name = "");
+  NBinning *     GetBinning() const { return fBinning; }
+  NStorageTree * GetStorageTree() const { return fTreeStorage; }
+  TList *        GetOutput(std::string name = "");
+  bool           Close(bool write = false);
+
+  Long64_t GetEntries() const { return fTreeStorage ? fTreeStorage->GetEntries() : 0; }
+  Int_t    GetEntry(Long64_t entry);
 
   bool Process(NHnSparseProcessFuncPtr func, std::string binningName = "", const json & cfg = json::object());
   bool Process(NHnSparseProcessFuncPtr func, std::vector<int> mins, std::vector<int> maxs,
@@ -34,12 +39,11 @@ class NHnSparseBase : public TObject {
 
   static NHnSparseBase * Open(const std::string & filename, const std::string & branches = "",
                               const std::string & treename = "hnst");
-  bool                   Close(bool write = false);
 
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
-  std::map<std::string, TList *> fOutputs;              ///< Binning definitions
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
+  std::map<std::string, TList *> fOutputs;              ///< Binning definitions
 
   /// \cond CLASSIMP
   ClassDefOverride(NHnSparseBase, 1);
