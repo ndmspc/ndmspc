@@ -1,6 +1,7 @@
 #include <TList.h>
 #include <TROOT.h>
 #include <vector>
+#include "TTree.h"
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
 #include "NHnSparseThreadData.h"
@@ -16,7 +17,7 @@ ClassImp(Ndmspc::NHnSparseBase);
 
 namespace Ndmspc {
 NHnSparseBase::NHnSparseBase() : TObject() {}
-NHnSparseBase::NHnSparseBase(std::vector<TAxis *> axes) : TObject()
+NHnSparseBase::NHnSparseBase(std::vector<TAxis *> axes, std::string filename, std::string treename) : TObject()
 {
   ///
   /// Constructor
@@ -30,9 +31,9 @@ NHnSparseBase::NHnSparseBase(std::vector<TAxis *> axes) : TObject()
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree();
   // TODO: Handle filename and treename by user
-  fTreeStorage->InitTree();
+  fTreeStorage->InitTree(filename, treename);
 }
-NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
+NHnSparseBase::NHnSparseBase(TObjArray * axes, std::string filename, std::string treename) : TObject()
 {
   ///
   /// Constructor
@@ -45,7 +46,7 @@ NHnSparseBase::NHnSparseBase(TObjArray * axes) : TObject()
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree();
   // TODO: Handle filename and treename by user
-  fTreeStorage->InitTree();
+  fTreeStorage->InitTree(filename, treename);
 }
 NHnSparseBase::NHnSparseBase(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTreeStorage(s)
 {
@@ -271,7 +272,7 @@ NHnSparseBase * NHnSparseBase::Open(const std::string & filename, const std::str
                                     const std::string & treename)
 {
   ///
-  /// Load
+  /// Open NHnSparseBase from file
   ///
 
   NLogger::Info("Opening '%s' with branches='%s' and treename='%s' ...", filename.c_str(), branches.c_str(),
@@ -289,14 +290,23 @@ NHnSparseBase * NHnSparseBase::Open(const std::string & filename, const std::str
     return nullptr;
   }
 
+  return Open(tree, branches, file);
+}
+
+NHnSparseBase * NHnSparseBase::Open(TTree * tree, const std::string & branches, TFile * file)
+{
+  ///
+  /// Open NHnSparseBase from existing tree
+  ///
+
   NBinning * hnstBinning = (NBinning *)tree->GetUserInfo()->At(0);
   if (!hnstBinning) {
-    NLogger::Error("NHnSparseBase::Open: Cannot get binning from tree '%s'", treename.c_str());
+    NLogger::Error("NHnSparseBase::Open: Cannot get binning from tree '%s'", tree->GetName());
     return nullptr;
   }
   NStorageTree * hnstStorageTree = (NStorageTree *)tree->GetUserInfo()->At(1);
   if (!hnstStorageTree) {
-    NLogger::Error("NHnSparseBase::Open: Cannot get tree storage info from tree '%s'", treename.c_str());
+    NLogger::Error("NHnSparseBase::Open: Cannot get tree storage info from tree '%s'", tree->GetName());
     return nullptr;
   }
 
@@ -326,6 +336,7 @@ NHnSparseBase * NHnSparseBase::Open(const std::string & filename, const std::str
 
   return hnst;
 }
+
 bool NHnSparseBase::Close(bool write)
 {
   ///

@@ -35,6 +35,7 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
 
   // Create an NHnSparseObject from the THnSparse
   Ndmspc::NHnSparseBase * hnsb = new Ndmspc::NHnSparseBase(hsparse->GetListOfAxes());
+  // return;
 
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b;

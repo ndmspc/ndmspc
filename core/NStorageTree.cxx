@@ -1,4 +1,5 @@
 #include <TSystem.h>
+#include <TROOT.h>
 #include "NBinning.h"
 #include "NLogger.h"
 #include "NUtils.h"
@@ -57,14 +58,24 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
   if (!filename.empty()) {
     fFileName = gSystem->ExpandPathName(filename.c_str());
   }
+  else {
+    NLogger::Warning("NStorageTree::InitTree: File was not defined, using RAM memory as storage ...",
+                     fFileName.c_str());
+    fFileName = filename;
+    gROOT->cd();
+  }
 
-  NLogger::Info("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
+  NLogger::Trace("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
 
-  // Open file
-  fFile = NUtils::OpenFile(fFileName.c_str(), "RECREATE");
-  if (!fFile) {
-    NLogger::Error("Cannot open file '%s'", fFileName.c_str());
-    return false;
+  if (!fFileName.empty()) {
+    // Open file
+    fFile = NUtils::OpenFile(fFileName.c_str(), "RECREATE");
+    if (!fFile) {
+      NLogger::Error("NStorageTree::InitTree: Cannot open file '%s' !!!", fFileName.c_str());
+      return false;
+    }
+    if (fPrefix.empty()) fPrefix = gSystem->GetDirName(fFileName.c_str());
+    if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFileName.c_str());
   }
 
   fTree = new TTree(treename.c_str(), "hnst tree");
@@ -72,8 +83,6 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
     NLogger::Error("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), fFileName.c_str());
     return false;
   }
-  if (fPrefix.empty()) fPrefix = gSystem->GetDirName(fFileName.c_str());
-  if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFileName.c_str());
 
   return true;
 }
@@ -87,9 +96,11 @@ bool NStorageTree::SetFileTree(TFile * file, TTree * tree, bool force)
     return false;
   }
   fFile = file;
+  if (fFile) {
+    if (fPrefix.empty() || force) fPrefix = gSystem->GetDirName(fFile->GetName());
+    if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFile->GetName());
+  }
   fTree = tree;
-  if (fPrefix.empty() || force) fPrefix = gSystem->GetDirName(file->GetName());
-  if (fPostfix.empty()) fPostfix = gSystem->BaseName(file->GetName());
   // print prefix and postfix
   return true;
 }
@@ -133,61 +144,15 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point)
 
   // Print byte sum
   NLogger::Debug("[entry=%lld] Bytes read : %.3f MB file='%s'", entry, (double)bytessum / (1024 * 1024),
-                 fFileName.c_str());
+                 fFileName.empty() ? "memory" : fFileName.c_str());
   return bytessum;
 }
 
-// Int_t NStorageTree::Fill(NBinningPoint * point)
-// {
-//   ///
-//   /// Fill tree
-//   ///
-//   NLogger::Info("NStorageTree::Fill: Filling tree ...");
-//   if (!point) {
-//     NLogger::Error("NStorageTree::Fill: Point is nullptr !!!");
-//     return -1;
-//   }
-//
-//   if (fTree == nullptr) {
-//     NLogger::Error("NStorageTree::Fill: Tree is not initialized !!! Run 'NStorageTree::InitTree(...)' first !!!");
-//     return -1;
-//   }
-//
-//   // TODO: Cleanup
-//   // // fPointData->Print();
-//   // Int_t * point = new Int_t[GetNdimensions()];
-//   // NUtils::VectorToArray(fPointData->GetPointStorage(), point);
-//   // // point[GetNdimensions() - 1] = 1; // Set last dimension to entry number
-//   // std::string pointStr = NUtils::GetCoordsString(NUtils::ArrayToVector(point, GetNdimensions()));
-//   // NLogger::Trace("Filling tree with point: %s", pointStr.c_str());
-//   // SetBinContent(point, 1);
-//   // Int_t   contentDim   = fBinning->GetContent()->GetNdimensions();
-//   // Int_t * contentPoint = new Int_t[contentDim];
-//   // NUtils::VectorToArray(fPointData->GetPointContent(), contentPoint);
-//   // fBinning->GetContent()->SetBinContent(contentPoint, 1);
-//   // SetEntries(fTree->GetEntries() + 1);
-//   // delete[] point;
-//   Long64_t bin = point->Fill();
-//   if (bin < 0) {
-//     NLogger::Error("NStorageTree::Fill: Failed to fill point !!!");
-//     return -1;
-//   }
-//
-//   NLogger::Info("NStorageTree::Fill: Filled bin %lld and tree entries %lld !!!", bin, fTree->GetEntries());
-//   if (bin > fTree->GetEntries() + 1) {
-//     NLogger::Error("NStorageTree::Fill: Filled bin %lld is greater than tree entries %lld !!!", bin,
-//                    fTree->GetEntries());
-//     return -1;
-//   }
-//
-//   fFile->cd();
-//   return fTree->Fill();
-// }
 Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vector<std::vector<int>> ranges,
                          bool useProjection)
 {
   ///
-  /// Save entry
+  /// Fill Entry
   ///
   NLogger::Trace("NStorageTree::Fill: Filling entry in NStorageTree ...");
 
@@ -225,10 +190,10 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vect
   // }
 
   // Filling entry to tree
-  fFile->cd();
   Int_t nBytes = fTree->Fill();
   NLogger::Debug("[entry=%lld] Bytes written : %.3f MB file='%s'", fTree->GetEntries() - 1,
-                 (Double_t)nBytes / (1024 * 1024), fTree->GetCurrentFile()->GetName());
+                 (Double_t)nBytes / (1024 * 1024),
+                 fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
 
   return nBytes;
 }
@@ -241,7 +206,7 @@ bool NStorageTree::Close(bool write, NBinning * binning)
 
   if (fFile) {
     if (write) {
-      fFile->cd();
+      // fFile->cd();
 
       TList * userInfo = fTree->GetUserInfo();
       if (binning) {
@@ -273,10 +238,6 @@ bool NStorageTree::Close(bool write, NBinning * binning)
     }
     fFile = nullptr;
     fTree = nullptr;
-  }
-  else {
-    NLogger::Error("NStorageTree::Close: fFile is nullptr !!!");
-    return false;
   }
   return true;
 }

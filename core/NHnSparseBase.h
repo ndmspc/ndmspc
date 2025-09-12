@@ -18,8 +18,8 @@ using NHnSparseProcessFuncPtr = void (*)(Ndmspc::NBinningPoint *, TList *, TList
 class NHnSparseBase : public TObject {
   public:
   NHnSparseBase();
-  NHnSparseBase(std::vector<TAxis *> axes);
-  NHnSparseBase(TObjArray * axes);
+  NHnSparseBase(std::vector<TAxis *> axes, std::string filename = "", std::string treename = "hnst");
+  NHnSparseBase(TObjArray * axes, std::string filename = "", std::string treename = "hnst");
   NHnSparseBase(NBinning * binning, NStorageTree * treeStorage);
   virtual ~NHnSparseBase();
 
@@ -39,6 +39,7 @@ class NHnSparseBase : public TObject {
 
   static NHnSparseBase * Open(const std::string & filename, const std::string & branches = "",
                               const std::string & treename = "hnst");
+  static NHnSparseBase * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
