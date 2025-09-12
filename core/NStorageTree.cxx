@@ -91,8 +91,8 @@ bool NStorageTree::SetFileTree(TFile * file, TTree * tree, bool force)
   ///
   /// Set File and tree
   ///
-  if (!file || !tree) {
-    NLogger::Error("NStorageTree::SetFileTree: File or tree is nullptr !!!");
+  if (!tree) {
+    NLogger::Error("NStorageTree::SetFileTree: tree is nullptr !!!");
     return false;
   }
   fFile = file;
@@ -204,41 +204,32 @@ bool NStorageTree::Close(bool write, NBinning * binning)
   /// Close
   ///
 
-  if (fFile) {
-    if (write) {
-      // fFile->cd();
-
-      TList * userInfo = fTree->GetUserInfo();
-      if (binning) {
-        userInfo->Add(binning->Clone());
-      }
-      else {
-        NLogger::Error("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
-                       "Skipping to store tree content also ...");
-        fFile->Close();
-        return false;
-      }
-
-      userInfo->Add(Clone());
-
-      // SetNameTitle("hnstMap", "HnSparseTree mapping");
-      // userInfo->Add((THnSparse *)Clone());
-      // NHnSparseTreeInfo * info = new NHnSparseTreeInfo();
-      // // info->SetHnSparseTree(this);
-      // info->SetHnSparseTree((NStorageTree *)Clone());
-      // userInfo->Add(info);
-
+  TList * userInfo = fTree->GetUserInfo();
+  if (binning) {
+    userInfo->Add(binning->Clone());
+  }
+  else {
+    NLogger::Error("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
+                   "Skipping to store tree content also ...");
+    if (fFile) fFile->Close();
+    return false;
+  }
+  userInfo->Add(Clone());
+  if (write) {
+    if (fFile) {
       fTree->Write("", TObject::kOverwrite);
       fFile->Close();
       NLogger::Info("Output was stored in file '%s'", fFileName.c_str());
     }
-    else {
+  }
+  else {
+    if (fFile) {
       fFile->Close();
       NLogger::Info("File '%s' was closed", fFileName.c_str());
     }
-    fFile = nullptr;
-    fTree = nullptr;
   }
+  fFile = nullptr;
+  fTree = nullptr;
   return true;
 }
 
