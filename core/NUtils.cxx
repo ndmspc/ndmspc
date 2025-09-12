@@ -861,7 +861,7 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, 
     return false;
   }
 
-  NLogger::Debug("Getting axis range in base for '%s' rebin=%d rebin_start=%d bin=%d...", a->GetName(), rebin,
+  NLogger::Trace("Getting axis range in base for '%s' rebin=%d rebin_start=%d bin=%d...", a->GetName(), rebin,
                  rebin_start, bin);
 
   min = rebin * (bin - 1) + rebin_start;
