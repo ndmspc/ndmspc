@@ -953,7 +953,7 @@ NBinningDef * NBinning::GetDefinition(const std::string & name)
     NLogger::Error("NBinning::GetDefinition: Definition '%s' not found", name.c_str());
     return nullptr;
   }
-  NLogger::Debug("NBinning::GetDefinition: Using definition '%s'", name.c_str());
+  NLogger::Trace("NBinning::GetDefinition: Using definition '%s'", name.c_str());
   fCurrentDefinitionName = name;
   return fDefinitions.at(name);
 }
@@ -968,7 +968,8 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
     NLogger::Error("Binning definition '%s' already exists", name.c_str());
     return;
   }
-  NBinningDef * def  = new NBinningDef(binning, this);
+  NBinningDef * def = new NBinningDef(binning, this);
+  fDefinitionNames.push_back(name);
   fDefinitions[name] = def;
   fMap->Reset();
   // loop over binning axes

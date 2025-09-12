@@ -42,10 +42,10 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
   b["Division"] = {{1}};
   hnsb->GetBinning()->AddBinningDefinition("default", b);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b2;
-  // b2["Flag"]     = {{1}};
-  // b2["Division"] = {{1}};
-  // hnsb->GetBinning()->AddBinningDefinition("b2", b2);
+  std::map<std::string, std::vector<std::vector<int>>> b2;
+  b2["Flag"]     = {{1}};
+  b2["Division"] = {{1}};
+  hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
   // Print the sparse object
   hnsb->Print();
@@ -116,9 +116,19 @@ void NCernStaff(int nThreads = 1, std::string filename = "cernstaff.root")
   };
 
   // hnsb->Process(processFunc, {1}, {1});
-  hnsb->Process(processFunc, "default", cfg);
-  // hnsb->Process(processFunc, "b2", cfg);
-  hnsb->Close(true);
+  bool rc = false;
+  rc      = hnsb->Process(processFunc, cfg);
+  // rc = hnsb->Process(processFunc, cfg, "default");
+  // rc = hnsb->Process(processFunc, cfg, "b2");
+
+  if (rc) {
+    Ndmspc::NLogger::Info("Processing completed successfully.");
+    hnsb->Close(true);
+  }
+  else {
+    Ndmspc::NLogger::Error("Processing failed.");
+    hnsb->Close(false);
+  }
 
   // fTreeStorage->Close(true, fBinning); // Close the storage tree and write to file
 

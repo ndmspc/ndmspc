@@ -61,15 +61,16 @@ class NBinning : public TObject {
   bool SetAxisType(int id, AxisType type);
 
   /// Returns the mapping histogram
-  THnSparse *          GetMap() const { return fMap; }
-  THnSparse *          GetContent() const { return fContent; }
-  std::vector<TAxis *> GetAxes() const { return fAxes; }
-  std::vector<TAxis *> GetAxesByType(AxisType type) const;
-  Binning              GetBinningType(int i) const;
-  AxisType             GetAxisType(int i) const;
-  char                 GetAxisTypeChar(int i) const;
-  NBinningDef *        GetDefinition(const std::string & name = "");
-  std::string          GetCurrentDefinitionName() const { return fCurrentDefinitionName; }
+  THnSparse *              GetMap() const { return fMap; }
+  THnSparse *              GetContent() const { return fContent; }
+  std::vector<TAxis *>     GetAxes() const { return fAxes; }
+  std::vector<TAxis *>     GetAxesByType(AxisType type) const;
+  Binning                  GetBinningType(int i) const;
+  AxisType                 GetAxisType(int i) const;
+  char                     GetAxisTypeChar(int i) const;
+  NBinningDef *            GetDefinition(const std::string & name = "");
+  std::vector<std::string> GetDefinitionNames() const { return fDefinitionNames; }
+  std::string              GetCurrentDefinitionName() const { return fCurrentDefinitionName; }
 
   void AddBinningDefinition(std::string name, std::map<std::string, std::vector<std::vector<int>>> binning,
                             bool forceDefault = false);
@@ -86,6 +87,7 @@ class NBinning : public TObject {
   std::vector<AxisType>                fAxisTypes;                 ///< Axis types
   std::string                          fCurrentDefinitionName{""}; ///< Current definition name
   std::map<std::string, NBinningDef *> fDefinitions;               ///< Binning definitions
+  std::vector<std::string>             fDefinitionNames;           ///< Binning definition names
   NBinningPoint *                      fPoint{nullptr};            ///<! Binning point object
 
   // TODO: remove

@@ -28,12 +28,12 @@ class NHnSparseBase : public TObject {
   NBinning *     GetBinning() const { return fBinning; }
   NStorageTree * GetStorageTree() const { return fTreeStorage; }
   TList *        GetOutput(std::string name = "");
-  bool           Close(bool write = false);
 
   Long64_t GetEntries() const { return fTreeStorage ? fTreeStorage->GetEntries() : 0; }
   Int_t    GetEntry(Long64_t entry);
+  bool     Close(bool write = false);
 
-  bool Process(NHnSparseProcessFuncPtr func, std::string binningName = "", const json & cfg = json::object());
+  bool Process(NHnSparseProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "");
   bool Process(NHnSparseProcessFuncPtr func, std::vector<int> mins, std::vector<int> maxs,
                NBinningDef * binningDef = nullptr, const json & cfg = json::object());
 

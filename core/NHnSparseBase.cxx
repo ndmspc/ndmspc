@@ -1,5 +1,6 @@
 #include <TList.h>
 #include <TROOT.h>
+#include <vector>
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
 #include "NHnSparseThreadData.h"
@@ -90,7 +91,7 @@ void NHnSparseBase::Print(Option_t * option) const
   }
 }
 
-bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::string binningName, const json & cfg)
+bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::string binningName)
 {
   ///
   /// Process the sparse object with the given function
@@ -102,24 +103,44 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::string binningNam
   }
 
   fBinning->SetCfg(cfg); // Set configuration to binning point
-  // Get the binning definition
-  auto binningDef = fBinning->GetDefinition(binningName);
-  if (!binningDef) {
-    NLogger::Error("Binning definition '%s' not found in NHnSparseBase !!!", binningName.c_str());
-    return false;
+
+  std::vector<std::string> defNames = fBinning->GetDefinitionNames();
+  if (!binningName.empty()) {
+    // Check if binning definitions exist
+    if (std::find(defNames.begin(), defNames.end(), binningName) == defNames.end()) {
+      NLogger::Error("Binning definition '%s' not found in NHnSparseBase !!!", binningName.c_str());
+      return false;
+    }
+    defNames.clear();
+    defNames.push_back(binningName);
   }
 
-  // binningDef->Print();
+  bool rc = false;
+  for (auto & name : defNames) {
+    // Get the binning definition
+    auto binningDef = fBinning->GetDefinition(name);
+    if (!binningDef) {
+      NLogger::Error("Binning definition '%s' not found in NHnSparseBase !!!", name.c_str());
+      return false;
+    }
 
-  // Convert the binning definition to mins and maxs
-  std::vector<int> mins, maxs;
+    // binningDef->Print();
 
-  mins.push_back(0);
-  maxs.push_back(binningDef->GetIds().size() - 1);
+    // Convert the binning definition to mins and maxs
+    std::vector<int> mins, maxs;
 
-  NLogger::Debug("Processing with binning definition '%s' with %zu entries", binningName.c_str(),
-                 binningDef->GetIds().size());
-  return Process(func, mins, maxs, binningDef, cfg);
+    mins.push_back(0);
+    maxs.push_back(binningDef->GetIds().size() - 1);
+
+    NLogger::Debug("Processing with binning definition '%s' with %zu entries", name.c_str(),
+                   binningDef->GetIds().size());
+    rc = Process(func, mins, maxs, binningDef, cfg);
+    if (!rc) {
+      NLogger::Error("Processing with binning definition '%s' failed !!!", name.c_str());
+      return false;
+    }
+  }
+  return true;
 }
 
 bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, std::vector<int> mins, std::vector<int> maxs,
