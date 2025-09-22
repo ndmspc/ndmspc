@@ -1,6 +1,7 @@
 #include <map>
 #include <vector>
 #include <fstream>
+#include "TMath.h"
 #include <TBufferJSON.h>
 #include <THnSparse.h>
 #include <TSystem.h>
@@ -19,8 +20,6 @@
 #include "NUtils.h"
 #include "NHnSparseTree.h"
 #include "NHnSparseTreeInfo.h"
-#include "ROOT/RConfig.hxx"
-#include "RtypesCore.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NHnSparseTree);
@@ -849,12 +848,16 @@ bool NHnSparseTree::Process(Ndmspc::ProcessFuncPtr func, const std::vector<int> 
       func(hnstCurrent->GetPoint(), output, outputGlobal, 0); // Call the lambda function
 
       if (output && output->GetEntries() > 0) {
+        // if (output) {
         // output->Print();
         GetBranch("output")->SetAddress(output); // Set the output list as branch address
 
         if (fBinning) SetPoint(hnstCurrent->GetPoint()); // Set the point in the current HnSparseTree
 
         SaveEntry();
+
+        // if (output->GetEntries() <0) {
+        // }
       }
       else {
         Ndmspc::NLogger::Warning("Function output is nullptr !!!");
@@ -1300,51 +1303,126 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
           NLogger::Debug("[L%d] Processing branch '%s' with %zu objects to loop ...", level, key.c_str(),
                          linBins.size());
 
-          if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
-            obj->GetParent()->ResizeObjectContentMap(key, nCells);
+          // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
+          //   obj->GetParent()->ResizeObjectContentMap(key, nCells);
 
           //           if (skipBin) continue; // Skip processing if the previous bin was skipped
-          // TODO: Make it configurable
-          int projectionAxis = 0;
 
-          TH1 * hProjTmp = nullptr;
-          // loop over all linBins
-          for (int lb : linBins) {
-            GetEntry(lb);
-            if (hProjTmp == nullptr) {
-              hProjTmp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
-              // NLogger::Debug("AAAA %.0f", hProjTmp ? hProjTmp->GetEntries() : 0);
-            }
-            else {
-              TH1 * temp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
-              // NLogger::Debug("BBBB %.0f", temp ? temp->GetEntries() : 0);
-              if (temp) {
-                hProjTmp->Add(temp);
-                delete temp; // Delete the temporary histogram to avoid memory leaks
+          ///
+          /// Handle THnSparse branch object
+          ///
+          obj->GetParent()->SetNCells(nCells);
+
+          TString className = val.GetObjectClassName();
+          if (className.BeginsWith("THnSparse")) {
+            // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
+            //   obj->GetParent()->ResizeObjectContentMap(key, nCells);
+            // TODO: Make it configurable
+            int projectionAxis = 0;
+
+            TH1 * hProjTmp = nullptr;
+            // loop over all linBins
+            for (int lb : linBins) {
+              GetEntry(lb);
+              if (hProjTmp == nullptr) {
+                hProjTmp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
+                // NLogger::Debug("AAAA %.0f", hProjTmp ? hProjTmp->GetEntries() : 0);
+              }
+              else {
+                TH1 * temp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
+                // NLogger::Debug("BBBB %.0f", temp ? temp->GetEntries() : 0);
+                if (temp) {
+                  hProjTmp->Add(temp);
+                  delete temp; // Delete the temporary histogram to avoid memory leaks
+                }
               }
             }
-          }
-          if (!hProjTmp) {
-            // skipBin = true; // Skip bin if no histogram is created
-            continue;
-          }
-          // generate histogram title from axis base ranges
-          std::string title = "Projection of " + key + " ";
-          for (const auto & [axis, range] : rangesBaseTmp) {
-            TAxis * a = fBinning->GetAxes()[axis];
+            if (!hProjTmp) {
+              // skipBin = true; // Skip bin if no histogram is created
+              continue;
+            }
+            // generate histogram title from axis base ranges
+            std::string title = "Projection of " + key + " ";
+            for (const auto & [axis, range] : rangesBaseTmp) {
+              TAxis * a = fBinning->GetAxes()[axis];
 
-            title +=
-                TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
+              title +=
+                  TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
+            }
+            hProjTmp->SetTitle(title.c_str());
+            NLogger::Debug("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d, entries=%.0f",
+                           level, hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
+            obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
+            // hProjTmp->Draw();
+            // gPad->Update();
+            // gPad->Modified();
+            // gSystem->ProcessEvents();
+            // TODO: We may to set entries from projection histogram to the bin content of mapping file
           }
-          hProjTmp->SetTitle(title.c_str());
-          NLogger::Debug("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d, entries=%.0f",
-                         level, hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
-          obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
-          // hProjTmp->Draw();
-          // gPad->Update();
-          // gPad->Modified();
-          // gSystem->ProcessEvents();
-          // TODO: We may to set entries from projection histogram to the bin content of mapping file
+          else if (className.BeginsWith("TList")) {
+            NLogger::Debug("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
+                           indexInProj);
+            for (int lb : linBins) {
+              GetEntry(lb);
+            }
+            TList * list = dynamic_cast<TList *>(val.GetObject());
+            // list->Print();
+            // get list of object names
+            std::vector<std::string> objNames;
+            for (int i = 0; i < list->GetEntries(); i++) {
+              TObject * o = list->At(i);
+              objNames.push_back(o->GetName());
+            }
+            // remove "results" histogram
+            objNames.erase(std::remove(objNames.begin(), objNames.end(), "results"), objNames.end());
+            TH1 * hResults = dynamic_cast<TH1 *>(list->FindObject("results"));
+            if (hResults) {
+              NLogger::Debug("[L%d] Branch '%s' TList contains 'results' histogram with %.0f entries ...", level,
+                             key.c_str(), hResults->GetEntries());
+              // loop over bin labels
+              for (int b = 1; b <= hResults->GetNbinsX(); b++) {
+
+                std::string binLabel = hResults->GetXaxis()->GetBinLabel(b);
+                double      binValue = hResults->GetBinContent(b);
+                NLogger::Debug("[L%d]   Bin %d: %s = %e", level, b, binLabel.c_str(), binValue);
+                // check if binlabel is "mass"
+                if (binLabel.compare("mass") == 0) {
+                  NLogger::Info("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
+                  if (binValue < 1.015 || binValue > 1.025) {
+                    NLogger::Info("[L%d]   Skipping bin 'mass' with value %f ...", level, binValue);
+                    continue;
+                  }
+                }
+                obj->GetParent()->SetParameter(binLabel, binValue, indexInProj);
+              }
+            }
+            // std::vector<std::string> possibleNames = {"hPeak", "hBgNorm", "unlikepm_proj_0"};
+            for (auto & name : objNames) {
+              TH1 * hProjTmp = dynamic_cast<TH1 *>(list->FindObject(name.c_str()));
+              if (hProjTmp == nullptr) {
+                NLogger::Warning("NHnSparseTree::ExportNavigatorObject: Branch '%s' TList does not contain '%s' !!!",
+                                 key.c_str(), name.c_str());
+                continue;
+              }
+              if (TMath::IsNaN(hProjTmp->GetEntries()) || TMath::IsNaN(hProjTmp->GetSumOfWeights())) {
+                // NLogger::Warning("NHnSparseTree::ExportNavigatorObject: Branch '%s' '%s' histogram is nan !!!",
+                //                  key.c_str(), name.c_str());
+                continue;
+              }
+              NLogger::Debug(
+                  "[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d, entries=%.0f", level,
+                  hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
+              if (obj->GetParent()->GetObjectContentMap()[name].size() != nCells)
+                obj->GetParent()->ResizeObjectContentMap(name, nCells);
+              // obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
+              obj->GetParent()->SetObject(name, hProjTmp, indexInProj);
+            }
+          }
+          else {
+            NLogger::Warning(
+                "NHnSparseTree::ExportNavigatorObject: Branch '%s' has unsupported class '%s' !!! Skipping ...",
+                key.c_str(), className.Data());
+          }
         }
       }
 

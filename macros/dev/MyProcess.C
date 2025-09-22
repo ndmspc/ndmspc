@@ -19,7 +19,7 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
   cfg["fit"]["min"]    = 1.000;
   cfg["fit"]["max"]    = 1.040;
   cfg["fit"]["params"] = {1.0, 1.019, 0.0045, 0.001, 0.0, 0.0, 0.0};
-  cfg["parameters"]    = {"integral", "mass", "sigma", "width"};
+  cfg["parameters"]    = {"integral", "mass", "width", "sigma", "color"};
 
   std::vector<std::string> labels  = cfg["parameters"].get<std::vector<std::string>>();
   TH1D *                   results = new TH1D("results", "Results", labels.size(), 0, labels.size());
@@ -28,7 +28,7 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
   }
 
   // Print point
-  // p->Print("A");
+  p->Print();
 
   Ndmspc::NHnSparseTree * hnst = p->GetHnSparseTree();
 
@@ -56,8 +56,17 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
   peakFunc->SetParameters(0, phi_mass, phi_width, phi_sigma, 0.0, 0.0, 0.0);
   peakFunc->FixParameter(3, phi_sigma); // Fix sigma parameter
 
-  hSigBg->Print();
-  Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, peakFunc, cfg, output, results);
+  // hSigBg->Print();
+  bool rc = Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, peakFunc, cfg, output, results);
+  // if (!rc) {
+  //   Ndmspc::NLogger::Error("Failed to extract signal !!!");
+  //   delete hSigBg;
+  //   delete hBg;
+  //   delete peakFunc;
+  //   delete results;
+  //   output->Clear("C");
+  //   return;
+  // }
 
   // delete peakFunc;
 };

@@ -3,10 +3,6 @@
 #include <TObject.h>
 #include <THnSparse.h>
 #include <TAxis.h>
-#include <cstddef>
-#include <iostream>
-#include <mutex>
-#include <thread>
 #include <vector>
 #include <map>
 #include "TObjArray.h"
@@ -65,21 +61,25 @@ class NBinning : public TObject {
   bool SetAxisType(int id, AxisType type);
 
   /// Returns the mapping histogram
-  THnSparse *          GetMap() const { return fMap; }
-  THnSparse *          GetContent() const { return fContent; }
-  std::vector<TAxis *> GetAxes() const { return fAxes; }
-  std::vector<TAxis *> GetAxesByType(AxisType type) const;
-  Binning              GetBinningType(int i) const;
-  AxisType             GetAxisType(int i) const;
-  char                 GetAxisTypeChar(int i) const;
-  NBinningDef *        GetDefinition(const std::string & name = "");
-  std::string          GetCurrentDefinitionName() const { return fCurrentDefinitionName; }
+  THnSparse *              GetMap() const { return fMap; }
+  THnSparse *              GetContent() const { return fContent; }
+  std::vector<TAxis *>     GetAxes() const { return fAxes; }
+  std::vector<TAxis *>     GetAxesByType(AxisType type) const;
+  Binning                  GetBinningType(int i) const;
+  AxisType                 GetAxisType(int i) const;
+  char                     GetAxisTypeChar(int i) const;
+  NBinningDef *            GetDefinition(const std::string & name = "");
+  std::vector<std::string> GetDefinitionNames() const { return fDefinitionNames; }
+  std::string              GetCurrentDefinitionName() const { return fCurrentDefinitionName; }
+  // TODO: update point with current definition
+  void SetCurrentDefinitionName(const std::string & name);
 
   void AddBinningDefinition(std::string name, std::map<std::string, std::vector<std::vector<int>>> binning,
                             bool forceDefault = false);
 
-  NBinningPoint * GetPoint() const { return fPoint; }
+  NBinningPoint * GetPoint();
   NBinningPoint * GetPoint(int id, const std::string binning = "");
+  bool            SetCfg(const json & cfg);
 
   private:
   THnSparse *                          fMap{nullptr};              ///< Mapping histogram
@@ -89,6 +89,7 @@ class NBinning : public TObject {
   std::vector<AxisType>                fAxisTypes;                 ///< Axis types
   std::string                          fCurrentDefinitionName{""}; ///< Current definition name
   std::map<std::string, NBinningDef *> fDefinitions;               ///< Binning definitions
+  std::vector<std::string>             fDefinitionNames;           ///< Binning definition names
   NBinningPoint *                      fPoint{nullptr};            ///<! Binning point object
 
   // TODO: remove

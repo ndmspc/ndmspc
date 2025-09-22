@@ -1,4 +1,5 @@
 #include <fstream>
+#include <cmath>
 #include "TMathBase.h"
 #include "TString.h"
 #include <TMath.h>
@@ -227,6 +228,9 @@ void NHnSparseObject::SetObject(const std::string & name, TObject * obj, int ind
   /// Set object for given name and index
   ///
   if (obj) {
+    if (fObjectContentMap.find(name) == fObjectContentMap.end()) {
+      ResizeObjectContentMap(name, fNCells);
+    }
     if (index < 0) {
       fObjectContentMap[name].push_back(obj);
     }
@@ -235,6 +239,51 @@ void NHnSparseObject::SetObject(const std::string & name, TObject * obj, int ind
       //   fObjectContentMap[name].resize(index + 1, nullptr);
       // }
       fObjectContentMap[name][index] = obj;
+    }
+  }
+}
+
+std::vector<double> NHnSparseObject::GetParameters(const std::string & name) const
+{
+  /// Returns parameters for given name
+  auto it = fParameterContentMap.find(name);
+  if (it != fParameterContentMap.end()) {
+    return it->second;
+  }
+  return {};
+}
+
+double NHnSparseObject::GetParameter(const std::string & name, int index) const
+{
+  /// Returns parameter for given name and index
+  auto it = fParameterContentMap.find(name);
+  if (it != fParameterContentMap.end() && index < (int)it->second.size()) {
+    return it->second[index];
+  }
+  return NAN;
+}
+
+void NHnSparseObject::SetParameter(const std::string & name, double value, int index)
+{
+  ///
+  /// Set parameter for given name and index
+  ///
+  if (!std::isnan(value)) {
+    if (fParameterContentMap.find(name) == fParameterContentMap.end() || fParameterContentMap[name].size() < fNCells) {
+      NLogger::Debug("NHnSparseObject::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
+                     fNCells);
+      ResizeParameterContentMap(name, fNCells);
+    }
+    NLogger::Debug("NHnSparseObject::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
+                   fParameterContentMap[name].size());
+    if (index < 0) {
+      fParameterContentMap[name].push_back(value);
+    }
+    else {
+      // if (index >= (int)fParameterContentMap[name].size()) {
+      //   fParameterContentMap[name].resize(index + 1, NAN);
+      // }
+      fParameterContentMap[name][index] = value;
     }
   }
 }
@@ -283,6 +332,7 @@ void NHnSparseObject::Export(std::string filename)
     NHnSparseObject * obj = const_cast<NHnSparseObject *>(this);
     ExportJson(objJson, obj);
     // std::cout << objJson.dump(2) << std::endl;
+    // TODO: Use TFile::Open
     std::ofstream outFile(filename);
     outFile << objJson.dump();
     outFile.close();
@@ -372,8 +422,10 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
     double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
     double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
     entries    = 0.0;                                 // Reset entries for each key
+
     for (size_t i = 0; i < val.size(); i++) {
       TObject * objContent = val[i];
+      if (objContent) objContent->Print();
 
       json objJson = json::parse(TBufferJSON::ConvertToJSON(objContent).Data());
 
@@ -383,16 +435,35 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
         // NLogger::Debug("NHnSparseObject::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
         //                objMax);
 
-        min = TMath::Min(min, objMin);
-        max = TMath::Max(max, objMax);
-        entries += ((TH1 *)objContent)->GetEntries();
+        min     = TMath::Min(min, objMin);
+        max     = TMath::Max(max, objMax);
+        entries = ((TH1 *)objContent)->GetEntries();
         // NLogger::Debug("NHnSparseObject::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
         // min,
         //                max);
         // j["fArray"][i] = entries / val.size(); // Store the average entries for this object
         j["fArray"][i] = entries;
+        // j["fArrays"]["mean"]["values"][i]   = (double)((TH1 *)objContent)->GetMean();
+        // j["fArrays"]["stddev"]["values"][i] = (double)((TH1 *)objContent)->GetStdDev();
       }
-      j["children"][key].push_back(objJson);
+      else {
+        entries = 0.0;
+        // j["fArrays"]["mean"]["values"][i]   = 0.0;
+        // j["fArrays"]["stddev"]["values"][i] = 0.0;
+      }
+      // j["fArrays"]["mean"]["min"]       = 1.00;
+      // j["fArrays"]["mean"]["max"]       = 2.00;
+      // j["fArrays"]["mean"]["outside"]   = false;
+      // j["fArrays"]["stddev"]["min"]     = 0.030;
+      // j["fArrays"]["stddev"]["max"]     = 0.032;
+      // j["fArrays"]["stddev"]["outside"] = true;
+
+      if (entries > 0) {
+        j["children"][key].push_back(objJson);
+      }
+      else {
+        j["children"][key].push_back(nullptr);
+      }
     }
     j["ndmspc"][key]["fMinimum"] = min;
     j["ndmspc"][key]["fMaximum"] = max;
@@ -400,6 +471,40 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
     // NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
     // idx++;
   }
+
+  for (auto & [key, val] : obj->GetParameterContentMap()) {
+    double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+    double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+    entries    = 0.0;                                 // Reset entries for each key
+
+    for (size_t i = 0; i < val.size(); i++) {
+      double param = val[i];
+      if (!std::isnan(param) && std::fabs(param) > 1e-12) {
+        min                            = TMath::Min(min, param);
+        max                            = TMath::Max(max, param);
+        j["fArrays"][key]["values"][i] = param;
+        NLogger::Debug("NHnSparseObject::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
+        // entries += 1.0;
+      }
+      else {
+        j["fArrays"][key]["values"][i] = 0.0;
+      }
+    }
+
+    if (key.compare("mass") == 0) {
+      // for chi2, ndf and pvalue set min and max to 0 and 1
+      min = 1.018;
+      max = 1.023;
+    }
+    else {
+
+      j["fArrays"][key]["min"] = min;
+      j["fArrays"][key]["max"] = max;
+    }
+    // j["ndmspc"][key]["fEntries"] = entries;
+    NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+  }
+
   double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
   double              max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
   std::vector<double> tmpContent;
@@ -474,6 +579,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
       }
       j["fArray"][i] = max; // Store the maximum value for the content
     }
+    if (j["children"]["content"].is_null()) j["children"].erase("content");
   }
 }
 

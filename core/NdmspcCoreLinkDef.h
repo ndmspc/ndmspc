@@ -14,6 +14,7 @@
 #pragma link C++ class Ndmspc::NBinningPoint + ;
 #pragma link C++ class Ndmspc::NHnSparsePoint + ;
 #pragma link C++ class Ndmspc::NHnSparseThreadData + ;
+#pragma link C++ class Ndmspc::NStorageTree + ;
 #pragma link C++ class Ndmspc::NHnSparseBase + ;
 #pragma link C++ class Ndmspc::NHnSparseObject + ;
 #pragma link C++ class Ndmspc::NProjection + ;

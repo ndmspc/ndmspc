@@ -145,6 +145,7 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
       // c->cd(iStack + 1);
       p[dims[0]] = 0;
       if (dims.size() > 1) p[dims[1]] = iStack + 1; // 1-based index for the second dimension
+      // if (dims.size() > 2) p[dims[2]] = iCanvas + 1; // 1-based index for the third dimension
       linBin     = hnsObjContent->GetBin(p);
       TH1 * hTmp = (TH1 *)GetObject("mass", linBin);
       if (hTmp == nullptr) {
@@ -154,19 +155,19 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
 
       if (projIds.size() > 1) {
         double min, max;
-        fBinning->GetAxisRange(projIds[0], min, max, {p[projIds[0] * 3], p[projIds[0] * 3 + 1], p[projIds[0] * 3 + 2]});
-        std::string histTitle = projNames.size() > 0 ? projNames[0] + " " + Form(" [%.3f,%.3f]", min, max) : "";
+        fBinning->GetAxisRange(projIds[1], min, max, {p[projIds[1] * 3], p[projIds[1] * 3 + 1], p[projIds[1] * 3 + 2]});
+        std::string histTitle = projNames.size() > 0 ? projNames[1] + " " + Form(" [%.3f,%.3f]", min, max) : "";
         hTmp->SetTitle(Form("%s", histTitle.c_str()));
       }
       else {
         hTmp->SetTitle("");
       }
-      hTmp->Print("");
+      hTmp->Print();
       hTmp->SetMarkerStyle(20);
       hTmp->SetMarkerColor(iStack + 1);
       // hTmp->GetXaxis()->SetRangeUser(0.0, 8.0);
 
-      hStack->Add(hTmp);
+      hStack->Add((TH1 *)hTmp->Clone());
     }
 
     c->cd(iCanvas + 1);
@@ -175,7 +176,7 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
     hStack->Draw("nostack");
     // hStack->GetXaxis()->SetRangeUser(0.0, 8.0);
     if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
-    gPad->ModifiedUpdate();
+    c->ModifiedUpdate();
     gSystem->ProcessEvents();
   }
 

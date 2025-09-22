@@ -109,8 +109,11 @@ void NBinning::Initialize()
       nContentDims++;
     }
     else if (fAxes[i]->IsAlphanumeric()) {
-      binningType = Binning::kSingle;
-      nContentDims++;
+      // TODO: Optimized beiing for alphanumeric axis (maybe no need to fix)
+      // binningType = Binning::kSingle;
+      // nContentDims++;
+      binningType = Binning::kMultiple;
+      nContentDims += 3;
     }
     else {
       binningType = Binning::kMultiple;
@@ -415,6 +418,7 @@ Long64_t NBinning::FillAll(std::vector<Long64_t> & ids)
     int idx = p[0] - 1;
     NLogger::Trace("Bin %lld: %d %d %d %d type=%d", linBin, p[0], p[1], p[2], p[3], fBinningTypes[idx]);
     if (fBinningTypes[idx] == Binning::kSingle) {
+
       content[idx].push_back({p[0], p[3]});
     }
     else if (fBinningTypes[idx] == Binning::kMultiple) {
@@ -949,7 +953,7 @@ NBinningDef * NBinning::GetDefinition(const std::string & name)
     NLogger::Error("NBinning::GetDefinition: Definition '%s' not found", name.c_str());
     return nullptr;
   }
-  NLogger::Debug("NBinning::GetDefinition: Using definition '%s'", name.c_str());
+  NLogger::Trace("NBinning::GetDefinition: Using definition '%s'", name.c_str());
   fCurrentDefinitionName = name;
   return fDefinitions.at(name);
 }
@@ -964,15 +968,16 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
     NLogger::Error("Binning definition '%s' already exists", name.c_str());
     return;
   }
-  NBinningDef * def  = new NBinningDef(binning, this);
+  NBinningDef * def = new NBinningDef(binning, this);
+  fDefinitionNames.push_back(name);
   fDefinitions[name] = def;
   fMap->Reset();
   // loop over binning axes
   for (size_t i = 0; i < fAxes.size(); i++) {
     TAxis *     axis     = fAxes[i];
     std::string axisName = axis->GetName();
-    // Ndmspc::NLogger::Debug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
-    //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    Ndmspc::NLogger::Debug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
+                           axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     if (!binning[axisName].empty()) {
       AddBinningViaBinWidths(i + 1, binning[axisName]);
       // GetDefinition()[axisName] = binning[axisName];
@@ -1003,11 +1008,24 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   }
 }
 
+NBinningPoint * NBinning::GetPoint()
+{
+  ///
+  /// Return binning point
+  ///
+  if (fPoint == nullptr) {
+    fPoint = new NBinningPoint(this);
+  }
+  return fPoint;
+}
+
 NBinningPoint * NBinning::GetPoint(int id, std::string binning)
 {
   ///
   /// Get binning point by id and binning name
   ///
+
+  // TODO: Optimize speed here
 
   NBinningDef * def = GetDefinition(binning);
   if (def == nullptr) {
@@ -1024,6 +1042,44 @@ NBinningPoint * NBinning::GetPoint(int id, std::string binning)
   fPoint->RecalculateStorageCoords();
 
   return fPoint;
+}
+
+bool NBinning::SetCfg(const json & cfg)
+{
+  ///
+  /// Set configuration
+  ///
+  if (fPoint == nullptr) {
+    NLogger::Error("NBinning::SetCfg: Point not initialized");
+    return false;
+  }
+  fPoint->SetCfg(cfg);
+
+  return true;
+}
+
+void NBinning::SetCurrentDefinitionName(const std::string & name)
+{
+  ///
+  /// Set current binning definition name
+  ///
+
+  if (fDefinitions.find(name) == fDefinitions.end()) {
+    NLogger::Error("Binning definition '%s' not found", name.c_str());
+    return;
+  }
+
+  // check if name is already current
+  if (fCurrentDefinitionName.compare(name) == 0) {
+    NLogger::Info("Binning definition '%s' is already current", name.c_str());
+    return;
+  }
+
+  // Set current definition name
+  fCurrentDefinitionName = name;
+
+  // Reset Point
+  GetPoint()->Reset();
 }
 
 } // namespace Ndmspc
