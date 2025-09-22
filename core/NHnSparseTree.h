@@ -9,6 +9,7 @@
 #include <TH2.h>
 #include <TH3.h>
 #include <TBranch.h>
+#include <TTree.h>
 #include "NBinning.h"
 #include "NHnSparseTreePoint.h"
 #include "NUtils.h"

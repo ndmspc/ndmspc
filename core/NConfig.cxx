@@ -32,33 +32,38 @@ bool NConfig::Load(const std::string & config, const std::string & userNConfig, 
   /// Load configuration
   ///
 
-  fCfgLoaded              = false;
-  fCfg                    = json::object();
-  std::string fileContent = NUtils::OpenRawFile(config);
-  if (!fileContent.empty()) {
-    fCfg = json::parse(fileContent);
-    NLogger::Info("Using config file '%s' ...", config.c_str());
-    if (!userNConfig.empty()) {
-      std::string fileContentUser = Ndmspc::NUtils::OpenRawFile(userNConfig);
-      if (!fileContentUser.empty()) {
-        json userCfg = json::parse(fileContentUser);
-        fCfg.merge_patch(userCfg);
-        NLogger::Info("User config file '%s' was merged ...", userNConfig.c_str());
-      }
-      else {
-        NLogger::Warning("User config '%s' was specified, but it was not open !!!", userNConfig.c_str());
-        return false;
-      }
+  NLogger::Debug("Loading configuration from '%s' ['%s','%s']...", config.c_str(), userNConfig.c_str(),
+                 userNConfigRaw.c_str());
+
+  fCfgLoaded = false;
+  fCfg       = json::object();
+  if (!config.empty()) {
+    std::string fileContent = NUtils::OpenRawFile(config);
+    if (!fileContent.empty()) {
+      fCfg = json::parse(fileContent);
+      NLogger::Info("Using config file '%s' ...", config.c_str());
     }
-    if (!userNConfigRaw.empty()) {
-      json userCfgRaw = json::parse(userNConfigRaw);
-      fCfg.merge_patch(userCfgRaw);
-      NLogger::Info("NConfig raw '%s' was merged...", userNConfigRaw.c_str());
+    else {
+      NLogger::Error("Problem opening config file '%s' !!! Exiting ...", config.c_str());
+      return false;
     }
   }
-  else {
-    NLogger::Error("Problem opening config file '%s' !!! Exiting ...", config.c_str());
-    return false;
+  if (!userNConfig.empty()) {
+    std::string fileContentUser = Ndmspc::NUtils::OpenRawFile(userNConfig);
+    if (!fileContentUser.empty()) {
+      json userCfg = json::parse(fileContentUser);
+      fCfg.merge_patch(userCfg);
+      NLogger::Info("User config file '%s' was merged ...", userNConfig.c_str());
+    }
+    else {
+      NLogger::Warning("User config '%s' was specified, but it was not open !!!", userNConfig.c_str());
+      return false;
+    }
+  }
+  if (!userNConfigRaw.empty()) {
+    json userCfgRaw = json::parse(userNConfigRaw);
+    fCfg.merge_patch(userCfgRaw);
+    NLogger::Info("NConfig raw '%s' was merged...", userNConfigRaw.c_str());
   }
 
   // INFO: Set default binning from configuration

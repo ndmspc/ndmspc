@@ -32,13 +32,21 @@ class NHnSparseObject : public NHnSparseBase {
   Int_t        DistancetoPrimitive(Int_t px, Int_t py) override;
   virtual void ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
 
-  int                                           Fill(TH1 * h, NHnSparseTreePoint * point = nullptr);
+  int Fill(TH1 * h, NHnSparseTreePoint * point = nullptr);
+
   std::map<std::string, std::vector<TObject *>> GetObjectContentMap() const { return fObjectContentMap; }
   void                   ResizeObjectContentMap(const std::string & name, int n) { fObjectContentMap[name].resize(n); };
   std::vector<TObject *> GetObjects(const std::string & name) const;
   TObject *              GetObject(const std::string & name, int index = 0) const;
-  NBinning *             GetBinning() const { return fBinning; }
   void                   SetObject(const std::string & name, TObject * obj, int index = -1);
+
+  std::map<std::string, std::vector<double>> GetParameterContentMap() const { return fParameterContentMap; }
+  void ResizeParameterContentMap(const std::string & name, int n) { fParameterContentMap[name].resize(n); };
+  std::vector<double> GetParameters(const std::string & name) const;
+  double              GetParameter(const std::string & name, int index = 0) const;
+  void                SetParameter(const std::string & name, double value, int index = -1);
+
+  NBinning * GetBinning() const { return fBinning; }
 
   void        SetHnSparse(THnSparse * hnSparse) { fHnSparse = hnSparse; }
   THnSparse * GetHnSparse() const { return fHnSparse; }
@@ -55,12 +63,15 @@ class NHnSparseObject : public NHnSparseBase {
   Int_t                          GetLastHoverBin() const { return fLastHoverBin; }
   void                           SetNLevels(Int_t n);
   void                           SetLevel(Int_t level) { fLevel = level; }
+  void                           SetNCells(Int_t n) { fNCells = n; }
+  Int_t                          GetNCells() const { return fNCells; }
 
   void  SetLastIndexSelected(Int_t index) { fLastIndexSelected = index; }
   Int_t GetLastIndexSelected() const { return fLastIndexSelected; }
 
   protected:
-  std::map<std::string, std::vector<TObject *>> fObjectContentMap{}; ///< Object content map
+  std::map<std::string, std::vector<TObject *>> fObjectContentMap{};    ///< Object content map
+  std::map<std::string, std::vector<double>>    fParameterContentMap{}; ///< Parameter content map
 
   NHnSparseObject *              fParent{nullptr};   ///< Parent object
   std::vector<NHnSparseObject *> fChildren{};        ///< Children objects
@@ -72,6 +83,7 @@ class NHnSparseObject : public NHnSparseBase {
   Int_t fLastHoverBin{0};     ///< To avoid spamming the console on hover
   Int_t fNLevels{1};          ///< Number of levels in the hierarchy
   Int_t fLevel{0};            ///< Level of the object in the hierarchy
+  Int_t fNCells{0};           ///< Number of cells in the projection histogram
   // std::vector<NHnSparseObject *> fPoint;                ///< Stack of current pads
   Int_t fLastIndexSelected{0}; ///< last selected index in the object
 

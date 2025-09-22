@@ -2,6 +2,7 @@
 #define Ndmspc_AnalysisFunctions_H
 #include <TObject.h>
 #include <TMath.h>
+#include <TFitResultPtr.h>
 #include <TF1.h>
 namespace Ndmspc {
 
@@ -33,6 +34,9 @@ class AnalysisFunctions : public TObject {
   static TF1 *    GausPol1(const char * name, double xmin, double xmax);
   static Double_t GausPol2(double * x, double * par);
   static TF1 *    GausPol2(const char * name, double xmin, double xmax);
+
+  static int IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi2nMin = 2.0, double chi2nMax = 5.0,
+                       double probMin = 0.01, double corrMax = 0.8);
 
   /// \cond CLASSIMP
   ClassDef(AnalysisFunctions, 1);

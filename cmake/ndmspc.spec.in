@@ -18,13 +18,13 @@ Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
 %description
 @PROJECT_DESCRIPTION@
 
-%package doc
-Summary:  Documentation
-Group:    Documentation
-Requires: %{name} = %{version}-%{release}, pkgconfig
-
-%description doc
-This package contains @PROJECT_NAME@ documentation.
+# %package doc
+# Summary:  Documentation
+# Group:    Documentation
+# Requires: %{name} = %{version}-%{release}, pkgconfig
+#
+# %description doc
+# This package contains @PROJECT_NAME@ documentation.
 
 %prep
 %setup -q
@@ -32,7 +32,8 @@ This package contains @PROJECT_NAME@ documentation.
 %build
 mkdir build
 cd build
-cmake ../ -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENTATION=on
+cmake ../ -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release 
+#-DBUILD_DOCUMENTATION=on
 make %{?_smp_mflags}
 cd ../
 
@@ -58,7 +59,7 @@ make install DESTDIR=%{buildroot}
 %{_includedir}/*
 %{_unitdir}/ndmspc-http@.service
 
-%files doc
-%doc /usr/share/doc/%{name}/
+# %files doc
+# %doc /usr/share/doc/%{name}/
 
 %changelog

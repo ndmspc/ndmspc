@@ -1,4 +1,8 @@
 #include "AnalysisFunctions.h"
+#include <TMath.h>
+#include <TF1.h>
+#include <TFitResult.h>
+#include "NLogger.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::AnalysisFunctions);
@@ -81,6 +85,70 @@ TF1 * AnalysisFunctions::GausPol2(const char * name, double xmin, double xmax)
 {
   TF1 * f = new TF1(name, GausPol2, xmin, xmax, 5);
   return f;
+}
+
+int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi2nMin, double chi2nMax, double probMin,
+                                 double corrMax)
+{
+  if (fitResult.Get() == nullptr) {
+    NLogger::Warning("Fit result is null");
+    return false;
+  }
+  int status = fitResult->Status();
+
+  // 1. Chi-squared (Chi^2) and Number of Degrees of Freedom (NDF)
+  double chi2 = fitResult->Chi2();
+  int    ndf  = fitResult->Ndf();
+  double prob = fitResult->Prob();
+
+  if (status < 0) {
+    NLogger::Warning("Fit did not converge properly, status = %d", status);
+    return status;
+  }
+
+  if (ndf <= 0) {
+    NLogger::Warning("Fit has non-positive degrees of freedom, ndf = %d", ndf);
+    return 1;
+  }
+  // 2. Reduced Chi-squared (Chi^2 / NDF)
+  // A value close to 1 generally indicates a good fit.
+  // Values significantly larger than 1 suggest the model does not describe
+  // the data well, or errors are underestimated.
+  // Values significantly smaller than 1 might indicate overestimated errors
+  // or too many free parameters (overfitting).
+  double chi2n = chi2 / ndf;
+  if (chi2n < chi2nMin || chi2n > chi2nMax) {
+    NLogger::Warning("Fit has poor chi2/ndf = %E (min: %.3f, max: %.3f)", chi2n, chi2nMin, chi2nMax);
+    return 2;
+  }
+  // 3. p-value
+  // The probability of observing data at least as extreme as that observed,
+  // assuming the null hypothesis (the model describes the data) is true.
+  // A low p-value (e.g., < 0.05) suggests the model is a poor description.
+  // ROOT's TFitResult gives a p-value.
+  if (prob < probMin) {
+    NLogger::Warning("Fit has low probability = %E (min: %.4f)", prob, probMin);
+    return 3;
+  }
+  // 5. Correlation Matrix
+  // High correlations between parameters (close to +1 or -1) can indicate
+  // that the parameters are not well-determined independently. This can
+  // lead to large uncertainties and make the fit unstable.
+
+  for (int i = 0; i < func->GetNpar(); ++i) {
+    for (int j = i + 1; j < func->GetNpar(); ++j) {
+      double correlation = fitResult->Correlation(i, j);
+      if (std::abs(correlation) > corrMax) { // Highlight high correlations
+        NLogger::Warning("Fit has high correlation (%.2f) between parameters %s and %s", correlation,
+                         func->GetParName(i), func->GetParName(j));
+        return 4;
+      }
+    }
+  }
+
+  NLogger::Info("Fit is good: chi2/ndf=%.2f, prob=%.4f", chi2n, prob);
+
+  return 0;
 }
 
 } // namespace Ndmspc
