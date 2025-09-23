@@ -110,10 +110,9 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
   /// Save entry
   ///
   NLogger::Trace("Saving entry for branch=%s ...", fName.c_str());
-  // return;
 
-  TString classNameStr = hnstBranchIn->GetObject()->ClassName();
-  NLogger::Trace("NTreeBranch::SaveEntry: Obj class name %s ...", classNameStr.Data());
+  TString classNameStr = hnstBranchIn->GetObjectClassName().c_str();
+  // NLogger::Debug("NTreeBranch::SaveEntry: Obj class name %s ...", classNameStr.Data());
   if (classNameStr.BeginsWith("THnSparse")) {
 
     THnSparse * in = (THnSparse *)hnstBranchIn->GetObject();

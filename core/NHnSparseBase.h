@@ -44,7 +44,7 @@ class NHnSparseBase : public TObject {
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
-  std::map<std::string, TList *> fOutputs;              ///< Binning definitions
+  std::map<std::string, TList *> fOutputs;              ///< Outputs
 
   /// \cond CLASSIMP
   ClassDefOverride(NHnSparseBase, 1);

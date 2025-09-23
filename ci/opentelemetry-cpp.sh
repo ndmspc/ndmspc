@@ -14,16 +14,13 @@ incremental_recipe: |
   cmake --build . -- ${JOBS:+-j$JOBS} install
   mkdir -p $INSTALLROOT/etc/modulefiles && rsync -a --delete etc/modulefiles/ $INSTALLROOT/etc/modulefiles
 ---
-#!/bin/sh
+#!/bin/bash -e
 
 if [[ $ALIBUILD_NDMSPC_TESTS ]]; then
   # Impose extra errors.
   CXXFLAGS="${CXXFLAGS} -Werror -Wno-error=deprecated-declarations"
 fi
 
-# When O2 is built against Gandiva (from Arrow), then we need to use
-# -DLLVM_ROOT=$CLANG_ROOT, since O2's CMake calls into Gandiva's
-# -CMake, which requires it.
 cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"          \
       ${CMAKE_BUILD_TYPE:+"-DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"} \
       ${CXXSTD:+"-DCMAKE_CXX_STANDARD=$CXXSTD"}                   \
@@ -38,7 +35,7 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"          \
 cmake --build . -- ${JOBS+-j $JOBS} install
 
 # export compile_commands.json in (taken from o2.sh)
-DEVEL_SOURCES="`readlink $SOURCEDIR || echo $SOURCEDIR`"
+DEVEL_SOURCES="$(readlink $SOURCEDIR || echo $SOURCEDIR)"
 if [ "$DEVEL_SOURCES" != "$SOURCEDIR" ]; then
   perl -p -i -e "s|$SOURCEDIR|$DEVEL_SOURCES|" compile_commands.json
   ln -sf $BUILDDIR/compile_commands.json $DEVEL_SOURCES/compile_commands.json

@@ -79,6 +79,7 @@ class NBinning : public TObject {
 
   NBinningPoint * GetPoint();
   NBinningPoint * GetPoint(int id, const std::string binning = "");
+  void            SetPoint(NBinningPoint * point) { fPoint = point; }
   bool            SetCfg(const json & cfg);
 
   private:

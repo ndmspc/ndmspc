@@ -108,7 +108,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
 
   if (ndf <= 0) {
     NLogger::Warning("Fit has non-positive degrees of freedom, ndf = %d", ndf);
-    return 1;
+    return 4;
   }
   // 2. Reduced Chi-squared (Chi^2 / NDF)
   // A value close to 1 generally indicates a good fit.
@@ -119,7 +119,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
   double chi2n = chi2 / ndf;
   if (chi2n < chi2nMin || chi2n > chi2nMax) {
     NLogger::Warning("Fit has poor chi2/ndf = %E (min: %.3f, max: %.3f)", chi2n, chi2nMin, chi2nMax);
-    return 2;
+    return 3;
   }
   // 3. p-value
   // The probability of observing data at least as extreme as that observed,
@@ -128,7 +128,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
   // ROOT's TFitResult gives a p-value.
   if (prob < probMin) {
     NLogger::Warning("Fit has low probability = %E (min: %.4f)", prob, probMin);
-    return 3;
+    return 2;
   }
   // 5. Correlation Matrix
   // High correlations between parameters (close to +1 or -1) can indicate
@@ -141,7 +141,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
       if (std::abs(correlation) > corrMax) { // Highlight high correlations
         NLogger::Warning("Fit has high correlation (%.2f) between parameters %s and %s", correlation,
                          func->GetParName(i), func->GetParName(j));
-        return 4;
+        return 1;
       }
     }
   }

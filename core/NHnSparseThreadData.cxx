@@ -1,3 +1,5 @@
+#include <NHnSparseBase.h>
+#include <NStorageTree.h>
 #include <TList.h>
 #include "NLogger.h"
 #include "NUtils.h"
@@ -41,6 +43,9 @@ void NHnSparseThreadData::Process(const std::vector<int> & coords)
   TList * outputPoint = new TList();
   fBinning->GetPoint()->RecalculateStorageCoords();
   fProcessFunc(fBinning->GetPoint(), fOutput, outputPoint, GetAssignedIndex());
+
+  // NLogger::Debug("%p", fTreeStorage->GetBranch("output"));
+  fTreeStorage->GetBranch("output")->SetAddress(outputPoint); // Set the output list as branch address
   fTreeStorage->Fill(fBinning->GetPoint(), nullptr, {}, false);
 
   // if (outputPoint) delete outputPoint; // Clean up the output list
@@ -55,7 +60,8 @@ Long64_t NHnSparseThreadData::Merge(TCollection * list)
 
   NLogger::Debug("Merging thread data from %zu threads ...", list->GetEntries());
 
-  TList * listOut = new TList();
+  TList * listOut         = new TList();
+  TList * listTreeStorage = new TList();
 
   for (auto obj : *list) {
     if (obj->IsA() == NHnSparseThreadData::Class()) {
@@ -70,14 +76,19 @@ Long64_t NHnSparseThreadData::Merge(TCollection * list)
         listOut->Add(hnsttd->GetOutput());
       }
 
+      NHnSparseBase * hnsb = NHnSparseBase::Open(hnsttd->GetTreeStorage()->GetFileName());
+      // hnsb->Print();
+      listTreeStorage->Add(hnsb->GetStorageTree());
+
       nmerged++;
     }
   }
   NLogger::Debug("Total entries to merge: %lld", nmerged);
   fOutput->Merge(listOut);
-  // fOutput->Print();
+  fOutput->Print();
 
   // TODO: Implement merging of fTreeStorage from all threads
+  fTreeStorage->Merge(listTreeStorage);
 
   /// \cond CLASSIMP
   // NLogger::Error("NHnSparseThreadData::Merge: Not implemented !!!");
@@ -85,7 +96,7 @@ Long64_t NHnSparseThreadData::Merge(TCollection * list)
   return nmerged;
 }
 
-bool NHnSparseThreadData::InitStorage()
+bool NHnSparseThreadData::InitStorage(NStorageTree * ts, const std::string & filename, const std::string & treename)
 {
   ///
   /// Initialize storage tree
@@ -100,9 +111,15 @@ bool NHnSparseThreadData::InitStorage()
     return false;
   }
 
-  fTreeStorage = new NStorageTree();
-  // fTreeStorage->InitTree(Form("/tmp/hnst_thread_%zu.root", GetAssignedIndex()), "hnst");
-  fTreeStorage->InitTree();
+  fTreeStorage = new NStorageTree(fBinning);
+  // fTreeStorage = (NStorageTree *)ts->Clone();
+  fTreeStorage->InitTree(filename.empty() ? fTreeStorage->GetFileName() : filename, treename);
+
+  for (auto & kv : ts->GetBranchesMap()) {
+    fTreeStorage->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
+  }
+
+  fBinning->GetPoint()->SetTreeStorage(fTreeStorage); // Set the storage tree to the binning point
 
   return true;
 }
