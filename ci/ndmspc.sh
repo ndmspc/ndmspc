@@ -7,6 +7,8 @@ requires:
   - nlohmann_json
   - opentelemetry-cpp
   - libwebsockets
+  - curl
+  - libuv
 build_requires:
   - CMake
   - ninja
@@ -43,13 +45,10 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"                \
       ${CMAKE_BUILD_TYPE:+"-DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"}       \
       ${CXXSTD:+"-DCMAKE_CXX_STANDARD=$CXXSTD"}                         \
       ${PROTOBUF_ROOT:+"-DPROTOBUF_ROOT=$PROTOBUF_ROOT"}                \
-      ${OPENSSL_ROOT:+-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT} \
-      ${OPENSSL_ROOT:+-DOPENSSL_INCLUDE_DIRS=$OPENSSL_ROOT/include} \
-      ${OPENSSL_ROOT:+-DOPENSSL_LIBRARIES=$OPENSSL_ROOT/lib/libssl.$SONAME;$OPENSSL_ROOT/lib/libcrypto.$SONAME} \
+      ${LIBUV_ROOT:+"-DLIBUV_ROOT=$LIBUV_ROOT"} \
       ${LIBWEBSOCKETS_ROOT:+"-DLIBWEBSOCKETS_ROOT=$LIBWEBSOCKETS_ROOT"} \
       ${NLOHMANN_JSON_ROOT:+"-DNLOHMANN_JSON_ROOT=$NLOHMANN_JSON_ROOT"} \
-      -DUSE_LATEST=ON                                                   \
-      -DUSE_LEGACY=ON                                                   \
+      ${CURL_ROOT:+"-DCURL_ROOT=$CURL_ROOT"} \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build . -- ${JOBS+-j $JOBS} install
