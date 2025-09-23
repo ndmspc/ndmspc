@@ -1,6 +1,6 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v0.20250322.0"
+tag: "v0.20250923.0"
 requires:
   - ROOT
   - JAliEn-ROOT
@@ -35,8 +35,6 @@ if [[ $ALIBUILD_NDMSPC_TESTS ]]; then
   CXXFLAGS="${CXXFLAGS} -Werror -Wno-error=deprecated-declarations"
 fi
 
-export
-
 # When O2 is built against Gandiva (from Arrow), then we need to use
 # -DLLVM_ROOT=$CLANG_ROOT, since O2's CMake calls into Gandiva's
 # -CMake, which requires it.
@@ -45,10 +43,10 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"                \
       ${CMAKE_BUILD_TYPE:+"-DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"}       \
       ${CXXSTD:+"-DCMAKE_CXX_STANDARD=$CXXSTD"}                         \
       ${PROTOBUF_ROOT:+"-DPROTOBUF_ROOT=$PROTOBUF_ROOT"}                \
-      ${LIBUV_ROOT:+"-DLIBUV_ROOT=$LIBUV_ROOT"} \
+      ${LIBUV_ROOT:+"-DLIBUV_ROOT=$LIBUV_ROOT"}                         \
       ${LIBWEBSOCKETS_ROOT:+"-DLIBWEBSOCKETS_ROOT=$LIBWEBSOCKETS_ROOT"} \
       ${NLOHMANN_JSON_ROOT:+"-DNLOHMANN_JSON_ROOT=$NLOHMANN_JSON_ROOT"} \
-      ${CURL_ROOT:+"-DCURL_ROOT=$CURL_ROOT"} \
+      ${CURL_ROOT:+"-DCURL_ROOT=$CURL_ROOT"}                            \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build . -- ${JOBS+-j $JOBS} install
