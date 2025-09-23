@@ -1153,7 +1153,7 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
       // NLogger::Debug("[B%d] Processing coordinates: coords=%s levels=%s", level,
       //                                NUtils::GetCoordsString(coords, -1).c_str(),
       //                                NUtils::GetCoordsString(levels[level]).c_str());
-      NLogger::Debug("[L%d] Generating %zuD histogram %s with ranges: %s", level, levels[level].size(),
+      NLogger::Trace("[L%d] Generating %zuD histogram %s with ranges: %s", level, levels[level].size(),
                      NUtils::GetCoordsString(levels[level]).c_str(), ranges.size() == 0 ? "[]" : "");
 
       std::vector<int> axesIds = levels[level];
@@ -1258,7 +1258,7 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
       NHnSparseObject * o      = obj->GetChild(indexInProj);
       int               nCells = hProj->GetNcells();
       if (o == nullptr) {
-        NLogger::Debug("[L%d] Creating new child for index %d nCells=%d ...", level, indexInProj, nCells);
+        NLogger::Trace("[L%d] Creating new child for index %d nCells=%d ...", level, indexInProj, nCells);
         o = new NHnSparseObject(hns->GetListOfAxes());
         if (obj->GetChildren().size() != nCells) obj->SetChildrenSize(nCells);
         obj->SetChild(o, indexInProj); // Set the child at the index
@@ -1268,11 +1268,11 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
         NLogger::Error("[L%d] Using existing child for index %d [NOT OK] ...", level, indexInProj);
       }
       if (level == levels.size() - 1) {
-        NLogger::Debug("[L%d] Filling projections from all branches %s for ranges:", level,
+        NLogger::Trace("[L%d] Filling projections from all branches %s for ranges:", level,
                        NUtils::GetCoordsString(levels[level]).c_str());
         for (auto & kv : rangesBaseTmp) {
           std::vector<int> range = rangesTmp[kv.first];
-          NLogger::Debug("[L%d]   Axis %d[%s]: rangeBase=%s range=%s", level, kv.first, GetAxis(kv.first)->GetName(),
+          NLogger::Trace("[L%d]   Axis %d[%s]: rangeBase=%s range=%s", level, kv.first, GetAxis(kv.first)->GetName(),
                          NUtils::GetCoordsString(kv.second).c_str(), NUtils::GetCoordsString(range).c_str());
         }
         // Get projectiosn histograms from all branches
@@ -1294,13 +1294,13 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
           return; // No bins found, nothing to process
         }
         // bool skipBin = false; // Skip bin if no bins are found
-        NLogger::Debug("Branch object Point coordinates: %s", NUtils::GetCoordsString(linBins, -1).c_str());
+        NLogger::Trace("Branch object Point coordinates: %s", NUtils::GetCoordsString(linBins, -1).c_str());
         for (auto & [key, val] : fBranchesMap) {
           if (val.GetBranchStatus() == 0) {
-            NLogger::Debug("[L%d] Branch '%s' is disabled, skipping ...", level, key.c_str());
+            NLogger::Trace("[L%d] Branch '%s' is disabled, skipping ...", level, key.c_str());
             continue; // Skip disabled branches
           }
-          NLogger::Debug("[L%d] Processing branch '%s' with %zu objects to loop ...", level, key.c_str(),
+          NLogger::Trace("[L%d] Processing branch '%s' with %zu objects to loop ...", level, key.c_str(),
                          linBins.size());
 
           // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
@@ -1350,7 +1350,7 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
                   TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
             }
             hProjTmp->SetTitle(title.c_str());
-            NLogger::Debug("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d, entries=%.0f",
+            NLogger::Trace("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d, entries=%.0f",
                            level, hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
             obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
             // hProjTmp->Draw();
@@ -1360,7 +1360,7 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
             // TODO: We may to set entries from projection histogram to the bin content of mapping file
           }
           else if (className.BeginsWith("TList")) {
-            NLogger::Debug("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
+            NLogger::Trace("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
                            indexInProj);
             for (int lb : linBins) {
               GetEntry(lb);
@@ -1377,22 +1377,22 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
             objNames.erase(std::remove(objNames.begin(), objNames.end(), "results"), objNames.end());
             TH1 * hResults = dynamic_cast<TH1 *>(list->FindObject("results"));
             if (hResults) {
-              NLogger::Debug("[L%d] Branch '%s' TList contains 'results' histogram with %.0f entries ...", level,
+              NLogger::Trace("[L%d] Branch '%s' TList contains 'results' histogram with %.0f entries ...", level,
                              key.c_str(), hResults->GetEntries());
               // loop over bin labels
               for (int b = 1; b <= hResults->GetNbinsX(); b++) {
 
                 std::string binLabel = hResults->GetXaxis()->GetBinLabel(b);
                 double      binValue = hResults->GetBinContent(b);
-                NLogger::Debug("[L%d]   Bin %d: %s = %e", level, b, binLabel.c_str(), binValue);
-                // check if binlabel is "mass"
-                if (binLabel.compare("mass") == 0) {
-                  NLogger::Info("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
-                  if (binValue < 1.015 || binValue > 1.025) {
-                    NLogger::Info("[L%d]   Skipping bin 'mass' with value %f ...", level, binValue);
-                    continue;
-                  }
-                }
+                NLogger::Trace("[L%d]   Bin %d: %s = %e", level, b, binLabel.c_str(), binValue);
+                // // check if binlabel is "mass"
+                // if (binLabel.compare("mass") == 0) {
+                //   NLogger::Info("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
+                //   if (binValue < 1.015 || binValue > 1.025) {
+                //     NLogger::Info("[L%d]   Skipping bin 'mass' with value %f ...", level, binValue);
+                //     continue;
+                //   }
+                // }
                 obj->GetParent()->SetParameter(binLabel, binValue, indexInProj);
               }
             }
@@ -1409,7 +1409,7 @@ bool NHnSparseTree::ExportNavigatorObject(NHnSparseObject * obj, std::vector<std
                 //                  key.c_str(), name.c_str());
                 continue;
               }
-              NLogger::Debug(
+              NLogger::Trace(
                   "[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d, entries=%.0f", level,
                   hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
               if (obj->GetParent()->GetObjectContentMap()[name].size() != nCells)

@@ -1,9 +1,9 @@
 #ifndef Ndmspc_NHnSparseThreadData_H
 #define Ndmspc_NHnSparseThreadData_H
-#include "NStorageTree.h"
-#include "NThreadData.h"
+// #include "NBinning.h"
+// #include "NStorageTree.h"
 #include "NHnSparseBase.h"
-#include "Rtypes.h"
+#include "NThreadData.h"
 
 namespace Ndmspc {
 
@@ -24,9 +24,11 @@ class NHnSparseThreadData : public NThreadData {
   void SetBinning(NBinning * binning) { fBinning = binning; }
   void SetBinningDef(NBinningDef * def) { fBinningDef = def; }
 
-  bool InitStorage();
+  bool InitStorage(NStorageTree * ts, const std::string & filename = "", const std::string & treename = "hnst");
 
-  TList * GetOutput() const { return fOutput; }
+  TList *        GetOutput() const { return fOutput; }
+  NStorageTree * GetTreeStorage() const { return fTreeStorage; }
+  NBinning *     GetBinning() const { return fBinning; }
 
   virtual void     Process(const std::vector<int> & coords);
   virtual Long64_t Merge(TCollection * list);

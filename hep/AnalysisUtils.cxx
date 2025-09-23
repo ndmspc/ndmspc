@@ -2,7 +2,9 @@
 #include <TList.h>
 #include <NLogger.h>
 #include <cmath>
-#include "TMath.h"
+#include <TH1.h>
+#include <TGraph.h>
+#include <TMath.h>
 #include "AnalysisFunctions.h"
 #include "AnalysisUtils.h"
 
@@ -14,35 +16,43 @@ namespace Ndmspc {
 
 bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & cfg, TList * output, TH1 * results)
 {
+
+  bool accepted = true;
+
+  // Initializing variables
+  TH1 * hBgNorm     = nullptr;
+  TH1 * hPeak       = nullptr;
+  int   fitGoodness = -1;
+
+  if (sigBg) sigBg->SetName("sigBg");
   if (!sigBg) {
     NLogger::Error("Cannot extract signal: sigBg histograms is null");
-    return false;
-  }
-
-  sigBg->SetName("sigBg");
-  bg->SetName("bg");
-
-  TH1 * hPeak = (TH1 *)sigBg->Clone("hPeak");
-  if (!hPeak) {
-    NLogger::Error("Cannot clone histogram 'sigBg' !!!");
-    return false;
+    // return false;
+    accepted = false;
   }
 
   // TODO: Handle correctly skipped output list
-  // if (sigBg->Integral() < 100000) {
-  //   NLogger::Error("Histogram 'sigBg' has no entries !!!");
-  //   delete hPeak;
-  //   output->Clear("C");
-  //   return false;
-  // }
+  int minEntries = 10000;
+  if (sigBg->Integral() < minEntries) {
+    NLogger::Warning("Histogram 'sigBg' has only %d entries, minimum is %d", (int)sigBg->Integral(), minEntries);
+    accepted = false;
+  }
 
-  TH1 * hBgNorm = nullptr;
+  hPeak = (TH1 *)sigBg->Clone("hPeak");
+  if (!hPeak) {
+    NLogger::Error("Cannot clone histogram 'sigBg' !!!");
+    // return false;
+    accepted = false;
+  }
+
   if (bg) {
+    bg->SetName("bg");
     // Norming the background histogram
     hBgNorm = (TH1 *)bg->Clone("hBgNorm");
     if (!hBgNorm) {
       NLogger::Error("Cannot clone histogram 'bg' !!!");
-      return false;
+      // return false;
+      accepted = false;
     }
 
     Int_t binNormMin = hBgNorm->GetXaxis()->FindBin(cfg["norm"]["min"].get<int>());
@@ -50,7 +60,8 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
 
     if (binNormMin < 1 || binNormMax > hBgNorm->GetNbinsX()) {
       NLogger::Error("Normalization range is out of bounds: %d - %d", binNormMin, binNormMax);
-      return false;
+      // return false;
+      accepted = false;
     }
 
     Double_t scaleFactor = hPeak->Integral(binNormMin, binNormMax) / hBgNorm->Integral(binNormMin, binNormMax);
@@ -59,13 +70,14 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
     if (std::isnan(scaleFactor) || std::isinf(scaleFactor)) {
       NLogger::Error("Scale factor is NaN or Inf !!! Skipping normalization ...");
       scaleFactor = 1.0;
+      accepted    = false;
     }
     else {
       scaleFactor *= 0.99;
       hBgNorm->Scale(scaleFactor);
     }
+    hPeak->Add(hBgNorm, -1);
   }
-  hPeak->Add(hBgNorm, -1);
 
   double minContent = hPeak->GetMinimum();
   if (minContent < 0) {
@@ -79,9 +91,8 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
       hPeak->SetBinContent(bin, content + offset);
     }
   }
-
-  int fitGoodness = -1;
-  if (hPeak->Integral() > 0) {
+  //
+  if (hPeak->Integral() > 0 && accepted) {
 
     int nFits     = 100;
     int fitStatus = -1;
@@ -109,20 +120,17 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
         fitFunc->SetParameter(i, 0);
         fitFunc->SetParError(i, 0);
       }
+      fitGoodness = -1;
     }
 
-    switch (fitGoodness) {
-    case 0: fitFunc->SetLineColor(kGreen); break;
-    case 1: fitFunc->SetLineColor(kOrange); break;
-    case 2: fitFunc->SetLineColor(kMagenta); break;
-    case 3: fitFunc->SetLineColor(kBlue); break;
-    case 4: fitFunc->SetLineColor(kCyan); break;
-    default: fitFunc->SetLineColor(kGray); break;
-    }
+    fitFunc->SetLineColor(fitGoodness + 1);
     hPeak->GetListOfFunctions()->Add(fitFunc); // Add the function to the histogram's list of functions
   }
-  // if (results && isFitGood) {
-  if (results) {
+  else {
+    accepted = false;
+  }
+
+  if (results && accepted && fitGoodness >= 0) {
     std::vector<std::string> parameters = cfg["parameters"].get<std::vector<std::string>>();
     for (size_t i = 0; i < 4; ++i) {
       // for (size_t i = 0; i < parameters.size(); ++i) {
@@ -131,20 +139,35 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
     }
     results->SetBinContent(5, fitGoodness + 1);
     results->SetBinError(5, 0.0);
-    output->Add(results);
   }
 
   if (output) {
-    output->Add(sigBg);
+    if (sigBg) output->Add(sigBg);
     if (bg) output->Add(bg);
     if (hBgNorm) output->Add(hBgNorm);
-    output->Add(hPeak);
-  }
-  else {
-    delete hPeak;
-    delete hBgNorm;
+    if (hPeak) output->Add(hPeak);
+    if (results) output->Add(results);
   }
 
-  return true;
+  if (!accepted) {
+    NLogger::Warning("Signal extraction was not fully successful");
+    ResetHistograms(output);
+  }
+
+  return accepted;
+}
+
+void AnalysisUtils::ResetHistograms(TList * list)
+{
+  ///
+  /// Reset histograms in the list
+  ///
+
+  if (!list) return;
+  TIter next(list);
+  TH1 * h = nullptr;
+  while ((h = dynamic_cast<TH1 *>(next()))) {
+    h->Reset();
+  }
 }
 } // namespace Ndmspc

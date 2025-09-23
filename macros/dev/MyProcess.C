@@ -58,15 +58,5 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
 
   // hSigBg->Print();
   bool rc = Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, peakFunc, cfg, output, results);
-  // if (!rc) {
-  //   Ndmspc::NLogger::Error("Failed to extract signal !!!");
-  //   delete hSigBg;
-  //   delete hBg;
-  //   delete peakFunc;
-  //   delete results;
-  //   output->Clear("C");
-  //   return;
-  // }
-
-  // delete peakFunc;
+  // if (!rc) Ndmspc::AnalysisUtils::ResetHistograms(output);
 };

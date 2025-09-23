@@ -9,7 +9,8 @@
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NConfig.h"
-void NCernStaff(int nThreads = 1, std::string outFile = "", std::string filename = "cernstaff.root")
+void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.root",
+                std::string filename = "cernstaff.root")
 {
   std::string fn = filename;
   if (gSystem->AccessPathName(fn.c_str())) {
@@ -43,10 +44,10 @@ void NCernStaff(int nThreads = 1, std::string outFile = "", std::string filename
   b["Division"] = {{1}};
   hnsb->GetBinning()->AddBinningDefinition("default", b);
 
-  std::map<std::string, std::vector<std::vector<int>>> b2;
-  b2["Flag"]     = {{1}};
-  b2["Division"] = {{1}};
-  hnsb->GetBinning()->AddBinningDefinition("b2", b2);
+  // std::map<std::string, std::vector<std::vector<int>>> b2;
+  // b2["Flag"]     = {{1}};
+  // b2["Division"] = {{1}};
+  // hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
   // Print the sparse object
   hnsb->Print();
@@ -146,6 +147,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "", std::string filename
   // rc = hnsb->Process(processFunc, cfg, "default");
   // rc = hnsb->Process(processFunc, cfg, "b2");
   hnsb->GetBinning()->SetCurrentDefinitionName("default");
+  // hnsb->Print();
 
   if (rc) {
     Ndmspc::NLogger::Info("Processing completed successfully.");
@@ -156,23 +158,21 @@ void NCernStaff(int nThreads = 1, std::string outFile = "", std::string filename
     hnsb->Close(false);
   }
 
-  // fTreeStorage->Close(true, fBinning); // Close the storage tree and write to file
-
   // return;
-  TCanvas * c1 = new TCanvas("c1", "c1", 800, 600);
-  c1->Divide(2, 1);
-  TH1 * htest = (TH1 *)hnsb->GetOutput("default")->FindObject("test");
-  if (htest) {
-    // htest->Print();
-    c1->cd(1);
-    htest->DrawCopy();
-  }
-  TH1 * htestb2 = (TH1 *)hnsb->GetOutput("b2")->FindObject("test");
-  if (htestb2) {
-    // htestb2->Print();
-    c1->cd(2);
-    htestb2->DrawCopy();
-  }
+  // TCanvas * c1 = new TCanvas("c1", "c1", 800, 600);
+  // c1->Divide(2, 1);
+  // TH1 * htest = (TH1 *)hnsb->GetOutput("default")->FindObject("test");
+  // if (htest) {
+  //   // htest->Print();
+  //   c1->cd(1);
+  //   htest->DrawCopy();
+  // }
+  // TH1 * htestb2 = (TH1 *)hnsb->GetOutput("b2")->FindObject("test");
+  // if (htestb2) {
+  //   // htestb2->Print();
+  //   c1->cd(2);
+  //   htestb2->DrawCopy();
+  // }
 
   // Clean up
   delete hnsb;

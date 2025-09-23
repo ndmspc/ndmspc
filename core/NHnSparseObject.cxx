@@ -270,11 +270,11 @@ void NHnSparseObject::SetParameter(const std::string & name, double value, int i
   ///
   if (!std::isnan(value)) {
     if (fParameterContentMap.find(name) == fParameterContentMap.end() || fParameterContentMap[name].size() < fNCells) {
-      NLogger::Debug("NHnSparseObject::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
+      NLogger::Trace("NHnSparseObject::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
                      fNCells);
       ResizeParameterContentMap(name, fNCells);
     }
-    NLogger::Debug("NHnSparseObject::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
+    NLogger::Trace("NHnSparseObject::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
                    fParameterContentMap[name].size());
     if (index < 0) {
       fParameterContentMap[name].push_back(value);
@@ -293,7 +293,7 @@ NHnSparseObject * NHnSparseObject::GetChild(int index) const
   ///
   /// Returns child object at given index
   ///
-  NLogger::Debug("XXXX NHnSparseObject::GetChild: index=%d, size=%zu", index, fChildren.size());
+  // NLogger::Debug("NHnSparseObject::GetChild: index=%d, size=%zu", index, fChildren.size());
   return (index >= 0 && index < fChildren.size()) ? fChildren[index] : nullptr;
 }
 void NHnSparseObject::SetChild(NHnSparseObject * child, int index)
@@ -365,7 +365,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
   std::string name        = hns->GetName();
   std::string title       = hns->GetTitle();
   int         nDimensions = hns->GetNdimensions();
-  NLogger::Debug("ExportJson : %s [%dD]", title.c_str(), nDimensions);
+  NLogger::Debug("ExportJson : Exporting '%s' [%dD] (might take some time) ...", title.c_str(), nDimensions);
 
   if (obj->GetChildren().empty()) {
     return;
@@ -425,7 +425,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
 
     for (size_t i = 0; i < val.size(); i++) {
       TObject * objContent = val[i];
-      if (objContent) objContent->Print();
+      // if (objContent) objContent->Print();
 
       json objJson = json::parse(TBufferJSON::ConvertToJSON(objContent).Data());
 
@@ -483,7 +483,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
         min                            = TMath::Min(min, param);
         max                            = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
-        NLogger::Debug("NHnSparseObject::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
+        // NLogger::Debug("NHnSparseObject::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
         // entries += 1.0;
       }
       else {
@@ -502,7 +502,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
       j["fArrays"][key]["max"] = max;
     }
     // j["ndmspc"][key]["fEntries"] = entries;
-    NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
   }
 
   double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
@@ -557,7 +557,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
   }
 
   if (obj->GetParent() == nullptr) {
-    NLogger::Debug("NHnSparseObject::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
+    // NLogger::Debug("NHnSparseObject::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
     int i = -1;
     for (const auto & child : j["children"]["content"]) {
       i++;
