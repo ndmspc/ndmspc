@@ -1013,6 +1013,7 @@ NBinningPoint * NBinning::GetPoint()
   ///
   /// Return binning point
   ///
+
   if (fPoint == nullptr) {
     fPoint = new NBinningPoint(this);
   }
