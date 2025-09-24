@@ -25,9 +25,10 @@ class NHnSparseBase : public TObject {
 
   virtual void Print(Option_t * option = "") const override;
 
-  NBinning *     GetBinning() const { return fBinning; }
-  NStorageTree * GetStorageTree() const { return fTreeStorage; }
-  TList *        GetOutput(std::string name = "");
+  NBinning *                     GetBinning() const { return fBinning; }
+  NStorageTree *                 GetStorageTree() const { return fTreeStorage; }
+  std::map<std::string, TList *> GetOutputs() const { return fOutputs; }
+  TList *                        GetOutput(std::string name = "");
 
   Long64_t GetEntries() const { return fTreeStorage ? fTreeStorage->GetEntries() : 0; }
   Int_t    GetEntry(Long64_t entry);

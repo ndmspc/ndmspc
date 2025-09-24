@@ -21,6 +21,7 @@ class NStorageTree : public TObject {
   virtual ~NStorageTree();
 
   virtual void Print(Option_t * option = "") const;
+  virtual void Clear(Option_t * option = "");
 
   /// Tree handling
   bool     SetFileTree(TFile * file, TTree * tree, bool force);
@@ -30,7 +31,7 @@ class NStorageTree : public TObject {
   // Int_t    Fill(NBinningPoint * point);
   Int_t Fill(NBinningPoint * point, NStorageTree * hnstIn = nullptr, std::vector<std::vector<int>> ranges = {},
              bool useProjection = false);
-  bool  Close(bool write = false);
+  bool  Close(bool write = false, std::map<std::string, TList *> outputs = {});
 
   Long64_t Merge(TCollection * list);
 

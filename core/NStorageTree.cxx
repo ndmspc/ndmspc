@@ -27,6 +27,28 @@ NStorageTree::~NStorageTree()
   ///
 }
 
+void NStorageTree::Clear(Option_t * option)
+{
+  ///
+  /// Clear object
+  ///
+  TString opt(option);
+  opt.ToUpper();
+
+  if (opt.Contains("F")) {
+    if (fFile) {
+      fFile->Close();
+      delete fFile;
+      fFile = nullptr;
+    }
+    fTree = nullptr;
+  }
+  fBranchesMap.clear();
+  fFileName = "hnst.root";
+  fPrefix.clear();
+  fPostfix.clear();
+}
+
 void NStorageTree::Print(Option_t * option) const
 {
   ///
@@ -195,6 +217,11 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vect
   // Filling entry to tree
   Int_t nBytes = fTree->Fill();
   NLogger::Trace("NStorageTree::Fill: Filled entry %lld -> tree entries=%lld %d", bin, fTree->GetEntries(), nBytes);
+
+  if (fFile && nBytes <= 0) {
+    NLogger::Error("NStorageTree::Fill: Failed to fill tree '%s' in file '%s' !!!", fTree->GetName(), fFile->GetName());
+    return -3;
+  }
   NLogger::Debug("[entry=%lld] Bytes written : %.3f MB file='%s'", fTree->GetEntries() - 1,
                  (Double_t)nBytes / (1024 * 1024),
                  fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
@@ -202,11 +229,16 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vect
   return nBytes;
 }
 
-bool NStorageTree::Close(bool write)
+bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
 {
   ///
   /// Close
   ///
+
+  if (!fTree) {
+    NLogger::Error("NStorageTree::Close: Tree is not initialized !!!");
+    return false;
+  }
 
   TList * userInfo = fTree->GetUserInfo();
   if (fBinning) {
@@ -224,6 +256,19 @@ bool NStorageTree::Close(bool write)
     if (fFile) {
       fFile->cd();
       fTree->Write("", TObject::kOverwrite);
+
+      fFile->mkdir("outputs");
+      TDirectory * dir = fFile->GetDirectory("outputs");
+      dir->cd();
+      for (auto & kv : outputs) {
+        if (kv.second && !kv.second->IsEmpty()) {
+
+          kv.second->Write(kv.first.c_str(), TObject::kSingleKey);
+          NLogger::Info("Output list '%s' with %d objects was written to file '%s'", kv.first.c_str(),
+                        kv.second->GetEntries(), fFile->GetName());
+        }
+      }
+
       fFile->Close();
       NLogger::Info("Output was stored in file '%s'", fFileName.c_str());
     }
@@ -254,6 +299,7 @@ bool NStorageTree::AddBranch(const std::string & name, void * address, const std
 {
 
   if (fBranchesMap.find(name) != fBranchesMap.end()) {
+    NLogger::Warning("Branch '%s' already exists, returning existing branch ...", name.c_str());
     return fBranchesMap[name].GetBranch();
   }
 
@@ -282,9 +328,11 @@ NTreeBranch * NStorageTree::GetBranch(const std::string & name)
   // }
 
   if (fBranchesMap.find(name) == fBranchesMap.end()) {
-    // NLogger::Error("NStorageTree::GetBranch: Branch '%s' not found !!!", name.c_str());
+    NLogger::Error("NStorageTree::GetBranch: Branch '%s' not found !!!", name.c_str());
     return nullptr;
   }
+
+  // fBranchesMap[name].Print();
 
   return &fBranchesMap[name];
 }

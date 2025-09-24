@@ -42,12 +42,16 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   std::map<std::string, std::vector<std::vector<int>>> b;
   b["Nation"]   = {{1}};
   b["Division"] = {{1}};
+  // b["Flag"]     = {{1}};
+  // b["Grade"]    = {{1}};
+  // b["Step"]  = {{1}};
+
   hnsb->GetBinning()->AddBinningDefinition("default", b);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b2;
-  // b2["Flag"]     = {{1}};
-  // b2["Division"] = {{1}};
-  // hnsb->GetBinning()->AddBinningDefinition("b2", b2);
+  std::map<std::string, std::vector<std::vector<int>>> b2;
+  b2["Flag"]     = {{1}};
+  b2["Division"] = {{1}};
+  hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
   // Print the sparse object
   hnsb->Print();
@@ -69,74 +73,79 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
-    if (point) {
 
-      TH1 * h = (TH1 *)output->FindObject("test");
-      if (!h) {
-        h = new TH1F("test", "test", 10, 0, 10);
-        output->Add(h);
+    if (!point) {
+      Ndmspc::NLogger::Error("Point is nullptr !!!");
+      return;
+    }
+
+    // point->Print("");
+    // Ndmspc::NLogger::Info("Point title: %s", point->GetTitle().c_str());
+
+    TH1 * h = (TH1 *)output->FindObject("test");
+    if (!h) {
+      h = new TH1F("test", "test", 10, 0, 10);
+      output->Add(h);
+    }
+
+    h->Fill(2);
+
+    const json & cfg = point->GetCfg();
+    // std::string  opt = cfg.contains("opt") ? cfg["opt"].get<std::string>() : "";
+    // point->Print(opt.c_str());
+    std::string filename =
+        cfg.contains("input") && cfg["input"].contains("filename") ? cfg["input"]["filename"].get<std::string>() : "";
+    if (!filename.empty()) {
+      TFile * file = TFile::Open(filename.c_str());
+      if (!file || file->IsZombie()) {
+        Ndmspc::NLogger::Error("Cannot open file '%s'", filename.c_str());
+        return;
+      }
+      std::string objectName = cfg.contains("input") && cfg["input"].contains("object")
+                                   ? cfg["input"]["object"].get<std::string>()
+                                   : "hsparse";
+      THnSparse * hns        = dynamic_cast<THnSparse *>(file->Get(objectName.c_str()));
+      if (hns == nullptr) {
+        Ndmspc::NLogger::Error("Cannot open THnSparse from file '%s'", filename.c_str());
+        return;
       }
 
-      h->Fill(2);
+      // Set Range
+      Ndmspc::NUtils::SetAxisRanges(hns, point->GetBaseAxisRanges(), true);
 
-      const json & cfg = point->GetCfg();
-      std::string  opt = cfg.contains("opt") ? cfg["opt"].get<std::string>() : "";
-      point->Print(opt.c_str());
-      std::string filename =
-          cfg.contains("input") && cfg["input"].contains("filename") ? cfg["input"]["filename"].get<std::string>() : "";
-      if (!filename.empty()) {
-        TFile * file = TFile::Open(filename.c_str());
-        if (!file || file->IsZombie()) {
-          Ndmspc::NLogger::Error("Cannot open file '%s'", filename.c_str());
-          return;
-        }
-        std::string objectName = cfg.contains("input") && cfg["input"].contains("object")
-                                     ? cfg["input"]["object"].get<std::string>()
-                                     : "hsparse";
-        THnSparse * hns        = dynamic_cast<THnSparse *>(file->Get(objectName.c_str()));
-        if (hns == nullptr) {
-          Ndmspc::NLogger::Error("Cannot open THnSparse from file '%s'", filename.c_str());
-          return;
-        }
-
-        // Set Range
-        Ndmspc::NUtils::SetAxisRanges(hns, point->GetBaseAxisRanges(), true);
-
-        if (cfg.contains("sparse") && cfg["sparse"].get<bool>()) {
-          Int_t       axes[] = {1};
-          THnSparse * hsProj = hns->Projection(1, axes, "OE");
-          if (hsProj) {
-            hsProj->SetNameTitle(hns->GetName(), hns->GetTitle());
-            Ndmspc::NStorageTree * ts = point->GetTreeStorage();
-            Ndmspc::NTreeBranch *  b  = ts->GetBranch(hns->GetName());
-            if (!b) {
-              ts->AddBranch(hns->GetName(), nullptr, "THnSparseD");
-              b = ts->GetBranch(hns->GetName());
-            }
-            b->SetAddress(hsProj);
+      if (cfg.contains("sparse") && cfg["sparse"].get<bool>()) {
+        Int_t       axes[] = {1};
+        THnSparse * hsProj = hns->Projection(1, axes, "OE");
+        if (hsProj) {
+          hsProj->SetNameTitle(hns->GetName(), hns->GetTitle());
+          Ndmspc::NStorageTree * ts = point->GetTreeStorage();
+          Ndmspc::NTreeBranch *  b  = ts->GetBranch(hns->GetName());
+          if (!b) {
+            ts->AddBranch(hns->GetName(), nullptr, "THnSparseD");
+            b = ts->GetBranch(hns->GetName());
           }
-          else {
-            Ndmspc::NLogger::Error("Cannot project THnSparse from file '%s'", filename.c_str());
+          b->SetAddress(hsProj);
+        }
+        else {
+          Ndmspc::NLogger::Error("Cannot project THnSparse from file '%s'", filename.c_str());
+        }
+      }
+      else {
+        TH1 * hProj = hns->Projection(0);
+        if (hProj) {
+          hProj->SetTitle(point->GetTitle().c_str());
+
+          if (hProj->GetEntries() >= 0) {
+            // Ndmspc::NLogger::Info("[%d] %s", threadId, hProj->GetTitle());
+            outputPoint->Add(hProj);
+            // outputPoint->Print();
           }
         }
         else {
-
-          TH1 * hProj = hns->Projection(0);
-          if (hProj) {
-            hProj->SetTitle(point->GetTitle().c_str());
-
-            if (hProj->GetEntries() >= 0) {
-              Ndmspc::NLogger::Info("%s", hProj->GetTitle());
-              outputPoint->Add(hProj);
-              outputPoint->Print();
-            }
-          }
-          else {
-            Ndmspc::NLogger::Error("Cannot project THnSparse from file '%s'", filename.c_str());
-          }
+          Ndmspc::NLogger::Error("Cannot project THnSparse from file '%s'", filename.c_str());
         }
-        file->Close();
       }
+      file->Close();
     }
     // gSystem->Sleep(100); // Simulate some processing time
   };
