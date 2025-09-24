@@ -24,6 +24,7 @@ class NHnSparseBase : public TObject {
   virtual ~NHnSparseBase();
 
   virtual void Print(Option_t * option = "") const override;
+  void         Play(int timeout = 0, std::string binning = "", Option_t * option = "");
 
   NBinning *                     GetBinning() const { return fBinning; }
   NStorageTree *                 GetStorageTree() const { return fTreeStorage; }
@@ -35,8 +36,8 @@ class NHnSparseBase : public TObject {
   bool     Close(bool write = false);
 
   bool Process(NHnSparseProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "");
-  bool Process(NHnSparseProcessFuncPtr func, std::vector<int> mins, std::vector<int> maxs,
-               NBinningDef * binningDef = nullptr, const json & cfg = json::object());
+  bool Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
+               const json & cfg = json::object());
 
   static NHnSparseBase * Open(const std::string & filename, const std::string & branches = "",
                               const std::string & treename = "hnst");

@@ -321,18 +321,10 @@ NTreeBranch * NStorageTree::GetBranch(const std::string & name)
     return nullptr;
   }
 
-  // Print all branches
-  // for (const auto & kv : fBranchesMap) {
-  //   NLogger::Debug("NStorageTree::GetBranch: Branch '%s' : %s", kv.first.c_str(), kv.second.GetBranchStatus() ?
-  //   "enabled" : "disabled");
-  // }
-
   if (fBranchesMap.find(name) == fBranchesMap.end()) {
-    NLogger::Error("NStorageTree::GetBranch: Branch '%s' not found !!!", name.c_str());
+    // NLogger::Error("NStorageTree::GetBranch: Branch '%s' not found !!!", name.c_str());
     return nullptr;
   }
-
-  // fBranchesMap[name].Print();
 
   return &fBranchesMap[name];
 }
