@@ -5,7 +5,6 @@
 #include <sstream>
 #include "THnSparse.h"
 #include "NLogger.h"
-#include "RtypesCore.h"
 #include "NUtils.h"
 
 using std::ifstream;

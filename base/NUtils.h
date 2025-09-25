@@ -1,6 +1,8 @@
 #ifndef NdmspcCoreNUtils_H
 #define NdmspcCoreNUtils_H
 
+#include <set>
+#include <vector>
 #include <TFile.h>
 #include <TAxis.h>
 #include <TMacro.h>
@@ -8,9 +10,6 @@
 #include <TH3.h>
 #include <THnSparse.h>
 #include <nlohmann/json.hpp>
-#include <set>
-#include <vector>
-#include "RtypesCore.h"
 using json = nlohmann::json;
 
 namespace Ndmspc {

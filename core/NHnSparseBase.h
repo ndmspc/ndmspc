@@ -24,7 +24,7 @@ class NHnSparseBase : public TObject {
   virtual ~NHnSparseBase();
 
   virtual void Print(Option_t * option = "") const override;
-  void         Play(int timeout = 0, std::string binning = "", Option_t * option = "");
+  void         Play(int timeout = 0, std::string binning = "", Option_t * option = "", std::string ws = "");
 
   NBinning *                     GetBinning() const { return fBinning; }
   NStorageTree *                 GetStorageTree() const { return fTreeStorage; }
