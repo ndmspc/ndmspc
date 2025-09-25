@@ -10,6 +10,7 @@ set(MY_INCLUDE_DIRS
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/base
+  ${CMAKE_SOURCE_DIR}/http
   ${CMAKE_SOURCE_DIR}/core
 )
 set(MY_EXTERNAL_LIBS
@@ -22,15 +23,14 @@ set(MY_EXTERNAL_LIBS
   ${LIBWEBSOCKETS_LIBRARIES}
   # nlohmann_json::nlohmann_json
   NdmspcBase
+  NdmspcHttp
   NdmspcCore
 )
-# include_directories(${MY_INCLUDE_DIRS})
-#
-#
 file(COPY ${CMAKE_SOURCE_DIR}/macros/test/cernstaff.root
 DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
 )
 add_executable(test_NHnSparseBase test_NHnSparseBase.cxx)
-target_link_libraries(test_NHnSparseBase gtest_main ${MY_EXTERNAL_LIBS})
 target_include_directories(test_NHnSparseBase PRIVATE ${MY_INCLUDE_DIRS})
+target_link_directories(test_NHnSparseBase PRIVATE ${ROOT_LIBRARY_DIR})
+target_link_libraries(test_NHnSparseBase gtest_main ${MY_EXTERNAL_LIBS})
 add_test(NAME NHnSparseBaseTest COMMAND test_NHnSparseBase)

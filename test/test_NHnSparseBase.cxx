@@ -1,6 +1,7 @@
 
 #include <gtest/gtest.h>
 #include <TFile.h>
+#include <THnSparse.h>
 #include "NHnSparseBase.h"
 
 class NHnSparseBaseTest : public ::testing::Test {

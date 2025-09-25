@@ -10,6 +10,7 @@
 #include <TMap.h>
 #include <TObjString.h>
 #include <TTree.h>
+#include <TBufferJSON.h>
 #include "NBinning.h"
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
@@ -18,7 +19,7 @@
 #include "NTreeBranch.h"
 #include "NUtils.h"
 #include "NStorageTree.h"
-#include "RtypesCore.h"
+#include "NWsClient.h"
 #include "NHnSparseBase.h"
 
 /// \cond CLASSIMP
@@ -421,13 +422,25 @@ Int_t NHnSparseBase::GetEntry(Long64_t entry)
   return fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()));
 }
 
-void NHnSparseBase::Play(int timeout, std::string binning, Option_t * option)
+void NHnSparseBase::Play(int timeout, std::string binning, Option_t * option, std::string ws)
 {
   ///
   /// Play the tree
   ///
   TString opt = option;
   opt.ToUpper();
+
+  Ndmspc::NWsClient * client = nullptr;
+
+  if (!ws.empty()) {
+    client = new Ndmspc::NWsClient();
+    if (!client->Connect(ws)) {
+      Ndmspc::NLogger::Error("Failed to connect to '%s' !!!", ws.c_str());
+      return;
+    }
+    Ndmspc::NLogger::Info("Connected to %s", ws.c_str());
+  }
+
   if (binning.empty()) {
     binning = fBinning->GetCurrentDefinitionName();
   }
@@ -445,7 +458,8 @@ void NHnSparseBase::Play(int timeout, std::string binning, Option_t * option)
     return;
   }
 
-  TCanvas * c1 = new TCanvas("c1", "NHnSparseBase::Play", 800, 600);
+  TCanvas * c1 = nullptr;
+  if (!client) c1 = new TCanvas("c1", "NHnSparseBase::Play", 800, 600);
   binningDef->Print();
   std::vector<Long64_t> ids = binningDef->GetIds();
   // loop over all ids and print them
@@ -461,11 +475,24 @@ void NHnSparseBase::Play(int timeout, std::string binning, Option_t * option)
       NLogger::Info("Output for entry %lld:", id);
       l->Print(opt.Data());
       TH1 * h = (TH1 *)l->At(0);
-      if (h) h->Draw();
+      if (client) {
+        std::string msg = TBufferJSON::ConvertToJSON(l).Data();
+        if (!client->Send(msg)) {
+          Ndmspc::NLogger::Error("Failed to send message `%s`", msg.c_str());
+        }
+        else {
+          Ndmspc::NLogger::Trace("Sent: %s", msg.c_str());
+        }
+      }
+      else {
+
+        if (h) h->Draw();
+      }
     }
-    c1->ModifiedUpdate();
+    if (c1) c1->ModifiedUpdate();
     if (timeout > 0) gSystem->Sleep(timeout);
   }
+  if (client) client->Disconnect();
 }
 
 } // namespace Ndmspc

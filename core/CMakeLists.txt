@@ -8,6 +8,7 @@ set(MY_INCLUDE_DIRS
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/base
+  ${CMAKE_SOURCE_DIR}/http
 )
 set(MY_EXTERNAL_LIBS
   ${OPENTELEMETRY_CPP_LIBRARIES}
@@ -15,7 +16,9 @@ set(MY_EXTERNAL_LIBS
   ${OpenSSL_LIBRARIES}
   ${LIBWEBSOCKETS_LIBRARIES}
   #  nlohmann_json::nlohmann_json
+  # RHTTP
   NdmspcBase
+  NdmspcHttp
 )
 include_directories(${MY_INCLUDE_DIRS})
 RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
