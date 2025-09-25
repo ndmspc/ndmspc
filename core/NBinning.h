@@ -61,16 +61,17 @@ class NBinning : public TObject {
   bool SetAxisType(int id, AxisType type);
 
   /// Returns the mapping histogram
-  THnSparse *              GetMap() const { return fMap; }
-  THnSparse *              GetContent() const { return fContent; }
-  std::vector<TAxis *>     GetAxes() const { return fAxes; }
-  std::vector<TAxis *>     GetAxesByType(AxisType type) const;
-  Binning                  GetBinningType(int i) const;
-  AxisType                 GetAxisType(int i) const;
-  char                     GetAxisTypeChar(int i) const;
-  NBinningDef *            GetDefinition(const std::string & name = "");
-  std::vector<std::string> GetDefinitionNames() const { return fDefinitionNames; }
-  std::string              GetCurrentDefinitionName() const { return fCurrentDefinitionName; }
+  THnSparse *                          GetMap() const { return fMap; }
+  THnSparse *                          GetContent() const { return fContent; }
+  std::vector<TAxis *>                 GetAxes() const { return fAxes; }
+  std::vector<TAxis *>                 GetAxesByType(AxisType type) const;
+  Binning                              GetBinningType(int i) const;
+  AxisType                             GetAxisType(int i) const;
+  char                                 GetAxisTypeChar(int i) const;
+  NBinningDef *                        GetDefinition(const std::string & name = "");
+  std::map<std::string, NBinningDef *> GetDefinitions() const { return fDefinitions; }
+  std::vector<std::string>             GetDefinitionNames() const { return fDefinitionNames; }
+  std::string                          GetCurrentDefinitionName() const { return fCurrentDefinitionName; }
   // TODO: update point with current definition
   void SetCurrentDefinitionName(const std::string & name);
 

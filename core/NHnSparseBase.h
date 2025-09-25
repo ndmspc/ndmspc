@@ -32,7 +32,7 @@ class NHnSparseBase : public TObject {
   TList *                        GetOutput(std::string name = "");
 
   Long64_t GetEntries() const { return fTreeStorage ? fTreeStorage->GetEntries() : 0; }
-  Int_t    GetEntry(Long64_t entry);
+  Int_t    GetEntry(Long64_t entry, bool checkBinningDef = true);
   bool     Close(bool write = false);
 
   bool Process(NHnSparseProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "");

@@ -101,9 +101,13 @@ void NHnSparseThreadData::Process(const std::vector<int> & coords)
     fBiningSource->GetContent()->GetBinContent(
         entry,
         fHnSparseBase->GetBinning()->GetPoint()->GetCoords()); // Get the bin content for the given entry
+    fHnSparseBase->GetBinning()->GetPoint()->RecalculateStorageCoords(entry, false);
+  }
+  else {
+    NLogger::Error("NHnSparseThreadData::Process: Binning definition is not set in NHnSparseBase !!!");
+    return;
   }
   // return;
-  fHnSparseBase->GetBinning()->GetPoint()->RecalculateStorageCoords();
   // fHnSparseBase->GetBinning()->GetPoint()->Print();
 
   TList * outputPoint = new TList();

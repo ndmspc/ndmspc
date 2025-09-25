@@ -1039,8 +1039,18 @@ NBinningPoint * NBinning::GetPoint(int id, std::string binning)
   }
 
   Long64_t linBin = def->GetId(id);
+  if (linBin < 0) {
+    NLogger::Error("NBinning::GetPoint: Invalid linear bin %lld for id=%d in definition '%s'", linBin, id,
+                   binning.c_str());
+    return nullptr;
+  }
+  if (linBin >= fContent->GetNbins()) {
+    NLogger::Error("NBinning::GetPoint: Linear bin %lld out of range [0,%lld) for id=%d in definition '%s'", linBin,
+                   fContent->GetNbins(), id, binning.c_str());
+    return nullptr;
+  }
   fContent->GetBinContent(linBin, fPoint->GetCoords());
-  fPoint->RecalculateStorageCoords();
+  fPoint->RecalculateStorageCoords(linBin);
 
   return fPoint;
 }
@@ -1072,7 +1082,7 @@ void NBinning::SetCurrentDefinitionName(const std::string & name)
 
   // check if name is already current
   if (fCurrentDefinitionName.compare(name) == 0) {
-    NLogger::Info("Binning definition '%s' is already current", name.c_str());
+    NLogger::Trace("Binning definition '%s' is already current", name.c_str());
     return;
   }
 
@@ -1080,7 +1090,10 @@ void NBinning::SetCurrentDefinitionName(const std::string & name)
   fCurrentDefinitionName = name;
 
   // Reset Point
-  GetPoint()->Reset();
+  if (fPoint != nullptr) {
+    fPoint = new NBinningPoint(this);
+  }
+  fPoint->Reset();
 }
 
 } // namespace Ndmspc

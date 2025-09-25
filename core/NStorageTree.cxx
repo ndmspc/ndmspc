@@ -130,7 +130,7 @@ bool NStorageTree::SetFileTree(TFile * file, TTree * tree, bool force)
   return true;
 }
 
-Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point)
+Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool checkBinningDef)
 {
   ///
   /// Get entry
@@ -140,11 +140,22 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point)
   // fTree->Print();
   // Print warning if entry is out of bounds and return 0
   if (entry < 0 || entry >= fTree->GetEntries()) {
-    NLogger::Warning("Entry %lld is out of bounds [0, %lld). Reading 0 bytes and objects remain from last valid entry.",
+    NLogger::Warning("Entry %lld is out of bounds [0, %lld]. Reading 0 bytes and objects remain from last valid entry.",
                      entry, fTree->GetEntries() - 1);
+    fBinning->GetPoint()->Reset();
     return 0;
   }
 
+  if (point) {
+    if (!point->SetPointContentFromLinearIndex(entry, checkBinningDef)) {
+      NLogger::Error("NStorageTree::GetEntry: Cannot set point content from linear index %lld !!!", entry);
+      return 0;
+    }
+  }
+  else {
+    NLogger::Warning("NStorageTree::GetEntry: Binning point is nullptr, cannot set point content !!!");
+    return 0;
+  }
   Long64_t bytessum = 0;
 
   for (auto & kv : fBranchesMap) {
@@ -160,12 +171,6 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point)
     }
     bytessum += kv.second.GetEntry(fTree, entry);
   }
-  // TODO: Need to set the point data from the binning content
-  // Int_t * point = new Int_t[fBinning->GetContent()->GetNdimensions()];
-  // fBinning->GetContent()->GetBinContent(entry, point);
-  // fPointData->SetPointContent(NUtils::ArrayToVector(point, fBinning->GetContent()->GetNdimensions()));
-  // delete[] point;
-  if (point) point->SetPointContentFromLinearIndex(entry);
 
   // Print byte sum
   NLogger::Debug("[entry=%lld] Bytes read : %.3f MB file='%s'", entry, (double)bytessum / (1024 * 1024),

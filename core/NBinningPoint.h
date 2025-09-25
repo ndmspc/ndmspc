@@ -22,16 +22,14 @@ class NBinningPoint : public TObject {
   virtual void Print(Option_t * option = "") const;
   virtual void Reset();
 
-  Int_t   GetNDimensions() const { return fNDimensions; }
-  Int_t * GetCoords() const { return fContentCoords; }
-  void    RecalculateStorageCoords();
+  Int_t    GetNDimensions() const { return fNDimensions; }
+  Int_t *  GetCoords() const { return fContentCoords; }
+  bool     RecalculateStorageCoords(Long64_t entry = -1, bool useBinningDefCheck = false);
+  bool     SetPointContentFromLinearIndex(Long64_t linBin, bool checkBinningDef = false);
+  Long64_t Fill();
 
   json & GetCfg() { return fCfg; }
   void   SetCfg(const json & cfg) { fCfg = cfg; }
-
-  Long64_t Fill();
-
-  bool SetPointContentFromLinearIndex(Long64_t linBin);
 
   std::map<int, std::vector<int>> GetBaseAxisRanges() const;
   std::string                     GetTitle(const std::string & prefix = "") const;
@@ -40,6 +38,7 @@ class NBinningPoint : public TObject {
   void           SetBinning(NBinning * b);
   NStorageTree * GetTreeStorage() const { return fTreeStorage; }
   void           SetTreeStorage(NStorageTree * s) { fTreeStorage = s; }
+  void           SetEntry(Long64_t entry) { fEntry = entry; }
 
   private:
   json                     fCfg{};                  ///< Configuration object
@@ -54,6 +53,7 @@ class NBinningPoint : public TObject {
   Int_t *                  fBaseBinMin{nullptr};    ///< Base bin minimum (for variable binning)
   Int_t *                  fBaseBinMax{nullptr};    ///< Base bin maximum (for variable binning)
   std::vector<std::string> fLabels{};               ///< Labels for each axis
+  Long64_t                 fEntry{-1};              ///< Entry in the storage tree
 
   /// \cond CLASSIMP
   ClassDef(NBinningPoint, 1);
