@@ -1,6 +1,8 @@
 #include <vector>
 #include <TAxis.h>
+#include "NBinningDef.h"
 #include "NLogger.h"
+#include "NStorageTree.h"
 #include "NUtils.h"
 #include "NBinning.h"
 #include "NBinningPoint.h"
@@ -54,21 +56,25 @@ void NBinningPoint::Reset()
   ///
   /// Reset the point coordinates
   ///
+
+  NLogger::Trace("NBinningPoint::Reset: Resetting point ...");
+
   if (fContentNDimensions <= 0 || fNDimensions <= 0 || fContentCoords == nullptr) {
     NLogger::Error("NBinningPoint::Reset: Invalid dimensions or coordinates");
     return;
   }
   for (Int_t i = 0; i < fContentNDimensions; ++i) {
-    fContentCoords[i] = 0;
+    fContentCoords[i] = -1;
   }
   for (Int_t i = 0; i < fNDimensions; ++i) {
-    fStorageCoords[i] = 0;
-    fMins[i]          = 0;
-    fMaxs[i]          = 0;
-    fBaseBinMin[i]    = 0;
-    fBaseBinMax[i]    = 0;
+    fStorageCoords[i] = -1;
+    fMins[i]          = -1;
+    fMaxs[i]          = -1;
+    fBaseBinMin[i]    = -1;
+    fBaseBinMax[i]    = -1;
     fLabels[i]        = "";
   }
+  fEntry = -1;
 }
 
 void NBinningPoint::Print(Option_t * option) const
@@ -94,7 +100,7 @@ void NBinningPoint::Print(Option_t * option) const
   }
 }
 
-void NBinningPoint::RecalculateStorageCoords()
+bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefCheck)
 {
   ///
   /// Recalculate storage coordinates based on content coordinates
@@ -102,35 +108,68 @@ void NBinningPoint::RecalculateStorageCoords()
 
   if (fBinning == nullptr || fBinning->GetContent() == nullptr) {
     NLogger::Error("NBinningPoint::RecalculateStorageCoords: Binning or content is nullptr");
-    return;
+    return false;
   }
 
+  fEntry                                   = entry;
   std::vector<int>              contentVec = NUtils::ArrayToVector(fContentCoords, fContentNDimensions);
   std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(contentVec);
   // for (size_t i = 0; i < axisRanges.size(); i++) {
   //   NLogger::Debug("Axis %zu: %s", i, NUtils::GetCoordsString(axisRanges[i], -1).c_str());
   // }
-  for (Int_t i = 0; i < fNDimensions; ++i) {
-    // fStorageCoords[i] = fBinning->GetAxes()[i]->FindBin(fContentCoords[i]);
-    //   std::string rangeStr = NUtils::GetCoordsString(axisRanges[i], -1);
-    TAxis * axis        = fBinning->GetAxes()[i];
-    TAxis * axisStorage = (TAxis *)fBinning->GetDefinition()->GetAxes()->At(i);
-    // NLogger::Debug("XXXXX Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axis->GetName(),
-    //                axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
-    // NLogger::Debug("XXXXX AxisStorage %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
-    // axisStorage->GetName(),
-    //                axisStorage->GetTitle(), axisStorage->GetNbins(), axisStorage->GetXmin(), axisStorage->GetXmax());
-    //
-    fBaseBinMin[i] = axisRanges[i][1];
-    fBaseBinMax[i] = axisRanges[i][2];
-    fMins[i]       = axis->GetBinLowEdge(axisRanges[i][1]);
-    fMaxs[i]       = axis->GetBinUpEdge(axisRanges[i][2]);
-    fLabels[i]     = axis->GetBinLabel(i + 1);
-    // NLogger::Debug("XXXXX Axis %d: min=%.3f max=%.3f label='%s' %d %d", i, fMins[i], fMaxs[i], fLabels[i].c_str(),
-    //                axis->GetNbins(), axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0));
-    fStorageCoords[i] = axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0);
-    // NLogger::Debug("  Storage bin: %d", fStorageCoords[i]);
+  NBinningDef * binDef = fBinning->GetDefinition();
+  if (binDef == nullptr) {
+    NLogger::Error("NBinningPoint::RecalculateStorageCoords: Binning definition is nullptr");
+    return false;
   }
+  std::vector<Long64_t> ids = binDef->GetIds();
+
+  // useBinningDefCheck = false;
+  if (useBinningDefCheck) {
+    if (fTreeStorage == nullptr) {
+      NLogger::Error("NBinningPoint::RecalculateStorageCoords: Storage tree is nullptr !!! Skipping check ...");
+    }
+    else {
+      if (std::find(ids.begin(), ids.end(), fEntry) == ids.end() && fEntry >= 0 &&
+          fEntry < fTreeStorage->GetEntries()) {
+        NLogger::Error("NBinningPoint::RecalculateStorageCoords: Entry %lld not found in binning definition '%s' !!!",
+                       fEntry, fBinning->GetCurrentDefinitionName().c_str());
+
+        // loop over all available definitions and print their ids
+        NLogger::Error("Available binning definitions for entry=%lld :", fEntry);
+        std::string firstDefName;
+        for (const auto & kv : fBinning->GetDefinitions()) {
+          NBinningDef * def = kv.second;
+          if (def == nullptr) continue;
+          std::vector<Long64_t> defIds = def->GetIds();
+          if (std::find(defIds.begin(), defIds.end(), fEntry) != defIds.end()) {
+            if (firstDefName.empty()) firstDefName = kv.first;
+            NLogger::Error("  Definition '%s' size=%zu ", kv.first.c_str(), defIds.size());
+          }
+        }
+
+        NLogger::Error(
+            "One can set definition via 'NBinning::SetCurrentDefinitionName(\"%s\")' before calling 'GetEntry(%lld)'",
+            firstDefName.c_str(), fEntry);
+        Reset();
+        return false;
+      }
+    }
+  }
+
+  // binDef->Print();
+  for (Int_t i = 0; i < fNDimensions; ++i) {
+    TAxis * axis        = fBinning->GetAxes()[i];
+    TAxis * axisStorage = (TAxis *)binDef->GetAxes()->At(i);
+    fBaseBinMin[i]      = axisRanges[i][1];
+    fBaseBinMax[i]      = axisRanges[i][2];
+    fMins[i]            = axis->GetBinLowEdge(axisRanges[i][1]);
+    fMaxs[i]            = axis->GetBinUpEdge(axisRanges[i][2]);
+    fLabels[i]          = axis->GetBinLabel(i + 1);
+    fStorageCoords[i]   = axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0);
+  }
+
+  return true;
 }
 
 std::map<int, std::vector<int>> NBinningPoint::GetBaseAxisRanges() const
@@ -194,7 +233,7 @@ Long64_t NBinningPoint::Fill()
   return bin;
 }
 
-bool NBinningPoint::SetPointContentFromLinearIndex(Long64_t linBin)
+bool NBinningPoint::SetPointContentFromLinearIndex(Long64_t linBin, bool checkBinningDef)
 {
   ///
   /// Set point content coordinates from linear index
@@ -210,9 +249,7 @@ bool NBinningPoint::SetPointContentFromLinearIndex(Long64_t linBin)
   }
 
   fBinning->GetContent()->GetBinContent(linBin, fContentCoords);
-  RecalculateStorageCoords();
-
-  return true;
+  return RecalculateStorageCoords(linBin, checkBinningDef);
 }
 
 } // namespace Ndmspc

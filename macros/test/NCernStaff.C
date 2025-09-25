@@ -8,7 +8,6 @@
 #include "NHnSparseBase.h"
 #include "NLogger.h"
 #include "NUtils.h"
-#include "NConfig.h"
 void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.root",
                 std::string filename = "cernstaff.root")
 {

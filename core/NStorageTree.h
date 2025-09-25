@@ -27,7 +27,7 @@ class NStorageTree : public TObject {
   bool     SetFileTree(TFile * file, TTree * tree, bool force);
   bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
   Long64_t GetEntries() const { return fTree ? fTree->GetEntries() : 0; }
-  Long64_t GetEntry(Long64_t entry, NBinningPoint * point = nullptr);
+  Long64_t GetEntry(Long64_t entry, NBinningPoint * point = nullptr, bool checkBinningDef = false);
   // Int_t    Fill(NBinningPoint * point);
   Int_t Fill(NBinningPoint * point, NStorageTree * hnstIn = nullptr, std::vector<std::vector<int>> ranges = {},
              bool useProjection = false);

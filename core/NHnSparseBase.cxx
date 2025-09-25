@@ -82,6 +82,7 @@ NHnSparseBase::NHnSparseBase(NBinning * b, NStorageTree * s) : TObject(), fBinni
   //
   // TODO: Check if this is needed
   fTreeStorage->SetBinning(fBinning);
+  fBinning->GetPoint()->SetTreeStorage(fTreeStorage);
 }
 
 NHnSparseBase::~NHnSparseBase()
@@ -288,7 +289,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
           entry = binningDef->GetId(coords[0]); // Get the binning definition ID for the first axis
           // Ndmspc::NLogger::Debug("Binning definition ID: %lld", entry);
           fBinning->GetContent()->GetBinContent(entry, point->GetCoords()); // Get the bin content for the given entry
-          point->RecalculateStorageCoords();
+          point->RecalculateStorageCoords(entry, false);
         }
 
         TList * outputPoint = new TList();
@@ -409,7 +410,7 @@ bool NHnSparseBase::Close(bool write)
   return fTreeStorage->Close(write, fOutputs);
 }
 
-Int_t NHnSparseBase::GetEntry(Long64_t entry)
+Int_t NHnSparseBase::GetEntry(Long64_t entry, bool checkBinningDef)
 {
   ///
   /// Get entry
@@ -419,7 +420,7 @@ Int_t NHnSparseBase::GetEntry(Long64_t entry)
     return -1;
   }
 
-  return fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()));
+  return fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
 }
 
 void NHnSparseBase::Play(int timeout, std::string binning, Option_t * option, std::string ws)

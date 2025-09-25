@@ -1,3 +1,5 @@
 #.clangd
 CompileFlags:
-  Add: [-D__ROOTCLING__,-I/usr/include/root]
+  Add: [-D__ROOTCLING__, -I/usr/include/root]
+CompilerFlags:
+  ExcludeBuiltinHeaders: true
