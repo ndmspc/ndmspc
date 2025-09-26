@@ -74,6 +74,17 @@ NBinning::~NBinning()
   delete fMap;
   delete fContent;
 }
+void NBinning::Reset()
+{
+  ///
+  /// Reset binning
+  ///
+  fMap->Reset();
+  fContent->Reset();
+  if (fPoint != nullptr) {
+    fPoint->Reset();
+  }
+}
 
 void NBinning::Initialize()
 {

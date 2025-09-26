@@ -9,6 +9,7 @@ BEING_STRICT=false
 
 BUILDING_DOC=false
 RUNNING_TEST=false
+WITH_LEGACY=${WITH_LEGACY-false}
 
 PRINT_DEBUG=${PRINT_DEBUG-false}
 MY_CMAKE_OPTS=""
@@ -120,6 +121,10 @@ MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE}"
 if [[ $BUILDING_DOC == true ]]; then
   echo "Building with documentation"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DBUILD_DOCUMENTATION:bool=ON"
+fi
+if [[ $WITH_LEGACY == true ]]; then
+  echo "Building with legacy support"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DUSE_LEGACY:bool=ON"
 fi
 
 # MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"

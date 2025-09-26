@@ -178,8 +178,8 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool chec
   return bytessum;
 }
 
-Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vector<std::vector<int>> ranges,
-                         bool useProjection)
+Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool ignoreFilledCheck,
+                         std::vector<std::vector<int>> ranges, bool useProjection)
 {
   ///
   /// Fill Entry
@@ -201,8 +201,8 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, std::vect
     }
   }
 
-  Long64_t bin = point->Fill();
-  if (bin < 0) {
+  Long64_t bin = point->Fill(ignoreFilledCheck);
+  if (bin < 0 && ignoreFilledCheck == false) {
     NLogger::Error("NStorageTree::Fill: Failed to fill point !!!");
     return -2;
   }
@@ -421,8 +421,14 @@ Long64_t NStorageTree::Merge(TCollection * list)
   }
 
   Long64_t nmerged = list->GetEntries();
-  // NLogger::Info("Merging %d trees into tree '%s' ...", list->GetEntries(), fTree->GetName());
+  NLogger::Info("Merging %d trees into tree '%s' ...", list->GetEntries(), fTree->GetName());
   NLogger::Debug("Merging %zu objects via NStorageTree::Merge ...", list->GetEntries());
+
+  // Loop over all binning definitions in the list
+  // for (auto & kv : fBinning->GetDefinitions()) {
+  //   NLogger::Info("Merging binning definition '%s' ...", kv.first.c_str());
+  //   kv.second->GetIds().clear();
+  // }
 
   TIter          next(list);
   NStorageTree * obj     = nullptr;
@@ -479,7 +485,14 @@ Long64_t NStorageTree::Merge(TCollection * list)
         // SaveEntry();
         // fBinning->SetPoint(obj->GetBinning()->GetPoint());
         // NLogger::Info("Filling point %s ...", binCoordsStr.c_str());
-        Fill(point, obj, {}, false);
+        Fill(point, obj, true, {}, false);
+        // fill all binning definition ids when present
+        // for (auto & kv : fBinning->GetDefinitions()) {
+        //   auto binningDefIn = obj->GetBinning()->GetDefinition(kv.first);
+        //   if (binningDefIn) {
+        //     binningDefIn->GetIds().push_back(idx);
+        //   }
+        // }
       }
     }
     next.Reset(); // Reset the iterator to start from the beginning again

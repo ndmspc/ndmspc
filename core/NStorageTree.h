@@ -29,8 +29,8 @@ class NStorageTree : public TObject {
   Long64_t GetEntries() const { return fTree ? fTree->GetEntries() : 0; }
   Long64_t GetEntry(Long64_t entry, NBinningPoint * point = nullptr, bool checkBinningDef = false);
   // Int_t    Fill(NBinningPoint * point);
-  Int_t Fill(NBinningPoint * point, NStorageTree * hnstIn = nullptr, std::vector<std::vector<int>> ranges = {},
-             bool useProjection = false);
+  Int_t Fill(NBinningPoint * point, NStorageTree * hnstIn = nullptr, bool ignoreFilledCheck = false,
+             std::vector<std::vector<int>> ranges = {}, bool useProjection = false);
   bool  Close(bool write = false, std::map<std::string, TList *> outputs = {});
 
   Long64_t Merge(TCollection * list);

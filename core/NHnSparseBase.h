@@ -37,7 +37,7 @@ class NHnSparseBase : public TObject {
 
   bool Process(NHnSparseProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "");
   bool Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
-               const json & cfg = json::object());
+               const json & cfg = json::object(), NBinning * hnsbBinningIn = nullptr);
 
   static NHnSparseBase * Open(const std::string & filename, const std::string & branches = "",
                               const std::string & treename = "hnst");

@@ -26,13 +26,13 @@ class NBinningPoint : public TObject {
   Int_t *  GetCoords() const { return fContentCoords; }
   bool     RecalculateStorageCoords(Long64_t entry = -1, bool useBinningDefCheck = false);
   bool     SetPointContentFromLinearIndex(Long64_t linBin, bool checkBinningDef = false);
-  Long64_t Fill();
+  Long64_t Fill(bool ignoreFilledCheck = false);
 
   json & GetCfg() { return fCfg; }
   void   SetCfg(const json & cfg) { fCfg = cfg; }
 
   std::map<int, std::vector<int>> GetBaseAxisRanges() const;
-  std::string                     GetTitle(const std::string & prefix = "") const;
+  std::string                     GetTitle(const std::string & prefix = "", bool all = false) const;
 
   NBinning *     GetBinning() const { return fBinning; }
   void           SetBinning(NBinning * b);
