@@ -39,18 +39,18 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
 
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b;
-  b["Nation"]   = {{1}};
   b["Division"] = {{1}};
-  // b["Flag"]     = {{1}};
+  b["Flag"]     = {{1}};
   // b["Grade"]    = {{1}};
   // b["Step"]  = {{1}};
 
   hnsb->GetBinning()->AddBinningDefinition("default", b);
 
   std::map<std::string, std::vector<std::vector<int>>> b2;
-  b2["Flag"]     = {{1}};
-  b2["Division"] = {{1}};
-  hnsb->GetBinning()->AddBinningDefinition("b2", b2);
+  b2["Nation"] = {{1}};
+  // b2["Flag"] = {{1}};
+  // b2["Division"] = {{1}};
+  // hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
   // Print the sparse object
   hnsb->Print();
@@ -88,6 +88,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
     }
 
     h->Fill(2);
+    // return;
 
     const json & cfg = point->GetCfg();
     // std::string  opt = cfg.contains("opt") ? cfg["opt"].get<std::string>() : "";
@@ -132,10 +133,11 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
       else {
         TH1 * hProj = hns->Projection(0);
         if (hProj) {
-          hProj->SetTitle(point->GetTitle().c_str());
+          // Ndmspc::NLogger::Info("Got projection '%s' with %.0f entries", hProj->GetName(), hProj->GetEntries());
+          hProj->SetTitle(point->GetTitle("", false).c_str());
 
-          if (hProj->GetEntries() >= 0) {
-            // Ndmspc::NLogger::Info("[%d] %s", threadId, hProj->GetTitle());
+          if (hProj->GetEntries() > 0) {
+            Ndmspc::NLogger::Info("[%d] %s", threadId, hProj->GetTitle());
             outputPoint->Add(hProj);
             // outputPoint->Print();
           }

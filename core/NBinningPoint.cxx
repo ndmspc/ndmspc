@@ -184,7 +184,7 @@ std::map<int, std::vector<int>> NBinningPoint::GetBaseAxisRanges() const
   return axisRanges;
 }
 
-std::string NBinningPoint::GetTitle(const std::string & prefix) const
+std::string NBinningPoint::GetTitle(const std::string & prefix, bool all) const
 {
 
   ///
@@ -199,10 +199,10 @@ std::string NBinningPoint::GetTitle(const std::string & prefix) const
       continue;
     }
 
-    if (a->GetNbins() > 1) {
-      title += TString::Format("%s[%.3f,%.3f] ", a->GetName(), a->GetBinLowEdge(fBaseBinMin[i]),
-                               a->GetBinUpEdge(fBaseBinMax[i]))
-                   .Data();
+    // check type of axis
+
+    if (fBinning->GetAxisType(i) == AxisType::kVariable || all) {
+      title += TString::Format("%s[%.3f,%.3f] ", a->GetName(), fMins[i], fMaxs[i]).Data();
     }
   }
   if (title.back() == ' ') {
@@ -210,7 +210,7 @@ std::string NBinningPoint::GetTitle(const std::string & prefix) const
   }
   return title;
 }
-Long64_t NBinningPoint::Fill()
+Long64_t NBinningPoint::Fill(bool ignoreFilledCheck)
 {
   ///
   /// Fill the content histogram at the current point
@@ -222,7 +222,7 @@ Long64_t NBinningPoint::Fill()
 
   // TODO: Find more efficient way to verify if bin exists
   Long64_t bin = fBinning->GetContent()->GetBin(fContentCoords, kFALSE);
-  if (bin < 0) {
+  if (bin >= 0 && ignoreFilledCheck == false) {
     NLogger::Error("NBinningPoint::Fill: Bin for content already exists for coordinates: %s",
                    NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
     return -1;

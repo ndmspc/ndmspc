@@ -18,8 +18,8 @@ class NHnSparseThreadData : public NThreadData {
   public:
   NHnSparseThreadData();
   virtual ~NHnSparseThreadData();
-  bool Init(size_t id, NHnSparseProcessFuncPtr func, NHnSparseBase * hnsb, const std::string & filename = "",
-            const std::string & treename = "hnst");
+  bool Init(size_t id, NHnSparseProcessFuncPtr func, NHnSparseBase * hnsb, NBinning * hnsbBinningIn,
+            const std::string & filename = "", const std::string & treename = "hnst");
 
   void SetProcessFunc(NHnSparseProcessFuncPtr func) { fProcessFunc = func; }
   // void SetHnSparseBase(NHnSparseBase * hnsb) { fHnSparseBase = hnsb; }

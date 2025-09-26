@@ -20,6 +20,7 @@
 #include "NUtils.h"
 #include "NStorageTree.h"
 #include "NWsClient.h"
+#include "RtypesCore.h"
 #include "NHnSparseBase.h"
 
 /// \cond CLASSIMP
@@ -124,7 +125,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const json & cfg, std:
     return false;
   }
 
-  fBinning->SetCfg(cfg); // Set configuration to binning point
+  NBinning * hnsbBinningIn = (NBinning *)fBinning->Clone();
 
   std::vector<std::string> defNames = fBinning->GetDefinitionNames();
   if (!binningName.empty()) {
@@ -137,7 +138,9 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const json & cfg, std:
     defNames.push_back(binningName);
   }
 
-  bool rc = Process(func, defNames, cfg);
+  fBinning->Reset();
+  fBinning->SetCfg(cfg); // Set configuration to binning point
+  bool rc = Process(func, defNames, cfg, hnsbBinningIn);
   if (!rc) {
     NLogger::Error("NHnSparseBase::Process: Processing failed !!!");
     return false;
@@ -146,7 +149,8 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const json & cfg, std:
   return true;
 }
 
-bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg)
+bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg,
+                            NBinning * hnsbBinningIn)
 {
   ///
   /// Process the sparse object with the given function
@@ -176,11 +180,12 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       std::string filename =
           filePrefix + std::to_string(gSystem->GetPid()) + "_" + std::to_string(i) + "_" + fTreeStorage->GetPostfix();
-      bool rc = threadDataVector[i].Init(i, func, this, filename, fTreeStorage->GetTree()->GetName());
+      bool rc = threadDataVector[i].Init(i, func, this, hnsbBinningIn, filename, fTreeStorage->GetTree()->GetName());
       if (!rc) {
         Ndmspc::NLogger::Error("Failed to initialize thread data %zu, exiting ...", i);
         return false;
       }
+      threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCfg(cfg); // Set configuration to binning point
     }
     auto start_par = std::chrono::high_resolution_clock::now();
     auto task      = [](const std::vector<int> & coords, Ndmspc::NHnSparseThreadData & thread_obj) {
@@ -233,12 +238,13 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
     Ndmspc::NLogger::Info("Merging %zu results ...", threadDataVector.size());
     TList *                       mergeList  = new TList();
     Ndmspc::NHnSparseThreadData * outputData = new Ndmspc::NHnSparseThreadData();
-    outputData->Init(0, func, this);
-    // outputData->SetBinningDef(binningDef);
-    // outputData->InitStorage(fTreeStorage, fTreeStorage->GetFileName());
+    outputData->Init(0, func, this, hnsbBinningIn);
+    // outputData->GetHnSparseBase()->GetBinning()->SetCfg(cfg);
+    // outputData->Init(0, func, this);
 
     for (auto & data : threadDataVector) {
       Ndmspc::NLogger::Trace("Adding thread data %zu to merge list ...", data.GetAssignedIndex());
+      // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
       mergeList->Add(&data);
     }
     Long64_t nmerged = outputData->Merge(mergeList);
@@ -277,35 +283,50 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
 
       mins.push_back(0);
       maxs.push_back(binningDef->GetIds().size() - 1);
+      // binningDef->GetIds().clear();
 
       NLogger::Debug("Processing with binning definition '%s' with %zu entries", name.c_str(),
                      binningDef->GetIds().size());
       // rc = Process(func, mins, maxs, binningDef, cfg);
       // Print();
-      auto task = [this, func, binningDef](const std::vector<int> & coords) {
-        Long64_t        entry = 0;
+      std::vector<Long64_t> entries;
+      auto                  task = [this, func, binningDef, hnsbBinningIn, &entries](const std::vector<int> & coords) {
         NBinningPoint * point = fBinning->GetPoint();
-        if (binningDef) {
-          entry = binningDef->GetId(coords[0]); // Get the binning definition ID for the first axis
-          // Ndmspc::NLogger::Debug("Binning definition ID: %lld", entry);
-          fBinning->GetContent()->GetBinContent(entry, point->GetCoords()); // Get the bin content for the given entry
-          point->RecalculateStorageCoords(entry, false);
-        }
+        Long64_t        entry = binningDef->GetId(coords[0]); // Get the binning definition ID for the first axis
+        // Ndmspc::NLogger::Debug("Binning definition ID: %lld", entry);
+        hnsbBinningIn->GetContent()->GetBinContent(entry,
+                                                                    point->GetCoords()); // Get the bin content for the given entry
+        point->RecalculateStorageCoords(entry, false);
 
         TList * outputPoint = new TList();
-        func(fBinning->GetPoint(), this->GetOutput(), outputPoint, 0); // Call the lambda function
+        func(point, this->GetOutput(), outputPoint, 0); // Call the lambda function
 
-        if (!outputPoint->IsEmpty()) {
+        point->Print();
+        if (outputPoint->GetEntries() > 0) {
           fTreeStorage->GetBranch("output")->SetAddress(outputPoint); // Set the output list as branch address
-          fTreeStorage->Fill(fBinning->GetPoint(), nullptr, {}, false);
+          Int_t bytes = fTreeStorage->Fill(point, nullptr, false, {}, false);
+          if (bytes > 0) {
+            entries.push_back(fTreeStorage->GetEntries() - 1);
+          }
           outputPoint->Clear(); // Clear the list to avoid memory leaks
-        };
+        }
+        else {
+          NLogger::Trace("No output for coordinates %s", NUtils::GetCoordsString(coords).c_str());
+        }
         delete outputPoint; // Clean up the output list
       };
 
       // Main execution
       Ndmspc::NDimensionalExecutor executor(mins, maxs);
       executor.Execute(task);
+      NBinningDef * bd = fBinning->GetDefinition();
+      bd->GetIds().clear();
+      // add entries to the definition
+      for (auto e : entries) {
+        bd->GetIds().push_back(e);
+      }
+      NLogger::Debug("Filled %zu bins for definition '%s'", entries.size(),
+                     NUtils::GetCoordsString(bd->GetIds(), -1).c_str());
     }
   }
 
@@ -473,7 +494,7 @@ void NHnSparseBase::Play(int timeout, std::string binning, Option_t * option, st
       continue;
     }
     else {
-      NLogger::Info("Output for entry %lld:", id);
+      // NLogger::Info("Output for entry %lld:", id);
       l->Print(opt.Data());
       TH1 * h = (TH1 *)l->At(0);
       if (client) {

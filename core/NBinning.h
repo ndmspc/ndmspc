@@ -40,6 +40,7 @@ class NBinning : public TObject {
   virtual ~NBinning();
 
   void Initialize();
+  void Reset();
 
   virtual void                  Print(Option_t * option = "") const;
   void                          PrintContent(Option_t * option = "") const;
