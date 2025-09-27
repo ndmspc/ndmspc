@@ -403,7 +403,7 @@ void NBinning::PrintContent(Option_t * option) const
   delete[] bins;
 }
 
-Long64_t NBinning::FillAll(std::vector<Long64_t> & ids)
+Long64_t NBinning::FillAll(NBinningDef * def)
 {
   ///
   /// Fill content binnings from mapping
@@ -460,7 +460,7 @@ Long64_t NBinning::FillAll(std::vector<Long64_t> & ids)
 
   // Loop over all binning combinations
   NDimensionalExecutor executor(mins, maxs);
-  auto                 binning_task = [&content, &nBinsFilled, &ids, this](const std::vector<int> & coords) {
+  auto                 binning_task = [&content, &nBinsFilled, def, this](const std::vector<int> & coords) {
     std::vector<int> pointContentVector;
     int              iContentpoint = 0;
     // NLogger::Debug("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
@@ -480,7 +480,16 @@ Long64_t NBinning::FillAll(std::vector<Long64_t> & ids)
     Int_t pointContent[nContentDims];
     NUtils::VectorToArray(pointContentVector, pointContent);
     Long64_t pointContentBin = fContent->GetBin(pointContent);
-    ids.push_back(pointContentBin);
+
+    // ids.push_back(pointContentBin);
+    if (def) {
+      def->GetIds().push_back(pointContentBin);
+      NBinningPoint point(this);
+      fContent->GetBinContent(pointContentBin, point.GetCoords());
+      point.RecalculateStorageCoords();
+      Long64_t linBin = def->GetContent()->GetBin(point.GetStorageCoords());
+      def->GetContent()->SetBinContent(linBin, pointContentBin);
+    }
     fContent->SetBinContent(pointContentBin, 1);
     nBinsFilled++;
   };
@@ -538,7 +547,7 @@ bool NBinning::AddBinningVariable(int id, std::vector<int> mins)
   for (int i = 1; i < mins.size(); i++) {
 
     if (mins[i] < 1 || mins[i] > fAxes[id - 1]->GetNbins() + 1) {
-      NLogger::Warning("AddBinningVariable: Invalid binning value mins=%d", mins[i]);
+      // NLogger::Warning("AddBinningVariable: Invalid binning value mins=%d", mins[i]);
       return true;
     }
     // if (mins[i] == fAxes[id - 1]->GetNbins() || i == mins.size() - 1) mins[i]++;
@@ -547,13 +556,19 @@ bool NBinning::AddBinningVariable(int id, std::vector<int> mins)
       NLogger::Error("AddBinningVariable: Invalid binning value rebin=%d", rebin);
       return false;
     }
+
     int rebin_start = mins[i - 1] % rebin;
     int bin         = mins[i] / rebin;
+
+    // int rebin_start = ((mins[i - 1]) % rebin) + 1;
+    // int bin         = (mins[i] / rebin);
     if (rebin == 1) {
       rebin_start = 1;
       bin         = mins[i - 1];
     }
-    NLogger::Trace("Adding partial binning %d: %d %d %d %d", i - 1, id, rebin, rebin_start, bin);
+    // rebin_start + 1 is just that it looks better in the output
+    // NLogger::Debug("Adding partial binning %d: %d %d %d %d [%d,%d]", i - 1, id, rebin, rebin_start + 1, bin,
+    //                mins[i - 1], mins[i]);
     AddBinning(id, {rebin, rebin_start, bin}, 1);
   }
 
@@ -569,14 +584,23 @@ bool NBinning::AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widt
   // Print vector of widths
   mins.push_back(1);
   for (auto & w : widths) {
-    // NLogger::Trace("Adding binning via bin widths: %s", NUtils::GetCoordsString(w, -1).c_str());
     TAxis * axis    = fAxes[id - 1];
     int     width   = w[0];
     int     nWidths = w.size() > 1 ? w[1] : axis->GetNbins() / width;
+
+    // NLogger::Debug("  width=%d nWidths=%d last min=%d", width, nWidths, mins[mins.size() - 1]);
     for (int iWidth = 0; iWidth < nWidths; iWidth++) {
+      if (mins[mins.size() - 1] > axis->GetNbins()) {
+        // NLogger::Warning("NBinning::AddBinningViaBinWidths: Exceeding axis nbins %d", axis->GetNbins());
+        break;
+      }
       mins.push_back(mins[mins.size() - 1] + width);
+      // NLogger::Debug("  width=%d nWidths=%d iWidth=%d -> min=%d", width, nWidths, iWidth, mins[mins.size() - 1]);
     }
   }
+
+  NLogger::Trace("NBinning::AddBinningViaBinWidths: Adding binning via bin widths: %s",
+                 NUtils::GetCoordsString(mins, -1).c_str());
 
   return AddBinningVariable(id, mins);
 }
@@ -981,14 +1005,15 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   }
   NBinningDef * def = new NBinningDef(binning, this);
   fDefinitionNames.push_back(name);
-  fDefinitions[name] = def;
+  fDefinitions[name]     = def;
+  fCurrentDefinitionName = name;
   fMap->Reset();
   // loop over binning axes
   for (size_t i = 0; i < fAxes.size(); i++) {
     TAxis *     axis     = fAxes[i];
     std::string axisName = axis->GetName();
-    Ndmspc::NLogger::Debug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
-                           axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    // Ndmspc::NLogger::Debug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
+    //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     if (!binning[axisName].empty()) {
       AddBinningViaBinWidths(i + 1, binning[axisName]);
       // GetDefinition()[axisName] = binning[axisName];
@@ -1004,7 +1029,7 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   Long64_t nStart = fContent->GetNbins();
   // def->SetStartId(nStart);
   // std::vector<Long64_t> entries;
-  Long64_t nFilled = FillAll(def->GetIds());
+  Long64_t nFilled = FillAll(def);
   // def->Print();
   // NLogger::Debug("NBinning::AddBinningDefinition: Filled %lld bins for definition '%s'", nFilled,
   //                NUtils::GetCoordsString(def->GetIds(), -1).c_str());
@@ -1085,6 +1110,20 @@ void NBinning::SetCurrentDefinitionName(const std::string & name)
   ///
   /// Set current binning definition name
   ///
+  ///
+
+  if (name.empty()) {
+    if (!fDefinitionNames.empty()) {
+      fCurrentDefinitionName = fDefinitionNames[0];
+      NLogger::Info("Binning definition name='' set to first available definition '%s'",
+                    fCurrentDefinitionName.c_str());
+      return;
+    }
+    else {
+      NLogger::Error("Binning definition name='' and no definitions are available !!! Ignorred ...");
+      return;
+    }
+  }
 
   if (fDefinitions.find(name) == fDefinitions.end()) {
     NLogger::Error("Binning definition '%s' not found", name.c_str());

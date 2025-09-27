@@ -42,7 +42,7 @@ class NStorageTree : public TObject {
   bool                               AddBranch(const std::string & name, void * address, const std::string & className);
   NTreeBranch *                      GetBranch(const std::string & name);
   TObject *                          GetBranchObject(const std::string & name);
-  void                               SetEnabledBranches(std::vector<std::string> branches);
+  void                               SetEnabledBranches(std::vector<std::string> branches, int status = 1);
   void                               SetBranchAddresses();
 
   NBinning *  GetBinning() const { return fBinning; }

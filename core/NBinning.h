@@ -44,7 +44,7 @@ class NBinning : public TObject {
 
   virtual void                  Print(Option_t * option = "") const;
   void                          PrintContent(Option_t * option = "") const;
-  Long64_t                      FillAll(std::vector<Long64_t> & ids);
+  Long64_t                      FillAll(NBinningDef * def = nullptr);
   std::vector<std::vector<int>> GetCoordsRange(std::vector<int> c) const;
   std::vector<std::vector<int>> GetAxisRanges(std::vector<int> c) const;
   bool                          GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const;

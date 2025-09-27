@@ -74,7 +74,7 @@ void NBinningPoint::Reset()
     fBaseBinMax[i]    = -1;
     fLabels[i]        = "";
   }
-  fEntry = -1;
+  fEntryNumber = -1;
 }
 
 void NBinningPoint::Print(Option_t * option) const
@@ -92,6 +92,8 @@ void NBinningPoint::Print(Option_t * option) const
                 NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
   NLogger::Info("  Storage coordinates: %s",
                 NUtils::GetCoordsString(NUtils::ArrayToVector(fStorageCoords, fNDimensions)).c_str());
+  NLogger::Info("  Entry number: %lld", fEntryNumber);
+  NLogger::Info("  Title: '%s'", GetTitle().c_str());
 
   if (opt.Contains("A")) {
     for (int i = 0; i < fNDimensions; ++i) {
@@ -111,7 +113,7 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
     return false;
   }
 
-  fEntry                                   = entry;
+  fEntryNumber                             = entry;
   std::vector<int>              contentVec = NUtils::ArrayToVector(fContentCoords, fContentNDimensions);
   std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(contentVec);
   // for (size_t i = 0; i < axisRanges.size(); i++) {
@@ -130,19 +132,19 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
       NLogger::Error("NBinningPoint::RecalculateStorageCoords: Storage tree is nullptr !!! Skipping check ...");
     }
     else {
-      if (std::find(ids.begin(), ids.end(), fEntry) == ids.end() && fEntry >= 0 &&
-          fEntry < fTreeStorage->GetEntries()) {
+      if (std::find(ids.begin(), ids.end(), fEntryNumber) == ids.end() && fEntryNumber >= 0 &&
+          fEntryNumber < fTreeStorage->GetEntries()) {
         NLogger::Error("NBinningPoint::RecalculateStorageCoords: Entry %lld not found in binning definition '%s' !!!",
-                       fEntry, fBinning->GetCurrentDefinitionName().c_str());
+                       fEntryNumber, fBinning->GetCurrentDefinitionName().c_str());
 
         // loop over all available definitions and print their ids
-        NLogger::Error("Available binning definitions for entry=%lld :", fEntry);
+        NLogger::Error("Available binning definitions for entry=%lld :", fEntryNumber);
         std::string firstDefName;
         for (const auto & kv : fBinning->GetDefinitions()) {
           NBinningDef * def = kv.second;
           if (def == nullptr) continue;
           std::vector<Long64_t> defIds = def->GetIds();
-          if (std::find(defIds.begin(), defIds.end(), fEntry) != defIds.end()) {
+          if (std::find(defIds.begin(), defIds.end(), fEntryNumber) != defIds.end()) {
             if (firstDefName.empty()) firstDefName = kv.first;
             NLogger::Error("  Definition '%s' size=%zu ", kv.first.c_str(), defIds.size());
           }
@@ -150,7 +152,7 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
 
         NLogger::Error(
             "One can set definition via 'NBinning::SetCurrentDefinitionName(\"%s\")' before calling 'GetEntry(%lld)'",
-            firstDefName.c_str(), fEntry);
+            firstDefName.c_str(), fEntryNumber);
         Reset();
         return false;
       }
@@ -223,9 +225,11 @@ Long64_t NBinningPoint::Fill(bool ignoreFilledCheck)
   // TODO: Find more efficient way to verify if bin exists
   Long64_t bin = fBinning->GetContent()->GetBin(fContentCoords, kFALSE);
   if (bin >= 0 && ignoreFilledCheck == false) {
-    NLogger::Error("NBinningPoint::Fill: Bin for content already exists for coordinates: %s",
-                   NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
-    return -1;
+    fBinning->GetDefinition()->GetContent()->SetBinContent(fStorageCoords, bin);
+    fBinning->GetDefinition()->GetIds().push_back(bin);
+    // NLogger::Error("NBinningPoint::Fill: Bin for content already exists for coordinates: %s",
+    //                NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
+    return -bin;
   }
   bin = fBinning->GetContent()->GetBin(fContentCoords, kTRUE);
   fBinning->GetContent()->SetBinContent(fContentCoords, 1);

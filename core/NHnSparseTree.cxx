@@ -682,8 +682,7 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
         }
       }
       def->Print();
-      std::vector<Long64_t> entries;
-      fBinning->FillAll(entries);
+      fBinning->FillAll();
       NLogger::Debug("Here is the binning definition: [1]");
       InitAxes(fBinning->GenerateListOfAxes());
       NLogger::Debug("Here is the binning definition: [2]");
@@ -783,8 +782,7 @@ bool NHnSparseTree::ImportBinning(std::string binningName, std::map<std::string,
       def->SetAxisDefinition(axisName, {{axis->GetNbins()}});
     }
   }
-  std::vector<Long64_t> entries;
-  fBinning->FillAll(entries);
+  fBinning->FillAll();
   InitAxes(fBinning->GenerateListOfAxes());
 
   return true;

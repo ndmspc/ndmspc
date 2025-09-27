@@ -30,6 +30,7 @@ class NHnSparseBase : public TObject {
   NStorageTree *                 GetStorageTree() const { return fTreeStorage; }
   std::map<std::string, TList *> GetOutputs() const { return fOutputs; }
   TList *                        GetOutput(std::string name = "");
+  void                           SetOutputs(std::map<std::string, TList *> outputs) { fOutputs = outputs; }
 
   Long64_t GetEntries() const { return fTreeStorage ? fTreeStorage->GetEntries() : 0; }
   Int_t    GetEntry(Long64_t entry, bool checkBinningDef = true);

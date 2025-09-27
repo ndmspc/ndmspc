@@ -2,6 +2,7 @@
 #define Ndmspc_NBinningPoint_H
 #include <TObject.h>
 #include <nlohmann/json.hpp>
+#include "RtypesCore.h"
 using json = nlohmann::json;
 
 namespace Ndmspc {
@@ -22,8 +23,10 @@ class NBinningPoint : public TObject {
   virtual void Print(Option_t * option = "") const;
   virtual void Reset();
 
-  Int_t    GetNDimensions() const { return fNDimensions; }
+  Int_t    GetNDimensionsContent() const { return fContentNDimensions; }
   Int_t *  GetCoords() const { return fContentCoords; }
+  Int_t    GetNDimensions() const { return fNDimensions; }
+  Int_t *  GetStorageCoords() const { return fStorageCoords; }
   bool     RecalculateStorageCoords(Long64_t entry = -1, bool useBinningDefCheck = false);
   bool     SetPointContentFromLinearIndex(Long64_t linBin, bool checkBinningDef = false);
   Long64_t Fill(bool ignoreFilledCheck = false);
@@ -38,7 +41,8 @@ class NBinningPoint : public TObject {
   void           SetBinning(NBinning * b);
   NStorageTree * GetTreeStorage() const { return fTreeStorage; }
   void           SetTreeStorage(NStorageTree * s) { fTreeStorage = s; }
-  void           SetEntry(Long64_t entry) { fEntry = entry; }
+  void           SetEntryNumber(Long64_t entry) { fEntryNumber = entry; }
+  Long64_t       GetEntryNumber() const { return fEntryNumber; }
 
   private:
   json                     fCfg{};                  ///< Configuration object
@@ -53,7 +57,7 @@ class NBinningPoint : public TObject {
   Int_t *                  fBaseBinMin{nullptr};    ///< Base bin minimum (for variable binning)
   Int_t *                  fBaseBinMax{nullptr};    ///< Base bin maximum (for variable binning)
   std::vector<std::string> fLabels{};               ///< Labels for each axis
-  Long64_t                 fEntry{-1};              ///< Entry in the storage tree
+  Long64_t                 fEntryNumber{-1};        ///< Entry in the storage tree
 
   /// \cond CLASSIMP
   ClassDef(NBinningPoint, 1);
