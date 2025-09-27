@@ -40,20 +40,22 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b;
   b["Division"] = {{1}};
-  b["Flag"]     = {{1}};
-  // b["Grade"]    = {{1}};
-  // b["Step"]  = {{1}};
+  // b["Flag"]     = {{1}};
+  b["Flag"] = {{1, 3}, {2, 2}, {3, 2}, {4, 1}};
+  // b["Flag"] = {{1, 5}, {2}};
+  b["Grade"] = {{1}};
+  b["Step"]  = {{1}};
 
   hnsb->GetBinning()->AddBinningDefinition("default", b);
 
   std::map<std::string, std::vector<std::vector<int>>> b2;
-  b2["Nation"] = {{1}};
-  // b2["Flag"] = {{1}};
+  // b2["Nation"] = {{1}};
+  b2["Flag"] = {{1}};
   // b2["Division"] = {{1}};
   // hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
   // Print the sparse object
-  hnsb->Print();
+  // hnsb->Print();
 
   // return;
 
@@ -156,7 +158,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   rc      = hnsb->Process(processFunc, cfg);
   // rc = hnsb->Process(processFunc, cfg, "default");
   // rc = hnsb->Process(processFunc, cfg, "b2");
-  hnsb->GetBinning()->SetCurrentDefinitionName("default");
+  // hnsb->GetBinning()->SetCurrentDefinitionName(hnsb->GetBinning()->GetDefinitionNames().front());
   // hnsb->Print();
 
   if (rc) {
