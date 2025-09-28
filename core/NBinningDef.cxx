@@ -133,25 +133,21 @@ void NBinningDef::Print(Option_t * option) const
   /// Print the binning definition
   ///
 
-  NLogger::Info("NBinningDef: %zu definitions with %zu entries", fDefinition.size(), fIds.size());
+  NLogger::Info("NBinningDef: %zu definitions with %zu entries : %s", fDefinition.size(), fIds.size(),
+                NUtils::GetCoordsString(fIds, -1).c_str());
 
-  // loop over content dimensions and print name title
-  for (int i = 0; i < fContent->GetNdimensions(); i++) {
-    std::string name = fContent->GetAxis(i)->GetName();
-    NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fContent->GetAxis(i)->GetName(),
-                  fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(), fContent->GetAxis(i)->GetXmin(),
-                  fContent->GetAxis(i)->GetXmax());
+  TString opt = option;
+  opt.ToUpper();
+  if (opt.Contains("A")) {
+    // loop over content dimensions and print name title
+    for (int i = 0; i < fContent->GetNdimensions(); i++) {
+      std::string name = fContent->GetAxis(i)->GetName();
+      NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f base: nbins=%d", i,
+                    fContent->GetAxis(i)->GetName(), fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(),
+                    fContent->GetAxis(i)->GetXmin(), fContent->GetAxis(i)->GetXmax(),
+                    fDefinition.at(fContent->GetAxis(i)->GetName())[0][0]);
+    }
   }
-  //
-  // for (const auto & kv : fDefinition) {
-  //   NLogger::Info("Binning '%s':", kv.first.c_str());
-  //   for (const auto & v : kv.second) {
-  //     NLogger::Info("  %s", NUtils::GetCoordsString(v, -1).c_str());
-  //   }
-  // }
-  //
-  // // Print ids via NUtils
-  // NLogger::Info("Binning IDs: %s", NUtils::GetCoordsString(fIds, -1).c_str());
 }
 
 Long64_t NBinningDef::GetId(int index) const

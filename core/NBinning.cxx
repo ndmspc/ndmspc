@@ -483,12 +483,13 @@ Long64_t NBinning::FillAll(NBinningDef * def)
 
     // ids.push_back(pointContentBin);
     if (def) {
-      def->GetIds().push_back(pointContentBin);
       NBinningPoint point(this);
       fContent->GetBinContent(pointContentBin, point.GetCoords());
       point.RecalculateStorageCoords();
       Long64_t linBin = def->GetContent()->GetBin(point.GetStorageCoords());
       def->GetContent()->SetBinContent(linBin, pointContentBin);
+      def->GetIds().push_back(pointContentBin);
+      NLogger::Debug("  -> def id=%lld", pointContentBin);
     }
     fContent->SetBinContent(pointContentBin, 1);
     nBinsFilled++;
@@ -1096,11 +1097,7 @@ bool NBinning::SetCfg(const json & cfg)
   ///
   /// Set configuration
   ///
-  if (fPoint == nullptr) {
-    NLogger::Error("NBinning::SetCfg: Point not initialized");
-    return false;
-  }
-  fPoint->SetCfg(cfg);
+  GetPoint()->SetCfg(cfg);
 
   return true;
 }

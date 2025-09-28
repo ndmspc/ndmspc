@@ -94,6 +94,9 @@ void NBinningPoint::Print(Option_t * option) const
                 NUtils::GetCoordsString(NUtils::ArrayToVector(fStorageCoords, fNDimensions)).c_str());
   NLogger::Info("  Entry number: %lld", fEntryNumber);
   NLogger::Info("  Title: '%s'", GetTitle().c_str());
+  if (opt.Contains("C")) {
+    NLogger::Info("  Config: %s", fCfg.dump().c_str());
+  }
 
   if (opt.Contains("A")) {
     for (int i = 0; i < fNDimensions; ++i) {
@@ -202,7 +205,6 @@ std::string NBinningPoint::GetTitle(const std::string & prefix, bool all) const
     }
 
     // check type of axis
-
     if (fBinning->GetAxisType(i) == AxisType::kVariable || all) {
       title += TString::Format("%s[%.3f,%.3f] ", a->GetName(), fMins[i], fMaxs[i]).Data();
     }
