@@ -1,10 +1,8 @@
 #include <NStorageTree.h>
-#include <TList.h>
-#include <TROOT.h>
 #include <string>
 #include <vector>
-#include "TDirectory.h"
-#include "TObject.h"
+#include <TList.h>
+#include <TROOT.h>
 #include <THnSparse.h>
 #include <TH1.h>
 #include <TCanvas.h>
@@ -22,7 +20,6 @@
 #include "NUtils.h"
 #include "NStorageTree.h"
 #include "NWsClient.h"
-#include "RtypesCore.h"
 #include "NHnSparseBase.h"
 
 /// \cond CLASSIMP
@@ -187,12 +184,12 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
         Ndmspc::NLogger::Error("Failed to initialize thread data %zu, exiting ...", i);
         return false;
       }
-      threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCfg(cfg); // Set configuration to binning point
+      threadDataVector[i].SetCfg(cfg); // Set configuration to binning point
     }
     auto start_par = std::chrono::high_resolution_clock::now();
     auto task      = [](const std::vector<int> & coords, Ndmspc::NHnSparseThreadData & thread_obj) {
       // NLogger::Warning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
-      //                  thread_obj.GetAssignedIndex());
+      //                       thread_obj.GetAssignedIndex());
       // thread_obj.Print();
       thread_obj.Process(coords);
     };
@@ -204,8 +201,9 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
         NLogger::Error("Binning definition '%s' not found in NHnSparseBase !!!", name.c_str());
         return false;
       }
+      hnsbBinningIn->GetDefinition(name);
 
-      // binningDef->Print();
+      binningDef->Print();
 
       // Convert the binning definition to mins and maxs
       std::vector<int> mins, maxs;
@@ -241,7 +239,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
     TList *                       mergeList  = new TList();
     Ndmspc::NHnSparseThreadData * outputData = new Ndmspc::NHnSparseThreadData();
     outputData->Init(0, func, this, hnsbBinningIn);
-    // outputData->GetHnSparseBase()->GetBinning()->SetCfg(cfg);
+    outputData->SetCfg(cfg);
     // outputData->Init(0, func, this);
 
     for (auto & data : threadDataVector) {
@@ -249,20 +247,22 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
       // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
       mergeList->Add(&data);
     }
+
     Long64_t nmerged = outputData->Merge(mergeList);
     if (nmerged <= 0) {
       Ndmspc::NLogger::Error("Failed to merge thread data, exiting ...");
+      delete mergeList;
       return false;
     }
     Ndmspc::NLogger::Info("Merged %lld outputs successfully", nmerged);
-
+    // return false;
     // TIter next(outputData->GetOutput());
     // while (auto obj = next()) {
     //   Ndmspc::NLogger::Trace("Adding object '%s' to binning '%s' ...", obj->GetName(),
     //                          fBinning->GetCurrentDefinitionName().c_str());
     //   GetOutput()->Add(obj);
     // }
-    NLogger::Info("Output list contains %d objects", GetOutput()->GetEntries());
+    // NLogger::Info("Output list contains %d objects", GetOutput()->GetEntries());
     // outputData->GetTreeStorage()->Close(true); // Close the output file and write the tree
     fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
     fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
@@ -270,6 +270,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
   }
   else {
 
+    // int lastIdx = 0;
     for (auto & name : defNames) {
       // Get the binning definition
       auto binningDef = fBinning->GetDefinition(name);
@@ -278,6 +279,9 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
         return false;
       }
 
+      hnsbBinningIn->GetDefinition(name);
+      // hnsbBinningIn->Print();
+
       // binningDef->Print();
 
       // Convert the binning definition to mins and maxs
@@ -285,6 +289,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
 
       mins.push_back(0);
       maxs.push_back(binningDef->GetIds().size() - 1);
+      // lastIdx += binningDef->GetIds().size();
       binningDef->GetIds().clear();
 
       NLogger::Debug("Processing with binning definition '%s' with %zu entries", name.c_str(),
@@ -301,7 +306,18 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
         // Long64_t        entry = binningDef->GetId(coords[0]);
         // Long64_t entry = hnsbBinningIn->GetDefinition(binningDef->GetName())->GetId(coords[0]);
         Long64_t entry = hnsbBinningIn->GetDefinition()->GetId(coords[0]);
-        // Ndmspc::NLogger::Debug("Binning definition ID: %lld", entry);
+
+        if (entry < fBinning->GetContent()->GetNbins()) {
+          fBinning->GetDefinition()->GetIds().push_back(entry);
+          // entry = binningDef->GetContent()->GetBinContent(entry);
+          // point->SetEntryNumber(entry);
+          NLogger::Debug("Skipping entry=%lld, because it was already process !!!", entry);
+          return;
+        }
+        hnsbBinningIn->GetContent()->GetBinContent(coords[0]);
+
+        Ndmspc::NLogger::Debug("coords=[%lld] Binning definition ID: '%s' hnsbBinningIn_entry=%lld", coords[0],
+                               hnsbBinningIn->GetCurrentDefinitionName().c_str(), entry);
         hnsbBinningIn->GetContent()->GetBinContent(entry, point->GetCoords());
         point->RecalculateStorageCoords(entry, false);
 
@@ -327,46 +343,31 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
     }
 
     // Loop over binning definitions and merge their contents
+    fTreeStorage->SetEnabledBranches({}, 0);
     for (const auto & name : fBinning->GetDefinitionNames()) {
       NBinningDef * binningDef = fBinning->GetDefinition(name);
       if (!binningDef) {
         NLogger::Error("Binning definition '%s' not found in NHnSparseBase !!!", name.c_str());
         continue;
       }
-
-      NLogger::Debug("Merging binning definition '%s' with %zu entries", name.c_str(), binningDef->GetIds().size());
-      NLogger::Debug("  [before] IDs: %s", NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
-      size_t s = binningDef->GetIds().size();
-      binningDef->GetIds().clear();
-      // fill s number of entries statting from 0 to s-1
-      for (size_t i = 0; i < s; i++) {
-        binningDef->GetIds().push_back(i);
-      }
-      NLogger::Debug("  IDs: %s", NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
-
-      // fTreeStorage->Print();
-      fTreeStorage->SetEnabledBranches({}, 0);
       // Recalculate binningDef content based on ids
       binningDef->GetContent()->Reset();
       for (auto id : binningDef->GetIds()) {
-        // NBinningPoint point(GetBinning());
         GetEntry(id, false);
-        // GetEntry(id, false);
-        // point.RecalculateStorageCoords(id, false);
-        // point.Print();
-        // fBinning->GetPoint()->Print();
-        //
-        // // fBiningSource->GetContent()->GetBinContent(id, point->GetCoords());
         Long64_t bin = binningDef->GetContent()->GetBin(GetBinning()->GetPoint()->GetStorageCoords());
         binningDef->GetContent()->SetBinContent(bin, id);
-        //   delete point;
       }
-      fTreeStorage->SetEnabledBranches({}, 1);
     }
-    GetBinning()->GetPoint()->Reset();
+    // print all definitions for single threaded processing
+    for (const auto & name : fBinning->GetDefinitionNames()) {
+      fBinning->GetDefinition(name)->Print();
+    }
+
+    fBinning->GetPoint()->Reset();
+    fTreeStorage->SetEnabledBranches({}, 1);
+    fBinning->SetCurrentDefinitionName(fBinning->GetDefinitionNames().front());
   }
 
-  fBinning->SetCurrentDefinitionName(fBinning->GetDefinitionNames().front());
   gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
 }

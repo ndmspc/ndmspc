@@ -35,6 +35,8 @@ class NHnSparseThreadData : public NThreadData {
   // NBinning *     GetBinning() const { return fBinning; }
   NHnSparseBase * GetHnSparseBase() const { return fHnSparseBase; }
   Long64_t        GetNProcessed() const { return fNProcessed; }
+  void            SetCfg(const json & cfg) { fCfg = cfg; }
+  json            GetCfg() const { return fCfg; }
 
   virtual void     Process(const std::vector<int> & coords);
   virtual Long64_t Merge(TCollection * list);
@@ -44,6 +46,7 @@ class NHnSparseThreadData : public NThreadData {
   NHnSparseBase *         fHnSparseBase{nullptr}; ///< Pointer to the base class
   Long64_t                fNProcessed{0};         ///< Number of processed entries
   NBinning *              fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NHnSparseBase)
+  json                    fCfg{};                 ///< Configuration object
 
   // TList *        fOutput{nullptr};      ///< Global output list for the thread
   // NBinning *     fBinning{nullptr};     ///< Binning object for the thread
