@@ -489,7 +489,6 @@ Long64_t NBinning::FillAll(NBinningDef * def)
       Long64_t linBin = def->GetContent()->GetBin(point.GetStorageCoords());
       def->GetContent()->SetBinContent(linBin, pointContentBin);
       def->GetIds().push_back(pointContentBin);
-      NLogger::Debug("  -> def id=%lld", pointContentBin);
     }
     fContent->SetBinContent(pointContentBin, 1);
     nBinsFilled++;
@@ -1004,7 +1003,7 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
     NLogger::Error("Binning definition '%s' already exists", name.c_str());
     return;
   }
-  NBinningDef * def = new NBinningDef(binning, this);
+  NBinningDef * def = new NBinningDef(name, binning, this);
   fDefinitionNames.push_back(name);
   fDefinitions[name]     = def;
   fCurrentDefinitionName = name;

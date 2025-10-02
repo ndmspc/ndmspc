@@ -39,8 +39,8 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
 
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b;
-  b["Division"] = {{1}};
-  // b["Flag"]     = {{1}};
+  // b["Division"] = {{1}};
+  // b["Flag"] = {{1}};
   b["Flag"] = {{1, 4}, {2, 2}, {3, 2}, {4, 1}};
   // b["Flag"] = {{1, 5}, {2}};
   // b["Grade"] = {{1}};
@@ -49,11 +49,16 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   hnsb->GetBinning()->AddBinningDefinition("default", b);
 
   std::map<std::string, std::vector<std::vector<int>>> b2;
-  b2["Nation"]   = {{1}};
-  b2["Division"] = {{1}};
-  b2["Flag"]     = {{1}};
+  // b2["Nation"]   = {{1}};
+  // b2["Division"] = {{1}};
+  b2["Flag"] = {{1}};
   hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
+  std::map<std::string, std::vector<std::vector<int>>> b3;
+  // b3["Nation"]   = {{1}};
+  // b3["Division"] = {{1}};
+  b3["Flag"] = {{2}};
+  hnsb->GetBinning()->AddBinningDefinition("b3", b3);
   // Print the sparse object
   // hnsb->Print();
 
@@ -76,7 +81,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
     // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
 
     if (!point) {
-      Ndmspc::NLogger::Error("Point is nullptr !!!");
+      Ndmspc::NLogger::Error("NCernStaff: Point is nullptr !!!");
       return;
     }
 
@@ -94,7 +99,8 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
     const json & cfg = point->GetCfg();
 
     if (cfg.is_null() || cfg.empty()) {
-      Ndmspc::NLogger::Error("Configuration is empty !!!");
+      Ndmspc::NLogger::Error("NCernStaff: Configuration is empty !!!");
+      return;
     }
     // return;
 
@@ -105,7 +111,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
     if (!filename.empty()) {
       TFile * file = TFile::Open(filename.c_str());
       if (!file || file->IsZombie()) {
-        Ndmspc::NLogger::Error("Cannot open file '%s'", filename.c_str());
+        Ndmspc::NLogger::Error("NCernStaff: Cannot open file '%s'", filename.c_str());
         return;
       }
       std::string objectName = cfg.contains("input") && cfg["input"].contains("object")
@@ -113,7 +119,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
                                    : "hsparse";
       THnSparse * hns        = dynamic_cast<THnSparse *>(file->Get(objectName.c_str()));
       if (hns == nullptr) {
-        Ndmspc::NLogger::Error("Cannot open THnSparse from file '%s'", filename.c_str());
+        Ndmspc::NLogger::Error("NCernStaff: Cannot open THnSparse from file '%s'", filename.c_str());
         return;
       }
 
@@ -134,7 +140,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
           b->SetAddress(hsProj);
         }
         else {
-          Ndmspc::NLogger::Error("Cannot project THnSparse from file '%s'", filename.c_str());
+          Ndmspc::NLogger::Error("NCernStaff: Cannot project THnSparse from file '%s'", filename.c_str());
         }
       }
       else {
@@ -143,14 +149,15 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
           // Ndmspc::NLogger::Info("Got projection '%s' with %.0f entries", hProj->GetName(), hProj->GetEntries());
           hProj->SetTitle(point->GetTitle("", false).c_str());
 
-          // if (hProj->GetEntries() > 0) {
-          Ndmspc::NLogger::Info("[%d] %s", threadId, hProj->GetTitle());
+          // if (hProj->GetEntries() > 100) {
+          Ndmspc::NLogger::Info("NCernStaff: thread=%d entry=%lld title=%s hProj_entries=%.f", threadId,
+                                point->GetEntryNumber(), hProj->GetTitle(), hProj->GetEntries());
           outputPoint->Add(hProj);
           // outputPoint->Print();
           // }
         }
         else {
-          Ndmspc::NLogger::Error("Cannot project THnSparse from file '%s'", filename.c_str());
+          Ndmspc::NLogger::Error("NCernStaff: Cannot project THnSparse from file '%s'", filename.c_str());
         }
       }
       file->Close();
@@ -167,11 +174,11 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   // hnsb->Print();
 
   if (rc) {
-    Ndmspc::NLogger::Info("Processing completed successfully.");
+    Ndmspc::NLogger::Info("NCernStaff: Processing completed successfully.");
     hnsb->Close(true);
   }
   else {
-    Ndmspc::NLogger::Error("Processing failed.");
+    Ndmspc::NLogger::Error("NCernStaff: Processing failed.");
     hnsb->Close(false);
   }
 

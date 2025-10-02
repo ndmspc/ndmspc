@@ -70,8 +70,8 @@ NHnSparseTree * NHnSparseTree::Open(const std::string & filename, const std::str
   /// Load
   ///
 
-  NLogger::Info("Opening '%s' with branches='%s' and treename='%s' ...", filename.c_str(), branches.c_str(),
-                treename.c_str());
+  NLogger::Debug("Opening '%s' with branches='%s' and treename='%s' ...", filename.c_str(), branches.c_str(),
+                 treename.c_str());
 
   TFile * file = TFile::Open(filename.c_str());
   if (!file) {
@@ -659,7 +659,7 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
       fBinning->GetMap()->Reset();
       // fBinning->SetDefinitigon(binning);
       fBinning->AddBinningDefinition("default", binning, true);
-      fBinning->Print();
+      // fBinning->Print();
       NBinningDef * def = fBinning->GetDefinition("default");
       // add binningIn for reset of axes
       for (int iAxis = 0; iAxis < hns->GetNdimensions(); iAxis++) {
@@ -681,7 +681,7 @@ bool NHnSparseTree::Import(std::string filename, std::string directory, std::vec
           def->SetAxisDefinition(axisName, {{axis->GetNbins()}});
         }
       }
-      def->Print();
+      // def->Print();
       fBinning->FillAll();
       NLogger::Debug("Here is the binning definition: [1]");
       InitAxes(fBinning->GenerateListOfAxes());

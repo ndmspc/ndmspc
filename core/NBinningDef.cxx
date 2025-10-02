@@ -1,5 +1,6 @@
 #include "NBinningDef.h"
 #include "TObjArray.h"
+#include "TObject.h"
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NBinning.h"
@@ -9,8 +10,9 @@ ClassImp(Ndmspc::NBinningDef);
 /// \endcond
 
 namespace Ndmspc {
-NBinningDef::NBinningDef(std::map<std::string, std::vector<std::vector<int>>> definition, NBinning * binning)
-    : TObject(), fDefinition(definition)
+NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std::vector<int>>> definition,
+                         NBinning * binning)
+    : TObject(), fName(name), fDefinition(definition)
 {
   ///
   /// Constructor
@@ -133,8 +135,8 @@ void NBinningDef::Print(Option_t * option) const
   /// Print the binning definition
   ///
 
-  NLogger::Info("NBinningDef: %zu definitions with %zu entries : %s", fDefinition.size(), fIds.size(),
-                NUtils::GetCoordsString(fIds, -1).c_str());
+  NLogger::Info("NBinningDef: name='%s' %zu definitions with %zu entries : %s", fName.c_str(), fDefinition.size(),
+                fIds.size(), NUtils::GetCoordsString(fIds, -1).c_str());
 
   TString opt = option;
   opt.ToUpper();
