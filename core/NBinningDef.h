@@ -18,7 +18,8 @@ class NBinning;
 
 class NBinningDef : public TObject {
   public:
-  NBinningDef(std::map<std::string, std::vector<std::vector<int>>> definition = {}, NBinning * binning = nullptr);
+  NBinningDef(std::string name = "default", std::map<std::string, std::vector<std::vector<int>>> definition = {},
+              NBinning * binning = nullptr);
   virtual ~NBinningDef();
 
   virtual void Print(Option_t * option = "") const;
@@ -34,6 +35,7 @@ class NBinningDef : public TObject {
   THnSparse *             GetContent() const { return fContent; }
 
   private:
+  std::string                                          fName;       ///< Name of the binning definition
   std::map<std::string, std::vector<std::vector<int>>> fDefinition; ///< Binning mapping definition
   std::vector<Long64_t>                                fIds{};      ///< List of IDs for the binning definition
   THnSparse * fContent{nullptr};                                    ///< Template histogram for the binning definition
