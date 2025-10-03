@@ -28,6 +28,8 @@ class NBinningDef : public TObject {
   void SetDefinition(const std::map<std::string, std::vector<std::vector<int>>> & d) { fDefinition = d; }
   void SetAxisDefinition(std::string axisName, const std::vector<std::vector<int>> & d) { fDefinition[axisName] = d; }
 
+  void RefreshContentfomIds();
+
   std::vector<Long64_t>   GetIds() const { return fIds; }
   std::vector<Long64_t> & GetIds() { return fIds; }
   Long64_t                GetId(int index) const;
@@ -35,10 +37,11 @@ class NBinningDef : public TObject {
   THnSparse *             GetContent() const { return fContent; }
 
   private:
-  std::string                                          fName;       ///< Name of the binning definition
-  std::map<std::string, std::vector<std::vector<int>>> fDefinition; ///< Binning mapping definition
-  std::vector<Long64_t>                                fIds{};      ///< List of IDs for the binning definition
-  THnSparse * fContent{nullptr};                                    ///< Template histogram for the binning definition
+  NBinning *                                           fBinning{nullptr}; ///< Pointer to the parent binning
+  std::string                                          fName;             ///< Name of the binning definition
+  std::map<std::string, std::vector<std::vector<int>>> fDefinition;       ///< Binning mapping definition
+  std::vector<Long64_t>                                fIds{};            ///< List of IDs for the binning definition
+  THnSparse * fContent{nullptr}; ///< Template histogram for the binning definition
 
   /// \cond CLASSIMP
   ClassDef(NBinningDef, 1);

@@ -1,6 +1,7 @@
 #include "NBinningDef.h"
 #include "TObjArray.h"
 #include "TObject.h"
+#include "NDimensionalExecutor.h"
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NBinning.h"
@@ -12,7 +13,7 @@ ClassImp(Ndmspc::NBinningDef);
 namespace Ndmspc {
 NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std::vector<int>>> definition,
                          NBinning * binning)
-    : TObject(), fName(name), fDefinition(definition)
+    : TObject(), fName(name), fDefinition(definition), fBinning(binning)
 {
   ///
   /// Constructor
@@ -165,4 +166,51 @@ Long64_t NBinningDef::GetId(int index) const
   return fIds[index];
 }
 
+void NBinningDef::RefreshContentfomIds()
+{
+  ///
+  /// Refresh content from IDs
+  ///
+
+  // print all ids
+  NLogger::Trace("NBinningDef::RefreshContentfomIds: Refreshing content from %zu IDs: %s", fIds.size(),
+                 NUtils::GetCoordsString(fIds, -1).c_str());
+
+  fContent->Reset();
+  // loop over all ids and set content
+  Long64_t id;
+  for (size_t i = 0; i < fIds.size(); ++i) {
+    id = fIds[i];
+    fBinning->GetPoint()->SetPointContentFromLinearIndex(id);
+    fContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), id);
+  }
+  Int_t *               c = new Int_t[fContent->GetNdimensions()];
+  std::vector<Long64_t> newIds;
+  fIds.clear();
+  auto task = [this, &newIds, c](const std::vector<int> & coords) {
+    NLogger::Trace("NBinningDef::RefreshContentfomIds: Processing coordinates %s",
+                   NUtils::GetCoordsString(coords).c_str());
+
+    for (int i = 0; i < fContent->GetNdimensions(); i++) {
+      c[i] = coords[i];
+    }
+
+    Long64_t id = fContent->GetBinContent(c);
+    NLogger::Trace("NBinningDef::RefreshContentfomIds: -> Bin content: %lld", id);
+    fIds.push_back(id);
+  };
+
+  std::vector<int> mins(fContent->GetNdimensions(), 1);
+  std::vector<int> maxs(fContent->GetNdimensions());
+  for (int i = 0; i < fContent->GetNdimensions(); i++) {
+    TAxis * axis = fContent->GetAxis(i);
+    NLogger::Trace("NBinningDef::RefreshContentfomIds: Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
+                   axis->GetName(), axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    maxs[i] = axis->GetNbins();
+  }
+
+  NDimensionalExecutor executor(mins, maxs);
+  executor.Execute(task);
+  delete[] c;
+}
 } // namespace Ndmspc
