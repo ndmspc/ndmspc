@@ -504,6 +504,7 @@ bool NHnSparseBase::Process(NHnSparseProcessFuncPtr func, const std::vector<std:
 
   NLogger::Info("NHnSparseBase::Process: Printing final binning definitions:");
   for (const auto & name : fBinning->GetDefinitionNames()) {
+    fBinning->GetDefinition(name)->RefreshContentfomIds();
     fBinning->GetDefinition(name)->Print();
   }
 
