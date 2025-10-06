@@ -1,19 +1,27 @@
-set(MODULE Core_legacy)
+set(MODULE CoreLegacy)
 set(PACKAGE Ndmspc${MODULE})
 file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
 set(MY_INCLUDE_DIRS
-  ${CMAKE_SOURCE_DIR}/legacy/base
-  ${CMAKE_SOURCE_DIR}/legacy/http
+  ${CURL_INCLUDE_DIRS}
+  ${OpenSSL_INCLUDE_DIRS}
+  ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
-  ${CURL_INCLUD_DIRS}
+  ${CMAKE_SOURCE_DIR}/base
+  ${CMAKE_SOURCE_DIR}/http
+  ${CMAKE_SOURCE_DIR}/core
 )
-include_directories(${MY_INCLUDE_DIRS})
 set(MY_EXTERNAL_LIBS
-  NdmspcBase_legacy
-  NdmspcHttp_legacy
   ${OPENTELEMETRY_CPP_LIBRARIES}
   ${CURL_LIBRARIES}
+  ${OpenSSL_LIBRARIES}
+  ${LIBWEBSOCKETS_LIBRARIES}
+  #  nlohmann_json::nlohmann_json
+  # RHTTP
+  NdmspcBase
+  NdmspcHttp
+  NdmspcCore
 )
+include_directories(${MY_INCLUDE_DIRS})
 RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
 

@@ -29,8 +29,8 @@ set(MY_EXTERNAL_LIBS
 file(COPY ${CMAKE_SOURCE_DIR}/macros/test/cernstaff.root
 DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
 )
-add_executable(test_NHnSparseBase test_NHnSparseBase.cxx)
-target_include_directories(test_NHnSparseBase PRIVATE ${MY_INCLUDE_DIRS})
-target_link_directories(test_NHnSparseBase PRIVATE ${ROOT_LIBRARY_DIR})
-target_link_libraries(test_NHnSparseBase gtest_main ${MY_EXTERNAL_LIBS})
-add_test(NAME NHnSparseBaseTest COMMAND test_NHnSparseBase)
+add_executable(test_NGnTree test_NGnTree.cxx)
+target_include_directories(test_NGnTree PRIVATE ${MY_INCLUDE_DIRS})
+target_link_directories(test_NGnTree PRIVATE ${ROOT_LIBRARY_DIR})
+target_link_libraries(test_NGnTree gtest_main ${MY_EXTERNAL_LIBS})
+add_test(NAME NGnTreeTest COMMAND test_NGnTree)

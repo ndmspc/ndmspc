@@ -5,7 +5,7 @@
 #include <TFile.h>
 #include <THnSparse.h>
 #include <TCanvas.h>
-#include "NHnSparseBase.h"
+#include "NGnTree.h"
 #include "NLogger.h"
 #include "NUtils.h"
 void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.root",
@@ -34,7 +34,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   }
 
   // Create an NHnSparseObject from the THnSparse
-  Ndmspc::NHnSparseBase * hnsb = new Ndmspc::NHnSparseBase(hsparse->GetListOfAxes(), outFile);
+  Ndmspc::NGnTree * hnsb = new Ndmspc::NGnTree(hsparse->GetListOfAxes(), outFile);
   // return;
 
   // Define the binning for the axes
