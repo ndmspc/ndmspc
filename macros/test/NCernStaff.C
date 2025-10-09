@@ -8,9 +8,11 @@
 #include "NGnTree.h"
 #include "NLogger.h"
 #include "NUtils.h"
+#include "ROOT/RConfig.hxx"
 void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.root",
                 std::string filename = "cernstaff.root")
 {
+
   std::string fn = filename;
   if (gSystem->AccessPathName(fn.c_str())) {
     // If the file is not found in the current directory, try to find it in the macro directory
@@ -39,12 +41,16 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
 
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b;
-  // b["Division"] = {{1}};
-  // b["Flag"] = {{1}};
-  b["Flag"] = {{1, 4}, {2, 2}, {3, 2}, {4, 1}};
+  // b["Flag"] = {{1, 4}, {2, 2}, {3, 2}, {4, 1}};
   // b["Flag"] = {{1, 5}, {2}};
-  // b["Grade"] = {{1}};
-  // b["Step"]  = {{1}};
+  b["Division"] = {{1}};
+  b["Flag"]     = {{1}};
+  b["Grade"]    = {{1}};
+  b["Step"]     = {{1}};
+  b["Children"] = {{1}};
+  // b["Service"]  = {{6}};
+  // b["Age"]   = {{1}};
+  // b["Hrweek"]   = {{1}};
 
   hnsb->GetBinning()->AddBinningDefinition("default", b);
 
@@ -52,15 +58,15 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   // b2["Nation"]   = {{1}};
   // b2["Division"] = {{1}};
   b2["Flag"] = {{1}};
-  hnsb->GetBinning()->AddBinningDefinition("b2", b2);
+  // hnsb->GetBinning()->AddBinningDefinition("b2", b2);
 
   std::map<std::string, std::vector<std::vector<int>>> b3;
   // b3["Nation"]   = {{1}};
   // b3["Division"] = {{1}};
   b3["Flag"] = {{2}};
-  hnsb->GetBinning()->AddBinningDefinition("b3", b3);
+  // hnsb->GetBinning()->AddBinningDefinition("b3", b3);
   // Print the sparse object
-  // hnsb->Print();
+  hnsb->Print();
 
   // return;
 
@@ -79,6 +85,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
+    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
 
     if (!point) {
       Ndmspc::NLogger::Error("NCernStaff: Point is nullptr !!!");
@@ -149,18 +156,21 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
           // Ndmspc::NLogger::Info("Got projection '%s' with %.0f entries", hProj->GetName(), hProj->GetEntries());
           hProj->SetTitle(point->GetTitle("", false).c_str());
 
-          // if (hProj->GetEntries() > 100) {
-          Ndmspc::NLogger::Info("NCernStaff: thread=%d entry=%lld title=%s hProj_entries=%.f", threadId,
-                                point->GetEntryNumber(), hProj->GetTitle(), hProj->GetEntries());
-          outputPoint->Add(hProj);
-          // outputPoint->Print();
-          // }
+          // delete hProj;
+          if (hProj->GetEntries() > 0) {
+            // Ndmspc::NLogger::Info("NCernStaff: thread=%d entry=%lld title=%s hProj_entries=%.f", threadId,
+            //                       point->GetEntryNumber(), hProj->GetTitle(), hProj->GetEntries());
+            outputPoint->Add(hProj);
+            // outputPoint->Print();
+          }
         }
         else {
           Ndmspc::NLogger::Error("NCernStaff: Cannot project THnSparse from file '%s'", filename.c_str());
         }
       }
+      delete hns;
       file->Close();
+      delete file;
     }
     // gSystem->Sleep(100); // Simulate some processing time
   };

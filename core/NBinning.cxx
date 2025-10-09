@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include "TAxis.h"
 #include <TAttAxis.h>
 #include <TObjArray.h>
 #include "NBinningDef.h"
@@ -107,6 +108,7 @@ void NBinning::Initialize()
     if (nbins > nbinsMax) {
       nbinsMax = nbins;
     }
+    // NLogger::Debug("Axis %d: %s nbins=%d", i, fAxes[i]->GetName(), nbins);
     // if (nbins == 1 || axes[i]->IsAlphanumeric()) {
     TString axisname(fAxes[i]->GetName());
     bool    isUser = axisname.Contains("/U");
@@ -427,7 +429,8 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     Double_t v = cSparse->GetBinContent(linBin, p);
     // continue;
     int idx = p[0] - 1;
-    NLogger::Trace("Bin %lld: %d %d %d %d type=%d", linBin, p[0], p[1], p[2], p[3], fBinningTypes[idx]);
+    NLogger::Trace("NBinning::FillAll: Bin %lld: %d %d %d %d type=%d", linBin, p[0], p[1], p[2], p[3],
+                   fBinningTypes[idx]);
     if (fBinningTypes[idx] == Binning::kSingle) {
 
       content[idx].push_back({p[0], p[3]});
@@ -441,26 +444,34 @@ Long64_t NBinning::FillAll(NBinningDef * def)
       content[idx].push_back({p[0], 1});
     }
     else {
-      NLogger::Error("[NBinning::FillAll] Unknown binning type %d", fBinningTypes[idx]);
+      NLogger::Error("NBinning::FillAll: Unknown binning type %d", fBinningTypes[idx]);
       continue;
     }
     maxs[idx] = maxs[idx] + 1;
   }
   delete[] p;
 
+  Long64_t nTotalBins = 1;
   // loop over content vector and set axis types
   for (size_t i = 0; i < content.size(); i++) {
     if (content[i].size() == 0) {
-      NLogger::Warning("No content for binning %zu", i);
+      NLogger::Warning("NBinning::FillAll: No content for binning %zu", i);
       continue;
     }
 
-    if (content[i].size() > 1) fAxisTypes[i] = AxisType::kVariable;
+    if (content[i].size() > 1) {
+      TAxis * axis  = fAxes[i];
+      fAxisTypes[i] = AxisType::kVariable;
+      NLogger::Debug("NBinning::FillAll: Axis name=%s bins=%zu", axis->GetName(), content[i].size());
+    }
+    nTotalBins *= content[i].size();
   }
+  NLogger::Debug("NBinning::FillAll: Filling total of %lld bins ...", nTotalBins);
 
+  auto start_par = std::chrono::high_resolution_clock::now();
   // Loop over all binning combinations
   NDimensionalExecutor executor(mins, maxs);
-  auto                 binning_task = [&content, &nBinsFilled, def, this](const std::vector<int> & coords) {
+  auto binning_task = [&content, &nBinsFilled, &nTotalBins, def, this](const std::vector<int> & coords) {
     std::vector<int> pointContentVector;
     int              iContentpoint = 0;
     // NLogger::Debug("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
@@ -492,9 +503,18 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     }
     fContent->SetBinContent(pointContentBin, 1);
     nBinsFilled++;
+    // NLogger::Debug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,
+    //                NUtils::GetCoordsString(pointContentVector, -1).c_str());
+    if (nBinsFilled % 10000 == 0)
+      NLogger::Debug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
+                     nBinsFilled);
   };
   executor.Execute(binning_task);
 
+  auto                                      end_par      = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
+
+  Ndmspc::NLogger::Info("NBinning::FillAll: Filled %lld bins in %.3f s", nTotalBins, par_duration.count() / 1000);
   fMap->Reset();
 
   return nBinsFilled;
@@ -632,7 +652,7 @@ std::vector<std::vector<int>> NBinning::GetCoordsRange(std::vector<int> c) const
       index++;
     }
     else {
-      NLogger::Error("[NBinning::GetCoordsRange] Unknown binning type %d", fBinningTypes[iAxis]);
+      NLogger::Error("NBinning::GetCoordsRange: Unknown binning type %d", fBinningTypes[iAxis]);
       continue;
     }
     if (!isValid) {
@@ -1003,6 +1023,8 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
     NLogger::Error("Binning definition '%s' already exists", name.c_str());
     return;
   }
+
+  NLogger::Info("NBinning::AddBinningDefinition: Adding binning definition '%s'", name.c_str());
   NBinningDef * def = new NBinningDef(name, binning, this);
   fDefinitionNames.push_back(name);
   fDefinitions[name]     = def;
