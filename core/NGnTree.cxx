@@ -150,12 +150,13 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::strin
 }
 
 bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg,
-                            NBinning * hnsbBinningIn)
+                      NBinning * hnsbBinningIn)
 {
   ///
   /// Process the sparse object with the given function
   ///
 
+  NLogger::Info("NGnTree::Process: Starting processing with %zu definitions ...", defNames.size());
   bool batch = gROOT->IsBatch();
   gROOT->SetBatch(kTRUE);
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
@@ -179,7 +180,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     NLogger::Info("NGnTree::Process: ImplicitMT is enabled, using %zu threads", nThreads);
     // 1. Create the vector of NThreadData objects
     std::vector<Ndmspc::NGnThreadData> threadDataVector(nThreads);
-    std::string                              filePrefix = fTreeStorage->GetPrefix() + "/";
+    std::string                        filePrefix = fTreeStorage->GetPrefix() + "/";
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       std::string filename =
           filePrefix + std::to_string(gSystem->GetPid()) + "_" + std::to_string(i) + "_" + fTreeStorage->GetPostfix();
@@ -253,8 +254,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
           continue;
         }
         if (!otherDef) {
-          NLogger::Error("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!",
-                         other_name.c_str());
+          NLogger::Error("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
           return false;
         }
         // remove entries that has value less then sumIds
@@ -295,15 +295,14 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     // return false;
 
     Ndmspc::NLogger::Debug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
-    TList *                       mergeList  = new TList();
+    TList *                 mergeList  = new TList();
     Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
     outputData->Init(0, func, this, hnsbBinningIn);
     outputData->SetCfg(cfg);
     // outputData->Init(0, func, this);
 
     for (auto & data : threadDataVector) {
-      Ndmspc::NLogger::Trace("NGnTree::Process: Adding thread data %zu to merge list ...",
-                             data.GetAssignedIndex());
+      Ndmspc::NLogger::Trace("NGnTree::Process: Adding thread data %zu to merge list ...", data.GetAssignedIndex());
       // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
       mergeList->Add(&data);
     }
@@ -384,23 +383,48 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
         TList * outputPoint = new TList();
         func(point, this->GetOutput(), outputPoint, 0); // Call the lambda function
         if (outputPoint->GetEntries() > 0) {
+          // NLogger::Debug("NGnTree::Process: Processed entry %lld -> coords=[%lld] Binning definition ID: '%s' "
+          //                "hnsbBinningIn_entry=%lld output=%lld",
+          //                point->GetEntryNumber(), coords[0], hnsbBinningIn->GetCurrentDefinitionName().c_str(),
+          //                entry, outputPoint->GetEntries());
           fTreeStorage->GetBranch("outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
           Int_t bytes = fTreeStorage->Fill(point, nullptr, false, {}, false);
           if (bytes > 0) {
+            if (point->GetEntryNumber() == 0 && entry != 0) {
+              Ndmspc::NLogger::Error("NGnTree::Process: [!!!Should not happen!!!] entry number is zero: point=%lld "
+                                     "entries=%lld",
+                                     point->GetEntryNumber(), fTreeStorage->GetEntries());
+            }
             fBinning->GetDefinition()->GetIds().push_back(point->GetEntryNumber());
-            // fBinning->GetDefinition()->GetIds().push_back(entry);
           }
           else {
             Ndmspc::NLogger::Error(
                 "NGnTree::Process: [!!!Should not happen!!!] Failed to fill storage tree for entry %lld", entry);
           }
-          outputPoint->Clear(); // Clear the list to avoid memory leaks
         }
         else {
-          Ndmspc::NLogger::Trace("NGnTree::Process: No output !!! -> coords=[%lld] Binning definition ID: '%s' "
-                                 "hnsbBinningIn_entry=%lld",
-                                 coords[0], hnsbBinningIn->GetCurrentDefinitionName().c_str(), entry);
+          // Ndmspc::NLogger::Debug("NGnTree::Process: No output !!! -> coords=[%lld] Binning definition ID: '%s' "
+          //                        "hnsbBinningIn_entry=%lld output=%lld",
+          //                        coords[0], hnsbBinningIn->GetCurrentDefinitionName().c_str(), entry,
+          //                        outputPoint->GetEntries());
         }
+
+        NLogger::Trace("NGnTree::Process: outputPoint contains %d objects", outputPoint->GetEntries());
+
+        for (Int_t i = 0; i < outputPoint->GetEntries(); ++i) {
+          TObject * obj = outputPoint->At(i);
+          if (obj) {
+            // obj->SetDirectory(nullptr); // Detach from any directory to avoid memory leaks
+            outputPoint->Remove(obj); // Remove if already exists
+            delete obj;               // Delete the object to avoid memory leaks
+          }
+        }
+
+        // Clear the list to avoid memory leaks
+        // for (auto obj : *outputPoint) {
+        //   delete obj;
+        // }
+        outputPoint->Clear();
         delete outputPoint; // Clean up the output list
       };
 
@@ -450,8 +474,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   // loop over indexes in hnsbBinningIn and check if they are present in fBinning
   for (size_t i = 0; i < defNames.size() - 1; ++i) {
     const auto & name = defNames[i];
-    NLogger::Trace("NGnTree::Process: Updating entries to definition '%s' from previous definition",
-                   name.c_str());
+    NLogger::Trace("NGnTree::Process: Updating entries to definition '%s' from previous definition", name.c_str());
     for (size_t j = i + 1; j < defNames.size(); ++j) {
       auto other_name = defNames[j];
       NLogger::Trace("NGnTree::Process: Checking entries from definition '%s' -> '%s'", name.c_str(),
@@ -527,8 +550,7 @@ TList * NGnTree::GetOutput(std::string name)
   return fOutputs[name];
 }
 
-NGnTree * NGnTree::Open(const std::string & filename, const std::string & branches,
-                                    const std::string & treename)
+NGnTree * NGnTree::Open(const std::string & filename, const std::string & branches, const std::string & treename)
 {
   ///
   /// Open NGnTree from file

@@ -16,7 +16,7 @@ namespace Ndmspc {
 NGnThreadData::NGnThreadData() : NThreadData() {}
 NGnThreadData::~NGnThreadData() {}
 bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * hnsb, NBinning * hnsbBinningIn,
-                               const std::string & filename, const std::string & treename)
+                         const std::string & filename, const std::string & treename)
 {
   ///
   /// Initialize thread data
@@ -91,6 +91,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   /// Process method
   /// This method is called for each set of coordinates
   /// It initializes the NHnSparseTree if not already done
+  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
 
   fNProcessed++;
   // NThreadData::Process(coords);
@@ -169,15 +170,14 @@ void NGnThreadData::Process(const std::vector<int> & coords)
       // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().push_back(point->GetEntryNumber());
     }
     else {
-      Ndmspc::NLogger::Trace(
-          "NGnThreadData::Process: [%zu] Entry '%lld' Fill was done with 0 bytes. Skipping ...",
-          GetAssignedIndex(), entry);
+      Ndmspc::NLogger::Trace("NGnThreadData::Process: [%zu] Entry '%lld' Fill was done with 0 bytes. Skipping ...",
+                             GetAssignedIndex(), entry);
       // NLogger::Error("NGnThreadData::Process: Thread %zu: zero bytes were writtent for coordinates %s
       // entry=%lld",
       //                GetAssignedIndex(), NUtils::GetCoordsString(coords).c_str(), entry);
     }
     // outputPoint->Print();
-    outputPoint->Clear(); // Clear the list to avoid memory leaks
+    // outputPoint->Clear(); // Clear the list to avoid memory leaks
   }
   else {
     Ndmspc::NLogger::Trace(
@@ -188,7 +188,17 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
   }
 
-  delete outputPoint; // Clean up the output list
+  // protect this section with mutex if needed
+
+  {
+    std::lock_guard<std::mutex> lock(fSharedMutex);
+    // Clear the list to avoid memory leaks
+    for (auto obj : *outputPoint) {
+      delete obj;
+    }
+    // outputPoint->Clear();
+    delete outputPoint; // Clean up the output list
+  }
 }
 
 Long64_t NGnThreadData::Merge(TCollection * list)
@@ -246,8 +256,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
 
       NGnTree * hnsb = NGnTree::Open(ts->GetFileName());
       if (!hnsb) {
-        NLogger::Error("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!",
-                       ts->GetFileName().c_str());
+        NLogger::Error("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", ts->GetFileName().c_str());
         continue;
       }
 
@@ -283,8 +292,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
     auto binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
     if (!binningDef) {
-      NLogger::Error("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!",
-                     name.c_str());
+      NLogger::Error("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       continue;
     }
     // add ids from fBiningSource to binningDef
@@ -322,8 +330,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
     NBinningDef * binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
     if (!binningDef) {
-      NLogger::Error("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!",
-                     name.c_str());
+      NLogger::Error("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       continue;
     }
     // binningDef->Print();

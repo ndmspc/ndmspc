@@ -182,7 +182,7 @@ void NBinningDef::RefreshContentfomIds()
   for (size_t i = 0; i < fIds.size(); ++i) {
     id = fIds[i];
     fBinning->GetPoint()->SetPointContentFromLinearIndex(id);
-    fContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), id);
+    fContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), id + 1);
   }
   Int_t *               c = new Int_t[fContent->GetNdimensions()];
   std::vector<Long64_t> newIds;
@@ -196,8 +196,14 @@ void NBinningDef::RefreshContentfomIds()
     }
 
     Long64_t id = fContent->GetBinContent(c);
-    NLogger::Trace("NBinningDef::RefreshContentfomIds: -> Bin content: %lld", id);
-    fIds.push_back(id);
+
+    // FIXME: This is a workaround to skip empty bins after first filled one
+    // if (id == 0 && fIds.size() > 0) return; // skip empty bins after first filled one
+    // it should be ok now
+    if (id > 0) {
+      NLogger::Trace("NBinningDef::RefreshContentfomIds: -> Bin content: %lld", id - 1);
+      fIds.push_back(id - 1);
+    }
   };
 
   std::vector<int> mins(fContent->GetNdimensions(), 1);
