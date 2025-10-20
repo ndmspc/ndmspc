@@ -10,8 +10,9 @@
 #pragma link C++ class Ndmspc::NBinningDef + ;
 #pragma link C++ class Ndmspc::NBinning + ;
 #pragma link C++ class Ndmspc::NBinningPoint + ;
+#pragma link C++ class Ndmspc::NTreeBranch + ;
 #pragma link C++ class Ndmspc::NStorageTree + ;
 #pragma link C++ class Ndmspc::NGnTree + ;
-#pragma link C++ class Ndmspc::NTreeBranch + ;
 #pragma link C++ class Ndmspc::NGnThreadData + ;
+#pragma link C++ class Ndmspc::NGnNavigator + ;
 #endif

@@ -390,7 +390,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
           fTreeStorage->GetBranch("outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
           Int_t bytes = fTreeStorage->Fill(point, nullptr, false, {}, false);
           if (bytes > 0) {
-            if (point->GetEntryNumber() == 0 && entry != 0) {
+            if (point->GetEntryNumber() == 0 && entry > 0) {
               Ndmspc::NLogger::Error("NGnTree::Process: [!!!Should not happen!!!] entry number is zero: point=%lld "
                                      "entries=%lld",
                                      point->GetEntryNumber(), fTreeStorage->GetEntries());

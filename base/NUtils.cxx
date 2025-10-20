@@ -838,7 +838,12 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
 
   TAxis * axis = nullptr;
   for (const auto & [key, val] : ranges) {
+    NLogger::Trace("NUtils::SetAxisRanges: Setting axis range for axis %d to [%d,%d] ...", key, val[0], val[1]);
     axis = sparse->GetAxis(key);
+    if (axis == nullptr) {
+      NLogger::Error("NUtils::SetAxisRanges: Axis %d is nullptr ...", key);
+      return false;
+    }
     NLogger::Trace("NUtils::SetAxisRanges: Setting axis range %s=[%d,%d] ...", axis->GetName(), val[0], val[1]);
     axis->SetRange(val[0], val[1]);
   }

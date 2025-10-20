@@ -113,6 +113,14 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
       }
     }
   }
+
+  for (int i = 0; i < fBinning->GetAxes().size(); i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogger::Error("NBinningPoint::GetTitle: Axis %d is nullptr !!!", i);
+      continue;
+    }
+  }
   // cleanup cAxes
   for (int i = 0; i < cAxes->GetEntries(); i++) {
     TAxis * axis = (TAxis *)cAxes->At(i);
@@ -136,8 +144,9 @@ void NBinningDef::Print(Option_t * option) const
   /// Print the binning definition
   ///
 
-  NLogger::Info("NBinningDef: name='%s' %zu definitions with %zu entries : %s", fName.c_str(), fDefinition.size(),
-                fIds.size(), NUtils::GetCoordsString(fIds, -1).c_str());
+  NLogger::Info("NBinningDef: name='%s' %zu axes with %zu entries : %s", fName.c_str(), fDefinition.size(), fIds.size(),
+                NUtils::GetCoordsString(fIds, -1).c_str());
+  NLogger::Info("             axes='%s'", NUtils::GetCoordsString(fVariableAxes).c_str());
 
   TString opt = option;
   opt.ToUpper();
