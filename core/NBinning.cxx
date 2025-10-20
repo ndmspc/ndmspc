@@ -462,10 +462,23 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     if (content[i].size() > 1) {
       TAxis * axis  = fAxes[i];
       fAxisTypes[i] = AxisType::kVariable;
-      NLogger::Debug("NBinning::FillAll: Axis name=%s bins=%zu", axis->GetName(), content[i].size());
+      NLogger::Trace("NBinning::FillAll: Axis id=%d name=%s bins=%zu", i, axis->GetName(), content[i].size());
+      // check if i is persent in variable axes of def
+      bool found = false;
+      for (size_t j = 0; j < def->GetVariableAxes().size(); j++) {
+        if (def->GetVariableAxes()[j] == static_cast<int>(i)) {
+          NLogger::Trace("NBinning::FillAll: Axis id=%d name=%s already in variable axes of def", i, axis->GetName());
+          found = true;
+          break;
+        }
+      }
+      NLogger::Trace("NBinning::FillAll: Axis id=%d name=%s set to variable found=%d", i, axis->GetName(), found);
+      if (!found) def->AddVariableAxis(i);
     }
     nTotalBins *= content[i].size();
   }
+
+  def->Print();
   NLogger::Debug("NBinning::FillAll: Filling total of %lld bins ...", nTotalBins);
 
   auto start_par = std::chrono::high_resolution_clock::now();
