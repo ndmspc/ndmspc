@@ -73,6 +73,12 @@ class NUtils : TObject {
   static bool                     GetJsonBool(json j);
   static std::vector<std::string> GetJsonStringArray(json j);
 
+  static std::string FormatTime(long long seconds);
+
+  static void ProgressBar(int current, int total, int barWidth = 70, std::string prefix = "", std::string suffix = "");
+  static void ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime,
+                          int barWidth = 70, std::string prefix = "", std::string suffix = "");
+
   /// \cond CLASSIMP
   ClassDef(NUtils, 0);
   /// \endcond;

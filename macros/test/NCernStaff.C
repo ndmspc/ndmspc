@@ -44,12 +44,13 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   // b["Flag"] = {{1, 4}, {2, 2}, {3, 2}, {4, 1}};
   // b["Flag"] = {{1, 5}, {2}};
   // b["Category"] = {{1}};
-  b["Flag"]     = {{3}};
-  b["Division"] = {{3}};
-  b["Grade"]    = {{3}};
-  b["Step"]     = {{3}};
-  b["Children"] = {{3}};
-  b["Service"]  = {{6}};
+  int rb        = 3;
+  b["Flag"]     = {{rb}};
+  b["Division"] = {{rb}};
+  b["Grade"]    = {{rb}};
+  b["Step"]     = {{rb}};
+  b["Children"] = {{rb}};
+  // b["Service"]  = {{rb}};
   // b["Age"]   = {{1}};
   // b["Hrweek"]   = {{1}};
 

@@ -1,7 +1,7 @@
-#include <NStorageTree.h>
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <iostream>
 #include <TList.h>
 #include <TROOT.h>
 #include <THnSparse.h>
@@ -12,6 +12,7 @@
 #include <TObjString.h>
 #include <TTree.h>
 #include <TBufferJSON.h>
+#include "NStorageTree.h"
 #include "NBinning.h"
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
@@ -348,6 +349,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       mins.push_back(0);
       maxs.push_back(binningDef->GetIds().size() - 1);
       // lastIdx += binningDef->GetIds().size();
+      int refreshRate = maxs[0] / 100;
 
       NLogger::Trace("NGnTree::Process Processing with binning definition '%s' with %zu entries", name.c_str(),
                      binningDef->GetIds().size());
@@ -359,9 +361,12 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       // rc = Process(func, mins, maxs, binningDef, cfg);
       // Print();
       // std::vector<Long64_t> entries;
-      auto task = [this, func, binningDef, hnsbBinningIn](const std::vector<int> & coords) {
+
+      auto start_par = std::chrono::high_resolution_clock::now();
+      auto task      = [this, func, binningDef, start_par, &maxs, &refreshRate,
+                   hnsbBinningIn](const std::vector<int> & coords) {
         NBinningPoint * point = fBinning->GetPoint();
-        // Long64_t        entry = binningDef->GetId(coords[0]);
+        // Long64_t        entry = binnigcngDef->GetId(coords[0]);
         // Long64_t entry = hnsbBinningIn->GetDefinition(binningDef->GetName())->GetId(coords[0]);
         Long64_t entry = hnsbBinningIn->GetDefinition()->GetId(coords[0]);
 
@@ -381,6 +386,11 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
         point->RecalculateStorageCoords(entry, false);
 
         TList * outputPoint = new TList();
+
+        if (coords[0] % refreshRate == 0) {
+          NUtils::ProgressBar(coords[0], maxs[0], 50, "Processing entries");
+        }
+
         func(point, this->GetOutput(), outputPoint, 0); // Call the lambda function
         if (outputPoint->GetEntries() > 0) {
           // NLogger::Debug("NGnTree::Process: Processed entry %lld -> coords=[%lld] Binning definition ID: '%s' "
@@ -390,10 +400,10 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
           fTreeStorage->GetBranch("outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
           Int_t bytes = fTreeStorage->Fill(point, nullptr, false, {}, false);
           if (bytes > 0) {
-            if (point->GetEntryNumber() == 0 && entry > 0) {
+            if (point->GetEntryNumber() == 0 && fTreeStorage->GetEntries() > 1) {
               Ndmspc::NLogger::Error("NGnTree::Process: [!!!Should not happen!!!] entry number is zero: point=%lld "
-                                     "entries=%lld",
-                                     point->GetEntryNumber(), fTreeStorage->GetEntries());
+                                               "entries=%lld",
+                                          point->GetEntryNumber(), fTreeStorage->GetEntries());
             }
             fBinning->GetDefinition()->GetIds().push_back(point->GetEntryNumber());
           }
@@ -433,6 +443,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       executor.Execute(task);
     }
 
+    std::cout << std::endl;
     NLogger::Debug("NGnTree::Process: Executor is finished for all binning definitions ...");
 
     // Loop over binning definitions and merge their contents

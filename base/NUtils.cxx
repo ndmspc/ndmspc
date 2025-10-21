@@ -1,3 +1,4 @@
+#include <iostream>
 #include <TSystem.h>
 #include <TROOT.h>
 #include <vector>
@@ -1113,5 +1114,85 @@ std::vector<std::vector<int>> NUtils::Permutations(const std::vector<int> & v)
   }
 
   return result;
+}
+
+std::string NUtils::FormatTime(long long seconds)
+{
+  long long hours = seconds / 3600;
+  seconds %= 3600;
+  long long minutes = seconds / 60;
+  seconds %= 60;
+
+  std::stringstream ss;
+  ss << std::setw(2) << std::setfill('0') << hours << ":" << std::setw(2) << std::setfill('0') << minutes << ":"
+     << std::setw(2) << std::setfill('0') << seconds;
+  return ss.str();
+}
+
+void NUtils::ProgressBar(int current, int total, int barWidth, std::string prefix, std::string suffix)
+{
+
+  ///
+  /// Print progress bar
+  ///
+  if (total == 0) return; // Avoid division by zero
+
+  float percentage = static_cast<float>(current) / total;
+  int   numChars   = static_cast<int>(percentage * barWidth);
+
+  std::cout << "\r";                                      // Carriage return
+  if (!prefix.empty()) std::cout << "[" << prefix << "]"; // Carriage return
+  std::cout << "[";                                       // Carriage return
+
+  for (int i = 0; i < numChars; ++i) {
+    std::cout << "=";
+  }
+  for (int i = 0; i < barWidth - numChars; ++i) {
+    std::cout << " ";
+  }
+  std::cout << "] " << static_cast<int>(percentage * 100.0) << "%"
+            << " (" << current << "/" << total << ")";
+  if (!suffix.empty()) std::cout << " [" << suffix << "]";
+  std::cout << std::flush; // Ensure immediate output
+}
+
+void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime, int barWidth,
+                         std::string prefix, std::string suffix)
+{
+  ///
+  /// Print progress bar
+  ///
+  if (total == 0) return;               // Avoid division by zero
+  if (current > total) current = total; // Cap current to total for safety
+
+  float percentage = static_cast<float>(current) / total;
+  int   numChars   = static_cast<int>(percentage * barWidth);
+
+  std::cout << "\r[" << prefix << "] ["; // Carriage return
+  for (int i = 0; i < numChars; ++i) {
+    std::cout << "=";
+  }
+  for (int i = 0; i < barWidth - numChars; ++i) {
+    std::cout << " ";
+  }
+  std::cout << "] " << std::setw(3) << static_cast<int>(percentage * 100.0) << "%";
+
+  // Calculate elapsed time
+  auto currentTime    = std::chrono::high_resolution_clock::now();
+  auto elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(currentTime - startTime).count();
+
+  // Calculate estimated remaining time (only if we've made some progress)
+  long long estimatedRemainingSeconds = 0;
+  if (current > 0 && percentage > 0) {
+    // Total estimated time = (elapsed time / current progress) * 100%
+    long long totalEstimatedSeconds = static_cast<long long>(elapsedSeconds / percentage);
+    estimatedRemainingSeconds       = totalEstimatedSeconds - elapsedSeconds;
+  }
+
+  std::cout << " (" << current << "/" << total << ") "
+            << "Elapsed: " << FormatTime(elapsedSeconds) << " "
+            << "ETA: " << FormatTime(estimatedRemainingSeconds);
+  std::cout << " [" << suffix << "]";
+  std::cout << std::flush; // Ensure immediate output
 }
 } // namespace Ndmspc
