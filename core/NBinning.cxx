@@ -484,7 +484,7 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   auto start_par = std::chrono::high_resolution_clock::now();
   // Loop over all binning combinations
   NDimensionalExecutor executor(mins, maxs);
-  auto binning_task = [&content, &nBinsFilled, &nTotalBins, def, this](const std::vector<int> & coords) {
+  auto binning_task = [&content, &nBinsFilled, &nTotalBins, start_par, def, this](const std::vector<int> & coords) {
     std::vector<int> pointContentVector;
     int              iContentpoint = 0;
     // NLogger::Debug("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
@@ -518,9 +518,9 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     nBinsFilled++;
     // NLogger::Debug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,
     //                NUtils::GetCoordsString(pointContentVector, -1).c_str());
-    if (nBinsFilled % 10000 == 0)
-      NLogger::Debug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
-                     nBinsFilled);
+    if (nBinsFilled % 10000 == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par);
+    // NLogger::Debug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
+    //                nBinsFilled);
   };
   executor.Execute(binning_task);
 
