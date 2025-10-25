@@ -170,8 +170,9 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
     fBaseBinMax[i]      = axisRanges[i][2];
     fMins[i]            = axis->GetBinLowEdge(axisRanges[i][1]);
     fMaxs[i]            = axis->GetBinUpEdge(axisRanges[i][2]);
-    fLabels[i]          = axis->GetBinLabel(i + 1);
-    fStorageCoords[i]   = axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0);
+    // FIXME: Check if GetBinLabel works when min and max are not the same
+    fLabels[i]        = axis->GetBinLabel(axisRanges[i][1]);
+    fStorageCoords[i] = axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0);
   }
 
   return true;
@@ -206,7 +207,12 @@ std::string NBinningPoint::GetTitle(const std::string & prefix, bool all) const
 
     // check type of axis
     if (fBinning->GetAxisType(i) == AxisType::kVariable || all) {
-      title += TString::Format("%s[%.3f,%.3f] ", a->GetName(), fMins[i], fMaxs[i]).Data();
+      if (a->GetNlabels() > 0) {
+        title += TString::Format("%s[%s] ", a->GetName(), a->GetBinLabel(fBaseBinMin[i])).Data();
+      }
+      else {
+        title += TString::Format("%s[%.3f,%.3f] ", a->GetName(), fMins[i], fMaxs[i]).Data();
+      }
     }
   }
   if (title.back() == ' ') {

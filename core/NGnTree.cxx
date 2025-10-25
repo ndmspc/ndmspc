@@ -387,9 +387,9 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
 
         TList * outputPoint = new TList();
 
-        if (coords[0] % refreshRate == 0) {
-          NUtils::ProgressBar(coords[0], maxs[0], 50, "Processing entries");
-        }
+        // if (coords[0] % refreshRate == 0) {
+        //   NUtils::ProgressBar(coords[0], maxs[0], 50, "Processing entries");
+        // }
 
         func(point, this->GetOutput(), outputPoint, 0); // Call the lambda function
         if (outputPoint->GetEntries() > 0) {
