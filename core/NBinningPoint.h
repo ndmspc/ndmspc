@@ -36,6 +36,7 @@ class NBinningPoint : public TObject {
 
   std::map<int, std::vector<int>> GetBaseAxisRanges() const;
   std::string                     GetTitle(const std::string & prefix = "", bool all = false) const;
+  std::vector<std::string>        GetLabels() const { return fLabels; }
 
   NBinning *     GetBinning() const { return fBinning; }
   void           SetBinning(NBinning * b);

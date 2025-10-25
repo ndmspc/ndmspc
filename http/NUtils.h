@@ -30,6 +30,9 @@ class NUtils : TObject {
 
   public:
   static void        EnableMT(UInt_t numthreads = 0);
+  static bool        AccessPathName(std::string path);
+  static bool        IsFileSupported(std::string filename);
+  static int         Cp(std::string source, std::string destination);
   static TFile *     OpenFile(std::string filename, std::string mode = "READ", bool createLocalDir = true);
   static std::string OpenRawFile(std::string filename);
   static bool        SaveRawFile(std::string filename, std::string content);

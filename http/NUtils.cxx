@@ -5,7 +5,9 @@
 #include <string>
 #include <sstream>
 #include "THnSparse.h"
+#include "TString.h"
 #include "NLogger.h"
+#include "NHttpRequest.h"
 #include "NUtils.h"
 
 using std::ifstream;
@@ -33,6 +35,94 @@ void NUtils::EnableMT(UInt_t numthreads)
   if (ROOT::IsImplicitMTEnabled()) {
     NLogger::Info("IMT is enabled with number of threads: %d", ROOT::GetThreadPoolSize());
   }
+}
+
+bool NUtils::IsFileSupported(std::string filename)
+{
+  ///
+  /// Check if file is supported
+  ///
+
+  if (filename.find("http://") == 0 || filename.find("https://") == 0 || filename.find("root://") == 0 ||
+      filename.find("file://") == 0 || filename.find("alien://") == 0) {
+    return true;
+  }
+  TString fn(filename.c_str());
+  if (fn.BeginsWith("/") || !fn.Contains("://")) {
+    return true;
+  }
+  NLogger::Error("NUtils::IsFileSupported: File '%s' not found", filename.c_str());
+  return false;
+}
+
+bool NUtils::AccessPathName(std::string path)
+{
+  ///
+  /// Check if path exists
+  ///
+  TString pathStr(gSystem->ExpandPathName(path.c_str()));
+
+  if (pathStr.BeginsWith("http://") || pathStr.BeginsWith("https://")) {
+    // TODO: check if URL exists via HTTP request
+    NHttpRequest request;
+    // request.SetUrl(pathStr.Data());
+    // return request.Exists();
+    int http_code = request.head(pathStr.Data());
+    if (http_code == 200) {
+      return true;
+    }
+
+    return false;
+  }
+  else if (pathStr.BeginsWith("file://") || pathStr.BeginsWith("/") || !pathStr.Contains("://")) {
+
+    return gSystem->AccessPathName(pathStr.Data()) == false;
+  }
+  else if (pathStr.BeginsWith("root://") || pathStr.BeginsWith("alien://")) {
+    // For root and alien protocols, we can try to open the file
+    if (!pathStr.EndsWith(".root")) {
+      // For raw files, we cannot use TFile
+      pathStr += "?filetype=raw";
+    }
+    NLogger::Debug("NUtils::AccessPathName: Trying to open file '%s' ...", pathStr.Data());
+    TFile * f = TFile::Open(pathStr.Data());
+    if (f && !f->IsZombie()) {
+      f->Close();
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+int NUtils::Cp(std::string source, std::string destination)
+{
+  ///
+  /// Copy file
+  ///
+  int rc = 0;
+
+  if (source.empty()) {
+    NLogger::Error("NUtils::Cp: Source file is empty");
+    return -1;
+  }
+  if (destination.empty()) {
+    NLogger::Error("NUtils::Cp: Destination file is empty");
+    return -1;
+  }
+
+  if (IsFileSupported(source) == false) {
+    NLogger::Error("NUtils::Cp: Source file '%s' is not supported", source.c_str());
+    return -1;
+  }
+  if (IsFileSupported(destination) == false) {
+    NLogger::Error("NUtils::Cp: Destination file '%s' is not supported", destination.c_str());
+    return -1;
+  }
+
+  NLogger::Info("Copying file from '%s' to '%s' ...", source.c_str(), destination.c_str());
+  // rc = TFile::Cp(source, destination);
+  return rc;
 }
 
 THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vector<std::string> titles)
