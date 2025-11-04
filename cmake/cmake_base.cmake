@@ -17,6 +17,10 @@ configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.h.in"
   "${PROJECT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.h"
 )
+INSTALL(FILES
+  "${PROJECT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.h"
+  DESTINATION "${PROJECT_HEADER_DIR}"
+)
 
 # Spec file
 configure_file(

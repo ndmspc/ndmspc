@@ -10,6 +10,7 @@ set(PROJECT_VERSION_RELEASE rc1)
 
 option(USE_LATEST "Compile with latest code" ON)
 option(USE_LEGACY "Compile with legacy code" ON)
+option(USE_PARQUET "Compile with Parquet support" OFF)
 
 include(cmake/cmake_base.cmake)
 
@@ -32,6 +33,15 @@ find_package(NLOHMANN_JSON REQUIRED)
 # endif()
 #find_package(OpenMP REQUIRED)
 
+if(WITH_PARQUET)
+  message(STATUS "Compiling with Parquet support")
+  set(ARROW_WITH_PARQUET ON)
+  find_package(Arrow REQUIRED)
+  find_package(Parquet REQUIRED)
+else()
+  message(STATUS "Compiling without Parquet support")
+  # set(ARROW_WITH_PARQUET OFF)
+endif()
 find_package(Root REQUIRED)
 include(ROOTMacros)
 
@@ -60,9 +70,8 @@ if(USE_LEGACY)
   # add_subdirectory(legacy/ndh)
   # add_subdirectory(legacy/alice)
   # add_subdirectory(legacy/src)
-  # add_subdirectory(doc)
 endif()
-
+add_subdirectory(doc)
 
 # profile.d
 configure_file(

@@ -94,6 +94,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     xmax[i]      = axis->GetNbins();
   }
   fContent = new THnSparseL("content", "content", dims, nbins, xmin, xmax);
+  // NLogger::Info("---------- NBinningDef::NBinningDef: Created content THnSparse with %d dimensions", dims);
 
   for (int i = 0; i < cAxes->GetEntries(); i++) {
     TAxis * axis        = (TAxis *)cAxes->At(i);
@@ -107,9 +108,11 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
       axisContent->Set(axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     }
 
-    if (axis->IsAlphanumeric()) {
+    if (axes[i]->IsAlphanumeric()) {
       for (int b = 1; b <= axis->GetNbins(); b++) {
-        axisContent->SetBinLabel(b, axis->GetBinLabel(b));
+        NLogger::Trace("NBinningDef::NBinningDef: Setting bin label for axis '%s' bin %d: '%s'", axis->GetName(), b,
+                       axis->GetBinLabel(b));
+        axisContent->SetBinLabel(b, axes[i]->GetBinLabel(b));
       }
     }
   }

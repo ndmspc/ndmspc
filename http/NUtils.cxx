@@ -4,10 +4,18 @@
 #include <vector>
 #include <string>
 #include <sstream>
-#include "THnSparse.h"
-#include "TString.h"
+#include <TAxis.h>
+#include <THnSparse.h>
+#include <TString.h>
 #include "NLogger.h"
 #include "NHttpRequest.h"
+#include "ndmspc.h"
+#ifdef WITH_PARQUET
+#include <arrow/api.h>
+#include <arrow/io/api.h>
+#include <parquet/arrow/reader.h>
+#include <parquet/exception.h>
+#endif
 #include "NUtils.h"
 
 using std::ifstream;
@@ -1284,5 +1292,187 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
             << "ETA: " << FormatTime(estimatedRemainingSeconds);
   std::cout << " [" << suffix << "]";
   std::cout << std::flush; // Ensure immediate output
+}
+THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, THnSparse * hns, Int_t nMaxRows)
+{
+  ///
+  /// Create THnSparse from Parquet file
+  ///
+  // Open the Parquet file
+#ifdef WITH_PARQUET
+
+  if (hns == nullptr) {
+    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: THnSparse 'hns' is nullptr ...");
+    return nullptr;
+  }
+
+  std::shared_ptr<arrow::io::ReadableFile>                infile;
+  arrow::Result<std::shared_ptr<arrow::io::ReadableFile>> infile_result = arrow::io::ReadableFile::Open(filename);
+  if (!infile_result.ok()) {
+    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error opening file %s: %s", filename.c_str(),
+                   infile_result.status().ToString().c_str());
+    return nullptr;
+  }
+  infile = infile_result.ValueUnsafe();
+
+  // Create a Parquet reader using the modern arrow::Result API
+  std::unique_ptr<parquet::arrow::FileReader> reader;
+
+  // The new approach using arrow::Result:
+  arrow::Result<std::unique_ptr<parquet::arrow::FileReader>> reader_result =
+      parquet::arrow::OpenFile(infile, arrow::default_memory_pool()); // No third parameter!
+  if (!reader_result.ok()) {
+    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error opening Parquet file reader for file %s: %s",
+                   filename.c_str(), reader_result.status().ToString().c_str());
+    arrow::Status status = infile->Close(); // Attempt to close
+    return nullptr;
+  }
+  reader = std::move(reader_result).ValueUnsafe(); // Transfer ownership from Result to unique_ptr
+
+  // Get file metadata (optional)
+  // Note: parquet_reader() returns a const ptr, and metadata() returns a shared_ptr
+  std::shared_ptr<parquet::FileMetaData> file_metadata = reader->parquet_reader()->metadata();
+  NLogger::Debug("Parquet file '%s' opened successfully.", filename.c_str());
+  NLogger::Debug("Parquet file version: %d", file_metadata->version());
+  NLogger::Debug("Parquet created by: %s", file_metadata->created_by().c_str());
+  NLogger::Debug("Parquet number of columns: %d", file_metadata->num_columns());
+  NLogger::Debug("Parquet number of rows: %lld", file_metadata->num_rows());
+  NLogger::Debug("Parquet number of row groups: %d", file_metadata->num_row_groups());
+
+  // Read the entire file as a Table
+  // std::shared_ptr<arrow::Table> table;
+  // arrow::Status                 status = reader->ReadTable(&table); // ReadTable still returns Status
+  std::shared_ptr<arrow::RecordBatchReader> batch_reader;
+  arrow::Status                             status = reader->GetRecordBatchReader(&batch_reader);
+  if (!status.ok()) {
+    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error reading table from Parquet file %s: %s",
+                   filename.c_str(), status.ToString().c_str());
+    status = infile->Close();
+    return nullptr;
+  }
+
+  // It's good practice to close the input file stream when done
+  status = infile->Close();
+  if (!status.ok()) {
+    NLogger::Warning("NUtils::CreateSparseFromParquetTaxi: Error closing input file %s: %s", filename.c_str(),
+                     status.ToString().c_str());
+    // This is a warning, we still want to return the table.
+  }
+
+  // Print schema of the table
+  NLogger::Debug("Parquet Table Schema:\n%s", batch_reader->schema()->ToString().c_str());
+
+  const Int_t              nDims = hns->GetNdimensions();
+  std::vector<std::string> column_names;
+  for (int i = 0; i < nDims; ++i) {
+    column_names.push_back(hns->GetAxis(i)->GetName());
+  }
+  // std::cout << "\nData (first 5 rows):\n";
+
+  // int max_rows                                           = table->num_rows();
+  int max_rows   = 1e8;
+  max_rows       = nMaxRows > 0 ? std::min(max_rows, nMaxRows) : max_rows;
+  int print_rows = std::min(max_rows, 5);
+  // auto                                table_batch_reader = std::make_shared<arrow::TableBatchReader>(*table);
+  auto                                table_batch_reader = batch_reader;
+  std::shared_ptr<arrow::RecordBatch> batch;
+  Double_t                            point[nDims];
+
+  if (print_rows > 0) {
+    NLogger::Debug("Printing first %d rows of Parquet file '%s' ...", print_rows, filename.c_str());
+    // NLogger::Info("Columns: %s", NUtils::Join(column_names, '\t').c_str());
+  }
+
+  int batch_count = 0;
+  while (table_batch_reader->ReadNext(&batch).ok() && batch) {
+    batch_count++;
+    NLogger::Debug("Processing batch with %d rows and %d columns ...", batch->num_rows(), batch->num_columns());
+    for (int i = 0; i < batch->num_rows(); ++i) {
+      if (i >= max_rows) break; // Limit to first 5 rows for display
+
+      bool isValid = true;
+      int  idx     = 0;
+      for (int j = 0; j < batch->num_columns(); ++j) {
+        if (std::find(column_names.begin(), column_names.end(), batch->column_name(j)) == column_names.end())
+          continue; // Skip columns not in our list
+        // NLogger::Debug("[%d %s]Processing row %d, column '%s' ...", idx, hns->GetAxis(idx)->GetName(), i,
+        //                batch->column_name(j).c_str());
+        // std::cout << batch->column_name(j) << "\t";
+        const auto &                                  array         = batch->column(j);
+        arrow::Result<std::shared_ptr<arrow::Scalar>> scalar_result = array->GetScalar(i);
+        if (scalar_result.ok()) {
+          // if (i * batch_count < print_rows) std::cout << scalar_result.ValueUnsafe()->ToString() << "\t";
+          if (scalar_result.ValueUnsafe()->is_valid) {
+            TAxis * axis = hns->GetAxis(idx);
+            if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::STRING ||
+                scalar_result.ValueUnsafe()->type->id() == arrow::Type::LARGE_STRING) {
+              // Arrow StringScalar's value is an arrow::util::string_view or arrow::util::string_view
+              // It's best to convert it to std::string for general use.
+              std::string value = scalar_result.ValueUnsafe()->ToString();
+              // TODO: check if not shifted by one
+              point[idx] = axis->GetBinCenter(axis->FindBin(value.c_str()));
+            }
+            else if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::INT32) {
+              auto int_scalar = std::static_pointer_cast<arrow::Int32Scalar>(scalar_result.ValueUnsafe());
+
+              point[idx] = static_cast<Double_t>(int_scalar->value);
+            }
+            else if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::INT64) {
+              auto int64_scalar = std::static_pointer_cast<arrow::Int64Scalar>(scalar_result.ValueUnsafe());
+              point[idx]        = static_cast<Double_t>(int64_scalar->value);
+            }
+            else if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::UINT32) {
+              auto uint32_scalar = std::static_pointer_cast<arrow::UInt32Scalar>(scalar_result.ValueUnsafe());
+              point[idx]         = static_cast<Double_t>(uint32_scalar->value);
+            }
+            else if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::FLOAT) {
+              auto float_scalar = std::static_pointer_cast<arrow::FloatScalar>(scalar_result.ValueUnsafe());
+              point[idx]        = static_cast<Double_t>(float_scalar->value);
+            }
+            else if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::DOUBLE) {
+              auto double_scalar = std::static_pointer_cast<arrow::DoubleScalar>(scalar_result.ValueUnsafe());
+              point[idx]         = double_scalar->value;
+            }
+            else {
+              NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Unsupported data type for column '%s' ...",
+                             batch->column_name(j).c_str());
+              isValid = false;
+            }
+          }
+          else {
+            // Handle null values (set to 0 or some default)
+            //
+            //
+            point[idx] = -1000;
+            isValid    = false;
+            isValid    = true;
+          }
+        }
+        else {
+          NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error getting scalar at (%d,%d): %s", i, j,
+                         scalar_result.status().ToString().c_str());
+          isValid = false;
+        }
+        idx++;
+      }
+      // if (i * batch_count < print_rows) std::cout << std::endl;
+      if (isValid) {
+        // print point
+        // for (int d = 0; d < nDims; ++d) {
+        //   NLogger::Debug("Point[%d=%s]=%f", d, hns->GetAxis(d)->GetName(), point[d]);
+        // }
+        hns->Fill(point);
+      }
+      else {
+        NLogger::Warning("Skipping row %d due to invalid data.", i);
+      }
+    }
+  }
+  return hns;
+
+#else
+  NLogger::Error("Parquet support is not enabled. Please compile with Parquet support.");
+  return nullptr;
+#endif
 }
 } // namespace Ndmspc

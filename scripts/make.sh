@@ -10,6 +10,7 @@ BEING_STRICT=false
 BUILDING_DOC=false
 RUNNING_TEST=false
 WITH_LEGACY=${WITH_LEGACY-false}
+WITH_PARQUET=${WITH_PARQUET-false}
 
 PRINT_DEBUG=${PRINT_DEBUG-false}
 MY_CMAKE_OPTS=""
@@ -125,6 +126,9 @@ fi
 if [[ $WITH_LEGACY == true ]]; then
   echo "Building with legacy support"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DUSE_LEGACY:bool=ON"
+fi
+if [[ $WITH_PARQUET == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_PARQUET=ON"
 fi
 
 # MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"

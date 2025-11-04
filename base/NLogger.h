@@ -10,7 +10,7 @@
 #include "opentelemetry/logs/logger_provider.h"
 namespace logs_api = opentelemetry::logs;
 
-#include <TObject.h>
+// #include <TObject.h>
 
 namespace Ndmspc {
 
@@ -35,7 +35,8 @@ static const std::unordered_map<std::string, logs_api::Severity> fgSeverityMap =
     {"FATAL3", logs_api::Severity::kFatal3}, {"FATAL4", logs_api::Severity::kFatal4},
 };
 
-class NLogger : public TObject {
+class NLogger {
+  // class NLogger : public TObject {
   public:
   NLogger();
   virtual ~NLogger();
@@ -66,7 +67,7 @@ class NLogger : public TObject {
   void Cleanup();
 
   /// \cond CLASSIMP
-  ClassDef(NLogger, 1);
+  // ClassDefOverride(NLogger, 1);
   /// \endcond;
 };
 } // namespace Ndmspc

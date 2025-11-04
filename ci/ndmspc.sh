@@ -9,6 +9,7 @@ requires:
   - libwebsockets
   - curl
   - libuv
+  - arrow
 build_requires:
   - CMake
   - ninja
@@ -42,6 +43,7 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"                \
       ${LIBWEBSOCKETS_ROOT:+"-DLIBWEBSOCKETS_ROOT=$LIBWEBSOCKETS_ROOT"} \
       ${NLOHMANN_JSON_ROOT:+"-DNLOHMANN_JSON_ROOT=$NLOHMANN_JSON_ROOT"} \
       ${CURL_ROOT:+"-DCURL_ROOT=$CURL_ROOT"}                            \
+      -DWITH_PARQUET=ON                                                 \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build . -- ${JOBS+-j $JOBS} install
