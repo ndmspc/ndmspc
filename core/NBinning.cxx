@@ -518,7 +518,7 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     nBinsFilled++;
     // NLogger::Debug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,
     //                NUtils::GetCoordsString(pointContentVector, -1).c_str());
-    if (nBinsFilled % 10000 == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par);
+    if (nBinsFilled % (nTotalBins / 100) == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par);
     // NLogger::Debug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
     //                nBinsFilled);
   };

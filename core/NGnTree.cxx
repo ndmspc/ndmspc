@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include "TDirectory.h"
 #include "TObject.h"
 #include <TList.h>
 #include <TROOT.h>
@@ -718,9 +719,12 @@ void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string bin
     if (c1 == nullptr) c1 = new TCanvas("c1", "NGnTree::Play", 800, 600);
     c1->Clear();
     c1->cd();
-    c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() : 1);
+    c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() + 1 : 1);
   }
   binningDef->Print();
+  THnSparse * bdContent = (THnSparse *)binningDef->GetContent()->Clone();
+  bdContent->Reset();
+
   std::vector<Long64_t> ids = binningDef->GetIds();
   // loop over all ids and print them
   for (auto id : ids) {
@@ -755,23 +759,52 @@ void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string bin
       }
       else {
 
+        Double_t v = 1.0;
         for (int i = 0; i < n; i++) {
           // NLogger::Debug("Drawing output object id %d (list index %d) on pad %d", outputPointIds[i], i, i + 1);
-          c1->cd(i + 1);
+
+          c1->cd(i + 2);
           TObject * obj = l->At(outputPointIds[i]);
           if (obj) {
             // obj->Print();
             obj->Draw();
           }
+          if (obj->InheritsFrom(TH1::Class()) && i == 0) {
+            TH1 * h = (TH1 *)obj;
+            v       = h->GetMean();
+            NLogger::Debug("Mean value from histogram [%s]: %f", h->GetName(), v);
+          }
         }
-        c1->ModifiedUpdate();
+        bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), v);
+        c1->cd(1);
+        TH1 * bdProj = (TH1 *)gROOT->FindObjectAny("bdProj");
+        if (bdProj) {
+          delete bdProj;
+          bdProj = nullptr;
+        }
+        if (bdContent->GetNdimensions() == 1) {
+          bdProj = bdContent->Projection(0);
+        }
+        else if (bdContent->GetNdimensions() == 2) {
+          bdProj = bdContent->Projection(0, 1);
+        }
+        else if (bdContent->GetNdimensions() == 3) {
+          bdProj = bdContent->Projection(0, 1, 2);
+        }
+        else {
+          NLogger::Error("NGnTree::Play: Cannot project THnSparse with %d dimensions", bdContent->GetNdimensions());
+        }
+        if (bdProj) {
+          bdProj->SetName("bdProj");
+          // bdProj->SetDirectory(nullptr);
+          bdProj->Draw("colz");
+          // c1->ModifiedUpdate();
+        }
       }
     }
     if (c1) c1->ModifiedUpdate();
-    if (timeout > 0)
-      gSystem->Sleep(timeout);
-    else
-      gSystem->ProcessEvents();
+    gSystem->ProcessEvents();
+    if (timeout > 0) gSystem->Sleep(timeout);
   }
   if (client) client->Disconnect();
 }
