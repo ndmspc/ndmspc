@@ -44,7 +44,7 @@ NBinning::NBinning(TObjArray * axes) : TObject()
   for (int i = 0; i < axes->GetEntriesFast(); i++) {
     TAxis * axis = dynamic_cast<TAxis *>(axes->At(i));
     if (axis) {
-      fAxes.push_back(axis);
+      fAxes.push_back((TAxis *)axis->Clone());
     }
     else {
       NLogger::Error("NBinning: Axis %d is not a TAxis", i);
@@ -527,7 +527,8 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   auto                                      end_par      = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
 
-  Ndmspc::NLogger::Info("NBinning::FillAll: Filled %lld bins in %.3f s", nTotalBins, par_duration.count() / 1000);
+  Ndmspc::NLogger::Info("NBinning::FillAll: Filled %lld bins in %s s", nTotalBins,
+                        NUtils::FormatTime(par_duration.count() / 1000).c_str());
   fMap->Reset();
 
   return nBinsFilled;
@@ -1051,6 +1052,7 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
     //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     if (!binning[axisName].empty()) {
       AddBinningViaBinWidths(i + 1, binning[axisName]);
+      SetAxisType(i, AxisType::kVariable);
       // GetDefinition()[axisName] = binning[axisName];
       // def->SetAxisDefinition(axisName, binning[axisName]);
     }

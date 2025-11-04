@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include "TObject.h"
 #include <TList.h>
 #include <TROOT.h>
 #include <THnSparse.h>
@@ -282,8 +283,9 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     auto                                      end_par      = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
 
-    Ndmspc::NLogger::Info("NGnTree::Process: Parallel execution completed and it took %.3f s",
-                          par_duration.count() / 1000);
+    Ndmspc::NLogger::Info("NGnTree::Process: Parallel execution completed and it took %s .",
+                          NUtils::FormatTime(par_duration.count() / 1000).c_str());
+
     //
     // Print number of results
     Ndmspc::NLogger::Info("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
@@ -674,7 +676,7 @@ Int_t NGnTree::GetEntry(Long64_t entry, bool checkBinningDef)
   return fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
 }
 
-void NGnTree::Play(int timeout, std::string binning, Option_t * option, std::string ws)
+void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string binning, Option_t * option, std::string ws)
 {
   ///
   /// Play the tree
@@ -711,7 +713,13 @@ void NGnTree::Play(int timeout, std::string binning, Option_t * option, std::str
   }
 
   TCanvas * c1 = nullptr;
-  if (!client) c1 = new TCanvas("c1", "NGnTree::Play", 800, 600);
+  if (!client) {
+    c1 = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("c1");
+    if (c1 == nullptr) c1 = new TCanvas("c1", "NGnTree::Play", 800, 600);
+    c1->Clear();
+    c1->cd();
+    c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() : 1);
+  }
   binningDef->Print();
   std::vector<Long64_t> ids = binningDef->GetIds();
   // loop over all ids and print them
@@ -727,7 +735,15 @@ void NGnTree::Play(int timeout, std::string binning, Option_t * option, std::str
     else {
       // NLogger::Info("Output for entry %lld:", id);
       // l->Print(opt.Data());
-      TH1 * h = (TH1 *)l->At(0);
+
+      if (outputPointIds.empty()) {
+        outputPointIds.resize(l->GetEntries());
+        for (int i = 0; i < l->GetEntries(); i++) {
+          outputPointIds[i] = i;
+        }
+      }
+      int n = outputPointIds.size();
+
       if (client) {
         std::string msg = TBufferJSON::ConvertToJSON(l).Data();
         if (!client->Send(msg)) {
@@ -739,11 +755,23 @@ void NGnTree::Play(int timeout, std::string binning, Option_t * option, std::str
       }
       else {
 
-        if (h) h->Draw();
+        for (int i = 0; i < n; i++) {
+          // NLogger::Debug("Drawing output object id %d (list index %d) on pad %d", outputPointIds[i], i, i + 1);
+          c1->cd(i + 1);
+          TObject * obj = l->At(outputPointIds[i]);
+          if (obj) {
+            // obj->Print();
+            obj->Draw();
+          }
+        }
+        c1->ModifiedUpdate();
       }
     }
     if (c1) c1->ModifiedUpdate();
-    if (timeout > 0) gSystem->Sleep(timeout);
+    if (timeout > 0)
+      gSystem->Sleep(timeout);
+    else
+      gSystem->ProcessEvents();
   }
   if (client) client->Disconnect();
 }

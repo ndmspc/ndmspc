@@ -81,6 +81,8 @@ class NUtils : TObject {
   static void ProgressBar(int current, int total, int barWidth = 70, std::string prefix = "", std::string suffix = "");
   static void ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime,
                           int barWidth = 70, std::string prefix = "", std::string suffix = "");
+  static THnSparse * CreateSparseFromParquetTaxi(const std::string & filename, THnSparse * hns = nullptr,
+                                                 Int_t nMaxRows = -1);
 
   /// \cond CLASSIMP
   ClassDef(NUtils, 0);

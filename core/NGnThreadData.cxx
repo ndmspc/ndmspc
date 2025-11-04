@@ -196,7 +196,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     for (auto obj : *outputPoint) {
       delete obj;
     }
-    // outputPoint->Clear();
+    outputPoint->Clear();
     delete outputPoint; // Clean up the output list
   }
 }

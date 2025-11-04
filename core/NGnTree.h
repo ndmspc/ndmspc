@@ -24,9 +24,11 @@ class NGnTree : public TObject {
   virtual ~NGnTree();
 
   virtual void Print(Option_t * option = "") const override;
-  void         Play(int timeout = 0, std::string binning = "", Option_t * option = "", std::string ws = "");
+  void Play(int timeout = 0, std::vector<int> outputPointIds = {0}, std::string binning = "", Option_t * option = "",
+            std::string ws = "");
 
   NBinning *                     GetBinning() const { return fBinning; }
+  void                           SetBinning(NBinning * binning) { fBinning = binning; }
   NStorageTree *                 GetStorageTree() const { return fTreeStorage; }
   std::map<std::string, TList *> GetOutputs() const { return fOutputs; }
   TList *                        GetOutput(std::string name = "");
@@ -41,7 +43,7 @@ class NGnTree : public TObject {
                const json & cfg = json::object(), NBinning * hnsbBinningIn = nullptr);
 
   static NGnTree * Open(const std::string & filename, const std::string & branches = "",
-                              const std::string & treename = "hnst");
+                        const std::string & treename = "hnst");
   static NGnTree * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
   protected:

@@ -9,7 +9,7 @@ namespace logs_sdk = opentelemetry::sdk::logs;
 #include "NLogger.h"
 
 /// \cond CLASSIMP
-ClassImp(Ndmspc::NLogger);
+// ClassImp(Ndmspc::NLogger);
 /// \endcond
 
 namespace Ndmspc {
@@ -18,7 +18,8 @@ std::unique_ptr<NLogger> NLogger::fgLogger = std::unique_ptr<NLogger>(new NLogge
 // std::unique_ptr<NLogger> NLogger::fgLogger = nullptr;
 std::mutex NLogger::fgLoggerMutex;
 
-NLogger::NLogger() : TObject()
+// NLogger::NLogger() : TObject()
+NLogger::NLogger()
 {
   ///
   /// Constructor
