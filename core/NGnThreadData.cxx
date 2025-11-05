@@ -1,11 +1,11 @@
 #include <NGnTree.h>
 #include <NStorageTree.h>
 #include <TList.h>
+#include <TThread.h>
 #include "THnSparse.h"
 #include "NBinningPoint.h"
 #include "NLogger.h"
 #include "NUtils.h"
-#include "RtypesCore.h"
 #include "NGnThreadData.h"
 
 /// \cond CLASSIMP
@@ -192,12 +192,14 @@ void NGnThreadData::Process(const std::vector<int> & coords)
 
   {
     std::lock_guard<std::mutex> lock(fSharedMutex);
+    TThread::Lock();
     // Clear the list to avoid memory leaks
     for (auto obj : *outputPoint) {
       delete obj;
     }
     outputPoint->Clear();
     delete outputPoint; // Clean up the output list
+    TThread::UnLock();
   }
 }
 

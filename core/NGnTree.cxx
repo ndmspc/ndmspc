@@ -446,19 +446,19 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
 
         NLogger::Trace("NGnTree::Process: outputPoint contains %d objects", outputPoint->GetEntries());
 
-        for (Int_t i = 0; i < outputPoint->GetEntries(); ++i) {
-          TObject * obj = outputPoint->At(i);
-          if (obj) {
-            // obj->SetDirectory(nullptr); // Detach from any directory to avoid memory leaks
-            outputPoint->Remove(obj); // Remove if already exists
-            delete obj;               // Delete the object to avoid memory leaks
-          }
-        }
+        // for (Int_t i = 0; i < outputPoint->GetEntries(); ++i) {
+        //   TObject * obj = outputPoint->At(i);
+        //   if (obj) {
+        //     // obj->SetDirectory(nullptr); // Detach from any directory to avoid memory leaks
+        //     outputPoint->Remove(obj); // Remove if already exists
+        //     delete obj;               // Delete the object to avoid memory leaks
+        //   }
+        // }
 
         // Clear the list to avoid memory leaks
-        // for (auto obj : *outputPoint) {
-        //   delete obj;
-        // }
+        for (auto obj : *outputPoint) {
+          delete obj;
+        }
         outputPoint->Clear();
         delete outputPoint; // Clean up the output list
       };
