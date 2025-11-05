@@ -37,8 +37,10 @@ class NUtils : TObject {
   static std::string OpenRawFile(std::string filename);
   static bool        SaveRawFile(std::string filename, std::string content);
   static TMacro *    OpenMacro(std::string filename);
-  static bool        SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow = false);
-  static bool SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow = false);
+  static bool        SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow = false,
+                                   bool modifyTitle = false);
+  static bool SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow = false,
+                            bool modifyTitle = false);
   static bool GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, int & min, int & max);
   static bool GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int & minBase, int & maxBase);
 
