@@ -45,7 +45,6 @@ NGnTree::NGnTree(std::vector<TAxis *> axes, std::string filename, std::string tr
   }
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree(fBinning);
-  // TODO: Handle filename and treename by user
   fTreeStorage->InitTree(filename, treename);
 }
 NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) : TObject()
@@ -60,9 +59,32 @@ NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) :
   }
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree(fBinning);
-  // TODO: Handle filename and treename by user
   fTreeStorage->InitTree(filename, treename);
 }
+
+NGnTree::NGnTree(NGnTree * ngnt, std::string filename, std::string treename) : TObject()
+{
+  ///
+  /// Constructor
+  ///
+  if (ngnt == nullptr) {
+    NLogger::Error("NGnTree::NGnTree: NGnTree is nullptr.");
+    MakeZombie();
+    return;
+  }
+
+  if (ngnt->GetBinning() == nullptr) {
+    NLogger::Error("NGnTree::NGnTree: Binning in NGnTree is nullptr.");
+    MakeZombie();
+    return;
+  }
+
+  // TODO: Import binning from user
+  fBinning     = (NBinning *)ngnt->GetBinning()->Clone();
+  fTreeStorage = new NStorageTree(fBinning);
+  fTreeStorage->InitTree(filename, treename);
+}
+
 NGnTree::NGnTree(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTreeStorage(s)
 {
   ///
@@ -816,6 +838,8 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
         }
         if (bdProj) {
           bdProj->SetName("bdProj");
+          bdProj->SetTitle(TString::Format("Binning '%s' content projection", binning.c_str()).Data());
+          bdProj->SetMinimum(0);
           // bdProj->SetDirectory(nullptr);
           bdProj->Draw("colz");
           // c1->ModifiedUpdate();
@@ -825,6 +849,7 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
     if (c1) c1->ModifiedUpdate();
     gSystem->ProcessEvents();
     if (timeout > 0) gSystem->Sleep(timeout);
+    NLogger::Info("%d", id);
   }
   if (client) client->Disconnect();
 

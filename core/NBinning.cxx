@@ -518,17 +518,22 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     nBinsFilled++;
     // NLogger::Debug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,
     //                NUtils::GetCoordsString(pointContentVector, -1).c_str());
-    if (nBinsFilled % (nTotalBins / 100) == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par);
+    NLogger::Trace("NBinning::FillAll: Filled bin %lld: %lld", nBinsFilled, nTotalBins);
+    int refreshRate = nTotalBins / 100;
+    if (refreshRate == 0) refreshRate = nTotalBins;
+    if (nBinsFilled % (refreshRate) == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par);
     // NLogger::Debug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
     //                nBinsFilled);
   };
   executor.Execute(binning_task);
+  Printf("");
 
   auto                                      end_par      = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
 
   Ndmspc::NLogger::Info("NBinning::FillAll: Filled %lld bins in %s s", nTotalBins,
                         NUtils::FormatTime(par_duration.count() / 1000).c_str());
+
   fMap->Reset();
 
   return nBinsFilled;
