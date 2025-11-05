@@ -20,6 +20,7 @@ class NGnTree : public TObject {
   NGnTree();
   NGnTree(std::vector<TAxis *> axes, std::string filename = "", std::string treename = "hnst");
   NGnTree(TObjArray * axes, std::string filename = "", std::string treename = "hnst");
+  NGnTree(NGnTree * ngnt, std::string filename = "", std::string treename = "hnst");
   NGnTree(NBinning * binning, NStorageTree * treeStorage);
   virtual ~NGnTree();
 
