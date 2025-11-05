@@ -677,7 +677,8 @@ Int_t NGnTree::GetEntry(Long64_t entry, bool checkBinningDef)
   return fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
 }
 
-void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string binning, Option_t * option, std::string ws)
+void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPointIds,
+                   std::vector<std::vector<int>> ranges, Option_t * option, std::string ws)
 {
   ///
   /// Play the tree
@@ -713,6 +714,26 @@ void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string bin
     return;
   }
 
+  THnSparse * bdContent = (THnSparse *)binningDef->GetContent()->Clone();
+
+  std::string bdContentName = TString::Format("bdContent_%s", binning.c_str()).Data();
+  // Set axis ranges if provided
+  if (!ranges.empty()) NUtils::SetAxisRanges(bdContent, ranges, false, true);
+
+  Long64_t                                        linBin = 0;
+  std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{bdContent->CreateIter(true /*use axis range*/)};
+  std::vector<Long64_t>                           ids;
+  // std::vector<Long64_t> ids = binningDef->GetIds();
+  while ((linBin = iter->Next()) >= 0) {
+    // NLogger::Debug("Original content bin %lld: %f", linBin, bdContentOrig->GetBinContent(linBin));
+    ids.push_back(linBin);
+  }
+  if (ids.empty()) {
+    NLogger::Warning("NGnTree::Play: No entries found in binning definition '%s' !!!", binning.c_str());
+    return;
+  }
+  // return;
+
   TCanvas * c1 = nullptr;
   if (!client) {
     c1 = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("c1");
@@ -720,12 +741,11 @@ void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string bin
     c1->Clear();
     c1->cd();
     c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() + 1 : 1);
+    gSystem->ProcessEvents();
   }
   binningDef->Print();
-  THnSparse * bdContent = (THnSparse *)binningDef->GetContent()->Clone();
   bdContent->Reset();
 
-  std::vector<Long64_t> ids = binningDef->GetIds();
   // loop over all ids and print them
   for (auto id : ids) {
     // for (int id = 0; id < GetEntries(); id++) {
@@ -783,13 +803,13 @@ void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string bin
           bdProj = nullptr;
         }
         if (bdContent->GetNdimensions() == 1) {
-          bdProj = bdContent->Projection(0);
+          bdProj = bdContent->Projection(0, "O");
         }
         else if (bdContent->GetNdimensions() == 2) {
-          bdProj = bdContent->Projection(0, 1);
+          bdProj = bdContent->Projection(0, 1, "O");
         }
         else if (bdContent->GetNdimensions() == 3) {
-          bdProj = bdContent->Projection(0, 1, 2);
+          bdProj = bdContent->Projection(0, 1, 2, "O");
         }
         else {
           NLogger::Error("NGnTree::Play: Cannot project THnSparse with %d dimensions", bdContent->GetNdimensions());
@@ -807,6 +827,8 @@ void NGnTree::Play(int timeout, std::vector<int> outputPointIds, std::string bin
     if (timeout > 0) gSystem->Sleep(timeout);
   }
   if (client) client->Disconnect();
+
+  delete bdContent;
 }
 
 } // namespace Ndmspc

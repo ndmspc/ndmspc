@@ -868,7 +868,8 @@ std::set<std::string> NUtils::Unique(std::vector<std::string> & paths, int axis,
   return out;
 }
 
-bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow)
+bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow,
+                           bool modifyTitle)
 {
   ///
   /// Set axis ranges
@@ -895,7 +896,9 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
     }
   }
 
-  TAxis * axis = nullptr;
+  TAxis * axis  = nullptr;
+  TString title = sparse->GetTitle();
+  if (modifyTitle) title += " Ranges:";
   for (int i = 0; i < ranges.size(); i++) {
     axis = sparse->GetAxis(ranges[i][0]);
     NLogger::Trace("Setting axis range %s=[%d,%d] ...", axis->GetName(), ranges[i][1], ranges[i][2]);
@@ -904,11 +907,21 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
       return false;
     }
     axis->SetRange(ranges[i][1], ranges[i][2]);
+    if (axis->IsAlphanumeric()) {
+
+      title += TString::Format(" %s[%s]", axis->GetName(), axis->GetBinLabel(ranges[i][1]));
+    }
+    else {
+      title += TString::Format(" %s[%0.2f - %0.2f]", axis->GetName(), axis->GetBinLowEdge(ranges[i][1]),
+                               axis->GetBinUpEdge(ranges[i][2]));
+    }
   }
+  if (modifyTitle) sparse->SetTitle(title.Data());
   return true;
 }
 
-bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow)
+bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow,
+                           bool modifyTitle)
 {
   ///
   /// Set axis ranges
@@ -935,7 +948,8 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
     }
   }
 
-  TAxis * axis = nullptr;
+  TAxis * axis  = nullptr;
+  TString title = sparse->GetTitle();
   for (const auto & [key, val] : ranges) {
     NLogger::Trace("NUtils::SetAxisRanges: Setting axis range for axis %d to [%d,%d] ...", key, val[0], val[1]);
     axis = sparse->GetAxis(key);
@@ -945,7 +959,19 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
     }
     NLogger::Trace("NUtils::SetAxisRanges: Setting axis range %s=[%d,%d] ...", axis->GetName(), val[0], val[1]);
     axis->SetRange(val[0], val[1]);
+    if (axis->IsAlphanumeric()) {
+
+      title += TString::Format(" %s[%s]", axis->GetName(), axis->GetBinLabel(val[0]));
+    }
+    else {
+      title += TString::Format(" %s[%0.2f - %0.2f]", axis->GetName(), axis->GetBinLowEdge(val[0]),
+                               axis->GetBinUpEdge(val[1]));
+    }
   }
+
+  if (modifyTitle) sparse->SetTitle(title.Data());
+  NLogger::Trace("NUtils::SetAxisRanges: New title: %s", sparse->GetTitle());
+
   return true;
 }
 bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, int & min, int & max)

@@ -24,8 +24,8 @@ class NGnTree : public TObject {
   virtual ~NGnTree();
 
   virtual void Print(Option_t * option = "") const override;
-  void Play(int timeout = 0, std::vector<int> outputPointIds = {0}, std::string binning = "", Option_t * option = "",
-            std::string ws = "");
+  void         Play(int timeout = 0, std::string binning = "", std::vector<int> outputPointIds = {0},
+                    std::vector<std::vector<int>> ranges = {}, Option_t * option = "", std::string ws = "");
 
   NBinning *                     GetBinning() const { return fBinning; }
   void                           SetBinning(NBinning * binning) { fBinning = binning; }
