@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <vector>
 #include <TSystem.h>
 #include <TMath.h>
 #include <TROOT.h>
@@ -24,7 +25,10 @@ ClassImp(Ndmspc::NGnNavigator);
 /// \endcond
 
 namespace Ndmspc {
-NGnNavigator::NGnNavigator(const char * name, const char * title) : TNamed(name, title) {}
+NGnNavigator::NGnNavigator(const char * name, const char * title, std::vector<std::string> objectTypes)
+    : TNamed(name, title), fObjectTypes(objectTypes)
+{
+}
 NGnNavigator::~NGnNavigator() {}
 
 NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level,
@@ -488,18 +492,18 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   return current;
 }
 
-void NGnNavigator::Export(const std::string & filename, const std::string & wsUrl)
+void NGnNavigator::Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl)
 {
   ///
   /// Export object to file
   ///
-  NLogger::Info("Exporting NHnSparseObject to file: %s", filename.c_str());
+  NLogger::Info("Exporting NGnNavigator to file: %s", filename.c_str());
 
   json objJson;
 
   // if filename ends with .root, remove it
   if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".root") {
-    NLogger::Info("Exporting NHnSparseObject to ROOT file: %s", filename.c_str());
+    NLogger::Info("Exporting NGnNavigator to ROOT file: %s", filename.c_str());
     TFile * file = TFile::Open(filename.c_str(), "RECREATE");
     if (!file || file->IsZombie()) {
       NLogger::Error("Failed to open file: %s", filename.c_str());
@@ -511,9 +515,9 @@ void NGnNavigator::Export(const std::string & filename, const std::string & wsUr
     delete file;
   }
   else if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".json") {
-    NLogger::Info("Exporting NHnSparseObject to JSON file: %s", filename.c_str());
+    NLogger::Info("Exporting NGnNavigator to JSON file: %s", filename.c_str());
     NGnNavigator * obj = const_cast<NGnNavigator *>(this);
-    ExportToJson(objJson, obj);
+    ExportToJson(objJson, obj, objectNames);
     // std::cout << objJson.dump(2) << std::endl;
     // TODO: Use TFile::Open
     std::ofstream outFile(filename);
@@ -552,23 +556,23 @@ void NGnNavigator::Export(const std::string & filename, const std::string & wsUr
     Ndmspc::NLogger::Info("Sent: %s", message.c_str());
   }
 
-  NLogger::Info("Exported NHnSparseObject to file: %s", filename.c_str());
+  NLogger::Info("Exported NGnNavigator to file: %s", filename.c_str());
 }
 
-void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
+void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames)
 {
   ///
   /// Export NGnNavigator to JSON object
   ///
 
   if (obj == nullptr) {
-    NLogger::Error("NHnSparseObject::ExportJson: Object is nullptr !!!");
+    NLogger::Error("NGnNavigator::ExportJson: Object is nullptr !!!");
     return;
   }
 
   // THnSparse * hns = obj->GetProjection();
   // if (hns == nullptr) {
-  //   // NLogger::Error("NHnSparseObject::ExportJson: HnSparse is nullptr !!!");
+  //   // NLogger::Error("NGnNavigator::ExportJson: HnSparse is nullptr !!!");
   //   return;
   // }
 
@@ -609,12 +613,12 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
   //   obj->SetProjection(h);
   // }
   // else {
-  //   NLogger::Error("NHnSparseObject::ExportJson: Unsupported number of dimensions: %d", nDimensions);
+  //   NLogger::Error("NGnNavigator::ExportJson: Unsupported number of dimensions: %d", nDimensions);
   //   return;
   // }
 
   if (h == nullptr) {
-    NLogger::Error("NHnSparseObject::ExportJson: Projection is nullptr !!!");
+    NLogger::Error("NGnNavigator::ExportJson: Projection is nullptr !!!");
     return;
   }
 
@@ -629,7 +633,56 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
   // loop over content map and add objects
   double entries = 0.0;
   // int    idx     = 0;
+  if (objectNames.empty()) {
+    NLogger::Debug("NGnNavigator::ExportJson: Exporting all objects ...");
+    // loop over all keys and add them to objectNames
+    bool isValid = false;
+    for (const auto & [key, val] : obj->GetObjectContentMap()) {
+      isValid = false;
+      for (size_t i = 0; i < val.size(); i++) {
+        TObject * objContent = val[i];
+        // NLogger::Debug("NGnNavigator::ExportJson: Processing object '%s' at index %zu ...", key.c_str(), i);
+        if (objContent) {
+          // check if object type is inherited from list of names in objectTypes
+          std::string className = objContent ? objContent->ClassName() : "";
+          if (className.empty()) {
+            NLogger::Warning("NGnNavigator::ExportJson: Object %s has empty class name", key.c_str());
+            continue;
+          }
+          // shrink className string to 3 characters if it is longer than 3
+          className = className.substr(0, 3);
+          // NLogger::Debug("NGnNavigator::ExportJson: Object %s has class '%s'", key.c_str(), className.c_str());
+          if (std::find(NGnNavigator::fObjectTypes.begin(), NGnNavigator::fObjectTypes.end(), className) !=
+              NGnNavigator::fObjectTypes.end()) {
+            // NLogger::Warning(
+            //     "NGnNavigator::ExportJson: Skipping unsupported object type '%s' for object '%s' at index %zu",
+            //     className.c_str(), key.c_str(), i);
+            isValid = true;
+            break;
+          }
+        }
+      }
+      if (isValid) objectNames.push_back(key);
+    }
+  }
+  else {
+    NLogger::Debug("NGnNavigator::ExportJson: Exporting selected objects: %s",
+                   NUtils::GetCoordsString(objectNames).c_str());
+  }
+
+  // Print all included object names
+  for (const auto & name : objectNames) {
+    NLogger::Debug("NGnNavigator::ExportJson: Included object name: '%s'", name.c_str());
+  }
+
   for (const auto & [key, val] : obj->GetObjectContentMap()) {
+
+    // Filter by objectNames
+    if (std::find(objectNames.begin(), objectNames.end(), key) == objectNames.end()) {
+      NLogger::Debug("NGnNavigator::ExportJson: Skipping object '%s' ...", key.c_str());
+      continue;
+    }
+
     double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
     double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
     entries    = 0.0;                                 // Reset entries for each key
@@ -643,13 +696,13 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
       if (objContent) {
         double objMin, objMax;
         NUtils::GetTrueHistogramMinMax((TH1 *)objContent, objMin, objMax, false);
-        // NLogger::Debug("NHnSparseObject::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
+        // NLogger::Debug("NGnNavigator::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
         //                objMax);
 
         min     = TMath::Min(min, objMin);
         max     = TMath::Max(max, objMax);
         entries = ((TH1 *)objContent)->GetEntries();
-        // NLogger::Debug("NHnSparseObject::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
+        // NLogger::Debug("NGnNavigator::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
         // min,
         //                max);
         // j["fArray"][i] = entries / val.size(); // Store the average entries for this object
@@ -679,7 +732,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
     j["ndmspc"][key]["fMinimum"] = min;
     j["ndmspc"][key]["fMaximum"] = max;
     // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // NLogger::Debug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
     // idx++;
   }
 
@@ -694,7 +747,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
         min                            = TMath::Min(min, param);
         max                            = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
-        // NLogger::Debug("NHnSparseObject::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
+        // NLogger::Debug("NGnNavigator::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
         // entries += 1.0;
       }
       else {
@@ -713,7 +766,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
       j["fArrays"][key]["max"] = max;
     }
     // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // NLogger::Debug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
   }
 
   double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
@@ -721,7 +774,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
   std::vector<double> tmpContent;
   for (const auto & child : obj->GetChildren()) {
     // if (child == nullptr) {
-    //   NLogger::Error("NHnSparseObject::ExportJson: Child is nullptr !!!");
+    //   NLogger::Error("NGnNavigator::ExportJson: Child is nullptr !!!");
     //   continue;
     // }
     json   childJson;
@@ -729,7 +782,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
     double objMin, objMax;
     double entries = 0.0; // Reset entries for each child
     if (child != nullptr) {
-      ExportToJson(childJson, child);
+      ExportToJson(childJson, child, objectNames);
 
       childProjection = (TH1 *)TBufferJSON::ConvertFromJSON(childJson.dump().c_str());
       if (childProjection) {
@@ -739,7 +792,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
         min     = 0;
         max     = TMath::Max(max, objMax);
         entries = childProjection->GetEntries();
-        NLogger::Debug("NHnSparseObject::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
+        NLogger::Debug("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
                        objMax);
       }
     }
@@ -764,16 +817,16 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj)
   else {
     j["ndmspc"]["content"]["fMinimum"] = min;
     j["ndmspc"]["content"]["fMaximum"] = max;
-    NLogger::Debug("NHnSparseObject::ExportJson: XXXX max=%f", max);
+    NLogger::Debug("NGnNavigator::ExportJson: XXXX max=%f", max);
   }
 
   if (obj->GetParent() == nullptr) {
-    // NLogger::Debug("NHnSparseObject::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
+    // NLogger::Debug("NGnNavigator::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
     int i = -1;
     for (const auto & child : j["children"]["content"]) {
       i++;
       if (child == nullptr) {
-        // NLogger::Error("NHnSparseObject::ExportJson: Child is nullptr !!!");
+        // NLogger::Error("NGnNavigator::ExportJson: Child is nullptr !!!");
         j["fArray"][i] = 0; // Store the maximum value for the content
         continue;
       }
@@ -878,7 +931,7 @@ void NGnNavigator::Draw(Option_t * option)
         for (int i = 0; i < obj->GetChildren().size(); i++) {
           NGnNavigator * child = obj->GetChild(i);
           if (child) {
-            NLogger::Debug("NHnSparseObject::Draw: Found child at level %d: %s", level,
+            NLogger::Debug("NGnNavigator::Draw: Found child at level %d: %s", level,
                            child->GetProjection()->GetTitle());
             obj = child; // Get the child object at the current level
             break;
@@ -917,9 +970,9 @@ void NGnNavigator::Paint(Option_t * option)
   ///
   /// Paint object
   ///
-  NLogger::Info("NHnSparseObject::Paint: Painting object ...");
+  NLogger::Info("NGnNavigator::Paint: Painting object ...");
   if (fProjection) {
-    NLogger::Debug("NHnSparseObject::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
+    NLogger::Debug("NGnNavigator::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
                    fProjection->GetName(), fProjection->GetTitle());
     // fProjection->Paint(option);
     fProjection->Paint("colz text");
@@ -949,9 +1002,9 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
   if (!fProjection || !gPad) return;
 
   // gPad = gPad->GetMother();
-  // NLogger::Debug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d, gPad=%s title=%s", event, px, py,
+  // NLogger::Debug("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d, gPad=%s title=%s", event, px, py,
   //                gPad->GetName(), gPad->GetTitle());
-  // NLogger::Debug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
+  // NLogger::Debug("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
 
   // Step 1: Convert absolute pixel coordinates to the pad's normalized coordinates (0-1 range)
   Double_t x_pad = gPad->AbsPixeltoX(px);
@@ -984,7 +1037,8 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
     Int_t binx, biny, binz;
     fProjection->GetBinXYZ(bin, binx, biny, binz);
     Double_t content = fProjection->GetBinContent(bin);
-    NLogger::Info("[%s] Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  level=%d nLevels=%d",
+    NLogger::Info("NGnNavigator::ExecuteEvent: [%s] Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  "
+                  "level=%d nLevels=%d",
                   gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
 
     int nDimensions = fGnTree->GetBinning()->GetDefinition()->GetContent()->GetNdimensions();
@@ -995,11 +1049,12 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       // For 1D histograms, we need to find the index correctly
       index = fProjection->GetXaxis()->FindFixBin(fProjection->GetXaxis()->GetBinCenter(binx));
     }
-    NLogger::Debug("Index in histogram: %d level=%d", index, fLevel);
+    NLogger::Debug("NGnNavigator::ExecuteEvent: Index in histogram: %d level=%d", index, fLevel);
     NGnNavigator * child   = GetChild(index);
     TCanvas *      cObject = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("cObject");
     if (child && child->GetProjection()) {
-      NLogger::Debug("[%s]Child object '%p' found at index %d", gPad->GetName(), child->GetProjection(), index);
+      NLogger::Debug("NGnNavigator::ExecuteEvent: [%s]Child object '%p' found at index %d", gPad->GetName(),
+                     child->GetProjection(), index);
       // originalPad->Clear();               // Clear the original pad
       gPad              = originalPad->GetMother(); // Get the mother pad to avoid clearing the current pad
       TVirtualPad * pad = gPad->cd(fLevel + 1 + 1); // Ensure we are in the correct pad
@@ -1011,7 +1066,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       hProj->SetMinimum(0);     // Set minimum to 0 for better visibility
       hProj->Draw("text colz"); // Draw the projection histogram of the child
       child->AppendPad();
-      NLogger::Debug("NHnSparseObject::ExecuteEvent: %d", child->GetLastIndexSelected());
+      NLogger::Debug("NGnNavigator::ExecuteEvent: %d", child->GetLastIndexSelected());
       if (cObject) {
         cObject->Clear(); // Clear the existing canvas if it exists
         cObject->cd();    // Set the current canvas to cObject
@@ -1029,11 +1084,11 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 
       // TH1 * projection = child->GetProjection();
       // index            = projection->GetXaxis()->FindFixBin(projection->GetXaxis()->GetBinCenter(binx));
-      NLogger::Warning("No child object found at index %d", index);
+      NLogger::Warning("NGnNavigator::ExecuteEvent: No child object found at index %d", index);
       std::string objName = fObjectNames.empty() ? "unlikepm" : fObjectNames[0];
       TH1 *       hProj   = (TH1 *)GetObject(objName, index);
       if (hProj == nullptr) {
-        NLogger::Error("No histogram found for index %d", index);
+        NLogger::Error("NGnNavigator::ExecuteEvent: No histogram found for index %d", index);
         return;
       }
       hProj->Print();

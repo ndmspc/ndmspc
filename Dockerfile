@@ -26,5 +26,6 @@ RUN dnf install -y ndmspc*.rpm
 RUN rm -rf *.rpm
 RUN dnf clean all
 ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
+RUN ln -sf /usr/lib/systemd/system/ndmspc-http@.service /etc/systemd/system/multi-user.target.wants/ndmspc-http@default.service
 # CMD [ "/bin/bash" ]
 CMD [ "/sbin/init" ]
