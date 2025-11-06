@@ -34,7 +34,7 @@ This package contains @PROJECT_NAME@ documentation.
 %build
 mkdir build
 cd build
-cmake ../ -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENTATION=on
+cmake ../ -DWITH_PARQUET=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENTATION=on
 make %{?_smp_mflags}
 cd ../
 
