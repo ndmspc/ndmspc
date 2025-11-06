@@ -14,7 +14,8 @@ namespace Ndmspc {
 
 class NGnNavigator : public TNamed {
   public:
-  NGnNavigator(const char * name = "GnNavigator", const char * title = "Gn Navigator");
+  NGnNavigator(const char * name = "GnNavigator", const char * title = "Gn Navigator",
+               std::vector<std::string> objectTypes = {"TH1"});
   virtual ~NGnNavigator();
 
   NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level = 0,
@@ -23,8 +24,8 @@ class NGnNavigator : public TNamed {
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {},
                          NGnNavigator * parent = nullptr);
 
-  void Export(const std::string & filename, const std::string & wsUrl = "");
-  void ExportToJson(json & j, NGnNavigator * obj);
+  void Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl = "");
+  void ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames);
 
   virtual void Print(Option_t * option = "") const override;
   virtual void Draw(Option_t * option = "") override;
@@ -46,6 +47,7 @@ class NGnNavigator : public TNamed {
   TObject *              GetObject(const std::string & name, int index = 0) const;
   void                   SetObject(const std::string & name, TObject * obj, int index = -1);
 
+  void                     SetObjectTypes(const std::vector<std::string> & types) { fObjectTypes = types; }
   std::vector<std::string> GetObjectNames() const { return fObjectNames; }
   void                     SetObjectNames(const std::vector<std::string> & names) { fObjectNames = names; }
   std::map<std::string, std::vector<double>> GetParameterContentMap() const { return fParameterContentMap; }
@@ -79,6 +81,7 @@ class NGnNavigator : public TNamed {
   std::map<std::string, std::vector<TObject *>> fObjectContentMap{};    ///< Object content map
   std::vector<std::string>                      fParameterNames{};      ///< Parameter names
   std::map<std::string, std::vector<double>>    fParameterContentMap{}; ///< Parameter content map
+  std::vector<std::string>                      fObjectTypes{"TH1"};    ///< Object types
 
   NGnNavigator *              fParent{nullptr}; ///< Parent object
   std::vector<NGnNavigator *> fChildren{};      ///< Children objects
