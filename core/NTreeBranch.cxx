@@ -51,12 +51,18 @@ TBranch * NTreeBranch::Branch(TTree * tree, void * address)
   fBranch = tree->GetBranch(fName.c_str());
   return fBranch;
 }
-void NTreeBranch::SetAddress(void * address)
+void NTreeBranch::SetAddress(void * address, bool deleteExisting)
 {
   ///
   /// Setting up address
   ///
   NLogger::Trace("NTreeBranch::SetAddress: Setting address %p for branch '%s' ...", address, fName.c_str());
+
+  if (fObject && deleteExisting) {
+    NLogger::Debug("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
+    delete fObject;
+    fObject = nullptr;
+  }
   fObject = (TObject *)address;
   fBranch->SetAddress(&fObject);
 }
