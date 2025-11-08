@@ -1,6 +1,11 @@
 #ifndef Ndmspc_NGnTree_H
 #define Ndmspc_NGnTree_H
 #include <TObject.h>
+#include <THnSparse.h>
+#include <TH1.h>
+#include <TH2.h>
+#include <TH3.h>
+#include <TObject.h>
 #include "NBinning.h"
 #include "NBinningPoint.h"
 #include "NStorageTree.h"
@@ -43,9 +48,21 @@ class NGnTree : public TObject {
   bool Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
                const json & cfg = json::object(), NBinning * hnsbBinningIn = nullptr);
 
-  static NGnTree * Open(const std::string & filename, const std::string & branches = "",
-                        const std::string & treename = "hnst");
-  static NGnTree * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
+  static NGnTree *         Open(const std::string & filename, const std::string & branches = "",
+                                const std::string & treename = "hnst");
+  static NGnTree *         Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
+  std::vector<THnSparse *> GetTHnSparseFromObjects(const std::vector<std::string> & names,
+                                                   std::map<int, std::vector<int>> ranges = {}, bool rangeReset = true,
+                                                   bool modifyTitle = false);
+  std::vector<TH1 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, Option_t * option = "O",
+                                           std::map<int, std::vector<int>> ranges = {}, bool rangeReset = true,
+                                           bool modifyTitle = false);
+  std::vector<TH2 *> ProjectionFromObjects(const std::vector<std::string> & names, int yaxis, int xaxis,
+                                           Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
+                                           bool rangeReset = true, bool modifyTitle = false);
+  std::vector<TH3 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, int yaxis, int zaxis,
+                                           Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
+                                           bool rangeReset = true, bool modifyTitle = false);
 
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object

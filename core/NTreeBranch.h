@@ -37,7 +37,7 @@ class NTreeBranch : public TObject {
   std::string GetObjectClassName() const { return fObjectClassName; }
 
   TBranch * Branch(TTree * tree, void * address);
-  void      SetAddress(void * address);
+  void      SetAddress(void * address, bool deleteExisting = false);
   void      SetBranchAddress(TTree * tree);
   void      SetBranchStatus(int status) { fBranchStatus = status; }
 

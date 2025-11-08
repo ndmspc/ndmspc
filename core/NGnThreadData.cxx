@@ -137,7 +137,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   fBiningSource->GetContent()->GetBinContent(entry, point->GetCoords());
   point->RecalculateStorageCoords(entry, false);
   point->SetCfg(fCfg); // Set configuration to the point
-  // point->Print("C");
+                       // point->Print("C");
 
   // TODO: check if entry was already processed
   // So we dont execute the function again
@@ -146,6 +146,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   //     "AAA NGnThreadData::Process: Thread %zu processing entry %lld for coordinates %s", GetAssignedIndex(),
   //     entry,
   //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
+  point->SetTreeStorage(ts); // Set the storage tree to the binning point
   TList * outputPoint = new TList();
   fProcessFunc(point, fHnSparseBase->GetOutput(), outputPoint, GetAssignedIndex());
   // Ndmspc::NLogger::Trace(
@@ -192,14 +193,19 @@ void NGnThreadData::Process(const std::vector<int> & coords)
 
   {
     std::lock_guard<std::mutex> lock(fSharedMutex);
-    TThread::Lock();
-    // Clear the list to avoid memory leaks
-    for (auto obj : *outputPoint) {
-      delete obj;
+    // TThread::Lock();
+
+    for (Int_t i = 0; i < outputPoint->GetEntries(); ++i) {
+      TObject * obj = outputPoint->At(i);
+      if (obj) {
+        // obj->SetDirectory(nullptr); // Detach from any directory to avoid memory leaks
+        outputPoint->Remove(obj); // Remove if already exists
+        delete obj;               // Delete the object to avoid memory leaks
+      }
     }
     outputPoint->Clear();
     delete outputPoint; // Clean up the output list
-    TThread::UnLock();
+    // TThread::UnLock();
   }
 }
 

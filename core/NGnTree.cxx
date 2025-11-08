@@ -416,6 +416,8 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
         //   NUtils::ProgressBar(coords[0], maxs[0], 50, "Processing entries");
         // }
 
+        point->SetTreeStorage(fTreeStorage); // Set the storage tree to the binning point
+
         func(point, this->GetOutput(), outputPoint, 0); // Call the lambda function
         if (outputPoint->GetEntries() > 0) {
           // NLogger::Debug("NGnTree::Process: Processed entry %lld -> coords=[%lld] Binning definition ID: '%s' "
@@ -855,6 +857,84 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   if (client) client->Disconnect();
 
   delete bdContent;
+}
+
+std::vector<THnSparse *> NGnTree::GetTHnSparseFromObjects(const std::vector<std::string> & names,
+                                                          std::map<int, std::vector<int>> ranges, bool rangeReset,
+                                                          bool modifyTitle)
+{
+  ///
+  /// Retrieve THnSparse objects from the output lists by their names
+  ///
+  std::vector<THnSparse *> hnsList;
+  for (const auto & name : names) {
+    TObject * obj = fTreeStorage->GetBranchObject(name);
+    if (!obj) {
+      NLogger::Warning("NHnSparseTree::Projection: Branch '%s' not found !!! Skipping ...", name.c_str());
+      continue;
+    }
+    if (!obj->IsA()->InheritsFrom("THnSparse")) {
+      NLogger::Warning("NHnSparseTree::Projection: Object '%s' is not a THnSparse !!! Skipping ...", name.c_str());
+      continue;
+    }
+    THnSparse * hns = (THnSparse *)obj;
+    if (!hns) {
+      NLogger::Warning("NGnTree::ProjectionFromObjects: THnSparse is null !!! Skipping ...");
+      continue;
+    }
+    // check if zero dimension
+    if (hns->GetNdimensions() == 0) {
+      NLogger::Warning("NGnTree::ProjectionFromObjects: THnSparse has zero dimensions !!! Skipping ...");
+      continue;
+    }
+    NUtils::SetAxisRanges(hns, ranges, rangeReset, modifyTitle);
+    hnsList.push_back(hns);
+  }
+
+  // check if list is empty
+  if (hnsList.empty()) {
+    NLogger::Warning("NGnTree::ProjectionFromObjects: No THnSparse objects retrieved from entry %d !!!",
+                     fBinning->GetPoint()->GetEntryNumber());
+  }
+  return hnsList;
+}
+
+std::vector<TH1 *> NGnTree::ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, Option_t * option,
+                                                  std::map<int, std::vector<int>> ranges, bool rangeReset,
+                                                  bool modifyTitle)
+{
+  std::vector<TH1 *>       hList;
+  std::vector<THnSparse *> hnsList = GetTHnSparseFromObjects(names, ranges, rangeReset, modifyTitle);
+  for (auto hns : hnsList) {
+    TH1 * h = hns->Projection(xaxis, option);
+    hList.push_back(h);
+  }
+  return hList;
+}
+std::vector<TH2 *> NGnTree::ProjectionFromObjects(const std::vector<std::string> & names, int yaxis, int xaxis,
+                                                  Option_t * option, std::map<int, std::vector<int>> ranges,
+                                                  bool rangeReset, bool modifyTitle)
+{
+  std::vector<TH2 *>       hList;
+  std::vector<THnSparse *> hnsList = GetTHnSparseFromObjects(names, ranges, rangeReset, modifyTitle);
+  for (auto hns : hnsList) {
+    TH2 * h = hns->Projection(yaxis, xaxis, option);
+    h->Print();
+    hList.push_back(h);
+  }
+  return hList;
+}
+std::vector<TH3 *> NGnTree::ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, int yaxis,
+                                                  int zaxis, Option_t * option, std::map<int, std::vector<int>> ranges,
+                                                  bool rangeReset, bool modifyTitle)
+{
+  std::vector<TH3 *>       hList;
+  std::vector<THnSparse *> hnsList = GetTHnSparseFromObjects(names, ranges, rangeReset, modifyTitle);
+  for (auto hns : hnsList) {
+    TH3 * h = hns->Projection(xaxis, yaxis, zaxis, option);
+    hList.push_back(h);
+  }
+  return hList;
 }
 
 } // namespace Ndmspc

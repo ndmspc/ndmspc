@@ -13,7 +13,8 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: gcc-c++, cmake
 BuildRequires: doxygen
 BuildRequires: openssl-devel, libcurl-devel, libuv-devel, libwebsockets-devel
-BuildRequires: opentelemetry-cpp-devel, json-devel, protobuf-devel, parquet-libs-devel
+BuildRequires: opentelemetry-cpp-devel, json-devel, protobuf-devel
+# BuildRequires: parquet-libs-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
 
@@ -34,7 +35,7 @@ This package contains @PROJECT_NAME@ documentation.
 %build
 mkdir build
 cd build
-cmake ../ -DWITH_PARQUET=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENTATION=on
+cmake ../ -DWITH_PARQUET=OFF -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENTATION=on
 make %{?_smp_mflags}
 cd ../
 

@@ -226,6 +226,10 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   //   return -2;
   // }
 
+  if (fTree == nullptr) {
+    NLogger::Error("NStorageTree::Fill: Tree is not initialized !!!");
+    return -2;
+  }
   // Filling entry to tree
   Int_t nBytes = fTree->Fill();
   NLogger::Trace("NStorageTree::Fill: Filled entry %lld -> tree entries=%lld %d", bin, fTree->GetEntries(), nBytes);
