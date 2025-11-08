@@ -985,10 +985,6 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, 
   }
   min = -1;
   max = -1;
-  if (a->IsVariableBinSize()) {
-    NLogger::Error("Error: Axis '%s' is variable bin size (not supported)...", a->GetName());
-    return false;
-  }
 
   NLogger::Trace("Getting axis range in base for '%s' rebin=%d rebin_start=%d bin=%d...", a->GetName(), rebin,
                  rebin_start, bin);
@@ -1292,7 +1288,9 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   float percentage = static_cast<float>(current) / total;
   int   numChars   = static_cast<int>(percentage * barWidth);
 
-  std::cout << "\r[" << prefix << "] ["; // Carriage return
+  // std::cout << "\r[" << prefix << "] ["; // Carriage return
+  std::cout << "\r[";
+  if (!prefix.empty()) std::cout << prefix << "] ["; // Carriage return
   for (int i = 0; i < numChars; ++i) {
     std::cout << "=";
   }
@@ -1316,7 +1314,7 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   std::cout << " (" << current << "/" << total << ") "
             << "Elapsed: " << FormatTime(elapsedSeconds) << " "
             << "ETA: " << FormatTime(estimatedRemainingSeconds);
-  std::cout << " [" << suffix << "]";
+  if (!suffix.empty()) std::cout << " [" << suffix << "]";
   std::cout << std::flush; // Ensure immediate output
 }
 THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, THnSparse * hns, Int_t nMaxRows)

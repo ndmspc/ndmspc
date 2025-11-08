@@ -456,9 +456,10 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
         // }
 
         // Clear the list to avoid memory leaks
-        for (auto obj : *outputPoint) {
-          delete obj;
-        }
+        // for (auto obj : *outputPoint) {
+        //   delete obj;
+        // }
+        outputPoint->SetOwner(kTRUE); // Set owner to true to delete contained objects
         outputPoint->Clear();
         delete outputPoint; // Clean up the output list
       };

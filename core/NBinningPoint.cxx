@@ -207,7 +207,7 @@ std::string NBinningPoint::GetTitle(const std::string & prefix, bool all) const
 
     // check type of axis
     if (fBinning->GetAxisType(i) == AxisType::kVariable || all) {
-      if (a->GetNlabels() > 0) {
+      if (a->IsAlphanumeric()) {
         title += TString::Format("%s[%s] ", a->GetName(), a->GetBinLabel(fBaseBinMin[i])).Data();
       }
       else {
