@@ -15,7 +15,7 @@ ClassImp(Ndmspc::NGnThreadData);
 namespace Ndmspc {
 NGnThreadData::NGnThreadData() : NThreadData() {}
 NGnThreadData::~NGnThreadData() {}
-bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * hnsb, NBinning * hnsbBinningIn,
+bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt, NBinning * binningIn, NGnTree * input,
                          const std::string & filename, const std::string & treename)
 {
   ///
@@ -33,18 +33,18 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * hnsb
   // }
   fProcessFunc = func;
 
-  if (hnsb == nullptr) {
+  if (ngnt == nullptr) {
     NLogger::Error("NGnThreadData::Init: NGnTree is nullptr !!!");
     return false;
   }
-  fBiningSource = hnsbBinningIn;
+  fBiningSource = binningIn;
 
   if (fBiningSource == nullptr) {
     NLogger::Error("NGnThreadData::Init: Binning Source is nullptr !!!");
     return false;
   }
 
-  fHnSparseBase = (NGnTree *)hnsb->Clone();
+  fHnSparseBase = (NGnTree *)ngnt->Clone();
   // fHnSparseBase = new NGnTree(hnsb->GetBinning(), (NStorageTree *)hnsb->GetStorageTree()->Clone());
   // fHnSparseBase = new NGnTree(hnsb->GetBinning(), new NStorageTree(hnsb->GetBinning()));
   // fHnSparseBase = new NGnTree(hnsb->GetBinning(), nullptr);
@@ -59,16 +59,30 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * hnsb
     return false;
   }
 
-  NStorageTree * ts = hnsb->GetStorageTree();
+  NStorageTree * ts = fHnSparseBase->GetStorageTree();
+  std::string    fn = ts->GetFileName();
   fHnSparseBase->GetStorageTree()->Clear("F");
-  fHnSparseBase->GetStorageTree()->InitTree(filename.empty() ? ts->GetFileName() : filename, treename);
+  fHnSparseBase->GetStorageTree()->InitTree(filename.empty() ? fn : filename, treename);
+
+  // loop over all branches and add them to the new storage tree
+  for (auto & kv : ngnt->GetStorageTree()->GetBranchesMap()) {
+    NLogger::Trace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
+    NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch(kv.first);
+    if (b) continue;
+
+    b = fHnSparseBase->GetStorageTree()->GetBranch(kv.first);
+    if (b) continue;
+
+    fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
+  }
+
   // Recreate the point and set the storage tree
   fHnSparseBase->GetBinning()->GetPoint()->SetTreeStorage(fHnSparseBase->GetStorageTree());
 
-  for (auto & kv : ts->GetBranchesMap()) {
-    NLogger::Trace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
-    fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
-  }
+  // for (auto & kv : ts->GetBranchesMap()) {
+  //   NLogger::Trace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
+  //   fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
+  // }
 
   // TODO: check if needed or move it somewhere else like Reset();
   //
@@ -79,6 +93,11 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * hnsb
       def->GetContent()->Reset();
       def->GetIds().clear();
     }
+  }
+
+  if (input) {
+    std::string branches = NUtils::Join(input->GetStorageTree()->GetBrancheNames(true), ',');
+    fHnSparseBase->SetInput(NGnTree::Open(input->GetStorageTree()->GetFileName(), branches)); // Set the input NGnTree
   }
   // fHnSparseBase->GetBinning()->GetDefinition()->GetContent()->Reset();
   // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().clear();
@@ -117,6 +136,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   }
 
   NStorageTree * ts = fHnSparseBase->GetStorageTree();
+  NGnTree *      in = fHnSparseBase->GetInput();
 
   NBinningPoint * point = fHnSparseBase->GetBinning()->GetPoint();
 
@@ -147,6 +167,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   //     entry,
   //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
   point->SetTreeStorage(ts); // Set the storage tree to the binning point
+  point->SetInput(in);       // Set the input NGnTree to the binning point
   TList * outputPoint = new TList();
   fProcessFunc(point, fHnSparseBase->GetOutput(), outputPoint, GetAssignedIndex());
   // Ndmspc::NLogger::Trace(
@@ -357,6 +378,10 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   // for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
   //   fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
   // }
+
+  if (fHnSparseBase->GetInput()) {
+    fHnSparseBase->GetInput()->Close(false);
+  }
 
   // Set default setting
   fHnSparseBase->GetBinning()->GetPoint()->Reset();

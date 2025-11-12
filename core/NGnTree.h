@@ -7,8 +7,8 @@
 #include <TH3.h>
 #include <TObject.h>
 #include "NBinning.h"
-#include "NBinningPoint.h"
 #include "NStorageTree.h"
+// #include "NBinningPoint.h"
 
 namespace Ndmspc {
 
@@ -39,6 +39,8 @@ class NGnTree : public TObject {
   std::map<std::string, TList *> GetOutputs() const { return fOutputs; }
   TList *                        GetOutput(std::string name = "");
   void                           SetOutputs(std::map<std::string, TList *> outputs) { fOutputs = outputs; }
+  NGnTree *                      GetInput() const { return fInput; }
+  void                           SetInput(NGnTree * input) { fInput = input; }
 
   Long64_t GetEntries() const { return fTreeStorage ? fTreeStorage->GetEntries() : 0; }
   Int_t    GetEntry(Long64_t entry, bool checkBinningDef = true);
@@ -46,28 +48,31 @@ class NGnTree : public TObject {
 
   bool Process(NHnSparseProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "");
   bool Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
-               const json & cfg = json::object(), NBinning * hnsbBinningIn = nullptr);
+               const json & cfg = json::object(), NBinning * binningIn = nullptr);
 
-  static NGnTree *         Open(const std::string & filename, const std::string & branches = "",
-                                const std::string & treename = "hnst");
-  static NGnTree *         Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
-  std::vector<THnSparse *> GetTHnSparseFromObjects(const std::vector<std::string> & names,
-                                                   std::map<int, std::vector<int>> ranges = {}, bool rangeReset = true,
-                                                   bool modifyTitle = false);
-  std::vector<TH1 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, Option_t * option = "O",
-                                           std::map<int, std::vector<int>> ranges = {}, bool rangeReset = true,
-                                           bool modifyTitle = false);
-  std::vector<TH2 *> ProjectionFromObjects(const std::vector<std::string> & names, int yaxis, int xaxis,
-                                           Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
-                                           bool rangeReset = true, bool modifyTitle = false);
-  std::vector<TH3 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, int yaxis, int zaxis,
-                                           Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
-                                           bool rangeReset = true, bool modifyTitle = false);
+  static NGnTree * Open(const std::string & filename, const std::string & branches = "",
+                        const std::string & treename = "hnst");
+  static NGnTree * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
+  // std::vector<THnSparse *> GetTHnSparseFromObjects(const std::vector<std::string> & names,
+  //                                                  std::map<int, std::vector<int>> ranges = {}, bool rangeReset =
+  //                                                  true, bool modifyTitle = false);
+  // std::vector<TH1 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, Option_t * option =
+  // "O",
+  //                                          std::map<int, std::vector<int>> ranges = {}, bool rangeReset = true,
+  //                                          bool modifyTitle = false);
+  // std::vector<TH2 *> ProjectionFromObjects(const std::vector<std::string> & names, int yaxis, int xaxis,
+  //                                          Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
+  //                                          bool rangeReset = true, bool modifyTitle = false);
+  // std::vector<TH3 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, int yaxis, int zaxis,
+  //                                          Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
+  //                                          bool rangeReset = true, bool modifyTitle = false);
+  TList * Projection(const json & cfg, std::string binningName = "");
 
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
   std::map<std::string, TList *> fOutputs;              ///< Outputs
+  NGnTree *                      fInput{nullptr};       ///<! Input NGnTree for processing
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);

@@ -15,6 +15,7 @@ namespace Ndmspc {
 ///
 class NBinning;
 class NStorageTree;
+class NGnTree;
 class NBinningPoint : public TObject {
   public:
   NBinningPoint(NBinning * b = nullptr);
@@ -42,11 +43,15 @@ class NBinningPoint : public TObject {
   void           SetBinning(NBinning * b);
   NStorageTree * GetTreeStorage() const { return fTreeStorage; }
   void           SetTreeStorage(NStorageTree * s) { fTreeStorage = s; }
-  void           SetEntryNumber(Long64_t entry) { fEntryNumber = entry; }
-  Long64_t       GetEntryNumber() const { return fEntryNumber; }
+  NGnTree *      GetInput() const { return fInput; }
+  void           SetInput(NGnTree * input) { fInput = input; }
+
+  void     SetEntryNumber(Long64_t entry) { fEntryNumber = entry; }
+  Long64_t GetEntryNumber() const { return fEntryNumber; }
 
   private:
   json                     fCfg{};                  ///< Configuration object
+  NGnTree *                fInput{nullptr};         ///< Input NGnTree object
   NBinning *               fBinning{nullptr};       ///< Binning object
   NStorageTree *           fTreeStorage{nullptr};   ///< Storage tree object
   Int_t                    fContentNDimensions{1};  ///< Number of dimensions in content histogram

@@ -167,12 +167,15 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       //   // int nCells = h->GetNcells();
       //   // h->SetMinimum(0);
       //   // h->SetStats(kFALSE);
-      //
+      std::string name  = "";
       std::string title = "";
       for (auto & axisId : axesIds) {
         TAxis * a = hnsIn->GetAxis(axisId);
         title += std::string(a->GetName()) + " vs ";
+        name += TString::Format("%s-", a->GetName()).Data();
       }
+      name = name.substr(0, name.size() - 1);    // Remove last "_"
+      if (name.empty()) name = "hns_proj";       // default name
       title = title.substr(0, title.size() - 4); // Remove last " vs "
       if (ranges.size() > 0) title += " for ranges: ";
       for (const auto & [axisId, range] : rangesBase) {
@@ -193,16 +196,45 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       TH1 * hProj       = nullptr;
       // if (level < 3) {
       if (nDims == 1) {
-        hProj       = hnsIn->Projection(axesIds[0]);
+        hProj = hnsIn->Projection(axesIds[0]);
+        // set name from hnsIn
+        hProj->GetXaxis()->SetName(hnsIn->GetAxis(axesIds[0])->GetName());
+        // apply lables from hnsIn to hProj
+        for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+          hProj->GetXaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[0])->GetBinLabel(b));
+        }
         indexInProj = hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]));
       }
       else if (nDims == 2) {
         hProj = hnsIn->Projection(axesIds[1], axesIds[0]);
+        hProj->GetXaxis()->SetName(hnsIn->GetAxis(axesIds[0])->GetName());
+        hProj->GetYaxis()->SetName(hnsIn->GetAxis(axesIds[1])->GetName());
+        // apply lables from hnsIn to hProj
+        for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+          hProj->GetXaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[0])->GetBinLabel(b));
+        }
+
+        for (int b = 1; b <= hProj->GetNbinsY(); b++) {
+          hProj->GetYaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[1])->GetBinLabel(b));
+        }
         indexInProj =
             hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]), hProj->GetYaxis()->GetBinCenter(coords[1]));
       }
       else if (nDims == 3) {
         hProj = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
+        hProj->GetXaxis()->SetName(hnsIn->GetAxis(axesIds[0])->GetName());
+        hProj->GetYaxis()->SetName(hnsIn->GetAxis(axesIds[1])->GetName());
+        hProj->GetZaxis()->SetName(hnsIn->GetAxis(axesIds[2])->GetName());
+        for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+          hProj->GetXaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[0])->GetBinLabel(b));
+        }
+
+        for (int b = 1; b <= hProj->GetNbinsY(); b++) {
+          hProj->GetYaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[1])->GetBinLabel(b));
+        }
+        for (int b = 1; b <= hProj->GetNbinsZ(); b++) {
+          hProj->GetZaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[2])->GetBinLabel(b));
+        }
         indexInProj =
             hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]), hProj->GetYaxis()->GetBinCenter(coords[1]),
                                               hProj->GetZaxis()->GetBinCenter(coords[2]));
@@ -211,7 +243,9 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         NLogger::Error("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
         return;
       }
-      // hProj->SetTitle(title.c_str());
+
+      hProj->SetName(name.c_str());
+      hProj->SetTitle(title.c_str());
       NLogger::Trace("NGnNavigator::Reshape: [L%d] Projection histogram '%s' for coords=%s index=%d", level,
                                      hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
       //
@@ -487,6 +521,20 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   }
 
   NLogger::Trace("NGnNavigator::Reshape: =========== Reshaping navigator for level %d DONE ================", level);
+
+  if (level == 0) {
+    NLogger::Info("NGnNavigator::Reshape: Reshaping navigator DONE.");
+    // print exported axes from indexes from levels
+    for (size_t l = 0; l < levels.size(); l++) {
+      std::string axesStr = "";
+      for (auto & a : levels[l]) {
+        TAxis * axis = binningDef->GetContent()->GetAxis(a);
+        axesStr += TString::Format("%d('%s') ", a, axis->GetName()).Data();
+      }
+      NLogger::Info("  Level %zu axes: %s", l, axesStr.c_str());
+    }
+  }
+
   // current->Print("");
 
   return current;
@@ -634,7 +682,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   double entries = 0.0;
   // int    idx     = 0;
   if (objectNames.empty()) {
-    NLogger::Debug("NGnNavigator::ExportJson: Exporting all objects ...");
+    // NLogger::Debug("NGnNavigator::ExportJson: Exporting all objects ...");
     // loop over all keys and add them to objectNames
     bool isValid = false;
     for (const auto & [key, val] : obj->GetObjectContentMap()) {
@@ -672,7 +720,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
   // Print all included object names
   for (const auto & name : objectNames) {
-    NLogger::Debug("NGnNavigator::ExportJson: Included object name: '%s'", name.c_str());
+    NLogger::Trace("NGnNavigator::ExportJson: Included object name: '%s'", name.c_str());
   }
 
   for (const auto & [key, val] : obj->GetObjectContentMap()) {
@@ -786,13 +834,13 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
       childProjection = (TH1 *)TBufferJSON::ConvertFromJSON(childJson.dump().c_str());
       if (childProjection) {
-        childProjection->Draw("colz text");
+        // childProjection->Draw("colz text");
         NUtils::GetTrueHistogramMinMax((TH1 *)childProjection, objMin, objMax, false);
         // min = TMath::Min(min, objMin);
         min     = 0;
         max     = TMath::Max(max, objMax);
         entries = childProjection->GetEntries();
-        NLogger::Debug("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
+        NLogger::Trace("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
                        objMax);
       }
     }
@@ -817,7 +865,6 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   else {
     j["ndmspc"]["content"]["fMinimum"] = min;
     j["ndmspc"]["content"]["fMaximum"] = max;
-    NLogger::Debug("NGnNavigator::ExportJson: XXXX max=%f", max);
   }
 
   if (obj->GetParent() == nullptr) {
@@ -1188,7 +1235,7 @@ void NGnNavigator::SetObject(const std::string & name, TObject * obj, int index)
     if (fObjectContentMap.find(name) == fObjectContentMap.end()) {
       ResizeObjectContentMap(name, fNCells);
     }
-    NLogger::Debug("NGnNavigator::SetObject: name=%s, obj=%p, index=%d", name.c_str(), obj, index,
+    NLogger::Trace("NGnNavigator::SetObject: name=%s, obj=%p, index=%d", name.c_str(), obj, index,
                    fObjectContentMap[name].size());
 
     // Add object name if missing

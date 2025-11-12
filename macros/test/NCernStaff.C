@@ -49,7 +49,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   b["Grade"]    = {{rb}};
   b["Step"]     = {{rb}};
   b["Children"] = {{rb}};
-  // b["Service"]  = {{rb}};
+  b["Service"]  = {{rb}};
   // b["Age"]   = {{1}};
   // b["Hrweek"]   = {{1}};
 

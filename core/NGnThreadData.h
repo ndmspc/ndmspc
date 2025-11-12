@@ -18,7 +18,7 @@ class NGnThreadData : public NThreadData {
   public:
   NGnThreadData();
   virtual ~NGnThreadData();
-  bool Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * hnsb, NBinning * hnsbBinningIn,
+  bool Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt, NBinning * binningIn, NGnTree * input = nullptr,
             const std::string & filename = "", const std::string & treename = "hnst");
 
   void SetProcessFunc(NHnSparseProcessFuncPtr func) { fProcessFunc = func; }
@@ -34,16 +34,16 @@ class NGnThreadData : public NThreadData {
   // NStorageTree * GetTreeStorage() const { return fTreeStorage; }
   // NBinning *     GetBinning() const { return fBinning; }
   NGnTree * GetHnSparseBase() const { return fHnSparseBase; }
-  Long64_t        GetNProcessed() const { return fNProcessed; }
-  void            SetCfg(const json & cfg) { fCfg = cfg; }
-  json            GetCfg() const { return fCfg; }
+  Long64_t  GetNProcessed() const { return fNProcessed; }
+  void      SetCfg(const json & cfg) { fCfg = cfg; }
+  json      GetCfg() const { return fCfg; }
 
   virtual void     Process(const std::vector<int> & coords);
   virtual Long64_t Merge(TCollection * list);
 
   private:
   NHnSparseProcessFuncPtr fProcessFunc{nullptr};  ///< Function pointer to the processing function
-  NGnTree *         fHnSparseBase{nullptr}; ///< Pointer to the base class
+  NGnTree *               fHnSparseBase{nullptr}; ///< Pointer to the base class
   Long64_t                fNProcessed{0};         ///< Number of processed entries
   NBinning *              fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
   json                    fCfg{};                 ///< Configuration object
