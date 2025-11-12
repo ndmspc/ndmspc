@@ -868,6 +868,35 @@ std::set<std::string> NUtils::Unique(std::vector<std::string> & paths, int axis,
   return out;
 }
 
+TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes, Option_t * option)
+{
+  ///
+  /// Project THnSparse onto TH1
+  ///
+  if (sparse == nullptr) {
+    NLogger::Error("Error: Sparse is nullptr ...");
+    return nullptr;
+  }
+
+  TH1 * h = nullptr;
+  if (axes.size() == 1) {
+    h = sparse->Projection(axes[0], option);
+  }
+  else if (axes.size() == 2) {
+    h = sparse->Projection(axes[1], axes[0], option);
+  }
+  else if (axes.size() == 3) {
+    h = sparse->Projection(axes[0], axes[1], axes[2], option);
+  }
+  else {
+    NLogger::Error("Error: Only projection onto single axis is supported for TH1 ...");
+  }
+
+  h->SetName(TString::Format("%s_proj", sparse->GetName()).Data());
+  h->SetTitle(TString::Format("%s Projection", sparse->GetTitle()).Data());
+  return h;
+}
+
 bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow,
                            bool modifyTitle)
 {
@@ -1356,12 +1385,12 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   // Get file metadata (optional)
   // Note: parquet_reader() returns a const ptr, and metadata() returns a shared_ptr
   std::shared_ptr<parquet::FileMetaData> file_metadata = reader->parquet_reader()->metadata();
-  NLogger::Debug("Parquet file '%s' opened successfully.", filename.c_str());
-  NLogger::Debug("Parquet file version: %d", file_metadata->version());
-  NLogger::Debug("Parquet created by: %s", file_metadata->created_by().c_str());
-  NLogger::Debug("Parquet number of columns: %d", file_metadata->num_columns());
-  NLogger::Debug("Parquet number of rows: %lld", file_metadata->num_rows());
-  NLogger::Debug("Parquet number of row groups: %d", file_metadata->num_row_groups());
+  NLogger::Trace("Parquet file '%s' opened successfully.", filename.c_str());
+  NLogger::Trace("Parquet file version: %d", file_metadata->version());
+  NLogger::Trace("Parquet created by: %s", file_metadata->created_by().c_str());
+  NLogger::Trace("Parquet number of columns: %d", file_metadata->num_columns());
+  NLogger::Trace("Parquet number of rows: %lld", file_metadata->num_rows());
+  NLogger::Trace("Parquet number of row groups: %d", file_metadata->num_row_groups());
 
   // Read the entire file as a Table
   // std::shared_ptr<arrow::Table> table;
@@ -1384,7 +1413,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   }
 
   // Print schema of the table
-  NLogger::Debug("Parquet Table Schema:\n%s", batch_reader->schema()->ToString().c_str());
+  NLogger::Trace("Parquet Table Schema:\n%s", batch_reader->schema()->ToString().c_str());
 
   const Int_t              nDims = hns->GetNdimensions();
   std::vector<std::string> column_names;
@@ -1403,14 +1432,14 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   Double_t                            point[nDims];
 
   if (print_rows > 0) {
-    NLogger::Debug("Printing first %d rows of Parquet file '%s' ...", print_rows, filename.c_str());
+    NLogger::Trace("Printing first %d rows of Parquet file '%s' ...", print_rows, filename.c_str());
     // NLogger::Info("Columns: %s", NUtils::Join(column_names, '\t').c_str());
   }
 
   int batch_count = 0;
   while (table_batch_reader->ReadNext(&batch).ok() && batch) {
     batch_count++;
-    NLogger::Debug("Processing batch with %d rows and %d columns ...", batch->num_rows(), batch->num_columns());
+    NLogger::Trace("Processing batch with %d rows and %d columns ...", batch->num_rows(), batch->num_columns());
     for (int i = 0; i < batch->num_rows(); ++i) {
       if (i >= max_rows) break; // Limit to first 5 rows for display
 
@@ -1434,6 +1463,8 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
               // It's best to convert it to std::string for general use.
               std::string value = scalar_result.ValueUnsafe()->ToString();
               // TODO: check if not shifted by one
+              // NLogger::Info("NUtils::CreateSparseFromParquetTaxi: Mapping string value '%s' to axis '%s' ...",
+              //               value.c_str(), axis->GetName());
               point[idx] = axis->GetBinCenter(axis->FindBin(value.c_str()));
             }
             else if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::INT32) {

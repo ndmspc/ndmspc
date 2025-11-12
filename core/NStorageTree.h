@@ -36,7 +36,7 @@ class NStorageTree : public TObject {
   Long64_t Merge(TCollection * list);
 
   /// Branches handling
-  std::vector<std::string>           GetBrancheNames();
+  std::vector<std::string>           GetBrancheNames(bool onlyEnabled = false) const;
   std::map<std::string, NTreeBranch> GetBranchesMap() const { return fBranchesMap; }
   void                               SetBranchesMap(std::map<std::string, NTreeBranch> map) { fBranchesMap = map; }
   bool                               AddBranch(const std::string & name, void * address, const std::string & className);

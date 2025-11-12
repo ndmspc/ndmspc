@@ -69,12 +69,15 @@ void NStorageTree::Print(Option_t * option) const
   NLogger::Info("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
   NLogger::Info("  prefix='%s'", fPrefix.c_str());
   NLogger::Info("  postfix='%s'", fPostfix.c_str());
-  NLogger::Info("  branches: [%d]", fBranchesMap.size());
+  std::string branchNames = NUtils::GetCoordsString(GetBrancheNames());
+  NLogger::Info("  branches: size=%d %s", fBranchesMap.size(), branchNames.c_str());
 
   if (opt.Contains("A")) {
     for (auto & kv : fBranchesMap) {
       kv.second.Print();
     }
+  }
+  else {
   }
 }
 bool NStorageTree::InitTree(const std::string & filename, const std::string & treename)
@@ -303,13 +306,15 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
   return true;
 }
 
-std::vector<std::string> NStorageTree::GetBrancheNames()
+std::vector<std::string> NStorageTree::GetBrancheNames(bool onlyEnabled) const
 {
   ///
   /// Get branch names
   ///
   std::vector<std::string> keys;
   for (auto & kv : fBranchesMap) {
+    // TODO:: Checking if enabled
+    if (kv.second.GetBranchStatus() == 0 && onlyEnabled) continue;
     keys.push_back(kv.first);
   }
   return keys;

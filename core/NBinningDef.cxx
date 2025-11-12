@@ -178,7 +178,44 @@ Long64_t NBinningDef::GetId(int index) const
   return fIds[index];
 }
 
-void NBinningDef::RefreshContentfomIds()
+void NBinningDef::RefreshIdsFromContent()
+{
+  ///
+  /// Refresh IDs from content
+  ///
+
+  fIds.clear();
+  Int_t * c    = new Int_t[fContent->GetNdimensions()];
+  auto    task = [this, c](const std::vector<int> & coords) {
+    NLogger::Trace("NBinningDef::RefreshIdsFromContent: Processing coordinates %s",
+                      NUtils::GetCoordsString(coords).c_str());
+
+    for (int i = 0; i < fContent->GetNdimensions(); i++) {
+      c[i] = coords[i];
+    }
+
+    Long64_t id = fContent->GetBinContent(c);
+    if (id > 0) {
+      NLogger::Trace("NBinningDef::RefreshIdsFromContent: -> Bin content: %lld", id - 1);
+      fIds.push_back(id - 1);
+    }
+  };
+
+  std::vector<int> mins(fContent->GetNdimensions(), 1);
+  std::vector<int> maxs(fContent->GetNdimensions());
+  for (int i = 0; i < fContent->GetNdimensions(); i++) {
+    TAxis * axis = fContent->GetAxis(i);
+    NLogger::Trace("NBinningDef::RefreshIdsFromContent: Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
+                   axis->GetName(), axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    maxs[i] = axis->GetNbins();
+  }
+
+  NDimensionalExecutor executor(mins, maxs);
+  executor.Execute(task);
+  delete[] c;
+}
+
+void NBinningDef::RefreshContentFromIds()
 {
   ///
   /// Refresh content from IDs

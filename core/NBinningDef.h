@@ -30,7 +30,8 @@ class NBinningDef : public TObject {
   std::vector<int> GetVariableAxes() const { return fVariableAxes; }
   void             AddVariableAxis(int axis) { fVariableAxes.push_back(axis); }
 
-  void RefreshContentfomIds();
+  void RefreshContentFromIds();
+  void RefreshIdsFromContent();
 
   std::vector<Long64_t>   GetIds() const { return fIds; }
   std::vector<Long64_t> & GetIds() { return fIds; }
