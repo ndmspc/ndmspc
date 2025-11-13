@@ -925,6 +925,11 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
     }
   }
 
+  if (ranges.empty()) {
+    NLogger::Trace("No axis ranges to set ...");
+    return true;
+  }
+
   TAxis * axis  = nullptr;
   TString title = sparse->GetTitle();
   if (modifyTitle) title += " Ranges:";
@@ -977,6 +982,10 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
     }
   }
 
+  if (ranges.empty()) {
+    NLogger::Trace("NUtils::SetAxisRanges: No axis ranges to set ...");
+    return true;
+  }
   TAxis * axis  = nullptr;
   TString title = sparse->GetTitle();
   for (const auto & [key, val] : ranges) {
@@ -1257,9 +1266,9 @@ std::vector<std::vector<int>> NUtils::Permutations(const std::vector<int> & v)
   } while (std::next_permutation(current.begin(), current.end()));
 
   // print the permutations
-  NLogger::Debug("Permutations of vector: %s", GetCoordsString(v).c_str());
+  NLogger::Trace("Permutations of vector: %s", GetCoordsString(v).c_str());
   for (const auto & perm : result) {
-    NLogger::Debug("Permutation: %s", GetCoordsString(perm).c_str());
+    NLogger::Trace("Permutation: %s", GetCoordsString(perm).c_str());
   }
 
   return result;

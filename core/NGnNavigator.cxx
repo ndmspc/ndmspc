@@ -1,6 +1,8 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include "TAxis.h"
+#include "THnSparse.h"
 #include <TSystem.h>
 #include <TMath.h>
 #include <TROOT.h>
@@ -9,7 +11,9 @@
 #include <TCanvas.h>
 #include <TLatex.h>
 #include <TH1.h>
+#include <THStack.h>
 #include <TBufferJSON.h>
+#include <TGClient.h>
 
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
@@ -1302,6 +1306,214 @@ void NGnNavigator::SetParameter(const std::string & name, double value, int inde
       //   fParameterContentMap[name].resize(index + 1, NAN);
       // }
       fParameterContentMap[name][index] = value;
+    }
+  }
+}
+
+void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std::vector<int> projIds) const
+{
+  ///
+  /// Draws the NGnProjection object with the specified projection IDs
+  ///
+
+  if (parameterName.empty()) {
+    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Parameter name is empty");
+    return;
+  }
+
+  // check if parameterName exists in fParameterContentMap
+  if (fParameterContentMap.find(parameterName) == fParameterContentMap.end()) {
+    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Parameter name '%s' not found in fParameterContentMap",
+                           parameterName.c_str());
+    return;
+  }
+  Int_t screenWidth  = gClient->GetDisplayWidth();
+  Int_t screenHeight = gClient->GetDisplayHeight();
+
+  int       padCounter = 0;
+  TCanvas * c          = nullptr;
+  // Create a canvas that is, for example, 40% of the screen width and height
+  constexpr double canvasScale  = 0.4;
+  Int_t            canvasWidth  = static_cast<Int_t>(screenWidth * canvasScale);
+  Int_t            canvasHeight = static_cast<Int_t>(screenHeight * canvasScale);
+
+  Ndmspc::NLogger::Trace("Screen size: %dx%d", screenWidth, screenHeight);
+
+  NBinningDef * binningDef    = fGnTree->GetBinning()->GetDefinition();
+  THnSparse *   hnsObjContent = binningDef->GetContent();
+  // hnsObjContent->Print("all");
+  std::vector<std::vector<int>> projections;
+  if (projIds.empty()) {
+    projIds.resize(fProjection->GetDimension());
+    std::iota(projIds.begin(), projIds.end(), 0); // Fill projIds with 0, 1, 2, ..., n-1
+    projections = Ndmspc::NUtils::Permutations(projIds);
+  }
+  else {
+    projections.push_back(projIds);
+  }
+
+  if (projections.empty()) {
+    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: No projections found");
+    return;
+  }
+  if (projections[0].size() > 3) {
+    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)",
+                           projections[0].size());
+    return;
+  }
+
+  for (const auto & proj : projections) {
+
+    // Ndmspc::NLogger::Debug("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
+
+    // fProjection->Draw("colz");
+    TH1 * hParameterProjection = (TH1 *)fProjection->Clone("hParameterProjection");
+    // hParameterProjection->Sumw2(); // Enable sum of squares of weights for error calculation
+    // fill hParameterProjection from fParameterContentMap
+    hParameterProjection->SetContent(GetParameters(parameterName).data());
+    // hParameterProjection->SetError(GetParameters(parameterName).data());
+
+    // Create parameter THnSparse
+    THnSparse * hsParam = THnSparse::CreateSparse(parameterName.c_str(), parameterName.c_str(), hParameterProjection);
+    // append all labels from from fProjection to hs
+    int nDimensions = hParameterProjection->GetDimension();
+    for (int i = 0; i < nDimensions; i++) {
+      TAxis * axis = nullptr;
+      if (i == 0)
+        axis = hParameterProjection->GetXaxis();
+      else if (i == 1)
+        axis = hParameterProjection->GetYaxis();
+      else if (i == 2)
+        axis = hParameterProjection->GetZaxis();
+
+      hsParam->GetAxis(i)->SetName(axis->GetName());
+      hsParam->GetAxis(i)->SetTitle(axis->GetTitle());
+      // Apply all labels from fProjection to hs
+      for (int j = 1; j <= axis->GetNbins(); j++) {
+        std::string label = axis->GetBinLabel(j);
+        hsParam->GetAxis(i)->SetBinLabel(j, label.c_str());
+      }
+    }
+
+    delete hParameterProjection;
+
+    std::vector<int> dims = proj;
+    if (dims.size() > 3) {
+      Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", dims.size());
+      return;
+    }
+    std::vector<std::set<int>> dimsResults(3);
+
+    std::vector<std::vector<int>> ranges;
+    for (int dim : dims) {
+      int nBins = hnsObjContent->GetAxis(dim)->GetNbins();
+      ranges.push_back({dim, 1, nBins}); // 1-based indexing for THnSparse
+    }
+
+    NUtils::SetAxisRanges(hnsObjContent, ranges);
+    Int_t *                                         p      = new Int_t[hnsObjContent->GetNdimensions()];
+    Long64_t                                        linBin = 0;
+    std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hnsObjContent->CreateIter(true /*use axis range*/)};
+    while ((linBin = iter->Next()) >= 0) {
+      // NLogger::Debug("Linear bin: %lld", linBin);
+      Double_t    v         = hnsObjContent->GetBinContent(linBin, p);
+      Long64_t    idx       = hnsObjContent->GetBin(p);
+      std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(p, hnsObjContent->GetNdimensions()), -1);
+      // Ndmspc::NLogger::Info("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
+      dimsResults[0].insert(p[dims[0]]);
+      if (dims.size() > 1) dimsResults[1].insert(p[dims[1]]);
+      if (dims.size() > 2) dimsResults[2].insert(p[dims[2]]);
+    }
+
+    if (!gROOT->IsBatch()) {
+      // Ensure gClient is initialized if not already
+      if (!gClient) {
+        // This will initialize gClient if needed
+        (void)gClient;
+      }
+    }
+
+    // if (dims.size() <= 2) {
+    //   dims.push_back(0); // Add a dummy dimension for 2D plotting
+    // }
+    int nPads = dims.size() > 2 ? dimsResults[2].size() : 1;
+    Ndmspc::NLogger::Trace("Number of pads: %d", nPads);
+    std::vector<std::string> projNames = {hsParam->GetAxis(dims[0])->GetName(), hsParam->GetAxis(dims[1])->GetName(),
+                                          hsParam->GetAxis(dims[2])->GetName()};
+
+    std::string posfix = NUtils::Join(projNames, '-');
+
+    std::string canvasName = Form("c_%s", posfix.c_str());
+    NLogger::Trace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
+    c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
+    c->DivideSquare(nPads);
+    for (int iPad = 0; iPad < nPads; iPad++) {
+
+      std::string stackName  = Form("hStack_%s_%d", posfix.c_str(), iPad);
+      std::string stackTitle = parameterName + " : ";
+      stackTitle += projNames[0];
+      stackTitle += projNames.size() > 1 ? " vs " + projNames[1] : "";
+      if (dims.size() > 2) {
+        p[dims[2]] = iPad + 1; // 1-based index for the third dimension
+
+        // print projIds[2] range
+        // Ndmspc::NLogger::Debug("Pad %d: Setting projection indices: %d %d %d", iPad, p[0], p[1], p[2]);
+        // Ndmspc::NLogger::Debug("Pad %d: Setting projection indices: %d %d %d", iPad, projIds[0], projIds[1],
+        // projIds[2]);
+
+        TAxis * aPad = hsParam->GetAxis(dims[2]);
+        if (aPad->IsAlphanumeric()) {
+          stackTitle += projNames.size() > 2 ? " for " + projNames[2] + " [" + aPad->GetBinLabel(p[dims[2]]) + "]" : "";
+        }
+        else {
+          double binLowEdge = aPad->GetBinLowEdge(p[dims[2]]);
+          double binUpEdge  = aPad->GetBinUpEdge(p[dims[2]]);
+          stackTitle +=
+              projNames.size() > 2 ? " for " + projNames[2] + " " + Form(" [%.3f,%.3f]", binLowEdge, binUpEdge) : "";
+        }
+      }
+      NLogger::Trace("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
+      //
+      THStack * hStack  = new THStack(stackName.c_str(), stackTitle.c_str());
+      int       nStacks = dims.size() > 1 ? dimsResults[1].size() : 1;
+      for (int iStack = 0; iStack < nStacks; iStack++) {
+        // c->cd(iStack + 1);
+        p[dims[0]] = 0;
+        if (dims.size() > 1) p[dims[1]] = iStack + 1; // 1-based index for the second dimension
+        // if (dims.size() > 2) p[dims[2]] = iPad + 1; // 1-based index for the third dimension
+        NUtils::SetAxisRanges(hsParam, {{dims[2], p[dims[2]], p[dims[2]]}, {dims[1], p[dims[1]], p[dims[1]]}}, true);
+
+        NLogger::Trace("Projecting for stack %d: Setting projection dims: %d %d %d", iStack, dims[0], dims[1], dims[2]);
+
+        TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {dims[0]}, option);
+        hProj->SetMinimum(0);
+        TAxis * aStack = hsParam->GetAxis(dims[1]);
+        if (aStack->IsAlphanumeric()) {
+          std::string label = aStack->GetBinLabel(p[dims[1]]);
+          hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
+        }
+        else {
+          double binLowEdge = aStack->GetBinLowEdge(p[dims[1]]);
+          double binUpEdge  = aStack->GetBinUpEdge(p[dims[1]]);
+          hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
+        }
+
+        // hProj->Print();
+        hProj->SetMarkerStyle(20);
+        hProj->SetMarkerColor(iStack + 1);
+        hStack->Add((TH1 *)hProj->Clone());
+      }
+
+      c->cd(iPad + 1);
+      // hStack->SetMinimum(1.015);
+      // hStack->SetMaximum(1.023);
+      std::string drawOption = "nostack E";
+      drawOption += option;
+      hStack->Draw(drawOption.c_str());
+      // // hStack->GetXaxis()->SetRangeUser(0.0, 8.0);
+      if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
+      c->ModifiedUpdate();
+      gSystem->ProcessEvents();
     }
   }
 }

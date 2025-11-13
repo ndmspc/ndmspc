@@ -15,6 +15,15 @@ build-al9:
     - main
     - tags
 
+build-al10:
+  image: $CI_REGISTRY/ndmspc/user/al10:dep
+  stage: build
+  script: scripts/make.sh release test
+  allow_failure: true
+  except:
+    - main
+    - tags
+
 build-rpm-copr:
   stage: deploy
   image:

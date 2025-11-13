@@ -91,6 +91,10 @@ for ARG in $@; do
       echo "Will install after compilation"
       MY_MAKE_OPTS="${MY_MAKE_OPTS} install"
       ;;
+    "parquet")
+      echo "Forcing build with Parquet support"
+      WITH_PARQUET=true
+      ;;
     "rpm")
       echo "Building rpm"
       MY_MAKE_OPTS="${MY_MAKE_OPTS} rpm"
