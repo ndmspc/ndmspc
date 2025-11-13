@@ -29,6 +29,7 @@ class NGnNavigator : public TNamed {
 
   virtual void Print(Option_t * option = "") const override;
   virtual void Draw(Option_t * option = "") override;
+  virtual void DrawSpectra(std::string parameterName, Option_t * option = "", std::vector<int> projIds = {}) const;
   virtual void Paint(Option_t * option = "") override;
   Int_t        DistancetoPrimitive(Int_t px, Int_t py) override;
   virtual void ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
@@ -86,7 +87,7 @@ class NGnNavigator : public TNamed {
   NGnNavigator *              fParent{nullptr}; ///< Parent object
   std::vector<NGnNavigator *> fChildren{};      ///< Children objects
 
-  TH1 * fProjection{nullptr};  ///< Projection histogram for 2D
+  TH1 * fProjection{nullptr};  ///< Projection histogram
   Int_t fNLevels{1};           ///< Number of levels in the hierarchy
   Int_t fLevel{0};             ///< Level of the object in the hierarchy
   Int_t fNCells{0};            ///< Number of cells in the projection histogram
