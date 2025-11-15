@@ -133,6 +133,22 @@ int NUtils::Cp(std::string source, std::string destination)
   return rc;
 }
 
+TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string & title,
+                                     const std::vector<std::string> & labels)
+{
+  ///
+  /// Create label axis
+  ///
+  int     nBins = labels.size();
+  TAxis * a     = new TAxis(nBins, 0, nBins);
+  a->SetName(name.c_str());
+  a->SetTitle(title.c_str());
+  for (int i = 0; i < nBins; i++) {
+    a->SetBinLabel(i + 1, labels[i].c_str());
+  }
+  return a;
+}
+
 THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vector<std::string> titles)
 {
   ///

@@ -1367,11 +1367,12 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
     // Ndmspc::NLogger::Debug("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
 
     // fProjection->Draw("colz");
-    TH1 * hParameterProjection = (TH1 *)fProjection->Clone("hParameterProjection");
+    std::vector<double> parameterErrors(GetParameters(parameterName).size(), 0.0);
+    TH1 *               hParameterProjection = (TH1 *)fProjection->Clone("hParameterProjection");
     // hParameterProjection->Sumw2(); // Enable sum of squares of weights for error calculation
     // fill hParameterProjection from fParameterContentMap
     hParameterProjection->SetContent(GetParameters(parameterName).data());
-    // hParameterProjection->SetError(GetParameters(parameterName).data());
+    hParameterProjection->SetError(parameterErrors.data());
 
     // Create parameter THnSparse
     THnSparse * hsParam = THnSparse::CreateSparse(parameterName.c_str(), parameterName.c_str(), hParameterProjection);

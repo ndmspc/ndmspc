@@ -45,6 +45,8 @@ class NUtils : TObject {
   static bool GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, int & min, int & max);
   static bool GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int & minBase, int & maxBase);
 
+  static TAxis *     CreateAxisFromLabels(const std::string & name, const std::string & title,
+                                          const std::vector<std::string> & labels);
   static THnSparse * Convert(TH1 * h1, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
   static THnSparse * Convert(TH2 * h2, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
   static THnSparse * Convert(TH3 * h3, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
