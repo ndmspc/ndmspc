@@ -132,8 +132,8 @@ class NTreeBranch : public TObject {
   private:
   std::string fName{""};                   ///< Branch name
   int         fBranchStatus{1};            ///< Branch status
-  TBranch *   fBranch{nullptr};            ///< Branch pointer
-  TObject *   fObject{nullptr};            ///< Object pointer
+  TBranch *   fBranch{nullptr};            ///<! Branch pointer
+  TObject *   fObject{nullptr};            ///<! Object pointer
   std::string fObjectClassName{"TObject"}; ///< Object class name
 
   /// \cond CLASSIMP

@@ -326,10 +326,7 @@ class NBinning : public TObject {
   std::string                          fCurrentDefinitionName{""}; ///< Current definition name
   std::map<std::string, NBinningDef *> fDefinitions;               ///< Binning definitions
   std::vector<std::string>             fDefinitionNames;           ///< Binning definition names
-  NBinningPoint *                      fPoint{nullptr};            ///< Binning point object
-
-  // TODO: remove
-  // std::map<std::string, std::vector<std::vector<int>>> fDefinition; ///< Binning mapping definition
+  NBinningPoint *                      fPoint{nullptr};            ///<! Binning point object
 
   /// \cond CLASSIMP
   ClassDef(NBinning, 1);
