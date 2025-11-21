@@ -16,41 +16,86 @@
 
 namespace Ndmspc {
 
+///
+/// \class NDimensionalExecutor
+/// \brief Executes a function over all points in an N-dimensional space, optionally in parallel.
+/// \author Martin Vala <mvala@cern.ch>
+///
 class NDimensionalExecutor {
-
   public:
+  /**
+   * @brief Constructor from min/max bounds for each dimension.
+   * @param minBounds Minimum bounds for each dimension.
+   * @param maxBounds Maximum bounds for each dimension.
+   */
   NDimensionalExecutor(const std::vector<int> & minBounds, const std::vector<int> & maxBounds);
+
+  /**
+   * @brief Constructor from THnSparse histogram.
+   * @param hist Pointer to THnSparse histogram.
+   * @param onlyfilled If true, iterate only filled bins.
+   */
   NDimensionalExecutor(THnSparse * hist, bool onlyfilled = false);
 
+  /**
+   * @brief Execute a function over all coordinates in the N-dimensional space.
+   * @param func Function to execute, taking coordinates as argument.
+   */
   void Execute(const std::function<void(const std::vector<int> & coords)> & func);
 
+  /**
+   * @brief Execute a function in parallel over all coordinates, using thread-local objects.
+   * @tparam TObject Type of thread-local object.
+   * @param func Function to execute, taking coordinates and thread-local object.
+   * @param thread_objects Vector of thread-local objects, one per thread.
+   */
   template <typename TObject>
   void ExecuteParallel(const std::function<void(const std::vector<int> & coords, TObject & thread_object)> & func,
                        std::vector<TObject> & thread_objects);
 
-  /// Returns the number of dimensions
+  /**
+   * @brief Returns the number of dimensions.
+   * @return Number of dimensions.
+   */
   size_t Dimensions() const { return fNumDimensions; }
-  /// Returns min bounds
+
+  /**
+   * @brief Returns the minimum bounds for each dimension.
+   * @return Vector of minimum bounds.
+   */
   const std::vector<int> & GetMinBounds() const { return fMinBounds; }
-  /// Returns max bounds
+
+  /**
+   * @brief Returns the maximum bounds for each dimension.
+   * @return Vector of maximum bounds.
+   */
   const std::vector<int> & GetMaxBounds() const { return fMaxBounds; }
 
   private:
-  size_t           fNumDimensions;
-  std::vector<int> fMinBounds;
-  std::vector<int> fMaxBounds;
-  std::vector<int> fCurrentCoords;
+  size_t           fNumDimensions; ///< Number of dimensions
+  std::vector<int> fMinBounds;     ///< Minimum bounds for each dimension
+  std::vector<int> fMaxBounds;     ///< Maximum bounds for each dimension
+  std::vector<int> fCurrentCoords; ///< Current coordinates during iteration
 
+  /**
+   * @brief Increment the current coordinates to the next point in the N-dimensional space.
+   * @return True if increment was successful, false if end reached.
+   */
   bool Increment();
 };
 
 // --- Template Implementation for ExecuteParallel ---
+/**
+ * @brief Execute a function in parallel over all coordinates, using thread-local objects.
+ *        Handles task distribution, synchronization, and exception propagation.
+ *
+ * @throws std::exception If any worker thread throws, the first exception is rethrown after joining.
+ */
 template <typename TObject>
 void NDimensionalExecutor::ExecuteParallel(
     const std::function<void(const std::vector<int> & coords, TObject & thread_object)> & func,
     std::vector<TObject> &                                                                thread_objects)
 {
-
   if (fNumDimensions == 0) {
     return;
   }
@@ -70,6 +115,7 @@ void NDimensionalExecutor::ExecuteParallel(
   std::exception_ptr first_exception = nullptr;
   std::mutex         exception_mutex;
 
+  // Worker thread logic: fetch and execute tasks, handle exceptions, signal completion.
   auto worker_logic = [&](TObject & my_object) {
     while (true) {
       std::function<void(TObject &)> task_payload;

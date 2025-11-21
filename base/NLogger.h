@@ -1,5 +1,4 @@
-#ifndef Ndmspc_NLogger_H
-#define Ndmspc_NLogger_H
+#pragma once
 #include <cstdarg>
 #include <memory>
 #include <mutex>
@@ -14,12 +13,15 @@ namespace logs_api = opentelemetry::logs;
 
 namespace Ndmspc {
 
-///
-/// \class NLogger
-///
-/// \brief NLogger object
-///	\author Martin Vala <mvala@cern.ch>
-///
+/**
+ * @brief Provides logging functionality for the Ndmspc project.
+ *
+ * NLogger is a singleton class that wraps OpenTelemetry logging APIs, offering
+ * severity-based logging methods and utilities for log message formatting.
+ * It supports thread-safe logging and severity level mapping from strings.
+ *
+ * @author Martin Vala <mvala@cern.ch>
+ */
 static const std::unordered_map<std::string, logs_api::Severity> fgSeverityMap = {
     {"TRACE", logs_api::Severity::kTrace},   {"TRACE2", logs_api::Severity::kTrace2},
     {"TRACE3", logs_api::Severity::kTrace3}, {"TRACE4", logs_api::Severity::kTrace4},
@@ -35,35 +37,118 @@ static const std::unordered_map<std::string, logs_api::Severity> fgSeverityMap =
     {"FATAL3", logs_api::Severity::kFatal3}, {"FATAL4", logs_api::Severity::kFatal4},
 };
 
+/**
+ * @class NLogger
+ * @brief Singleton logger class for Ndmspc.
+ */
 class NLogger {
-  // class NLogger : public TObject {
   public:
+  /**
+   * @brief Constructs a new NLogger instance.
+   */
   NLogger();
+
+  /**
+   * @brief Destroys the NLogger instance.
+   */
   virtual ~NLogger();
+
   // Delete copy constructor and assignment operator
-  NLogger(const NLogger &)                                                             = delete;
-  NLogger &                                                 operator=(const NLogger &) = delete;
-  static NLogger *                                          Instance();
+  NLogger(const NLogger &)             = delete;
+  NLogger & operator=(const NLogger &) = delete;
+
+  /**
+   * @brief Returns the singleton instance of NLogger.
+   * @return Pointer to the singleton NLogger.
+   */
+  static NLogger * Instance();
+
+  /**
+   * @brief Gets the default OpenTelemetry logger.
+   * @return Shared pointer to the default logger.
+   */
   static opentelemetry::nostd::shared_ptr<logs_api::Logger> GetDefaultLogger();
 
+  /**
+   * @brief Converts a severity string to the corresponding Severity enum.
+   * @param severity_str The severity level as a string.
+   * @return The corresponding Severity enum value.
+   */
   static logs_api::Severity GetSeverityFromString(const std::string & severity_str);
-  // logs_api::Severity        GetMinSeverity() const { return fMinSeverity; }
 
+  // logs_api::Severity GetMinSeverity() const { return fMinSeverity; }
+
+  /**
+   * @brief Logs a formatted message at the specified severity level.
+   * @param level Severity level.
+   * @param format Format string.
+   * @param args Variable argument list.
+   */
   static void Log(logs_api::Severity level, const char * format, va_list args);
+
+  /**
+   * @brief Logs a debug message.
+   * @param format Format string.
+   * @param ... Variable arguments.
+   */
   static void Debug(const char * format, ...);
+
+  /**
+   * @brief Logs an info message.
+   * @param format Format string.
+   * @param ... Variable arguments.
+   */
   static void Info(const char * format, ...);
+
+  /**
+   * @brief Logs a warning message.
+   * @param format Format string.
+   * @param ... Variable arguments.
+   */
   static void Warning(const char * format, ...);
+
+  /**
+   * @brief Logs an error message.
+   * @param format Format string.
+   * @param ... Variable arguments.
+   */
   static void Error(const char * format, ...);
+
+  /**
+   * @brief Logs a fatal message.
+   * @param format Format string.
+   * @param ... Variable arguments.
+   */
   static void Fatal(const char * format, ...);
+
+  /**
+   * @brief Logs a trace message.
+   * @param format Format string.
+   * @param ... Variable arguments.
+   */
   static void Trace(const char * format, ...);
 
+  /**
+   * @brief Mutex for thread-safe logger operations.
+   */
   static std::mutex fgLoggerMutex;
 
   private:
-  // logs_api::Severity              fMinSeverity{logs_api::Severity::kInfo}; ///< Default log level
+  // logs_api::Severity fMinSeverity{logs_api::Severity::kInfo}; ///< Default log level
+
+  /**
+   * @brief Singleton instance of NLogger.
+   */
   static std::unique_ptr<NLogger> fgLogger;
 
+  /**
+   * @brief Initializes the logger.
+   */
   void Init();
+
+  /**
+   * @brief Cleans up logger resources.
+   */
   void Cleanup();
 
   /// \cond CLASSIMP
@@ -71,4 +156,3 @@ class NLogger {
   /// \endcond;
 };
 } // namespace Ndmspc
-#endif

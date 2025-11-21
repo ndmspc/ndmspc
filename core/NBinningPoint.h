@@ -7,46 +7,167 @@ using json = nlohmann::json;
 
 namespace Ndmspc {
 
-///
-/// \class NBinningPoint
-///
-/// \brief NBinningPoint object
-///	\author Martin Vala <mvala@cern.ch>
-///
+/**
+ * @class NBinningPoint
+ * @brief Represents a single point in multi-dimensional binning.
+ *
+ * Stores coordinates, axis ranges, labels, and configuration for a binning point.
+ * Provides methods for coordinate management, storage mapping, content filling, and integration with NBinning.
+ *
+ * @author Martin Vala <mvala@cern.ch>
+ */
 class NBinning;
 class NStorageTree;
 class NGnTree;
 class NBinningPoint : public TObject {
   public:
+  /**
+   * @brief Constructor.
+   * @param b Pointer to NBinning object.
+   */
   NBinningPoint(NBinning * b = nullptr);
+
+  /**
+   * @brief Destructor.
+   */
   virtual ~NBinningPoint();
 
+  /**
+   * @brief Print binning point information.
+   * @param option Print options.
+   */
   virtual void Print(Option_t * option = "") const;
+
+  /**
+   * @brief Reset the binning point to initial state.
+   */
   virtual void Reset();
 
-  Int_t    GetNDimensionsContent() const { return fContentNDimensions; }
-  Int_t *  GetCoords() const { return fContentCoords; }
-  Int_t    GetNDimensions() const { return fNDimensions; }
-  Int_t *  GetStorageCoords() const { return fStorageCoords; }
-  bool     RecalculateStorageCoords(Long64_t entry = -1, bool useBinningDefCheck = false);
-  bool     SetPointContentFromLinearIndex(Long64_t linBin, bool checkBinningDef = false);
+  /**
+   * @brief Get number of dimensions in content histogram.
+   * @return Number of dimensions.
+   */
+  Int_t GetNDimensionsContent() const { return fContentNDimensions; }
+
+  /**
+   * @brief Get pointer to content coordinates array.
+   * @return Pointer to coordinates array.
+   */
+  Int_t * GetCoords() const { return fContentCoords; }
+
+  /**
+   * @brief Get number of dimensions.
+   * @return Number of dimensions.
+   */
+  Int_t GetNDimensions() const { return fNDimensions; }
+
+  /**
+   * @brief Get pointer to storage coordinates array.
+   * @return Pointer to storage coordinates array.
+   */
+  Int_t * GetStorageCoords() const { return fStorageCoords; }
+
+  /**
+   * @brief Recalculate storage coordinates for the point.
+   * @param entry Entry number (optional).
+   * @param useBinningDefCheck Use binning definition check.
+   * @return True if recalculation successful.
+   */
+  bool RecalculateStorageCoords(Long64_t entry = -1, bool useBinningDefCheck = false);
+
+  /**
+   * @brief Set point content from linear index.
+   * @param linBin Linear bin index.
+   * @param checkBinningDef Check binning definition.
+   * @return True if set successfully.
+   */
+  bool SetPointContentFromLinearIndex(Long64_t linBin, bool checkBinningDef = false);
+
+  /**
+   * @brief Fill the binning point content.
+   * @param ignoreFilledCheck Ignore filled check.
+   * @return Number of filled bins.
+   */
   Long64_t Fill(bool ignoreFilledCheck = false);
 
+  /**
+   * @brief Get reference to configuration JSON object.
+   * @return Reference to JSON configuration.
+   */
   json & GetCfg() { return fCfg; }
-  void   SetCfg(const json & cfg) { fCfg = cfg; }
 
+  /**
+   * @brief Set configuration JSON object.
+   * @param cfg JSON configuration.
+   */
+  void SetCfg(const json & cfg) { fCfg = cfg; }
+
+  /**
+   * @brief Get base axis ranges for the point.
+   * @return Map of axis index to vector of ranges.
+   */
   std::map<int, std::vector<int>> GetBaseAxisRanges() const;
-  std::string                     GetTitle(const std::string & prefix = "", bool all = false) const;
-  std::vector<std::string>        GetLabels() const { return fLabels; }
 
-  NBinning *     GetBinning() const { return fBinning; }
-  void           SetBinning(NBinning * b);
+  /**
+   * @brief Get title string for the point.
+   * @param prefix Optional prefix.
+   * @param all Include all axes.
+   * @return Title string.
+   */
+  std::string GetTitle(const std::string & prefix = "", bool all = false) const;
+
+  /**
+   * @brief Get labels for each axis.
+   * @return Vector of axis labels.
+   */
+  std::vector<std::string> GetLabels() const { return fLabels; }
+
+  /**
+   * @brief Get pointer to NBinning object.
+   * @return Pointer to NBinning.
+   */
+  NBinning * GetBinning() const { return fBinning; }
+
+  /**
+   * @brief Set NBinning object pointer.
+   * @param b Pointer to NBinning.
+   */
+  void SetBinning(NBinning * b);
+
+  /**
+   * @brief Get pointer to storage tree object.
+   * @return Pointer to NStorageTree.
+   */
   NStorageTree * GetTreeStorage() const { return fTreeStorage; }
-  void           SetTreeStorage(NStorageTree * s) { fTreeStorage = s; }
-  NGnTree *      GetInput() const { return fInput; }
-  void           SetInput(NGnTree * input) { fInput = input; }
 
-  void     SetEntryNumber(Long64_t entry) { fEntryNumber = entry; }
+  /**
+   * @brief Set storage tree object pointer.
+   * @param s Pointer to NStorageTree.
+   */
+  void SetTreeStorage(NStorageTree * s) { fTreeStorage = s; }
+
+  /**
+   * @brief Get pointer to input NGnTree object.
+   * @return Pointer to NGnTree.
+   */
+  NGnTree * GetInput() const { return fInput; }
+
+  /**
+   * @brief Set input NGnTree object pointer.
+   * @param input Pointer to NGnTree.
+   */
+  void SetInput(NGnTree * input) { fInput = input; }
+
+  /**
+   * @brief Set entry number for the point.
+   * @param entry Entry number.
+   */
+  void SetEntryNumber(Long64_t entry) { fEntryNumber = entry; }
+
+  /**
+   * @brief Get entry number for the point.
+   * @return Entry number.
+   */
   Long64_t GetEntryNumber() const { return fEntryNumber; }
 
   private:

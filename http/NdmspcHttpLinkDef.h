@@ -9,5 +9,6 @@
 #pragma link C++ class Ndmspc::NHttpServer + ;
 #pragma link C++ class Ndmspc::NHttpRequest + ;
 #pragma link C++ class Ndmspc::NWsClient + ;
+#pragma link C++ class Ndmspc::NWsHandler + ;
 #pragma link C++ class Ndmspc::NStressHistograms + ;
 #endif

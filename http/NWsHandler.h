@@ -9,46 +9,73 @@
 #include <THttpCallArg.h>  // For THttpCallArg from ROOT
 #include "NWsClientInfo.h" // Include our client info class in the same namespace
 
-// Forward declare SendCharStarWS in the global namespace if it's truly global
-// If it's part of THttpServer, then MyWebSocketHandler needs a THttpServer* member
-// and calls it via that. For now, we'll assume a global function needs to be exposed.
-// extern void SendCharStarWS(ULong_t wsId, const char * msg);
-
 class THttpCallArg;
 class TTimer;
 namespace Ndmspc {
 
-///
-/// \class NWsHandler
-///
-/// \brief NWsHandler object
-///	\author Martin Vala <mvala@cern.ch>
-///
+/**
+ * @class NWsHandler
+ * @brief Handles WebSocket connections and messaging for NDMSPC.
+ *
+ * Inherits from THttpWSHandler to manage WebSocket events, broadcast messages,
+ * and maintain client information in a thread-safe manner.
+ *
+ * @author Martin Vala <mvala@cern.ch>
+ */
 class NWsHandler : public THttpWSHandler {
   public:
+  /**
+   * @brief Constructor.
+   * @param name Optional handler name.
+   * @param title Optional handler title.
+   */
   NWsHandler(const char * name = nullptr, const char * title = nullptr);
+
+  /**
+   * @brief Destructor.
+   */
   ~NWsHandler() override;
 
+  /**
+   * @brief Returns the default page content for the handler.
+   * @return Default page content string.
+   */
   TString GetDefaultPageContent() override { return "file:ws.htm"; }
 
-  Bool_t ProcessWS(THttpCallArg * arg) override; // Method to broadcast a message to all connected clients
-  void   BroadcastUnsafe(const std::string & message);
-  void   Broadcast(const std::string & message);
-  /// /// Allow processing of WS actions in arbitrary thread
-  /// Bool_t AllowMTProcess() const override { return kTRUE; }
-  ///
-  /// /// Allows usage of special threads for send operations
-  /// Bool_t AllowMTSend() const override { return kTRUE; }
-  /// /// per timeout sends data portion to the client
-  Bool_t HandleTimer(TTimer *) override;
+  /**
+   * @brief Processes a WebSocket event and broadcasts messages to clients.
+   * @param arg Pointer to THttpCallArg containing event data.
+   * @return True if processed successfully.
+   */
+  Bool_t ProcessWS(THttpCallArg * arg) override;
 
-  // ClassDefOverride(NWsHandler, 1);
+  /**
+   * @brief Broadcasts a message to all connected clients (unsafe, not thread-safe).
+   * @param message Message string to broadcast.
+   */
+  void BroadcastUnsafe(const std::string & message);
+
+  /**
+   * @brief Broadcasts a message to all connected clients (thread-safe).
+   * @param message Message string to broadcast.
+   */
+  void Broadcast(const std::string & message);
+
+  /**
+   * @brief Handles timer events for the handler.
+   * @param timer Pointer to TTimer object.
+   * @return True if handled successfully.
+   */
+  Bool_t HandleTimer(TTimer * timer) override;
 
   private:
-  // Map to store information about each active client
-  std::map<ULong_t, NWsClientInfo> fClients;
-  std::mutex                       fMutex; // Protect fClients map for thread safety
-  Int_t                            fServCnt{0};
+  std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
+  std::mutex                       fMutex;      ///< Mutex for thread-safe client map access
+  Int_t                            fServCnt{0}; ///< Service counter
+
+  /// \cond CLASSIMP
+  ClassDefOverride(NWsHandler, 1);
+  /// \endcond;
 };
 
 } // namespace Ndmspc
