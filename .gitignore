@@ -54,6 +54,6 @@ compile_commands.json
 .cache
 .ndmspc_cache_dir*
 *.root
-!macros/test/cernstaff.root
+!macros/root/cernstaff/cernstaff.root
 test.C
 notes

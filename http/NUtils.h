@@ -47,6 +47,8 @@ class NUtils : TObject {
 
   static TAxis *     CreateAxisFromLabels(const std::string & name, const std::string & title,
                                           const std::vector<std::string> & labels);
+  static TAxis *     CreateAxisFromLabels(const std::string & name, const std::string & title,
+                                          const std::set<std::string> & labels);
   static THnSparse * Convert(TH1 * h1, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
   static THnSparse * Convert(TH2 * h2, std::vector<std::string> names = {}, std::vector<std::string> titles = {});
   static THnSparse * Convert(TH3 * h3, std::vector<std::string> names = {}, std::vector<std::string> titles = {});

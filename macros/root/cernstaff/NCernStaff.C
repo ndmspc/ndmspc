@@ -75,6 +75,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
   // cfg["opt"]               = "A";
   cfg["input"]["filename"] = fn;
   cfg["input"]["object"]   = "hsparse";
+  cfg["parameters"]        = {"mean"};
   cfg["sparse"]            = true;
   cfg["sparse"]            = false;
 
@@ -163,6 +164,13 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/hnst_cernstaff.roo
             //                       point->GetEntryNumber(), hProj->GetTitle(), hProj->GetEntries());
             outputPoint->Add(hProj);
             // outputPoint->Print();
+            std::vector<std::string> labels  = cfg["parameters"].get<std::vector<std::string>>();
+            TH1D *                   results = new TH1D("results", "Results", labels.size(), 0, labels.size());
+            for (size_t i = 0; i < labels.size(); i++) {
+              results->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
+            }
+            results->SetBinContent(1, hProj->GetMean());
+            outputPoint->Add(results);
           }
         }
         else {
