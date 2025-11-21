@@ -29,6 +29,16 @@ Requires: %{name} = %{version}-%{release}, pkgconfig
 %description doc
 This package contains @PROJECT_NAME@ documentation.
 
+
+%package jupyroot
+Summary:  Jupyroot bindings for @PROJECT_NAME@
+Group:    Additional Packages
+Requires: %{name} = %{version}-%{release}, pkgconfig
+Requires: python3-jupyroot
+
+%description jupyroot
+This package contains Jupyroot bindings for @PROJECT_NAME@.
+
 %prep
 %setup -q
 
@@ -63,5 +73,7 @@ make install DESTDIR=%{buildroot}
 
 %files doc
 %doc /usr/share/doc/%{name}/
+
+%files jupyroot
 
 %changelog
