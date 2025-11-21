@@ -207,13 +207,13 @@ class NStorageTree : public TObject {
 
   protected:
   std::string                        fFileName{"hnst.root"}; ///< Current filename
-  TFile *                            fFile{nullptr};         ///< Current file
-  TTree *                            fTree{nullptr};         ///< TTree container
+  TFile *                            fFile{nullptr};         ///<! Current file
+  TTree *                            fTree{nullptr};         ///<! TTree container
   std::string                        fPrefix{""};            ///< Prefix path
   std::string                        fPostfix{""};           ///< Postfix path
   std::map<std::string, NTreeBranch> fBranchesMap;           ///< Branches map
-  TMap *                             fOutputs;               ///< Output objects map
-  NBinning *                         fBinning{nullptr};      ///< Binning object
+  TMap *                             fOutputs;               ///<! Output objects map
+  NBinning *                         fBinning{nullptr};      ///<-> Binning object
 
   /// \cond CLASSIMP
   ClassDef(NStorageTree, 1);

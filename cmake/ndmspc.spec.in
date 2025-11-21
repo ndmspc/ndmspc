@@ -63,6 +63,15 @@ make install DESTDIR=%{buildroot}
 %postun
 %systemd_postun ndmspc-http@*.service
 
+%preun jupyroot
+%systemd_preun ndmspc-notebook@*.service
+
+%postun jupyroot
+%systemd_postun ndmspc-notebook@*.service
+
+%post jupyroot
+%systemd_post ndmspc-notebook@*.service
+
 %files
 %{_bindir}/*
 %{_libdir}/*
@@ -75,5 +84,6 @@ make install DESTDIR=%{buildroot}
 %doc /usr/share/doc/%{name}/
 
 %files jupyroot
+%{_unitdir}/ndmspc-notebook@.service
 
 %changelog
