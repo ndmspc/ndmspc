@@ -9,7 +9,7 @@ project(ndmspc VERSION 1.0.0 DESCRIPTION "NDMSPC")
 set(PROJECT_VERSION_RELEASE rc1)
 
 option(USE_LATEST "Compile with latest code" ON)
-option(USE_LEGACY "Compile with legacy code" ON)
+option(USE_LEGACY "Compile with legacy code" OFF)
 option(USE_PARQUET "Compile with Parquet support" OFF)
 
 include(cmake/cmake_base.cmake)
