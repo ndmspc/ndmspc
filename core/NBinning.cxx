@@ -286,7 +286,7 @@ void NBinning::Print(Option_t * option) const
     }
   }
 
-  if (option && opt.Contains("all")) {
+  if (option && opt.Contains("A")) {
     NLogger::Info("NBinning content:");
     PrintContent(option);
   }

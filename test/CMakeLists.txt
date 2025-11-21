@@ -26,7 +26,7 @@ set(MY_EXTERNAL_LIBS
   NdmspcHttp
   NdmspcCore
 )
-file(COPY ${CMAKE_SOURCE_DIR}/macros/test/cernstaff.root
+file(COPY ${CMAKE_SOURCE_DIR}/macros/root/cernstaff/cernstaff.root
 DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
 )
 add_executable(test_NGnTree test_NGnTree.cxx)

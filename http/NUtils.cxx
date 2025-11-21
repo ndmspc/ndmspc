@@ -144,7 +144,27 @@ TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string
   a->SetName(name.c_str());
   a->SetTitle(title.c_str());
   for (int i = 0; i < nBins; i++) {
+    NLogger::Debug("NUtils::CreateAxisFromLabels: Adding label: %s", labels[i].c_str());
     a->SetBinLabel(i + 1, labels[i].c_str());
+  }
+  return a;
+}
+
+TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string & title,
+                                     const std::set<std::string> & labels)
+{
+  ///
+  /// Create label axis
+  ///
+  int     nBins = labels.size();
+  TAxis * a     = new TAxis(nBins, 0, nBins);
+  a->SetName(name.c_str());
+  a->SetTitle(title.c_str());
+  int i = 1;
+  for (const auto & label : labels) {
+    NLogger::Debug("NUtils::CreateAxisFromLabels: Adding label: %s", label.c_str());
+    a->SetBinLabel(i, label.c_str());
+    i++;
   }
   return a;
 }
@@ -694,8 +714,13 @@ std::vector<std::string> NUtils::Find(std::string path, std::string filename)
   ///
 
   std::vector<std::string> files;
-  path = gSystem->ExpandPathName(path.c_str());
-  if (path.rfind("root://", 0) == 0) {
+  TString                  pathStr = gSystem->ExpandPathName(path.c_str());
+  if (pathStr.IsNull() || filename.empty()) {
+    NLogger::Error("NUtils::Find: Path or filename is empty");
+    return files;
+  }
+
+  if (pathStr.BeginsWith("root://")) {
     return FindEos(path, filename);
   }
   else {
@@ -713,10 +738,10 @@ std::vector<std::string> NUtils::FindLocal(std::string path, std::string filenam
 
   std::vector<std::string> files;
   if (gSystem->AccessPathName(path.c_str())) {
-    Printf("Error: Nothing to merge, because path '%s' does not exist !!!", path.c_str());
+    NLogger::Error("NUtils::FindLocal: Path '%s' does not exist", path.c_str());
     return files;
   }
-  Printf("Doing local find %s -name %s", path.c_str(), filename.c_str());
+  NLogger::Info("Doing find %s -name %s", path.c_str(), filename.c_str());
   std::string linesMerge =
       gSystem->GetFromPipe(TString::Format("find %s -name %s", path.c_str(), filename.c_str())).Data();
 
@@ -734,7 +759,7 @@ std::vector<std::string> NUtils::FindEos(std::string path, std::string filename)
   ///
 
   std::vector<std::string> files;
-  Printf("Doing eos find -f --name %s %s ", filename.c_str(), path.c_str());
+  NLogger::Info("Doing eos find -f --name %s %s ", filename.c_str(), path.c_str());
 
   TUrl        url(path.c_str());
   std::string host      = url.GetHost();
@@ -744,7 +769,7 @@ std::vector<std::string> NUtils::FindEos(std::string path, std::string filename)
   findUrl += "?mgm.cmd=find&mgm.find.match=" + filename;
   findUrl += "&mgm.path=" + directory;
   findUrl += "&mgm.format=json&mgm.option=f&filetype=raw";
-  Printf("Doing '%s' ...", findUrl.c_str());
+  NLogger::Info("Doing TFile::Open on '%s' ...", findUrl.c_str());
 
   TFile * f = Ndmspc::NUtils::OpenFile(findUrl.c_str());
   if (!f) return files;

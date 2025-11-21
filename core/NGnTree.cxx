@@ -728,7 +728,7 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   NBinningDef * binningDef = fBinning->GetDefinition(binning);
   if (!binningDef) {
     NLogger::Error("NGnTree::Play: Binning definition '%s' not found in NGnTree !!!", binning.c_str());
-    NLogger::Error("Available binning definitions:");
+    NLogger::Error("NGnTree::Play: Available binning definitions:");
     for (auto & name : fBinning->GetDefinitionNames()) {
       if (name == fBinning->GetCurrentDefinitionName())
         NLogger::Error(" [*] %s", name.c_str());
@@ -777,7 +777,7 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
     fBinning->GetPoint()->Print();
     TList * l = (TList *)fTreeStorage->GetBranch("outputPoint")->GetObject();
     if (!l || l->IsEmpty()) {
-      NLogger::Info("No output for entry %lld", id);
+      NLogger::Info("NGnTree::Play: No output for entry %lld", id);
       continue;
     }
     else {
@@ -795,10 +795,10 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
       if (client) {
         std::string msg = TBufferJSON::ConvertToJSON(l).Data();
         if (!client->Send(msg)) {
-          Ndmspc::NLogger::Error("Failed to send message `%s`", msg.c_str());
+          Ndmspc::NLogger::Error("NGnTree::Play: Failed to send message `%s`", msg.c_str());
         }
         else {
-          Ndmspc::NLogger::Trace("Sent: %s", msg.c_str());
+          Ndmspc::NLogger::Trace("NGnTree::Play: Sent: %s", msg.c_str());
         }
       }
       else {
@@ -812,11 +812,16 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
           if (obj) {
             // obj->Print();
             obj->Draw();
+            if (obj->InheritsFrom(TH1::Class()) && i == 0) {
+              TH1 * h = (TH1 *)obj;
+              v       = h->GetMean();
+              NLogger::Debug("NGnTree::Play: Mean value from histogram [%s]: %f", h->GetName(), v);
+            }
           }
-          if (obj->InheritsFrom(TH1::Class()) && i == 0) {
-            TH1 * h = (TH1 *)obj;
-            v       = h->GetMean();
-            NLogger::Debug("Mean value from histogram [%s]: %f", h->GetName(), v);
+          else {
+            NLogger::Warning("NGnTree::Play: Output object id %d (list index %d) not found in output list",
+                             outputPointIds[i], i);
+            gPad->Clear();
           }
         }
         bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), v);
