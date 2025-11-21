@@ -5,75 +5,357 @@
 #include "NGnTree.h"
 namespace Ndmspc {
 
-///
-/// \class NGnNavigator
-///
-/// \brief NGnNavigator object
-///	\author Martin Vala <mvala@cern.ch>
-///
-
+/**
+ * @class NGnNavigator
+ * @brief Navigator object for managing hierarchical data structures and projections.
+ *
+ * Handles navigation, reshaping, exporting, drawing, and management of objects and parameters
+ * in a hierarchical tree structure. Supports projections, children/parent relationships,
+ * and integration with NBinningDef and NGnTree.
+ *
+ * @author Martin Vala <mvala@cern.ch>
+ */
 class NGnNavigator : public TNamed {
   public:
+  /**
+   * @brief Constructor.
+   * @param name Navigator name.
+   * @param title Navigator title.
+   * @param objectTypes Types of objects managed (default: {"TH1"}).
+   */
   NGnNavigator(const char * name = "GnNavigator", const char * title = "Gn Navigator",
                std::vector<std::string> objectTypes = {"TH1"});
+
+  /**
+   * @brief Destructor.
+   */
   virtual ~NGnNavigator();
 
+  /**
+   * @brief Reshape navigator using binning name and levels.
+   * @param binningName Name of binning definition.
+   * @param levels Vector of levels.
+   * @param level Current level (default: 0).
+   * @param ranges Map of ranges for axes.
+   * @param rangesBase Map of base ranges for axes.
+   * @return Pointer to reshaped NGnNavigator.
+   */
   NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {});
+
+  /**
+   * @brief Reshape navigator using NBinningDef and levels.
+   * @param binningDef Pointer to NBinningDef.
+   * @param levels Vector of levels.
+   * @param level Current level (default: 0).
+   * @param ranges Map of ranges for axes.
+   * @param rangesBase Map of base ranges for axes.
+   * @param parent Pointer to parent NGnNavigator.
+   * @return Pointer to reshaped NGnNavigator.
+   */
   NGnNavigator * Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, int level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {},
                          NGnNavigator * parent = nullptr);
 
+  /**
+   * @brief Export navigator data to file.
+   * @param filename Output file name.
+   * @param objectNames Names of objects to export.
+   * @param wsUrl Optional WebSocket URL.
+   */
   void Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl = "");
+
+  /**
+   * @brief Export navigator data to JSON.
+   * @param j JSON object to fill.
+   * @param obj Navigator object to export.
+   * @param objectNames Names of objects to export.
+   */
   void ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames);
 
+  /**
+   * @brief Print navigator information.
+   * @param option Print options.
+   */
   virtual void Print(Option_t * option = "") const override;
+
+  /**
+   * @brief Draw navigator objects.
+   * @param option Draw options.
+   */
   virtual void Draw(Option_t * option = "") override;
+
+  /**
+   * @brief Draw spectra for a parameter.
+   * @param parameterName Name of parameter.
+   * @param option Draw options.
+   * @param projIds Projection IDs.
+   */
   virtual void DrawSpectra(std::string parameterName, Option_t * option = "", std::vector<int> projIds = {}) const;
+
+  /**
+   * @brief Paint navigator objects.
+   * @param option Paint options.
+   */
   virtual void Paint(Option_t * option = "") override;
-  Int_t        DistancetoPrimitive(Int_t px, Int_t py) override;
+
+  /**
+   * @brief Calculate distance to primitive for graphical selection.
+   * @param px X coordinate.
+   * @param py Y coordinate.
+   * @return Distance value.
+   */
+  Int_t DistancetoPrimitive(Int_t px, Int_t py) override;
+
+  /**
+   * @brief Handle execution of events (e.g., mouse, keyboard).
+   * @param event Event type.
+   * @param px X coordinate.
+   * @param py Y coordinate.
+   */
   virtual void ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
 
-  NGnTree *                                     GetGnTree() const { return fGnTree; }
-  void                                          SetGnTree(NGnTree * tree) { fGnTree = tree; }
-  std::vector<NGnNavigator *>                   GetChildren() const { return fChildren; }
-  void                                          SetChildrenSize(int n) { fChildren.resize(n); }
-  NGnNavigator *                                GetChild(int index) const;
-  void                                          SetChild(NGnNavigator * child, int index = -1);
-  NGnNavigator *                                GetParent() const { return fParent; }
-  void                                          SetParent(NGnNavigator * parent) { fParent = parent; }
+  /**
+   * @brief Get pointer to NGnTree object.
+   * @return Pointer to NGnTree.
+   */
+  NGnTree * GetGnTree() const { return fGnTree; }
+
+  /**
+   * @brief Set NGnTree object pointer.
+   * @param tree Pointer to NGnTree.
+   */
+  void SetGnTree(NGnTree * tree) { fGnTree = tree; }
+
+  /**
+   * @brief Get vector of child navigators.
+   * @return Vector of NGnNavigator pointers.
+   */
+  std::vector<NGnNavigator *> GetChildren() const { return fChildren; }
+
+  /**
+   * @brief Set number of children.
+   * @param n Number of children.
+   */
+  void SetChildrenSize(int n) { fChildren.resize(n); }
+
+  /**
+   * @brief Get child navigator at index.
+   * @param index Child index.
+   * @return Pointer to child NGnNavigator.
+   */
+  NGnNavigator * GetChild(int index) const;
+
+  /**
+   * @brief Set child navigator at index.
+   * @param child Pointer to child NGnNavigator.
+   * @param index Index to set (-1 for append).
+   */
+  void SetChild(NGnNavigator * child, int index = -1);
+
+  /**
+   * @brief Get parent navigator.
+   * @return Pointer to parent NGnNavigator.
+   */
+  NGnNavigator * GetParent() const { return fParent; }
+
+  /**
+   * @brief Set parent navigator.
+   * @param parent Pointer to parent NGnNavigator.
+   */
+  void SetParent(NGnNavigator * parent) { fParent = parent; }
+
+  /**
+   * @brief Get object content map.
+   * @return Map of object names to vectors of TObject pointers.
+   */
   std::map<std::string, std::vector<TObject *>> GetObjectContentMap() const { return fObjectContentMap; }
-  void                   ResizeObjectContentMap(const std::string & name, int n) { fObjectContentMap[name].resize(n); };
+
+  /**
+   * @brief Resize object content map for a given name.
+   * @param name Object name.
+   * @param n New size.
+   */
+  void ResizeObjectContentMap(const std::string & name, int n) { fObjectContentMap[name].resize(n); };
+
+  /**
+   * @brief Get objects by name.
+   * @param name Object name.
+   * @return Vector of TObject pointers.
+   */
   std::vector<TObject *> GetObjects(const std::string & name) const;
-  TObject *              GetObject(const std::string & name, int index = 0) const;
-  void                   SetObject(const std::string & name, TObject * obj, int index = -1);
 
-  void                     SetObjectTypes(const std::vector<std::string> & types) { fObjectTypes = types; }
+  /**
+   * @brief Get object by name and index.
+   * @param name Object name.
+   * @param index Object index (default: 0).
+   * @return Pointer to TObject.
+   */
+  TObject * GetObject(const std::string & name, int index = 0) const;
+
+  /**
+   * @brief Set object by name and index.
+   * @param name Object name.
+   * @param obj Pointer to TObject.
+   * @param index Index to set (-1 for append).
+   */
+  void SetObject(const std::string & name, TObject * obj, int index = -1);
+
+  /**
+   * @brief Set object types managed by navigator.
+   * @param types Vector of object type strings.
+   */
+  void SetObjectTypes(const std::vector<std::string> & types) { fObjectTypes = types; }
+
+  /**
+   * @brief Get object names managed by navigator.
+   * @return Vector of object names.
+   */
   std::vector<std::string> GetObjectNames() const { return fObjectNames; }
-  void                     SetObjectNames(const std::vector<std::string> & names) { fObjectNames = names; }
+
+  /**
+   * @brief Set object names managed by navigator.
+   * @param names Vector of object names.
+   */
+  void SetObjectNames(const std::vector<std::string> & names) { fObjectNames = names; }
+
+  /**
+   * @brief Get parameter content map.
+   * @return Map of parameter names to vectors of double values.
+   */
   std::map<std::string, std::vector<double>> GetParameterContentMap() const { return fParameterContentMap; }
+
+  /**
+   * @brief Resize parameter content map for a given name.
+   * @param name Parameter name.
+   * @param n New size.
+   */
   void ResizeParameterContentMap(const std::string & name, int n) { fParameterContentMap[name].resize(n); };
-  std::vector<double>      GetParameters(const std::string & name) const;
-  double                   GetParameter(const std::string & name, int index = 0) const;
-  void                     SetParameter(const std::string & name, double value, int index = -1);
+
+  /**
+   * @brief Get parameters by name.
+   * @param name Parameter name.
+   * @return Vector of parameter values.
+   */
+  std::vector<double> GetParameters(const std::string & name) const;
+
+  /**
+   * @brief Get parameter value by name and index.
+   * @param name Parameter name.
+   * @param index Parameter index (default: 0).
+   * @return Parameter value.
+   */
+  double GetParameter(const std::string & name, int index = 0) const;
+
+  /**
+   * @brief Set parameter value by name and index.
+   * @param name Parameter name.
+   * @param value Value to set.
+   * @param index Index to set (-1 for append).
+   */
+  void SetParameter(const std::string & name, double value, int index = -1);
+
+  /**
+   * @brief Get parameter names managed by navigator.
+   * @return Vector of parameter names.
+   */
   std::vector<std::string> GetParameterNames() const { return fParameterNames; }
-  void                     SetParameterNames(const std::vector<std::string> & names) { fParameterNames = names; }
 
+  /**
+   * @brief Set parameter names managed by navigator.
+   * @param names Vector of parameter names.
+   */
+  void SetParameterNames(const std::vector<std::string> & names) { fParameterNames = names; }
+
+  /**
+   * @brief Get projection histogram.
+   * @return Pointer to TH1 histogram.
+   */
   TH1 * GetProjection() const { return fProjection; }
-  void  SetProjection(TH1 * h) { fProjection = h; }
-  Int_t GetNLevels() const { return fNLevels; }
-  void  SetNLevels(Int_t n) { fNLevels = n; }
-  Int_t GetLevel() const { return fLevel; }
-  void  SetLevel(Int_t l) { fLevel = l; }
-  Int_t GetNCells() const { return fNCells; }
-  void  SetNCells(Int_t n) { fNCells = n; }
-  Int_t GetLastIndexSelected() const { return fLastIndexSelected; }
-  void  SetLastIndexSelected(Int_t idx) { fLastIndexSelected = idx; }
-  Int_t GetLastHoverBin() const { return fLastHoverBin; }
-  void  SetLastHoverBin(Int_t b) { fLastHoverBin = b; }
 
+  /**
+   * @brief Set projection histogram.
+   * @param h Pointer to TH1 histogram.
+   */
+  void SetProjection(TH1 * h) { fProjection = h; }
+
+  /**
+   * @brief Get number of levels in hierarchy.
+   * @return Number of levels.
+   */
+  Int_t GetNLevels() const { return fNLevels; }
+
+  /**
+   * @brief Set number of levels in hierarchy.
+   * @param n Number of levels.
+   */
+  void SetNLevels(Int_t n) { fNLevels = n; }
+
+  /**
+   * @brief Get current level in hierarchy.
+   * @return Current level.
+   */
+  Int_t GetLevel() const { return fLevel; }
+
+  /**
+   * @brief Set current level in hierarchy.
+   * @param l Level to set.
+   */
+  void SetLevel(Int_t l) { fLevel = l; }
+
+  /**
+   * @brief Get number of cells in projection histogram.
+   * @return Number of cells.
+   */
+  Int_t GetNCells() const { return fNCells; }
+
+  /**
+   * @brief Set number of cells in projection histogram.
+   * @param n Number of cells.
+   */
+  void SetNCells(Int_t n) { fNCells = n; }
+
+  /**
+   * @brief Get last selected index.
+   * @return Last selected index.
+   */
+  Int_t GetLastIndexSelected() const { return fLastIndexSelected; }
+
+  /**
+   * @brief Set last selected index.
+   * @param idx Index to set.
+   */
+  void SetLastIndexSelected(Int_t idx) { fLastIndexSelected = idx; }
+
+  /**
+   * @brief Get last hovered bin index.
+   * @return Last hovered bin index.
+   */
+  Int_t GetLastHoverBin() const { return fLastHoverBin; }
+
+  /**
+   * @brief Set last hovered bin index.
+   * @param b Bin index to set.
+   */
+  void SetLastHoverBin(Int_t b) { fLastHoverBin = b; }
+
+  /**
+   * @brief Open navigator from file.
+   * @param filename File name.
+   * @param branches Branches to open.
+   * @param treename Tree name (default: "hnst").
+   * @return Pointer to opened NGnNavigator.
+   */
   static NGnNavigator * Open(const std::string & filename, const std::string & branches = "",
                              const std::string & treename = "hnst");
+
+  /**
+   * @brief Open navigator from TTree.
+   * @param tree Pointer to TTree.
+   * @param branches Branches to open.
+   * @param file Pointer to TFile.
+   * @return Pointer to opened NGnNavigator.
+   */
   static NGnNavigator * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
   private:

@@ -7,31 +7,104 @@
 #include <TObject.h>
 
 namespace Ndmspc {
+
+/**
+ * @class NThreadData
+ * @brief Thread-local data object for NDMSPC processing.
+ *
+ * Stores per-thread statistics, thread ID, assigned index, and provides thread-safe access.
+ * Supports processing, printing, and management of thread-specific data.
+ *
+ * @author Martin Vala <mvala@cern.ch>
+ */
 class NThreadData : public TObject {
   public:
-  // write getter and setter for data members
+  /// Setters for data members
+
+  /**
+   * @brief Set the number of items processed by the thread.
+   * @param itemCount Number of items.
+   */
   void SetItemCount(long long itemCount) { fItemCount = itemCount; }
+
+  /**
+   * @brief Set the sum of coordinates processed by the thread.
+   * @param coordSum Sum of coordinates.
+   */
   void SetCoordSum(long long coordSum) { fCoordSum = coordSum; }
+
+  /**
+   * @brief Set the thread's unique identifier.
+   * @param threadId Thread ID.
+   */
   void SetThreadId(std::thread::id threadId) { fThreadId = threadId; }
+
+  /**
+   * @brief Set whether the thread ID has been assigned.
+   * @param idSet True if ID is set, false otherwise.
+   */
   void SetIdSet(bool idSet) { fIdSet = idSet; }
+
+  /**
+   * @brief Set the assigned index for the thread.
+   * @param assignedIndex Index assigned to the thread.
+   */
   void SetAssignedIndex(size_t assignedIndex) { fAssignedIndex = assignedIndex; }
 
-  long long         GetItemCount() const { return fItemCount; }
-  long long         GetCoordSum() const { return fCoordSum; }
-  std::thread::id   GetThreadId() const { return fThreadId; }
-  bool              GetIdSet() const { return fIdSet; }
-  size_t            GetAssignedIndex() const { return fAssignedIndex; }
+  /// Getters for data members
+
+  /**
+   * @brief Get the number of items processed by the thread.
+   * @return Number of items.
+   */
+  long long GetItemCount() const { return fItemCount; }
+
+  /**
+   * @brief Get the sum of coordinates processed by the thread.
+   * @return Sum of coordinates.
+   */
+  long long GetCoordSum() const { return fCoordSum; }
+
+  /**
+   * @brief Get the thread's unique identifier.
+   * @return Thread ID.
+   */
+  std::thread::id GetThreadId() const { return fThreadId; }
+
+  /**
+   * @brief Check if the thread ID has been assigned.
+   * @return True if ID is set, false otherwise.
+   */
+  bool GetIdSet() const { return fIdSet; }
+
+  /**
+   * @brief Get the assigned index for the thread.
+   * @return Index assigned to the thread.
+   */
+  size_t GetAssignedIndex() const { return fAssignedIndex; }
+  /// Shared mutex for thread-safe operations
   static std::mutex fSharedMutex;
 
-  // Default constructor
+  /**
+   * @brief Default constructor.
+   */
   NThreadData();
-  // Virtual destructor
+
+  /**
+   * @brief Virtual destructor.
+   */
   virtual ~NThreadData();
 
-  // Process method
+  /**
+   * @brief Process method for thread data.
+   * @param coords Vector of coordinates to process.
+   */
   void Process(const std::vector<int> & coords);
 
-  // Print method override
+  /**
+   * @brief Print method override.
+   * @param option Print options.
+   */
   virtual void Print(Option_t * option = "") const;
 
   private:
