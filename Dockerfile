@@ -11,7 +11,8 @@ FROM registry.gitlab.com/ndmspc/user/al9:base
 #RUN dnf install epel-release 'dnf-command(config-manager)' 'dnf-command(copr)' -y
 #RUN dnf copr enable ndmspc/stable -y
 RUN dnf update -y
-RUN dnf install -y eos-server eos-quarkdb jemalloc-devel screen nmap salsa munge
+RUN dnf install -y eos-server eos-quarkdb jemalloc-devel screen nmap salsa munge python3-jupyroot python3-pip
+RUN pip3 install --no-cache-dir jupyter
 COPY . /ndmspc/
 RUN /ndmspc/scripts/ndmspc-slurm-init
 RUN systemctl enable munge slurmctld slurmd
@@ -27,5 +28,6 @@ RUN rm -rf *.rpm
 RUN dnf clean all
 ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
 RUN ln -sf /usr/lib/systemd/system/ndmspc-http@.service /etc/systemd/system/multi-user.target.wants/ndmspc-http@default.service
+RUN ln -sf /usr/lib/systemd/system/ndmspc-notebook@.service /etc/systemd/system/multi-user.target.wants/ndmspc-notebook@ndmspc.service
 # CMD [ "/bin/bash" ]
 CMD [ "/sbin/init" ]

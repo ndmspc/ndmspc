@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 EnvironmentFile=/etc/ndmspc/ndmspc-notebook
 EnvironmentFile=-/etc/ndmspc/ndmspc-notebook.%I
-ExecStart=/usr/bin/root --notebook --port $NDMSPC_NOTEBOOK_PORT
+ExecStart=/usr/bin/root --notebook --port $NDMSPC_NOTEBOOK_PORT $NDMSPC_NOTEBOOK_EXTRA_ARGS
 Restart=on-abort
 
 [Install]
