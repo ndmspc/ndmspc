@@ -57,3 +57,4 @@ compile_commands.json
 !macros/root/cernstaff/cernstaff.root
 test.C
 notes
+.ipynb*
