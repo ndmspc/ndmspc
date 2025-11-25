@@ -56,11 +56,11 @@ prod-image:
     - tags
     # - main
 pages:
-  image: registry.gitlab.com/ndmspc/user/al9:dep
+  image: registry.gitlab.com/ndmspc/user/fc43:dep
   stage: deploy
   script:
-    - scripts/make.sh release install doc
-    - mv share/doc/ndmspc/html public/
+    - scripts/make.sh doc install
+    - mv share/doc/ndmspc/html public
   artifacts:
     paths:
       - public
