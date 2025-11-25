@@ -1,3 +1,12 @@
+# extra settings for doxygen-awesome
+GENERATE_TREEVIEW      = YES # optional. Also works without treeview
+DISABLE_INDEX = NO
+FULL_SIDEBAR = NO
+#HTML_EXTRA_STYLESHEET  = @AWESOME_CSS_DIR@/doxygen-awesome.css
+HTML_EXTRA_STYLESHEET = @AWESOME_CSS_DIR@/doxygen-awesome.css @AWESOME_CSS_DIR@/doxygen-awesome-sidebar-only.css
+HTML_COLORSTYLE        = LIGHT # required with Doxygen >= 1.9.5
+
+# Default Doxyfile settings
 DOXYFILE_ENCODING = UTF-8
 PROJECT_NAME = "@CMAKE_PROJECT_NAME@"
 PROJECT_NUMBER = v@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@-@PROJECT_VERSION_RELEASE@
@@ -250,3 +259,4 @@ MAX_DOT_GRAPH_DEPTH = 0
 DOT_MULTI_TARGETS = NO
 GENERATE_LEGEND = YES
 DOT_CLEANUP = YES
+
