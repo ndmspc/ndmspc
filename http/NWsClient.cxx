@@ -99,6 +99,9 @@ static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons 
         lws_callback_on_writable(wsi);
       }
     }
+    else {
+      client->fSendCv.notify_all();
+    }
 
   } break;
 
@@ -281,7 +284,6 @@ void NWsClient::Disconnect()
     NLogger::Trace("NWsClient: LWS context destroyed.");
   }
 }
-
 bool NWsClient::Send(const std::string & message)
 {
   if (!fConnected.load() || !fWsi) {
@@ -289,16 +291,25 @@ bool NWsClient::Send(const std::string & message)
     return false;
   }
 
+  size_t outgoingQueueSize;
   {
     std::lock_guard<std::mutex> lock(fOutgoingMutex);
     fOutgoingMessageQueue.push(message);
+    outgoingQueueSize = fOutgoingMessageQueue.size();
   }
 
   lws_callback_on_writable(fWsi);
-  NLogger::Trace("NWsClient: Called lws_callback_on_writable for message. Queue size: %lld",
-                 fOutgoingMessageQueue.size()); // <-- ADD THIS
+  NLogger::Trace("NWsClient: Called lws_callback_on_writable for message. Queue size: %zu", outgoingQueueSize);
 
-  return true;
+  // Wait until the message is sent (queue size decreases)
+  {
+    std::unique_lock<std::mutex> lock(fOutgoingMutex);
+    fSendCv.wait(lock, [this, outgoingQueueSize]() {
+      return fOutgoingMessageQueue.size() < outgoingQueueSize || !fConnected.load();
+    });
+  }
+
+  return fConnected.load();
 }
 
 void NWsClient::LwsServiceLoop()

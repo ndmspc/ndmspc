@@ -544,7 +544,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   return current;
 }
 
-void NGnNavigator::Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl)
+void NGnNavigator::Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl,
+                          int timeoutMs)
 {
   ///
   /// Export object to file
@@ -600,12 +601,15 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
           Ndmspc::NLogger::Info("Successfully sent message to '%s'", wsUrl.c_str());
         }
       }
+      if (timeoutMs > 0) {
+        Ndmspc::NLogger::Info("Waiting %d ms before disconnecting ...", timeoutMs);
+        gSystem->Sleep(timeoutMs); // wait for a while to ensure message is sent
+      }
       Ndmspc::NLogger::Info("Disconnecting from '%s' ...", wsUrl.c_str());
-      gSystem->Sleep(1000); // wait for a while to ensure message is sent
       client.Disconnect();
     }
 
-    Ndmspc::NLogger::Info("Sent: %s", message.c_str());
+    // Ndmspc::NLogger::Info("Sent: %s", message.c_str());
   }
 
   NLogger::Info("Exported NGnNavigator to file: %s", filename.c_str());

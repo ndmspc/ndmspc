@@ -62,8 +62,10 @@ class NGnNavigator : public TNamed {
    * @param filename Output file name.
    * @param objectNames Names of objects to export.
    * @param wsUrl Optional WebSocket URL.
+   * @param timeoutMs Timeout in milliseconds (default: 5000).
    */
-  void Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl = "");
+  void Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl = "",
+              int timeoutMs = 0);
 
   /**
    * @brief Export navigator data to JSON.
