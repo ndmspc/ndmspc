@@ -121,6 +121,7 @@ class NWsClient {
   std::queue<std::string>    fOutgoingMessageQueue; ///< Queue of outgoing messages
   std::mutex                 fOutgoingMutex;        ///< Mutex for outgoing queue
   std::vector<unsigned char> fSendBuffer;           ///< Buffer for sending messages
+  std::condition_variable    fSendCv;               ///< Condition variable for sending messages
 
   OnMessageCallback fOnMessageCallback; ///< Callback for received messages
 
