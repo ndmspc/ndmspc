@@ -1,0 +1,37 @@
+#include <NGnTree.h>
+#include <NBinningDef.h>
+#include <NGnNavigator.h>
+#include <NLogger.h>
+#include "THnSparse.h"
+void NResourceMonitor(std::string filename, std::string binningName = "",
+                      const std::string & ws = "ws://localhost:8080/ws/root.websocket")
+{
+
+  Ndmspc::NGnTree *     ngnt       = Ndmspc::NGnTree::Open(filename.c_str());
+  Ndmspc::NBinningDef * binningDef = ngnt->GetBinning()->GetDefinition(binningName);
+  TList *               outputs    = ngnt->GetOutput(binningName);
+
+  THnSparse * hnsMesourceMonitor = (THnSparse *)outputs->FindObject("resource_monitor");
+  if (hnsMesourceMonitor == nullptr) {
+    Ndmspc::NLogger::Error("NResourceMonitor: THnSparse 'resource_monitor' not found in outputs for binning '%s' !!!",
+                           binningName.c_str());
+    return;
+  }
+
+  hnsMesourceMonitor->Print();
+  //
+  TString           tmpFile  = "/tmp/ngnt_resource_monitor.root";
+  Ndmspc::NGnTree * ngntStat = Ndmspc::NGnTree::Import(hnsMesourceMonitor, "stat", tmpFile.Data());
+
+  Ndmspc::NGnNavigator * navStat = Ndmspc::NGnNavigator::Open(tmpFile.Data());
+
+  Ndmspc::NGnNavigator * nav = navStat->Reshape("", {});
+  if (nav == nullptr) {
+    Ndmspc::NLogger::Error("NResourceMonitor: Failed to reshape navigator for resource monitor !!!");
+    return;
+  }
+  tmpFile.ReplaceAll(".root", ".json");
+  nav->Export(tmpFile.Data(), {}, ws);
+
+  ngnt->Close();
+}

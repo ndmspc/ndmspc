@@ -1,6 +1,5 @@
 #include <THnSparse.h>
 #include <TROOT.h>
-#include "TNamed.h"
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NResourceMonitor.h"
@@ -49,10 +48,14 @@ THnSparse * NResourceMonitor::Initialize(THnSparse * hns)
   int                  nThreads = ROOT::GetThreadPoolSize();
   if (nThreads <= 0) nThreads = 1;
 
-  NLogger::Info("NResourceMonitor::Initialize: Initializing resource monitor for %d threads", nThreads);
+  NLogger::Debug("NResourceMonitor::Initialize: Initializing resource monitor for %d threads", nThreads);
 
   TAxis * threadAxis = new TAxis(nThreads, 0, nThreads);
   threadAxis->SetNameTitle("thread", "Thread");
+  // set labels for thread axis
+  for (int i = 0; i < nThreads; ++i) {
+    threadAxis->SetBinLabel(i + 1, TString::Format("%d", i).Data());
+  }
   axes.push_back(threadAxis);
   TAxis * aStat = NUtils::CreateAxisFromLabels("stat", "Stat", std::set<std::string>(fNames.begin(), fNames.end()));
   axes.push_back(aStat);
@@ -63,6 +66,7 @@ THnSparse * NResourceMonitor::Initialize(THnSparse * hns)
   }
 
   fHnSparse = NUtils::ReshapeSparseAxes(hns, {}, axes);
+  fHnSparse->SetNameTitle("resource_monitor", "Resource Monitor");
 
   return fHnSparse;
 }

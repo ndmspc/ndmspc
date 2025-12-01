@@ -509,12 +509,20 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
       }
       a->Set(a->GetNbins(), arr);
     }
+
+    // copy bin labels
+    if (aIn->IsAlphanumeric()) {
+      for (int j = 1; j <= aIn->GetNbins(); j++) {
+        const char * label = aIn->GetBinLabel(j);
+        a->SetBinLabel(j, label);
+      }
+    }
   }
 
   if (newPoint.empty()) {
     NLogger::Trace("NUtils::ReshapeSparseAxes: New point is empty, filling is skipped and doing reset ...");
-    hnsNew->Reset();
-    hnsNew->SetEntries(0);
+    // hnsNew->Reset();
+    // hnsNew->SetEntries(0);
     return hnsNew;
   }
 
