@@ -263,19 +263,19 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
     return false;
   }
 
-  TList * userInfo = fTree->GetUserInfo();
-  if (fBinning) {
-    userInfo->Add(fBinning->Clone());
-  }
-  else {
-    NLogger::Error("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
-                   "Skipping to store tree content also ...");
-    if (fFile) fFile->Close();
-    return false;
-  }
-  userInfo->Add(Clone());
-
   if (write) {
+    TList * userInfo = fTree->GetUserInfo();
+    if (fBinning) {
+      userInfo->Add(fBinning->Clone());
+    }
+    else {
+      NLogger::Error("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
+                     "Skipping to store tree content also ...");
+      if (fFile) fFile->Close();
+      return false;
+    }
+    userInfo->Add(Clone());
+
     if (fFile) {
       fFile->cd();
 
@@ -292,13 +292,13 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
       fFile->cd();
       fTree->Write("", TObject::kOverwrite);
       fFile->Close();
-      NLogger::Debug("NStorageTree::Close: HnSparseTree was written to file '%s' ...", fFileName.c_str());
+      NLogger::Debug("NStorageTree::Close: HnSparseTree was written to file '%s' ...", fFile->GetName());
     }
   }
   else {
     if (fFile) {
       fFile->Close();
-      NLogger::Debug("File '%s' was closed", fFileName.c_str());
+      NLogger::Debug("File '%s' was closed", fFile->GetName());
     }
   }
   fFile = nullptr;

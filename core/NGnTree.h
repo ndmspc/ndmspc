@@ -176,6 +176,14 @@ class NGnTree : public TObject {
                const json & cfg = json::object(), NBinning * binningIn = nullptr);
 
   /**
+   * @brief Project tree data using configuration and binning name.
+   * @param cfg JSON configuration object.
+   * @param binningName Binning name.
+   * @return Pointer to TList of projected objects.
+   */
+  TList * Projection(const json & cfg, std::string binningName = "");
+
+  /**
    * @brief Open NGnTree from file.
    * @param filename File name.
    * @param branches Branches to open.
@@ -194,31 +202,11 @@ class NGnTree : public TObject {
    */
   static NGnTree * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
-  // The following methods are commented out and not currently implemented:
-  // std::vector<THnSparse *> GetTHnSparseFromObjects(const std::vector<std::string> & names,
-  //                                                  std::map<int, std::vector<int>> ranges = {}, bool rangeReset =
-  //                                                  true, bool modifyTitle = false);
-  // std::vector<TH1 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, Option_t * option =
-  // "O",
-  //                                          std::map<int, std::vector<int>> ranges = {}, bool rangeReset = true,
-  //                                          bool modifyTitle = false);
-  // std::vector<TH2 *> ProjectionFromObjects(const std::vector<std::string> & names, int yaxis, int xaxis,
-  //                                          Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
-  //                                          bool rangeReset = true, bool modifyTitle = false);
-  // std::vector<TH3 *> ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, int yaxis, int zaxis,
-  //                                          Option_t * option = "O", std::map<int, std::vector<int>> ranges = {},
-  //                                          bool rangeReset = true, bool modifyTitle = false);
-
-  /**
-   * @brief Project tree data using configuration and binning name.
-   * @param cfg JSON configuration object.
-   * @param binningName Binning name.
-   * @return Pointer to TList of projected objects.
-   */
-  TList * Projection(const json & cfg, std::string binningName = "");
+  static NGnTree * Import(THnSparse * hns, std::string parameterAxis = "",
+                          const std::string & filename = "/tmp/hnst_imported.root");
 
   protected:
-  NBinning *                     fBinning{nullptr};     ///< Binning object
+  NBinning *                     fBinning{nullptr}; ///< Binning object
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
   std::map<std::string, TList *> fOutputs;              ///< Outputs
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing

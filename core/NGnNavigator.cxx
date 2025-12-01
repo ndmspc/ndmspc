@@ -46,9 +46,31 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
     NLogger::Error("NGnNavigator::Reshape: Binning definition is null !!!");
     return nullptr;
   }
-
-  int              nAxes = 0;
   std::vector<int> axes;
+  int              nAxes = 0;
+  if (levels.empty()) {
+
+    size_t nVarAxes = binningDef->GetVariableAxes().size();
+    if (nVarAxes == 0) {
+      NLogger::Error("NGnNavigator::Reshape: Binning definition has no variable axes !!!");
+      return nullptr;
+    }
+    if (nVarAxes > 3) {
+      NLogger::Error("NGnNavigator::Reshape: Binning definition has more than 3 variable axes (%zu) !!!", nVarAxes);
+      return nullptr;
+    }
+
+    NLogger::Info("========== NGnNavigator::Reshape: Levels are empty, using all variable axes...");
+    levels.resize(1);
+    for (size_t i = 0; i < nVarAxes; i++) {
+      levels[0].push_back(i);
+    }
+    // set levels[0] in reverse order
+    for (size_t i = 0; i < nVarAxes / 2; i++) {
+      std::swap(levels[0][i], levels[0][nVarAxes - i - 1]);
+    }
+  }
+
   for (auto & l : levels) {
     nAxes += l.size();
     for (auto & a : l) {
@@ -57,10 +79,15 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
       }
     }
   }
+  NLogger::Debug("============= NGnNavigator::Reshape: Number of axes in levels = %s",
+                 NUtils::GetCoordsString(axes, -1).c_str());
   std::vector<int> axesSorted = axes;
   std::sort(axesSorted.begin(), axesSorted.end());
   std::vector<int> axesVariavble = binningDef->GetVariableAxes();
   std::sort(axesVariavble.begin(), axesVariavble.end());
+
+  NLogger::Trace("NGnNavigator::Reshape: Axes in levels before removing duplicates: %s",
+                 NUtils::GetCoordsString(axesSorted, -1).c_str());
 
   // remove all duplicates from axesSorted
   for (size_t i = 1; i < axesSorted.size(); i++) {
@@ -69,6 +96,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
       i--;
     }
   }
+
   if (axesSorted != axesVariavble) {
     NLogger::Error(
         "NGnNavigator::Reshape: Axes in levels '%s' do not match variable axes in binning definition '%s' !!!",
@@ -609,7 +637,7 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
       client.Disconnect();
     }
 
-    // Ndmspc::NLogger::Info("Sent: %s", message.c_str());
+    Ndmspc::NLogger::Info("Sent: %s", message.c_str());
   }
 
   NLogger::Info("Exported NGnNavigator to file: %s", filename.c_str());

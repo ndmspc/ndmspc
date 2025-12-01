@@ -14,6 +14,7 @@
 #include <TObjString.h>
 #include <TTree.h>
 #include <TBufferJSON.h>
+#include <sys/poll.h>
 #include "NResourceMonitor.h"
 #include "NStorageTree.h"
 #include "NBinning.h"
@@ -984,88 +985,99 @@ TList * NGnTree::Projection(const json & cfg, std::string binningName)
   return GetOutput(fBinning->GetCurrentDefinitionName());
 
   // Close(false);
-
-  //     TList * outputList = new TList();
-  // return outputList;
 }
 
-// std::vector<THnSparse *> NGnTree::GetTHnSparseFromObjects(const std::vector<std::string> & names,
-//                                                           std::map<int, std::vector<int>> ranges, bool rangeReset,
-//                                                           bool modifyTitle)
-// {
-//   ///
-//   /// Retrieve THnSparse objects from the output lists by their names
-//   ///
-//   std::vector<THnSparse *> hnsList;
-//   for (const auto & name : names) {
-//     TObject * obj = fTreeStorage->GetBranchObject(name);
-//     if (!obj) {
-//       NLogger::Warning("NHnSparseTree::Projection: Branch '%s' not found !!! Skipping ...", name.c_str());
-//       continue;
-//     }
-//     if (!obj->IsA()->InheritsFrom("THnSparse")) {
-//       NLogger::Warning("NHnSparseTree::Projection: Object '%s' is not a THnSparse !!! Skipping ...", name.c_str());
-//       continue;
-//     }
-//     THnSparse * hns = (THnSparse *)obj;
-//     if (!hns) {
-//       NLogger::Warning("NGnTree::ProjectionFromObjects: THnSparse is null !!! Skipping ...");
-//       continue;
-//     }
-//     // check if zero dimension
-//     if (hns->GetNdimensions() == 0) {
-//       NLogger::Warning("NGnTree::ProjectionFromObjects: THnSparse has zero dimensions !!! Skipping ...");
-//       continue;
-//     }
-//     NUtils::SetAxisRanges(hns, ranges, rangeReset, modifyTitle);
-//     hnsList.push_back(hns);
-//   }
-//
-//   // check if list is empty
-//   if (hnsList.empty()) {
-//     NLogger::Warning("NGnTree::ProjectionFromObjects: No THnSparse objects retrieved from entry %d !!!",
-//                      fBinning->GetPoint()->GetEntryNumber());
-//   }
-//   return hnsList;
-// }
-//
-// std::vector<TH1 *> NGnTree::ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, Option_t *
-// option,
-//                                                   std::map<int, std::vector<int>> ranges, bool rangeReset,
-//                                                   bool modifyTitle)
-// {
-//   std::vector<TH1 *>       hList;
-//   std::vector<THnSparse *> hnsList = GetTHnSparseFromObjects(names, ranges, rangeReset, modifyTitle);
-//   for (auto hns : hnsList) {
-//     TH1 * h = hns->Projection(xaxis, option);
-//     hList.push_back(h);
-//   }
-//   return hList;
-// }
-// std::vector<TH2 *> NGnTree::ProjectionFromObjects(const std::vector<std::string> & names, int yaxis, int xaxis,
-//                                                   Option_t * option, std::map<int, std::vector<int>> ranges,
-//                                                   bool rangeReset, bool modifyTitle)
-// {
-//   std::vector<TH2 *>       hList;
-//   std::vector<THnSparse *> hnsList = GetTHnSparseFromObjects(names, ranges, rangeReset, modifyTitle);
-//   for (auto hns : hnsList) {
-//     TH2 * h = hns->Projection(yaxis, xaxis, option);
-//     h->Print();
-//     hList.push_back(h);
-//   }
-//   return hList;
-// }
-// std::vector<TH3 *> NGnTree::ProjectionFromObjects(const std::vector<std::string> & names, int xaxis, int yaxis,
-//                                                   int zaxis, Option_t * option, std::map<int, std::vector<int>>
-//                                                   ranges, bool rangeReset, bool modifyTitle)
-// {
-//   std::vector<TH3 *>       hList;
-//   std::vector<THnSparse *> hnsList = GetTHnSparseFromObjects(names, ranges, rangeReset, modifyTitle);
-//   for (auto hns : hnsList) {
-//     TH3 * h = hns->Projection(xaxis, yaxis, zaxis, option);
-//     hList.push_back(h);
-//   }
-//   return hList;
-// }
+NGnTree * NGnTree::Import(THnSparse * hns, std::string parameterAxis, const std::string & filename)
+{
+  ///
+  /// Import THnSparse as NGnTree and use given parameter axis as result parameter
+  ///
+
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  TObjArray *                                          axes             = new TObjArray();
+  int                                                  parameterAxisIdx = -1;
+  std::vector<std::string>                             labels;
+  for (int i = 0; i < hns->GetNdimensions(); i++) {
+    TAxis * axisIn = (TAxis *)hns->GetAxis(i);
+    TAxis * axis   = (TAxis *)axisIn->Clone();
+
+    // check if parameterAxis matches axis name
+    if (parameterAxis.compare(axis->GetName()) == 0) {
+      parameterAxisIdx = i;
+      TAxis * axis     = hns->GetAxis(parameterAxisIdx);
+      for (int bin = 1; bin <= axis->GetNbins(); bin++) {
+        NLogger::Info("Axis bin %d label: %s", bin, axis->GetBinLabel(bin));
+        labels.push_back(axis->GetBinLabel(bin));
+      }
+      continue;
+    }
+
+    // set label
+    if (axisIn->IsAlphanumeric()) {
+      NLogger::Info("Setting axis '%s' labels from input THnSparse", axis->GetName());
+      for (int bin = 1; bin <= axisIn->GetNbins(); bin++) {
+        std::string label = axisIn->GetBinLabel(bin);
+        if (!labels.empty()) axis->SetBinLabel(bin, axisIn->GetBinLabel(bin));
+      }
+    }
+
+    axes->Add(axis);
+    b[axis->GetName()] = {{1}};
+  }
+
+  json cfg;
+  cfg["parameterAxis"] = parameterAxisIdx;
+  cfg["labels"]        = labels;
+  // return nullptr;
+  NGnTree * ngnt = new NGnTree(axes, filename);
+
+  NGnTree * ngntIn = new NGnTree(axes);
+  ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
+  ngnt->SetInput(ngntIn); // Set input to self
+
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
+
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
+                                                   int threadId) {
+    // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
+    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
+    point->Print();
+    json        cfg    = point->GetCfg();
+    NGnTree *   ngntIn = point->GetInput();
+    THnSparse * hns    = (THnSparse *)ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->At(0);
+
+    int                           axisIdx = cfg["parameterAxis"].get<int>();
+    std::vector<std::vector<int>> ranges;
+    // set ranges from point storage coords
+    for (int i = 0; i < hns->GetNdimensions(); i++) {
+      int coord = point->GetStorageCoords()[i];
+      if (i == axisIdx) continue; // skip parameter axis
+      ranges.push_back({i, coord, coord});
+      Ndmspc::NLogger::Info("Setting axis %d range to [%d, %d]", i, coord, coord);
+    }
+    NUtils::SetAxisRanges(hns, ranges);
+    TH1 * h = hns->Projection(axisIdx, "O");
+    if (h->GetEntries() > 0) {
+
+      std::vector<std::string> labels = cfg["labels"].get<std::vector<std::string>>();
+
+      TH1D * results = new TH1D("results", "Results", labels.size(), 0, labels.size());
+      for (size_t i = 0; i < labels.size(); i++) {
+        Ndmspc::NLogger::Info("Setting results bin %zu label to '%s'", i + 1, labels[i].c_str());
+        results->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
+      }
+      for (int bin = 0; bin <= h->GetNbinsX(); bin++) {
+        results->SetBinContent(bin, h->GetBinContent(bin));
+      }
+      outputPoint->Add(results);
+      outputPoint->Add(h);
+    }
+  };
+
+  // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
+  ngnt->Process(processFunc, cfg);
+  ngnt->Close(true);
+  return ngnt;
+}
 
 } // namespace Ndmspc
