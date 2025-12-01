@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <mutex>
 #include <TObject.h>
+#include "NResourceMonitor.h"
 
 namespace Ndmspc {
 
@@ -51,6 +52,17 @@ class NThreadData : public TObject {
    */
   void SetAssignedIndex(size_t assignedIndex) { fAssignedIndex = assignedIndex; }
 
+  /**
+   * @brief Sets the resource monitor for this thread data.
+   *
+   * This function assigns the given NResourceMonitor pointer to the internal
+   * resource monitor member. Ownership of the pointer is not transferred;
+   * the caller is responsible for managing the lifetime of the monitor object.
+   *
+   * @param monitor Pointer to an NResourceMonitor instance to be associated with this thread data.
+   */
+  void SetResourceMonitor(NResourceMonitor * monitor) { fResourceMonitor = monitor; }
+
   /// Getters for data members
 
   /**
@@ -86,6 +98,16 @@ class NThreadData : public TObject {
   static std::mutex fSharedMutex;
 
   /**
+   * @brief Gets the resource monitor associated with this thread data.
+   *
+   * Returns a pointer to the NResourceMonitor instance currently associated
+   * with this thread data. The caller does not take ownership of the returned pointer.
+   *
+   * @return Pointer to the associated NResourceMonitor instance.
+   */
+  NResourceMonitor * GetResourceMonitor() const { return fResourceMonitor; }
+
+  /**
    * @brief Default constructor.
    */
   NThreadData();
@@ -106,6 +128,9 @@ class NThreadData : public TObject {
    * @param option Print options.
    */
   virtual void Print(Option_t * option = "") const;
+
+  protected:
+  NResourceMonitor * fResourceMonitor{nullptr}; ///< Pointer to resource monitor
 
   private:
   long long       fItemCount = 0;         ///< Number of items processed
