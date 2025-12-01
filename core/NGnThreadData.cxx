@@ -151,6 +151,12 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     return;
   }
 
+  if (fResourceMonitor == nullptr) {
+    fResourceMonitor = new NResourceMonitor();
+    fResourceMonitor->Initialize(binningDef->GetContent());
+    fHnSparseBase->GetOutput()->Add(fResourceMonitor->GetHnSparse());
+  }
+
   // Long64_t        entry = binningDef->GetId(coords[0]);
   // Ndmspc::NLogger::Debug("NGnThreadData::Process: [%zu] Entry in global content mapping: %lld",
   //                        GetAssignedIndex(), entry);
@@ -169,7 +175,14 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   point->SetTreeStorage(ts); // Set the storage tree to the binning point
   point->SetInput(in);       // Set the input NGnTree to the binning point
   TList * outputPoint = new TList();
+
+  fResourceMonitor->Start();
+
   fProcessFunc(point, fHnSparseBase->GetOutput(), outputPoint, GetAssignedIndex());
+
+  fResourceMonitor->End();
+  fResourceMonitor->Fill(point->GetStorageCoords(), GetAssignedIndex());
+
   // Ndmspc::NLogger::Trace(
   //     "NGnThreadData::Process: [%zu] entry=%lld coords=%s outputPoint=%d", GetAssignedIndex(), entry,
   //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str(),

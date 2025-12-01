@@ -406,27 +406,39 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   TString opt(option);
 
   if (hns == nullptr) {
-    NLogger::Error("THnSparse hns is null");
+    NLogger::Error("NUtils::ReshapeSparseAxes: THnSparse hns is null");
     return nullptr;
+  }
+
+  if (order.empty()) {
+    NLogger::Trace("NUtils::ReshapeSparseAxes: Order vector is empty");
+    for (int i = 0; i < hns->GetNdimensions() + newAxes.size(); i++) {
+      NLogger::Trace("NUtils::ReshapeSparseAxes: Adding axis %d to order", i);
+      order.push_back(i);
+    }
   }
 
   if (order.size() != hns->GetNdimensions() + newAxes.size()) {
-    NLogger::Error("Invalid size %d [order] != %d [hns->GetNdimensions()+newAxes]", order.size(),
-                   hns->GetNdimensions() + newAxes.size());
+    NLogger::Error("NUtils::ReshapeSparseAxes: Invalid size %d [order] != %d [hns->GetNdimensions()+newAxes]",
+                   order.size(), hns->GetNdimensions() + newAxes.size());
     return nullptr;
   }
 
-  if (newAxes.size() != newPoint.size()) {
-    NLogger::Error("Invalid size %d [newAxes] != %d [newPoint]", newAxes.size(), newPoint.size());
-    return nullptr;
+  if (newPoint.empty()) {
   }
-
+  else {
+    if (newAxes.size() != newPoint.size()) {
+      NLogger::Error("NUtils::ReshapeSparseAxes: Invalid size %d [newAxes] != %d [newPoint]", newAxes.size(),
+                     newPoint.size());
+      return nullptr;
+    }
+  }
   // loop over order and check if order contains values from 0 to hns->GetNdimensions() + newAxes.size()
   for (int i = 0; i < order.size(); i++) {
     if (order[i] < 0 || order[i] >= hns->GetNdimensions() + newAxes.size()) {
-      NLogger::Error(
-          "Invalid order[%d]=%d. Value is negative or higher then 'hns->GetNdimensions() + newAxes.size()' !!!", i,
-          order[i]);
+      NLogger::Error("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d. Value is negative or higher then "
+                     "'hns->GetNdimensions() + newAxes.size()' !!!",
+                     i, order[i]);
       return nullptr;
     }
   }
@@ -435,17 +447,18 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   for (int i = 0; i < order.size(); i++) {
     for (int j = i + 1; j < order.size(); j++) {
       if (order[i] == order[j]) {
-        NLogger::Error("Invalid order[%d]=%d and order[%d]=%d. Value is not unique !!!", i, order[i], j, order[j]);
+        NLogger::Error("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d and order[%d]=%d. Value is not unique !!!", i,
+                       order[i], j, order[j]);
         return nullptr;
       }
     }
   }
 
   // print info about original THnSparse
-  NLogger::Info("Original THnSparse object:");
-  hns->Print();
+  // NLogger::Debug("NUtils::ReshapeSparseAxes: Original THnSparse object:");
+  // hns->Print();
 
-  NLogger::Info("Reshaping sparse axes ...");
+  NLogger::Trace("NUtils::ReshapeSparseAxes: Reshaping sparse axes ...");
 
   int      nDims = hns->GetNdimensions() + newAxes.size();
   Int_t    bins[nDims];
@@ -458,14 +471,14 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     int     id = order[i];
     if (id < hns->GetNdimensions()) {
       a = hns->GetAxis(id);
-      NLogger::Info("[ORIG] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(), a->GetTitle(), a->GetNbins(),
-                    a->GetXmin(), a->GetXmax());
+      NLogger::Trace("NUtils::ReshapeSparseAxes: [ORIG] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
+                     a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
     }
     else {
       newAxesIndex = id - hns->GetNdimensions();
       a            = newAxes[newAxesIndex];
-      NLogger::Info("[NEW ] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(), a->GetTitle(), a->GetNbins(),
-                    a->GetXmin(), a->GetXmax());
+      NLogger::Trace("NUtils::ReshapeSparseAxes: [NEW ] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
+                     a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
     }
     bins[i] = a->GetNbins();
     xmin[i] = a->GetXmin();
@@ -498,40 +511,49 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     }
   }
 
-  // loop over all bins
-  NLogger::Info("Filling all bins ...");
-  for (Long64_t i = 0; i < hns->GetNbins(); i++) {
-    Int_t p[nDims];
-    Int_t pNew[nDims];
-    hns->GetBinContent(i, p);
-    Double_t v = hns->GetBinContent(i);
-    // remap p to pNew
-    for (int j = 0; j < nDims; j++) {
-      int id = order[j];
-      if (id < hns->GetNdimensions()) {
-        pNew[j] = p[id];
+  if (newPoint.empty()) {
+    NLogger::Trace("NUtils::ReshapeSparseAxes: New point is empty, filling is skipped and doing reset ...");
+    hnsNew->Reset();
+    hnsNew->SetEntries(0);
+    return hnsNew;
+  }
+
+  if (hns->GetNbins() > 0) {
+    // loop over all bins
+    NLogger::Trace("NUtils::ReshapeSparseAxes: Filling all bins ...");
+    for (Long64_t i = 0; i < hns->GetNbins(); i++) {
+      Int_t p[nDims];
+      Int_t pNew[nDims];
+      hns->GetBinContent(i, p);
+      Double_t v = hns->GetBinContent(i);
+      // remap p to pNew
+      for (int j = 0; j < nDims; j++) {
+        int id = order[j];
+        if (id < hns->GetNdimensions()) {
+          pNew[j] = p[id];
+        }
+        else {
+          newAxesIndex = id - hns->GetNdimensions();
+          pNew[j]      = newPoint[newAxesIndex];
+        }
       }
-      else {
-        newAxesIndex = id - hns->GetNdimensions();
-        pNew[j]      = newPoint[newAxesIndex];
-      }
+      hnsNew->SetBinContent(pNew, v);
     }
-    hnsNew->SetBinContent(pNew, v);
+    hnsNew->SetEntries(hns->GetEntries());
   }
   // Calsculate sumw2
   if (opt.Contains("E")) {
-    NLogger::Debug("Calculating sumw2 ...");
+    NLogger::Trace("ReshapeSparseAxes: Calculating sumw2 ...");
     hnsNew->Sumw2();
   }
-  hnsNew->SetEntries(hns->GetEntries());
-  NLogger::Info("Reshaped sparse axes:");
+  NLogger::Trace("ReshapeSparseAxes: Reshaped sparse axes:");
   // print all axes
   for (int i = 0; i < nDims; i++) {
     TAxis * a = hnsNew->GetAxis(i);
-    NLogger::Info("Axis %d: %s %s %d %.2f %.2f", i, a->GetName(), a->GetTitle(), a->GetNbins(), a->GetXmin(),
-                  a->GetXmax());
+    NLogger::Trace("ReshapeSparseAxes: Axis %d: %s %s %d %.2f %.2f", i, a->GetName(), a->GetTitle(), a->GetNbins(),
+                   a->GetXmin(), a->GetXmax());
   }
-  hnsNew->Print("all");
+  // hnsNew->Print("all");
   return hnsNew;
 }
 

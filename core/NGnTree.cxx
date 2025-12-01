@@ -14,6 +14,7 @@
 #include <TObjString.h>
 #include <TTree.h>
 #include <TBufferJSON.h>
+#include "NResourceMonitor.h"
 #include "NStorageTree.h"
 #include "NBinning.h"
 #include "NBinningDef.h"
@@ -194,8 +195,6 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   NTreeBranch * b      = fTreeStorage->GetBranch("outputPoint");
   if (!b) fTreeStorage->AddBranch("outputPoint", nullptr, "TList");
 
-  // fBinning->GetPoint()->SetTreeStorage(fTreeStorage); // Set the storage tree to the binning point
-
   // Original binning
   NBinning * originalBinning = (NBinning *)binningIn->Clone();
 
@@ -340,6 +339,14 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       delete mergeList;
       return false;
     }
+
+    // delete all temporary files
+    for (auto & data : threadDataVector) {
+      std::string filename = data.GetHnSparseBase()->GetStorageTree()->GetFileName();
+      Ndmspc::NLogger::Trace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
+      gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
+    }
+
     // return false;
     // TIter next(outputData->GetOutput());
     // while (auto obj = next()) {
@@ -388,8 +395,15 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       // Print();
       // std::vector<Long64_t> entries;
 
+      // Create stat histogram for processed entries
+
+      NResourceMonitor monitor;
+
+      output->Add(monitor.Initialize(binningDef->GetContent())); // Add stat histogram to output list
+
       auto start_par = std::chrono::high_resolution_clock::now();
-      auto task = [this, func, binningDef, start_par, &maxs, &refreshRate, binningIn](const std::vector<int> & coords) {
+      auto task      = [this, func, binningDef, start_par, &maxs, &refreshRate, binningIn,
+                   &monitor](const std::vector<int> & coords) {
         NBinningPoint * point = fBinning->GetPoint();
         Long64_t        entry = binningIn->GetDefinition()->GetId(coords[0]);
 
@@ -417,7 +431,19 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
         point->SetTreeStorage(fTreeStorage); // Set the storage tree to the binning point
         point->SetInput(fInput);             // Set the input NGnTree to the binning point
 
+        // gather start resource usage
+        monitor.Start();
+
+        // Process the point
         func(point, this->GetOutput(), outputPoint, 0); // Call the lambda function
+
+        // gather resource usage after processing
+        monitor.End();
+        monitor.Fill(point->GetStorageCoords(), 0);
+        // print resource usage
+        // monitor.Print();
+
+        // accept only non-empty output points
         if (outputPoint->GetEntries() > 0) {
           // NLogger::Debug("NGnTree::Process: Processed entry %lld -> coords=[%lld] Binning definition ID: '%s' "
           //                "hnsbBinningIn_entry=%lld output=%lld",
@@ -428,8 +454,8 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
           if (bytes > 0) {
             if (point->GetEntryNumber() == 0 && fTreeStorage->GetEntries() > 1) {
               Ndmspc::NLogger::Error("NGnTree::Process: [!!!Should not happen!!!] entry number is zero: point=%lld "
-                                     "entries=%lld",
-                                     point->GetEntryNumber(), fTreeStorage->GetEntries());
+                                               "entries=%lld",
+                                          point->GetEntryNumber(), fTreeStorage->GetEntries());
             }
             fBinning->GetDefinition()->GetIds().push_back(point->GetEntryNumber());
           }
