@@ -33,7 +33,7 @@ class NUtils : TObject {
    * @brief Enable multi-threading with specified number of threads.
    * @param numthreads Number of threads to enable (0 for default).
    */
-  static void EnableMT(UInt_t numthreads = 0);
+  static bool EnableMT(UInt_t numthreads = 0);
 
   /**
    * @brief Check if a path is accessible.

@@ -26,16 +26,24 @@ ClassImp(Ndmspc::NUtils);
 
 namespace Ndmspc {
 
-void NUtils::EnableMT(UInt_t numthreads)
+bool NUtils::EnableMT(UInt_t numthreads)
 {
   ///
   /// Enable multithreading
   ///
   ///
+  bool previouslyEnabled = ROOT::IsImplicitMTEnabled();
 
   if (ROOT::IsImplicitMTEnabled()) {
     ROOT::DisableImplicitMT();
   }
+
+  if (numthreads == 1) {
+    // take numeber of cores from env variable
+    std::string nThreadsStr = gSystem->Getenv("ROOT_MAX_THREADS");
+    if (!nThreadsStr.empty()) numthreads = atoi(nThreadsStr.c_str());
+  }
+
   // Enable IMT with default number of threads (usually number of CPU cores)
   ROOT::EnableImplicitMT(numthreads);
 
@@ -43,6 +51,8 @@ void NUtils::EnableMT(UInt_t numthreads)
   if (ROOT::IsImplicitMTEnabled()) {
     NLogger::Info("IMT is enabled with number of threads: %d", ROOT::GetThreadPoolSize());
   }
+
+  return previouslyEnabled;
 }
 
 bool NUtils::IsFileSupported(std::string filename)
