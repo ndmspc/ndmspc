@@ -716,10 +716,11 @@ bool NUtils::SaveRawFile(std::string filename, std::string content)
   ///
 
   TFile * f = OpenFile(TString::Format("%s?filetype=raw", filename.c_str()).Data(), "RECREATE");
-  if (!f) return false;
-
+  if (!f) {
+    NLogger::Error("Error: Problem opening file '%s' in 'rw' mode  ...", filename.c_str());
+    return false;
+  }
   f->WriteBuffer(content.c_str(), content.size());
-
   f->Close();
   return true;
 }

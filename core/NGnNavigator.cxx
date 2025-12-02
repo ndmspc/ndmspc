@@ -600,10 +600,11 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
     NGnNavigator * obj = const_cast<NGnNavigator *>(this);
     ExportToJson(objJson, obj, objectNames);
     // std::cout << objJson.dump(2) << std::endl;
-    // TODO: Use TFile::Open
-    std::ofstream outFile(filename);
-    outFile << objJson.dump();
-    outFile.close();
+    bool rc = NUtils::SaveRawFile(filename, objJson.dump());
+    if (rc == false) {
+      NLogger::Error("Failed to save JSON file: %s", filename.c_str());
+      return;
+    }
   }
   else {
     NLogger::Error("Unsupported file format for export: %s", filename.c_str());
