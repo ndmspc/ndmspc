@@ -341,27 +341,27 @@ class NGnNavigator : public TNamed {
    */
   void SetLastHoverBin(Int_t b) { fLastHoverBin = b; }
 
-  /**
-   * @brief Open navigator from file.
-   * @param filename File name.
-   * @param branches Branches to open.
-   * @param treename Tree name (default: "hnst").
-   * @return Pointer to opened NGnNavigator.
-   */
-  static NGnNavigator * Open(const std::string & filename, const std::string & branches = "",
-                             const std::string & treename = "hnst");
-
-  /**
-   * @brief Open navigator from TTree.
-   * @param tree Pointer to TTree.
-   * @param branches Branches to open.
-   * @param file Pointer to TFile.
-   * @return Pointer to opened NGnNavigator.
-   */
-  static NGnNavigator * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
+  // /**
+  //  * @brief Open navigator from file.
+  //  * @param filename File name.
+  //  * @param branches Branches to open.
+  //  * @param treename Tree name (default: "hnst").
+  //  * @return Pointer to opened NGnNavigator.
+  //  */
+  // static NGnNavigator * Open(const std::string & filename, const std::string & branches = "",
+  //                            const std::string & treename = "hnst");
+  //
+  // /**
+  //  * @brief Open navigator from TTree.
+  //  * @param tree Pointer to TTree.
+  //  * @param branches Branches to open.
+  //  * @param file Pointer to TFile.
+  //  * @return Pointer to opened NGnNavigator.
+  //  */
+  // static NGnNavigator * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
   private:
-  NGnTree *                                     fGnTree{nullptr};       ///< Pointer to the NGnTree
+  NGnTree *                                     fGnTree{nullptr};       ///! Pointer to the NGnTree
   std::vector<std::string>                      fObjectNames{};         ///< Object names
   std::map<std::string, std::vector<TObject *>> fObjectContentMap{};    ///< Object content map
   std::vector<std::string>                      fParameterNames{};      ///< Parameter names

@@ -37,11 +37,21 @@ bool NUtils::EnableMT(UInt_t numthreads)
   if (ROOT::IsImplicitMTEnabled()) {
     ROOT::DisableImplicitMT();
   }
+  NLogger::Info("Enabling IMT (Implicit Multi-Threading) ...");
 
   if (numthreads == 1) {
     // take numeber of cores from env variable
-    std::string nThreadsStr = gSystem->Getenv("ROOT_MAX_THREADS");
-    if (!nThreadsStr.empty()) numthreads = atoi(nThreadsStr.c_str());
+    const char * nThreadsEnv = gSystem->Getenv("ROOT_MAX_THREADS");
+    NLogger::Info("Setting number of threads from ROOT_MAX_THREADS env variable: %s", nThreadsEnv);
+    if (nThreadsEnv) {
+      try {
+        numthreads = std::stoul(nThreadsEnv);
+      }
+      catch (const std::exception & e) {
+        NLogger::Error("Error parsing ROOT_MAX_THREADS: %s !!! Setting it to '1' ...", e.what());
+        numthreads = 1;
+      }
+    }
   }
 
   // Enable IMT with default number of threads (usually number of CPU cores)
