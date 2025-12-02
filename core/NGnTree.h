@@ -23,7 +23,7 @@ namespace Ndmspc {
  * @author Martin Vala <mvala@cern.ch>
  */
 using NHnSparseProcessFuncPtr = void (*)(Ndmspc::NBinningPoint *, TList *, TList *, int);
-
+class NGnNavigator;
 class NGnTree : public TObject {
   public:
   /**
@@ -135,6 +135,18 @@ class NGnTree : public TObject {
   void SetInput(NGnTree * input) { fInput = input; }
 
   /**
+   * @brief Returns the navigator associated with this tree.
+   * @return Pointer to the NGnNavigator instance.
+   */
+  NGnNavigator * GetNavigator() const { return fNavigator; }
+
+  /**
+   * @brief Sets the navigator for this tree.
+   * @param navigator Pointer to the NGnNavigator instance to associate.
+   */
+  void SetNavigator(NGnNavigator * navigator);
+
+  /**
    * @brief Get number of entries in storage tree.
    * @return Number of entries.
    */
@@ -182,6 +194,17 @@ class NGnTree : public TObject {
    * @return Pointer to TList of projected objects.
    */
   TList * Projection(const json & cfg, std::string binningName = "");
+  /**
+   * @brief Reshape navigator using binning name and levels.
+   * @param binningName Name of binning definition.
+   * @param levels Vector of levels.
+   * @param level Current level (default: 0).
+   * @param ranges Map of ranges for axes.
+   * @param rangesBase Map of base ranges for axes.
+   * @return Pointer to reshaped NGnNavigator.
+   */
+  NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level = 0,
+                         std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {});
 
   /**
    * @brief Open NGnTree from file.
@@ -206,10 +229,11 @@ class NGnTree : public TObject {
                           const std::string & filename = "/tmp/hnst_imported.root");
 
   protected:
-  NBinning *                     fBinning{nullptr}; ///< Binning object
+  NBinning *                     fBinning{nullptr};     ///< Binning object
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
   std::map<std::string, TList *> fOutputs;              ///< Outputs
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing
+  NGnNavigator *                 fNavigator{nullptr};   ///! Navigator object
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);

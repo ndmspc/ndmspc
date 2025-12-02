@@ -26,6 +26,7 @@
 #include "NUtils.h"
 #include "NStorageTree.h"
 #include "NWsClient.h"
+#include "NGnNavigator.h"
 #include "NGnTree.h"
 
 /// \cond CLASSIMP
@@ -48,6 +49,8 @@ NGnTree::NGnTree(std::vector<TAxis *> axes, std::string filename, std::string tr
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree(fBinning);
   fTreeStorage->InitTree(filename, treename);
+  fNavigator = new NGnNavigator();
+  fNavigator->SetGnTree(this);
 }
 NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) : TObject(), fInput(nullptr)
 {
@@ -62,6 +65,8 @@ NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) :
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree(fBinning);
   fTreeStorage->InitTree(filename, treename);
+  fNavigator = new NGnNavigator();
+  fNavigator->SetGnTree(this);
 }
 
 NGnTree::NGnTree(NGnTree * ngnt, std::string filename, std::string treename) : TObject(), fInput(nullptr)
@@ -85,6 +90,8 @@ NGnTree::NGnTree(NGnTree * ngnt, std::string filename, std::string treename) : T
   fBinning     = (NBinning *)ngnt->GetBinning()->Clone();
   fTreeStorage = new NStorageTree(fBinning);
   fTreeStorage->InitTree(filename, treename);
+  fNavigator = new NGnNavigator();
+  fNavigator->SetGnTree(this);
 }
 
 NGnTree::NGnTree(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTreeStorage(s), fInput(nullptr)
@@ -111,6 +118,8 @@ NGnTree::NGnTree(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTree
   // TODO: Check if this is needed
   fTreeStorage->SetBinning(fBinning);
   fBinning->GetPoint()->SetTreeStorage(fTreeStorage);
+  fNavigator = new NGnNavigator();
+  fNavigator->SetGnTree(this);
 }
 
 NGnTree::~NGnTree()
@@ -120,6 +129,8 @@ NGnTree::~NGnTree()
   ///
 
   SafeDelete(fBinning);
+  // SafeDelete(fTreeStorage);
+  // SafeDelete(fNavigator);
 }
 void NGnTree::Print(Option_t * option) const
 {
@@ -698,7 +709,25 @@ NGnTree * NGnTree::Open(TTree * tree, const std::string & branches, TFile * file
   hnstStorageTree->SetBranchAddresses();
   hnst->SetOutputs(outputs);
 
+  NGnNavigator * nav = new NGnNavigator();
+  nav->SetGnTree(hnst);
+  hnst->SetNavigator(nav);
+
   return hnst;
+}
+
+void NGnTree::SetNavigator(NGnNavigator * navigator)
+{
+  ///
+  /// Set navigator
+  ///
+
+  if (fNavigator) {
+    NLogger::Warning("NGnTree::SetNavigator: Replacing existing navigator ...");
+    SafeDelete(fNavigator);
+  }
+
+  fNavigator = navigator;
 }
 
 bool NGnTree::Close(bool write)
@@ -1078,6 +1107,18 @@ NGnTree * NGnTree::Import(THnSparse * hns, std::string parameterAxis, const std:
   ngnt->Process(processFunc, cfg);
   ngnt->Close(true);
   return ngnt;
+}
+NGnNavigator * NGnTree::Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level,
+                                std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase)
+{
+  ///
+  /// Reshape the navigator
+  ///
+
+  NGnNavigator navigator;
+  navigator.SetGnTree(this);
+
+  return navigator.Reshape(binningName, levels, level, ranges, rangesBase);
 }
 
 } // namespace Ndmspc

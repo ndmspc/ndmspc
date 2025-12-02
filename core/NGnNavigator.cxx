@@ -1210,39 +1210,39 @@ void NGnNavigator::SetChild(NGnNavigator * child, int index)
   }
 }
 
-NGnNavigator * NGnNavigator::Open(TTree * tree, const std::string & branches, TFile * file)
-{
-  ///
-  /// Open NGnNavigator from TTree
-  ///
-
-  NGnTree * ngt = NGnTree::Open(tree, branches, file);
-
-  NGnNavigator * navigator = new NGnNavigator();
-  if (!navigator) {
-    return nullptr;
-  }
-  navigator->SetGnTree(ngt);
-
-  return navigator;
-}
-
-NGnNavigator * NGnNavigator::Open(const std::string & filename, const std::string & branches,
-                                  const std::string & treename)
-{
-  ///
-  /// Open NGnNavigator from file
-  ///
-  NGnTree * ngt = NGnTree::Open(filename, branches, treename);
-
-  NGnNavigator * navigator = new NGnNavigator();
-  if (!navigator) {
-    return nullptr;
-  }
-  navigator->SetGnTree(ngt);
-
-  return navigator;
-}
+// NGnNavigator * NGnNavigator::Open(TTree * tree, const std::string & branches, TFile * file)
+// {
+//   ///
+//   /// Open NGnNavigator from TTree
+//   ///
+//
+//   NGnTree * ngt = NGnTree::Open(tree, branches, file);
+//
+//   NGnNavigator * navigator = new NGnNavigator();
+//   if (!navigator) {
+//     return nullptr;
+//   }
+//   navigator->SetGnTree(ngt);
+//
+//   return navigator;
+// }
+//
+// NGnNavigator * NGnNavigator::Open(const std::string & filename, const std::string & branches,
+//                                   const std::string & treename)
+// {
+//   ///
+//   /// Open NGnNavigator from file
+//   ///
+//   NGnTree * ngt = NGnTree::Open(filename, branches, treename);
+//
+//   NGnNavigator * navigator = new NGnNavigator();
+//   if (!navigator) {
+//     return nullptr;
+//   }
+//   navigator->SetGnTree(ngt);
+//
+//   return navigator;
+// }
 std::vector<TObject *> NGnNavigator::GetObjects(const std::string & name) const
 {
   /// Returns points for given name
