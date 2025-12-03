@@ -257,23 +257,32 @@ void NBinning::Print(Option_t * option) const
   TString opt(option);
   opt.ToLower();
 
-  NLogger::Info("NBinning map name='%s' title='%s'", fMap->GetName(), fMap->GetTitle());
-  NLogger::Info("    dimensions: %d", fMap->GetNdimensions());
-  // loop over all axes and print name title
-  for (int i = 0; i < fMap->GetNdimensions(); i++) {
-    NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fMap->GetAxis(i)->GetName(),
-                  fMap->GetAxis(i)->GetTitle(), fMap->GetAxis(i)->GetNbins(), fMap->GetAxis(i)->GetXmin(),
-                  fMap->GetAxis(i)->GetXmax());
+  NLogger::Info("NBinning base axes:");
+  for (int i = 0; i < fAxes.size(); i++) {
+    NLogger::Info("Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fAxes[i]->GetName(),
+                  fAxes[i]->GetTitle(), fAxes[i]->GetNbins(), fAxes[i]->GetXmin(), fAxes[i]->GetXmax());
   }
-  NLogger::Info("    filled bins = %lld", fMap->GetNbins());
-  NLogger::Info("NBinning content name='%s' title='%s'", fContent->GetName(), fContent->GetTitle());
-  NLogger::Info("    dimensions: %d", fContent->GetNdimensions());
-  // loop over all axes and print name title
-  for (int i = 0; i < fContent->GetNdimensions(); i++) {
-    NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fContent->GetAxis(i)->GetName(),
-                  fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(), fContent->GetAxis(i)->GetXmin(),
-                  fContent->GetAxis(i)->GetXmax());
+
+  if (opt.Contains("A")) {
+    NLogger::Info("NBinning map name='%s' title='%s'", fMap->GetName(), fMap->GetTitle());
+    NLogger::Info("    dimensions: %d", fMap->GetNdimensions());
+    // loop over all axes and print name title
+    for (int i = 0; i < fMap->GetNdimensions(); i++) {
+      NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fMap->GetAxis(i)->GetName(),
+                    fMap->GetAxis(i)->GetTitle(), fMap->GetAxis(i)->GetNbins(), fMap->GetAxis(i)->GetXmin(),
+                    fMap->GetAxis(i)->GetXmax());
+    }
+    NLogger::Info("    filled bins = %lld", fMap->GetNbins());
+    NLogger::Info("NBinning content name='%s' title='%s'", fContent->GetName(), fContent->GetTitle());
+    NLogger::Info("    dimensions: %d", fContent->GetNdimensions());
+    // loop over all axes and print name title
+    for (int i = 0; i < fContent->GetNdimensions(); i++) {
+      NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fContent->GetAxis(i)->GetName(),
+                    fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(), fContent->GetAxis(i)->GetXmin(),
+                    fContent->GetAxis(i)->GetXmax());
+    }
   }
+  NLogger::Info("NBinning content:");
   NLogger::Info("    filled bins = %lld", fContent->GetNbins());
   // print list of definitions names from fDefinitions
   NLogger::Info("NBinning definitions:");
