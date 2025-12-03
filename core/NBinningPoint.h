@@ -123,6 +123,39 @@ class NBinningPoint : public TObject {
   std::vector<std::string> GetLabels() const { return fLabels; }
 
   /**
+   * @brief Get the array of minimum values for all axes.
+   * @return Pointer to the array of minimum values.
+   */
+  Double_t * GetMins() const { return fMins; }
+
+  /**
+   * @brief Get the array of maximum values for all axes.
+   * @return Pointer to the array of maximum values.
+   */
+  Double_t * GetMaxs() const { return fMaxs; }
+
+  /**
+   * @brief Get the minimum value for a specific axis.
+   * @param axis The name of the axis.
+   * @return The minimum value for the given axis.
+   */
+  Double_t GetMin(std::string axis) const;
+
+  /**
+   * @brief Get the maximum value for a specific axis.
+   * @param axis The name of the axis.
+   * @return The maximum value for the given axis.
+   */
+  Double_t GetMax(std::string axis) const;
+
+  /**
+   * @brief Get the label for a specific axis.
+   * @param axis The name of the axis.
+   * @return The label for the given axis.
+   */
+  std::string GetLabel(std::string axis) const;
+
+  /**
    * @brief Get pointer to NBinning object.
    * @return Pointer to NBinning.
    */

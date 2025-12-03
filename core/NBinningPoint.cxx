@@ -264,4 +264,70 @@ bool NBinningPoint::SetPointContentFromLinearIndex(Long64_t linBin, bool checkBi
   return RecalculateStorageCoords(linBin, checkBinningDef);
 }
 
+Double_t NBinningPoint::GetMin(std::string axis) const
+{
+  ///
+  /// Get minimum value for specific axis
+  ///
+
+  // check if axis exists in fBinning->GetAxes()
+  for (int i = 0; i < fNDimensions; i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogger::Error("NBinningPoint::GetMin: Axis %d is nullptr !!!", i);
+      continue;
+    }
+    if (axis.compare(a->GetName()) == 0) {
+      return fMins[i];
+    }
+  }
+
+  NLogger::Error("NBinningPoint::GetMin: Axis '%s' not found !!!", axis.c_str());
+  return -1;
+}
+
+Double_t NBinningPoint::GetMax(std::string axis) const
+{
+  ///
+  /// Get maximum value for specific axis
+  ///
+
+  // check if axis exists in fBinning->GetAxes()
+  for (int i = 0; i < fNDimensions; i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogger::Error("NBinningPoint::GetMax: Axis %d is nullptr !!!", i);
+      continue;
+    }
+    if (axis.compare(a->GetName()) == 0) {
+      return fMaxs[i];
+    }
+  }
+
+  NLogger::Error("NBinningPoint::GetMax: Axis '%s' not found !!!", axis.c_str());
+  return -1;
+}
+
+std::string NBinningPoint::GetLabel(std::string axis) const
+{
+  ///
+  /// Get label for specific axis
+  ///
+
+  // check if axis exists in fBinning->GetAxes()
+  for (int i = 0; i < fNDimensions; i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogger::Error("NBinningPoint::GetLabel: Axis %d is nullptr !!!", i);
+      continue;
+    }
+    if (axis.compare(a->GetName()) == 0) {
+      return fLabels[i];
+    }
+  }
+
+  NLogger::Error("NBinningPoint::GetLabel: Axis '%s' not found !!!", axis.c_str());
+  return "";
+}
+
 } // namespace Ndmspc
