@@ -138,6 +138,10 @@ void NGnTree::Print(Option_t * option) const
   /// Print object
   ///
 
+  TString opt = option;
+
+  // Print list of axes
+  NLogger::Info("NGnTree::Print: Printing NGnTree object [ALL] ...");
   if (fBinning) {
     fBinning->Print(option);
   }
@@ -150,6 +154,31 @@ void NGnTree::Print(Option_t * option) const
   else {
     NLogger::Error("Storage tree is not initialized in NGnTree !!!");
   }
+}
+
+void NGnTree::Draw(Option_t * option)
+{
+  ///
+  /// Draw object
+  ///
+
+  NLogger::Info("NGnTree::Draw: Drawing NGnTree object [not implemented yet]...");
+  // THnSparse * hns = (THnSparse *)fOutputs["default"]->FindObject("resource_monitor");
+  // if (!hns) {
+  //   NLogger::Error("NGnTree::Draw: Resource monitor THnSparse not found in outputs !!!");
+  //   return;
+  // }
+  // hns->Print("all");
+  //
+  // auto ngnt = Import(hns, "stat", "/tmp/hnst_imported_for_drawing.root");
+  // ngnt->Print();
+  // ngnt->Close();
+  //
+  // auto ngnt2 = NGnTree::Open("/tmp/hnst_imported_for_drawing.root");
+  //
+  // auto nav = ngnt2->Reshape("default", {{0}});
+  // nav->Export("/tmp/hnst_imported_for_drawing.json", {}, "ws://localhost:8080/ws/root.websocket");
+  // nav->Draw();
 }
 
 bool NGnTree::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::string binningName)

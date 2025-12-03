@@ -74,6 +74,16 @@ class NGnTree : public TObject {
   virtual void Print(Option_t * option = "") const override;
 
   /**
+   * @brief Draws the tree object.
+   *
+   * This method overrides the base class Draw function to provide
+   * custom drawing logic for the NGnTree object.
+   *
+   * @param option Optional string to specify drawing options.
+   */
+  virtual void Draw(Option_t * option = "") override;
+
+  /**
    * @brief Play tree data with optional binning and output point IDs.
    * @param timeout Timeout in seconds.
    * @param binning Binning name.
