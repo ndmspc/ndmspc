@@ -34,7 +34,7 @@ This package contains @PROJECT_NAME@ documentation.
 Summary:  Jupyroot bindings for @PROJECT_NAME@
 Group:    Additional Packages
 Requires: %{name} = %{version}-%{release}, pkgconfig
-Requires: python3-jupyroot
+Requires: python3-jupyroot, root-gui-browserv7-v7
 
 %description jupyroot
 This package contains Jupyroot bindings for @PROJECT_NAME@.
