@@ -57,7 +57,7 @@ THnSparse * NResourceMonitor::Initialize(THnSparse * hns)
     threadAxis->SetBinLabel(i + 1, TString::Format("%d", i).Data());
   }
   axes.push_back(threadAxis);
-  TAxis * aStat = NUtils::CreateAxisFromLabels("stat", "Stat", std::set<std::string>(fNames.begin(), fNames.end()));
+  TAxis * aStat = NUtils::CreateAxisFromLabels("stat", "Stat", fNames);
   axes.push_back(aStat);
 
   if (fHnSparse) {
@@ -87,13 +87,17 @@ void NResourceMonitor::Fill(Int_t * coords, int threadId)
   // Set thread id coordinate
   statBinCoords[fHnSparse->GetNdimensions() - 2] = threadId + 1;
 
-  // Set CPU usage
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 1;
+  statBin                                        = fHnSparse->GetBin(statBinCoords);
+  fHnSparse->SetBinContent(statBin, GetTimeDiffInSeconds());
+
+  // Set CPU usage
+  statBinCoords[fHnSparse->GetNdimensions() - 1] = 2;
   statBin                                        = fHnSparse->GetBin(statBinCoords);
   fHnSparse->SetBinContent(statBin, GetCpuUsage());
 
   // Set Memory usage
-  statBinCoords[fHnSparse->GetNdimensions() - 1] = 2;
+  statBinCoords[fHnSparse->GetNdimensions() - 1] = 3;
   statBin                                        = fHnSparse->GetBin(statBinCoords);
   fHnSparse->SetBinContent(statBin, GetMemoryUsageDiff());
 }
@@ -115,6 +119,12 @@ void NResourceMonitor::End()
     NLogger::Error("NResourceMonitor::End: getrusage failed at end");
   }
 }
+double NResourceMonitor::GetTimeDiffInSeconds() const
+{
+  std::chrono::duration<double> diff = fWallEnd - fWallStart;
+  return diff.count();
+}
+
 double NResourceMonitor::GetCpuUsage() const
 {
 

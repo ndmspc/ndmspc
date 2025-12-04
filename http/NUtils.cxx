@@ -170,8 +170,8 @@ TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string
   return a;
 }
 
-TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string & title,
-                                     const std::set<std::string> & labels)
+TAxis * NUtils::CreateAxisFromLabelsSet(const std::string & name, const std::string & title,
+                                        const std::set<std::string> & labels)
 {
   ///
   /// Create label axis

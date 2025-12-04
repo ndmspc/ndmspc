@@ -163,22 +163,6 @@ void NGnTree::Draw(Option_t * option)
   ///
 
   NLogger::Info("NGnTree::Draw: Drawing NGnTree object [not implemented yet]...");
-  // THnSparse * hns = (THnSparse *)fOutputs["default"]->FindObject("resource_monitor");
-  // if (!hns) {
-  //   NLogger::Error("NGnTree::Draw: Resource monitor THnSparse not found in outputs !!!");
-  //   return;
-  // }
-  // hns->Print("all");
-  //
-  // auto ngnt = Import(hns, "stat", "/tmp/hnst_imported_for_drawing.root");
-  // ngnt->Print();
-  // ngnt->Close();
-  //
-  // auto ngnt2 = NGnTree::Open("/tmp/hnst_imported_for_drawing.root");
-  //
-  // auto nav = ngnt2->Reshape("default", {{0}});
-  // nav->Export("/tmp/hnst_imported_for_drawing.json", {}, "ws://localhost:8080/ws/root.websocket");
-  // nav->Draw();
 }
 
 bool NGnTree::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::string binningName)
@@ -1064,7 +1048,7 @@ NGnTree * NGnTree::Import(THnSparse * hns, std::string parameterAxis, const std:
       parameterAxisIdx = i;
       TAxis * axis     = hns->GetAxis(parameterAxisIdx);
       for (int bin = 1; bin <= axis->GetNbins(); bin++) {
-        NLogger::Info("Axis bin %d label: %s", bin, axis->GetBinLabel(bin));
+        // NLogger::Info("Axis bin %d label: %s", bin, axis->GetBinLabel(bin));
         labels.push_back(axis->GetBinLabel(bin));
       }
       continue;
@@ -1107,11 +1091,12 @@ NGnTree * NGnTree::Import(THnSparse * hns, std::string parameterAxis, const std:
     int                           axisIdx = cfg["parameterAxis"].get<int>();
     std::vector<std::vector<int>> ranges;
     // set ranges from point storage coords
+    int iAxis = 0;
     for (int i = 0; i < hns->GetNdimensions(); i++) {
-      int coord = point->GetStorageCoords()[i];
       if (i == axisIdx) continue; // skip parameter axis
+      int coord = point->GetStorageCoords()[iAxis++];
       ranges.push_back({i, coord, coord});
-      Ndmspc::NLogger::Info("Setting axis %d range to [%d, %d]", i, coord, coord);
+      // Ndmspc::NLogger::Info("Setting axis %d range to [%d, %d]", i, coord, coord);
     }
     NUtils::SetAxisRanges(hns, ranges);
     TH1 * h = hns->Projection(axisIdx, "O");
@@ -1121,7 +1106,7 @@ NGnTree * NGnTree::Import(THnSparse * hns, std::string parameterAxis, const std:
 
       TH1D * results = new TH1D("results", "Results", labels.size(), 0, labels.size());
       for (size_t i = 0; i < labels.size(); i++) {
-        Ndmspc::NLogger::Info("Setting results bin %zu label to '%s'", i + 1, labels[i].c_str());
+        // Ndmspc::NLogger::Info("Setting results bin %zu label to '%s'", i + 1, labels[i].c_str());
         results->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
       }
       for (int bin = 0; bin <= h->GetNbinsX(); bin++) {
@@ -1148,6 +1133,37 @@ NGnNavigator * NGnTree::Reshape(std::string binningName, std::vector<std::vector
   navigator.SetGnTree(this);
 
   return navigator.Reshape(binningName, levels, level, ranges, rangesBase);
+}
+
+NGnNavigator * NGnTree::GetResourceStatisticsNavigator(std::string binningName, std::vector<std::vector<int>> levels,
+                                                       int level, std::map<int, std::vector<int>> ranges,
+                                                       std::map<int, std::vector<int>> rangesBase)
+{
+  ///
+  /// Get resource statistics navigator
+  ///
+
+  if (binningName.empty()) {
+    binningName = fBinning->GetCurrentDefinitionName();
+  }
+
+  THnSparse * hns = (THnSparse *)fOutputs[binningName]->FindObject("resource_monitor");
+  if (!hns) {
+    NLogger::Error("NGnTree::Draw: Resource monitor THnSparse not found in outputs !!!");
+    return nullptr;
+  }
+  hns->Print("all");
+
+  auto ngnt = Import(hns, "stat", "/tmp/hnst_imported_for_drawing.root");
+  ngnt->Print();
+  ngnt->Close();
+
+  auto ngnt2 = NGnTree::Open("/tmp/hnst_imported_for_drawing.root");
+  auto nav   = ngnt2->Reshape("default", levels, level, ranges, rangesBase);
+  // nav->Export("/tmp/hnst_imported_for_drawing.json", {}, "ws://localhost:8080/ws/root.websocket");
+  // nav->Draw();
+
+  return nav;
 }
 
 } // namespace Ndmspc

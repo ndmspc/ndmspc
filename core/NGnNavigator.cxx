@@ -1,5 +1,3 @@
-#include <fstream>
-#include <iostream>
 #include <vector>
 #include "TAxis.h"
 #include "THnSparse.h"
@@ -14,6 +12,7 @@
 #include <THStack.h>
 #include <TBufferJSON.h>
 #include <TGClient.h>
+#include <TPaveText.h>
 
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
@@ -1169,20 +1168,33 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       // TH1 * projection = child->GetProjection();
       // index            = projection->GetXaxis()->FindFixBin(projection->GetXaxis()->GetBinCenter(binx));
       NLogger::Warning("NGnNavigator::ExecuteEvent: No child object found at index %d", index);
-      std::string objName = fObjectNames.empty() ? "unlikepm" : fObjectNames[0];
+      std::string objName = fObjectNames.empty() ? "resource_monitor" : fObjectNames[0];
       TH1 *       hProj   = (TH1 *)GetObject(objName, index);
       if (hProj == nullptr) {
         NLogger::Error("NGnNavigator::ExecuteEvent: No histogram found for index %d", index);
         return;
       }
-      hProj->Print();
+      // hProj->Print("all");
       if (cObject == nullptr) {
         cObject = new TCanvas("cObject", "cObject", 800, 600);
       }
       cObject->cd();
       // gPad = cObject->GetPad(0); // Get the current pad
       // hProj->SetTitle(Form("Projection of %s at index %d", fProjection->GetName(), index));
-      hProj->Draw(); // Draw the projection histogram
+      if (hProj->GetXaxis()->IsAlphanumeric()) {
+        TPaveText * pt = new TPaveText(0.15, 0.15, 0.85, 0.85);
+        for (Int_t binx = 1; binx <= hProj->GetNbinsX(); ++binx) {
+          std::string name  = hProj->GetXaxis()->GetBinLabel(binx);
+          std::string value = TString::Format("%E", hProj->GetBinContent(binx)).Data();
+          std::string t     = TString::Format("%s: %s", name.c_str(), value.c_str()).Data();
+
+          pt->AddText(t.c_str());
+        }
+        pt->Draw();
+      }
+      else {
+        hProj->Draw(); // Draw the projection histogram
+      }
     }
     // else {
     // }

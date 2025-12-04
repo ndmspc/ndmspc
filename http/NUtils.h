@@ -160,8 +160,8 @@ class NUtils : TObject {
    * @param labels Set of labels.
    * @return Pointer to created TAxis.
    */
-  static TAxis * CreateAxisFromLabels(const std::string & name, const std::string & title,
-                                      const std::set<std::string> & labels);
+  static TAxis * CreateAxisFromLabelsSet(const std::string & name, const std::string & title,
+                                         const std::set<std::string> & labels);
 
   /**
    * @brief Convert TH1 to THnSparse.

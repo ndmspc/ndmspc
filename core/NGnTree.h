@@ -215,6 +215,19 @@ class NGnTree : public TObject {
    */
   NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {});
+  /**
+   * @brief Returns a navigator for resource statistics based on binning and levels.
+   *
+   * @param binningName Name of the binning scheme to use.
+   * @param levels A vector of vectors specifying the levels for binning.
+   * @param level The starting level (default is 0).
+   * @param ranges Optional map specifying ranges for each level.
+   * @param rangesBase Optional map specifying base ranges for each level.
+   * @return Pointer to NGnNavigator configured for resource statistics.
+   */
+  NGnNavigator * GetResourceStatisticsNavigator(std::string binningName, std::vector<std::vector<int>> levels,
+                                                int level = 0, std::map<int, std::vector<int>> ranges = {},
+                                                std::map<int, std::vector<int>> rangesBase = {});
 
   /**
    * @brief Open NGnTree from file.
