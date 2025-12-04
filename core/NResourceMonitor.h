@@ -65,6 +65,13 @@ class NResourceMonitor : public TObject {
   rusage & GetUsageEnd() { return fUsageEnd; }
 
   /**
+   * @brief Returns the time difference in seconds since the last measurement or reset.
+   *
+   * @return The elapsed time in seconds as a double.
+   */
+  double GetTimeDiffInSeconds() const;
+
+  /**
    * @brief Calculates and returns the CPU usage between Start and End.
    */
   double GetCpuUsage() const;
@@ -85,12 +92,12 @@ class NResourceMonitor : public TObject {
   void End();
 
   private:
-  THnSparse *                                fHnSparse{nullptr};      ///< THnSparse histogram for resource data
-  rusage                                     fUsageStart;             ///< Resource usage at start
-  rusage                                     fUsageEnd;               ///< Resource usage at end
-  std::chrono::_V2::system_clock::time_point fWallStart;              ///< Wall clock start time
-  std::chrono::_V2::system_clock::time_point fWallEnd;                ///< Wall clock end time
-  std::vector<std::string>                   fNames = {"cpu", "mem"}; ///< Axis names
+  THnSparse *                                fHnSparse{nullptr};              ///< THnSparse histogram for resource data
+  rusage                                     fUsageStart;                     ///< Resource usage at start
+  rusage                                     fUsageEnd;                       ///< Resource usage at end
+  std::chrono::_V2::system_clock::time_point fWallStart;                      ///< Wall clock start time
+  std::chrono::_V2::system_clock::time_point fWallEnd;                        ///< Wall clock end time
+  std::vector<std::string>                   fNames = {"time", "cpu", "mem"}; ///< Axis names
 
   /**
    * @brief Helper function to convert timeval to double seconds.

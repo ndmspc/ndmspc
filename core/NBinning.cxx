@@ -259,7 +259,7 @@ void NBinning::Print(Option_t * option) const
 
   NLogger::Info("NBinning base axes:");
   for (int i = 0; i < fAxes.size(); i++) {
-    NLogger::Info("Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fAxes[i]->GetName(),
+    NLogger::Info("  Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fAxes[i]->GetName(),
                   fAxes[i]->GetTitle(), fAxes[i]->GetNbins(), fAxes[i]->GetXmin(), fAxes[i]->GetXmax());
   }
 
