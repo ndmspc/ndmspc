@@ -256,7 +256,7 @@ class NGnTree : public TObject {
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
   std::map<std::string, TList *> fOutputs;              ///< Outputs
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing
-  NGnNavigator *                 fNavigator{nullptr};   ///! Navigator object
+  NGnNavigator *                 fNavigator{nullptr};   ///<! Navigator object
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);

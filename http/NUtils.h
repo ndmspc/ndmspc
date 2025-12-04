@@ -89,14 +89,13 @@ class NUtils : TObject {
   static TMacro * OpenMacro(std::string filename);
 
   /**
-   * @brief Opens and parses a JSON file.
+   * @brief Loads a JSON configuration file into the provided json object.
    *
-   * @param filename The path to the JSON file to open.
-   * @return json The parsed JSON object.
-   * @throws std::runtime_error if the file cannot be opened or parsed.
+   * @param cfg Reference to a json object where the file contents will be loaded.
+   * @param filename Path to the JSON file to load.
+   * @return true if the file was loaded and parsed successfully, false otherwise.
    */
   static bool LoadJsonFile(json & cfg, std::string filename);
-
   /**
    * @brief Project a THnSparse histogram onto specified axes.
    * @param hns Input THnSparse.
