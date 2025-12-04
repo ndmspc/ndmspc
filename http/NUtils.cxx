@@ -758,6 +758,32 @@ TMacro * NUtils::OpenMacro(std::string filename)
   return m;
 }
 
+bool NUtils::LoadJsonFile(json & cfg, std::string filename)
+{
+  ///
+  /// Load JSON file
+  ///
+
+  std::string content = OpenRawFile(filename);
+  if (content.empty()) {
+    NLogger::Error("NUtils::LoadJsonFile: Problem opening JSON file '%s' ...", filename.c_str());
+    return false;
+  }
+
+  try {
+    json myCfg = json::parse(content.c_str());
+    cfg.merge_patch(myCfg);
+    NLogger::Info("NUtils::LoadJsonFile: Successfully parsed JSON file '%s' ...", filename.c_str());
+  }
+  catch (json::parse_error & e) {
+    NLogger::Error("NUtils::LoadJsonFile: JSON parse error in file '%s' at byte %d: %s", filename.c_str(), e.byte,
+                   e.what());
+    return false;
+  }
+
+  return true;
+}
+
 std::vector<std::string> NUtils::Find(std::string path, std::string filename)
 {
   ///
