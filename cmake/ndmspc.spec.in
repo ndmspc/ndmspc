@@ -17,7 +17,7 @@ BuildRequires: json-devel
 # BuildRequires: opentelemetry-cpp-devel
 # BuildRequires: parquet-libs-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
-Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
+Requires:      root, root-netx, xrootd-client
 
 %description
 @PROJECT_DESCRIPTION@
@@ -29,6 +29,15 @@ Requires: %{name} = %{version}-%{release}, pkgconfig
 
 %description doc
 This package contains @PROJECT_NAME@ documentation.
+
+%package server
+Summary:  Server for @PROJECT_NAME@
+Group:    Additional Packages
+Requires: %{name} = %{version}-%{release}, pkgconfig
+Requires: root-net-http, root-net-httpsniff
+
+%description server
+This package contains server part for @PROJECT_NAME@.
 
 %package jupyroot
 Summary:  Jupyroot bindings for @PROJECT_NAME@
@@ -61,13 +70,13 @@ rm -rf %{buildroot}
 cd build
 make install DESTDIR=%{buildroot}
 
-%post
+%post server
 %systemd_post ndmspc-http@*.service
 
-%preun
+%preun server
 %systemd_preun ndmspc-http@*.service
 
-%postun
+%postun server
 %systemd_postun ndmspc-http@*.service
 
 %preun jupyroot
@@ -80,21 +89,22 @@ make install DESTDIR=%{buildroot}
 %systemd_post ndmspc-notebook@*.service
 
 %files
-%{_bindir}/*
 %{_libdir}/*
 %{_datadir}/%{name}/*
 %{_sysconfdir}/ndmspc/*
 %{_sysconfdir}/profile.d/*
 %{_includedir}/*
-%{_unitdir}/ndmspc-http@.service
-%{_sysconfdir}/systemd/user/ndmspc-http@.service
 
 %files doc
 %doc /usr/share/doc/%{name}/
 
+%files server
+%{_bindir}/ndmspc-server
+%{_unitdir}/ndmspc-http@.service
+%{_sysconfdir}/systemd/user/ndmspc-http@.service
+
 %files jupyroot
 %{_unitdir}/ndmspc-notebook@.service
 %{_sysconfdir}/systemd/user/ndmspc-notebook@.service
-
 
 %changelog

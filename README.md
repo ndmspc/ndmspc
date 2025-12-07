@@ -31,12 +31,11 @@ One can access
 Via docker:
 
 ```bash
-docker run -d --name ndmspc -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc:latest ndmspc-cli serve stress
+docker run -d --name ndmspc -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc:latest ndmspc-server start stress
 ```
 
 To get help:
 
 ```bash
-docker run -d --name ndmspc -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc:latest ndmspc-cli serve stress --help
+docker run --rm registry.gitlab.com/ndmspc/ndmspc:latest ndmspc-server stress --help
 ```
-

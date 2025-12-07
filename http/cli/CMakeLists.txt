@@ -5,6 +5,7 @@ set(MY_INCLUDE_DIRS
   ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/base
+  ${CMAKE_SOURCE_DIR}/http
   ${CMAKE_SOURCE_DIR}/hep
 )
 
@@ -15,7 +16,7 @@ set(MY_EXTERNAL_LIBS
   ${LIBWEBSOCKETS_LIBRARIES}
   RHTTP
   NdmspcBase
-  NdmspcCore
+  NdmspcHttp
   NdmspcHep
 )
 
