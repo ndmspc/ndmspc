@@ -9,6 +9,7 @@ BEING_STRICT=false
 
 BUILDING_DOC=false
 WITH_TEST=${WITH_TEST-false}
+WITH_SERVER=${WITH_SERVER-true}
 WITH_LEGACY=${WITH_LEGACY-false}
 WITH_PARQUET=${WITH_PARQUET-false}
 WITH_OPENTELEMETRY=${WITH_OPENTELEMETRY-false}
@@ -68,6 +69,10 @@ for ARG in $@; do
       echo "Will install after compilation"
       MY_MAKE_OPTS="${MY_MAKE_OPTS} install"
       ;;
+    "server")
+      echo "Forcing build with Parquet support"
+      WITH_SERVER=true
+      ;;
     "parquet")
       echo "Forcing build with Parquet support"
       WITH_PARQUET=true
@@ -114,6 +119,9 @@ if [[ $WITH_PARQUET == true ]]; then
 fi
 if [[ $WITH_OPENTELEMETRY == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_OPENTELEMETRY:bool=ON"
+fi
+if [[ $WITH_SERVER == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_SERVER:bool=ON"
 fi
 
 # MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"

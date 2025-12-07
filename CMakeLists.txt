@@ -9,7 +9,8 @@ project(ndmspc VERSION 1.0.0 DESCRIPTION "NDMSPC")
 set(PROJECT_VERSION_RELEASE rc1)
 
 option(USE_LEGACY "Compile with legacy code" OFF)
-option(WITH_TEST "Compile with latest code" OFF)
+option(WITH_TEST "Compile with tests" OFF)
+option(WITH_SERVER "Compile with server part" ON)
 option(WITH_PARQUET "Compile with Parquet support" OFF)
 option(WITH_OPENTELEMETRY "Compile with opentelemetry support" OFF)
 
@@ -19,13 +20,12 @@ option(ENABLE_STRICT_WARNINGS "Enable strict warning flags" OFF)
 include(cmake/base.cmake)
 include(cmake/deps.cmake)
 
-
-#include_directories(${PROJECT_SOURCE_DIR}/Utils)
-
 add_subdirectory(base)
 add_subdirectory(core)
+if(WITH_SERVER)
+  add_subdirectory(http)
+endif()
 add_subdirectory(hep)
-add_subdirectory(cli)
 if(WITH_TEST)
   find_package(GTest)
   if(GTest_FOUND)
