@@ -4,8 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/ndmspc/ndmspc-http
-EnvironmentFile=-/etc/ndmspc/ndmspc-http.%I
+EnvironmentFile=/etc/ndmspc/http
+EnvironmentFile=-/etc/ndmspc/http.%I
+EnvironmentFile=-%h/.ndmspc/http
+EnvironmentFile=-%h/.ndmspc/http.%I
 ExecStart=/usr/bin/ndmspc-cli serve %I $NDMSPC_HTTP_OPTS
 Restart=on-abort
 

@@ -17,7 +17,7 @@ class NHnSparseTree;
 
 class NHnSparseTreePoint : public TObject {
   public:
-  NHnSparseTreePoint(NHnSparseTree * hnst = nullptr);
+  NHnSparseTreePoint(NHnSparseTree * ngnt = nullptr);
   virtual ~NHnSparseTreePoint();
 
   virtual void Print(Option_t * option = "") const;
@@ -36,7 +36,7 @@ class NHnSparseTreePoint : public TObject {
   std::vector<int>    GetVariableAxisIndexes() const;
   Long64_t            GetEntryNumber() const;
 
-  void SetHnSparseTree(NHnSparseTree * hnst) { fHnst = hnst; }
+  void SetHnSparseTree(NHnSparseTree * ngnt) { fHnst = ngnt; }
   void SetPointContent(const std::vector<int> & content);
   // void SetPointStorage(const std::vector<int> & storage);
   //

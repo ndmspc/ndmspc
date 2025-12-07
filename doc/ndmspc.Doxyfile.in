@@ -96,7 +96,6 @@ WARN_LOGFILE =
 WARN_AS_ERROR = @DOXYGEN_WARN_AS_ERROR@
 INPUT = @doxy_main_page@ \
         @PROJECT_SOURCE_DIR@/base \
-        @PROJECT_SOURCE_DIR@/http \
         @PROJECT_SOURCE_DIR@/core
 INPUT_ENCODING = UTF-8
 FILE_PATTERNS = *.h *.hh *.c *.cc *.cpp *.cxx

@@ -9,7 +9,7 @@
 #include <NLogger.h>
 #include <NUtils.h>
 
-void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/AliRsnResults_ngnt.root")
+void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/NAliRsnResults_ngnt.root")
 {
   // Enable multithreading if nThreads > 1
   if (nThreads != 1) ROOT::EnableImplicitMT(nThreads);
@@ -30,7 +30,7 @@ void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/AliRsnResults_
   std::map<std::string, std::set<std::string>> axes;
 
   for (const auto & path : paths) {
-    Ndmspc::NLogger::Info("Found file: %s", path.c_str());
+    NLogInfo("Found file: %s", path.c_str());
     // remove prefix basePath from path
     TString relativePath = path;
     relativePath.ReplaceAll(basePath.c_str(), "");
@@ -79,7 +79,7 @@ void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/AliRsnResults_
 
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
-    // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
+    // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();
     json        cfg           = point->GetCfg();
@@ -97,11 +97,11 @@ void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/AliRsnResults_
 
     std::string fcparPath = filePath + fcparFileName;
 
-    Ndmspc::NLogger::Info("Processing file: %s", fcparPath.c_str());
+    NLogInfo("Processing file: %s", fcparPath.c_str());
     //
     TFile * fileFCPAR = Ndmspc::NUtils::OpenFile(fcparPath, "READ", false);
     if (!fileFCPAR || fileFCPAR->IsZombie()) {
-      Ndmspc::NLogger::Error("Failed to open file: %s", fcparPath.c_str());
+      NLogError("Failed to open file: %s", fcparPath.c_str());
       return;
     }
 
@@ -112,7 +112,7 @@ void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/AliRsnResults_
       std::string keyName    = key->GetName();
       TH1 *       hCorrected = correctedList->Get<TH1>(keyName.c_str()); // get histogram by key name from the directory
       if (!hCorrected) {
-        Ndmspc::NLogger::Error("Failed to get histogram: %s from file: %s", keyName.c_str(), fcparPath.c_str());
+        NLogError("Failed to get histogram: %s from file: %s", keyName.c_str(), fcparPath.c_str());
         continue;
       }
       hCorrected->SetDirectory(nullptr); // Detach histogram from file
@@ -124,7 +124,7 @@ void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/AliRsnResults_
       std::string keyName   = key->GetName();
       TH1 *       hOriginal = originalList->Get<TH1>(keyName.c_str()); // get histogram by key name from the directory
       if (!hOriginal) {
-        Ndmspc::NLogger::Error("Failed to get histogram: %s from file: %s", keyName.c_str(), fcparPath.c_str());
+        NLogError("Failed to get histogram: %s from file: %s", keyName.c_str(), fcparPath.c_str());
         continue;
       }
       hOriginal->SetDirectory(nullptr); // Detach histogram from file
@@ -139,11 +139,11 @@ void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/AliRsnResults_
   // // ngnt_taxi->Print();
   //
   if (rc) {
-    Ndmspc::NLogger::Info("NAliRsnDownload: Processing completed successfully.");
+    NLogInfo("NAliRsnDownload: Processing completed successfully.");
     ngnt->Close(true);
   }
   else {
-    Ndmspc::NLogger::Error("NAliRsnDownload: Processing failed.");
+    NLogError("NAliRsnDownload: Processing failed.");
     ngnt->Close(false);
   }
 

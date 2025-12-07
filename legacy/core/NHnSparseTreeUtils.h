@@ -20,13 +20,13 @@ class NHnSparseTreeUtils : public TObject {
   public:
   // Stable
 
-  /// Create hnst.root file from points
+  /// Create ngnt.root file from points
   static NHnSparseTree * Create(std::vector<std::vector<std::string>> points, std::vector<std::string> axisNames,
                                 std::vector<std::string> axisTitles = {});
-  /// Create hnst.root file from directory (just mapping)
+  /// Create ngnt.root file from directory (just mapping)
   static bool CreateFromDir(std::string dir, std::vector<std::string> axisNames, std::string filter = "");
   static bool Reshape(std::string hnstFileNameIn, std::vector<std::string> objNames = {}, std::string directory = "",
-                      std::string hnstFileNameOut = "$HOME/.ndmspc/analyses/dev/myAna/hnst.root");
+                      std::string hnstFileNameOut = "$HOME/.ndmspc/analyses/dev/myAna/ngnt.root");
 
   private:
   NHnSparseTreeUtils();

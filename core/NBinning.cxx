@@ -37,7 +37,7 @@ NBinning::NBinning(TObjArray * axes) : TObject()
   ///
 
   if (axes == nullptr) {
-    NLogger::Error("NBinning(TObjArray * axes) : axes is nullptr");
+    NLogError("NBinning(TObjArray * axes) : axes is nullptr");
     return;
   }
 
@@ -47,7 +47,7 @@ NBinning::NBinning(TObjArray * axes) : TObject()
       fAxes.push_back((TAxis *)axis->Clone());
     }
     else {
-      NLogger::Error("NBinning: Axis %d is not a TAxis", i);
+      NLogError("NBinning: Axis %d is not a TAxis", i);
     }
   }
 
@@ -94,7 +94,7 @@ void NBinning::Initialize()
   ///
 
   if (fAxes.size() == 0) {
-    NLogger::Error("No axes provided");
+    NLogError("No axes provided");
     return;
   }
 
@@ -108,7 +108,7 @@ void NBinning::Initialize()
     if (nbins > nbinsMax) {
       nbinsMax = nbins;
     }
-    // NLogger::Debug("Axis %d: %s nbins=%d", i, fAxes[i]->GetName(), nbins);
+    // NLogDebug("Axis %d: %s nbins=%d", i, fAxes[i]->GetName(), nbins);
     // if (nbins == 1 || axes[i]->IsAlphanumeric()) {
     TString axisname(fAxes[i]->GetName());
     bool    isUser = axisname.Contains("/U");
@@ -153,9 +153,9 @@ void NBinning::Initialize()
   if (fMap) {
     delete fMap;
   }
-  fMap = new THnSparseI("hnstBinnings", "hnst binnings", dimBinning, nbinsBinning, xminBinning, xmaxBinning);
+  fMap = new THnSparseI("ngntBinningMap", "NGnTree binning map", dimBinning, nbinsBinning, xminBinning, xmaxBinning);
   if (fMap == nullptr) {
-    NLogger::Error("Cannot create binnings !!!");
+    NLogError("Cannot create binnings !!!");
     return;
   }
   fMap->GetAxis(0)->SetNameTitle("dim", "dimension");
@@ -174,12 +174,12 @@ void NBinning::Initialize()
   int        iContentDim         = 0;
   for (int i = 0; i < dim; i++) {
     if (fBinningTypes[i] == Binning::kSingle) {
-      // NLogger::Debug("Binning %d: %d", i, axes[idim]->GetNbins());
+      // NLogDebug("Binning %d: %d", i, axes[idim]->GetNbins());
       nbinsBinningContent[iContentDim] = fAxes[i]->GetNbins();
       xminBinningContent[iContentDim]  = 0;
       xmaxBinningContent[iContentDim]  = fAxes[i]->GetNbins();
       iContentDim++;
-      NLogger::Trace("[S] Binning %d: %d", i, fAxes[i]->GetNbins());
+      NLogTrace("[S] Binning %d: %d", i, fAxes[i]->GetNbins());
     }
     else if (fBinningTypes[i] == Binning::kMultiple) {
       for (int j = 0; j < 3; j++) {
@@ -188,22 +188,22 @@ void NBinning::Initialize()
         xmaxBinningContent[iContentDim + j]  = fAxes[i]->GetNbins();
       }
       iContentDim += 3;
-      NLogger::Trace("[M] Binning %d: %d", i, fAxes[i]->GetNbins());
+      NLogTrace("[M] Binning %d: %d", i, fAxes[i]->GetNbins());
     }
     else if (fBinningTypes[i] == Binning::kUser) {
-      // NLogger::Debug("Binning %d: %d", i, axes[idim]->GetNbins());
+      // NLogDebug("Binning %d: %d", i, axes[idim]->GetNbins());
       nbinsBinningContent[iContentDim] = fAxes[i]->GetNbins();
       xminBinningContent[iContentDim]  = 0;
       xmaxBinningContent[iContentDim]  = fAxes[i]->GetNbins();
       iContentDim++;
-      NLogger::Trace("[U] Binning %d: %d", i, fAxes[i]->GetNbins());
+      NLogTrace("[U] Binning %d: %d", i, fAxes[i]->GetNbins());
     }
     else {
-      NLogger::Error("Invalid binning type %d", fBinningTypes[i]);
+      NLogError("Invalid binning type %d", fBinningTypes[i]);
       return;
     }
   }
-  fContent = new THnSparseI("hnstBinningContent", "hnst binning content", dimBinningContent, nbinsBinningContent,
+  fContent = new THnSparseI("ngntBinningContent", "NGnTree binning content", dimBinningContent, nbinsBinningContent,
                             xminBinningContent, xmaxBinningContent);
 
   int                      iContentAxis = 0;
@@ -211,7 +211,7 @@ void NBinning::Initialize()
   for (int i = 0; i < dim; i++) {
     std::string name  = fAxes[i]->GetName();
     std::string title = fAxes[i]->GetName();
-    // NLogger::Trace("Binning %d: %d %d", i, axes[i]->GetNbins(), fBinningTypes[i]);
+    // NLogTrace("Binning %d: %d %d", i, axes[i]->GetNbins(), fBinningTypes[i]);
     if (fBinningTypes[i] == Binning::kSingle) {
       fContent->GetAxis(iContentAxis)->SetNameTitle(name.c_str(), title.c_str());
       iContentAxis++;
@@ -224,7 +224,7 @@ void NBinning::Initialize()
         fContent->GetAxis(iContentAxis)->SetNameTitle(n.c_str(), t.c_str());
         iContentAxis++;
       }
-      // NLogger::Debug("Binning %d: %d", i, axes[idim]->GetNbins());
+      // NLogDebug("Binning %d: %d", i, axes[idim]->GetNbins());
     }
     else if (fBinningTypes[i] == Binning::kUser) {
       fContent->GetAxis(iContentAxis)->SetNameTitle(name.c_str(), title.c_str());
@@ -232,8 +232,7 @@ void NBinning::Initialize()
     }
   }
   for (int i = 0; i < fContent->GetNdimensions(); i++) {
-    NLogger::Trace("Axis[fContent] %d: %s nbins=%d", i, fContent->GetAxis(i)->GetName(),
-                   fContent->GetAxis(i)->GetNbins());
+    NLogTrace("Axis[fContent] %d: %s nbins=%d", i, fContent->GetAxis(i)->GetName(), fContent->GetAxis(i)->GetNbins());
   }
 
   fPoint = new NBinningPoint(this);
@@ -250,61 +249,61 @@ void NBinning::Print(Option_t * option) const
   ///
 
   if (fMap == nullptr) {
-    NLogger::Error("THnSparse fMap is null");
+    NLogError("THnSparse fMap is null");
     return;
   }
 
   TString opt(option);
   opt.ToLower();
 
-  NLogger::Info("NBinning base axes:");
+  NLogInfo("NBinning base axes:");
   for (int i = 0; i < fAxes.size(); i++) {
-    NLogger::Info("  Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fAxes[i]->GetName(),
-                  fAxes[i]->GetTitle(), fAxes[i]->GetNbins(), fAxes[i]->GetXmin(), fAxes[i]->GetXmax());
+    NLogInfo("  Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fAxes[i]->GetName(), fAxes[i]->GetTitle(),
+             fAxes[i]->GetNbins(), fAxes[i]->GetXmin(), fAxes[i]->GetXmax());
   }
 
   if (opt.Contains("A")) {
-    NLogger::Info("NBinning map name='%s' title='%s'", fMap->GetName(), fMap->GetTitle());
-    NLogger::Info("    dimensions: %d", fMap->GetNdimensions());
+    NLogInfo("NBinning map name='%s' title='%s'", fMap->GetName(), fMap->GetTitle());
+    NLogInfo("    dimensions: %d", fMap->GetNdimensions());
     // loop over all axes and print name title
     for (int i = 0; i < fMap->GetNdimensions(); i++) {
-      NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fMap->GetAxis(i)->GetName(),
-                    fMap->GetAxis(i)->GetTitle(), fMap->GetAxis(i)->GetNbins(), fMap->GetAxis(i)->GetXmin(),
-                    fMap->GetAxis(i)->GetXmax());
+      NLogInfo("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fMap->GetAxis(i)->GetName(),
+               fMap->GetAxis(i)->GetTitle(), fMap->GetAxis(i)->GetNbins(), fMap->GetAxis(i)->GetXmin(),
+               fMap->GetAxis(i)->GetXmax());
     }
-    NLogger::Info("    filled bins = %lld", fMap->GetNbins());
-    NLogger::Info("NBinning content name='%s' title='%s'", fContent->GetName(), fContent->GetTitle());
-    NLogger::Info("    dimensions: %d", fContent->GetNdimensions());
+    NLogInfo("    filled bins = %lld", fMap->GetNbins());
+    NLogInfo("NBinning content name='%s' title='%s'", fContent->GetName(), fContent->GetTitle());
+    NLogInfo("    dimensions: %d", fContent->GetNdimensions());
     // loop over all axes and print name title
     for (int i = 0; i < fContent->GetNdimensions(); i++) {
-      NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fContent->GetAxis(i)->GetName(),
-                    fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(), fContent->GetAxis(i)->GetXmin(),
-                    fContent->GetAxis(i)->GetXmax());
+      NLogInfo("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, fContent->GetAxis(i)->GetName(),
+               fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(), fContent->GetAxis(i)->GetXmin(),
+               fContent->GetAxis(i)->GetXmax());
     }
   }
-  NLogger::Info("NBinning content:");
-  NLogger::Info("    filled bins = %lld", fContent->GetNbins());
+  NLogInfo("NBinning content:");
+  NLogInfo("    filled bins = %lld", fContent->GetNbins());
   // print list of definitions names from fDefinitions
-  NLogger::Info("NBinning definitions:");
+  NLogInfo("NBinning definitions:");
   for (const auto & kv : fDefinitions) {
     if (kv.first == fCurrentDefinitionName) {
-      NLogger::Info("  '%s' (current)", kv.first.c_str());
+      NLogInfo("  '%s' (current)", kv.first.c_str());
     }
     else {
-      NLogger::Info("  '%s'", kv.first.c_str());
+      NLogInfo("  '%s'", kv.first.c_str());
     }
   }
 
   if (option && opt.Contains("all")) {
-    NLogger::Info("NBinning content:");
+    NLogInfo("NBinning content:");
     PrintContent(option);
   }
 
   // // loop over definition and print
   // for (const auto & kv : fDefinition) {
-  //   NLogger::Info("Binning '%s':", kv.first.c_str());
+  //   NLogInfo("Binning '%s':", kv.first.c_str());
   //   for (const auto & v : kv.second) {
-  //     NLogger::Info("  %s", NUtils::GetCoordsString(v, -1).c_str());
+  //     NLogInfo("  %s", NUtils::GetCoordsString(v, -1).c_str());
   //   }
   // }
 
@@ -323,7 +322,7 @@ void NBinning::Print(Option_t * option) const
   // size_t num_threads_to_use = 0;
   // // set num_threads_to_use to the number of available threads
   // if (num_threads_to_use < 1) num_threads_to_use = std::thread::hardware_concurrency();
-  // NLogger::Info("Using %zu threads ...", num_threads_to_use);
+  // NLogInfo("Using %zu threads ...", num_threads_to_use);
   // std::vector<NThreadData> thread_data_vector(num_threads_to_use);
   // for (size_t i = 0; i < thread_data_vector.size(); ++i) {
   //   thread_data_vector[i].SetAssignedIndex(i);
@@ -357,7 +356,7 @@ void NBinning::PrintContent(Option_t * option) const
     Double_t    v         = cSparse->GetBinContent(linBin, bins);
     Long64_t    idx       = cSparse->GetBin(bins);
     std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(bins, cSparse->GetNdimensions()), -1);
-    // NLogger::Trace("Bin %lld: %f %s", linBin, v, binCoords.c_str());
+    // NLogTrace("Bin %lld: %f %s", linBin, v, binCoords.c_str());
 
     int  iAxis   = 0;
     bool isValid = false;
@@ -367,7 +366,7 @@ void NBinning::PrintContent(Option_t * option) const
       int min;
       int max;
       // Print type of binning
-      // NLogger::Trace("Axis %d: %s [%s]", iAxis, fAxes[iAxis]->GetName(),
+      // NLogTrace("Axis %d: %s [%s]", iAxis, fAxes[iAxis]->GetName(),
       //                fBinningTypes[iAxis] == Binning::kSingle ? "S" : "M");
       if (fBinningTypes[iAxis] == Binning::kSingle) {
         isValid = NUtils::GetAxisRangeInBase(fAxes[iAxis], 1, 1, bins[index], min, max);
@@ -396,20 +395,20 @@ void NBinning::PrintContent(Option_t * option) const
         index++;
       }
       else {
-        NLogger::Error("[NBinning::PrintContent] Unknown binning type [%d]", fBinningTypes[iAxis]);
+        NLogError("[NBinning::PrintContent] Unknown binning type [%d]", fBinningTypes[iAxis]);
         continue;
       }
       if (!isValid) {
-        NLogger::Error("Cannot get axis range for axis %d", iAxis);
+        NLogError("Cannot get axis range for axis %d", iAxis);
         continue;
       }
     }
     if (!isValid) {
-      // NLogger::Error("Cannot get axis range for axis %d", iAxis);
-      NLogger::Error("Bin %lld: %s  [not valid for axis=%s]", linBin, binCoords.c_str(), fAxes[iAxis]->GetName());
+      // NLogError("Cannot get axis range for axis %d", iAxis);
+      NLogError("Bin %lld: %s  [not valid for axis=%s]", linBin, binCoords.c_str(), fAxes[iAxis]->GetName());
       continue;
     }
-    NLogger::Debug("Bin %lld: %s", linBin, binCoords.c_str());
+    NLogDebug("Bin %lld: %s", linBin, binCoords.c_str());
   }
   delete[] bins;
 }
@@ -433,19 +432,18 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   Long64_t                                        linBin  = 0;
   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
   // Print number of filled bins
-  // NLogger::Info("Filled bins = %lld", cSparse->GetNbins());
+  // NLogInfo("Filled bins = %lld", cSparse->GetNbins());
   while ((linBin = iter->Next()) >= 0) {
     Double_t v = cSparse->GetBinContent(linBin, p);
     // continue;
     int idx = p[0] - 1;
-    NLogger::Trace("NBinning::FillAll: Bin %lld: %d %d %d %d type=%d", linBin, p[0], p[1], p[2], p[3],
-                   fBinningTypes[idx]);
+    NLogTrace("NBinning::FillAll: Bin %lld: %d %d %d %d type=%d", linBin, p[0], p[1], p[2], p[3], fBinningTypes[idx]);
     if (fBinningTypes[idx] == Binning::kSingle) {
 
       content[idx].push_back({p[0], p[3]});
     }
     else if (fBinningTypes[idx] == Binning::kMultiple) {
-      // NLogger::Debug("Binning %d: %d", i, axes[idim]->GetNbins());
+      // NLogDebug("Binning %d: %d", i, axes[idim]->GetNbins());
       content[idx].push_back({p[0], p[1], p[2], p[3]});
     }
     else if (fBinningTypes[idx] == Binning::kUser) {
@@ -453,7 +451,7 @@ Long64_t NBinning::FillAll(NBinningDef * def)
       content[idx].push_back({p[0], 1});
     }
     else {
-      NLogger::Error("NBinning::FillAll: Unknown binning type %d", fBinningTypes[idx]);
+      NLogError("NBinning::FillAll: Unknown binning type %d", fBinningTypes[idx]);
       continue;
     }
     maxs[idx] = maxs[idx] + 1;
@@ -464,31 +462,31 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   // loop over content vector and set axis types
   for (size_t i = 0; i < content.size(); i++) {
     if (content[i].size() == 0) {
-      NLogger::Warning("NBinning::FillAll: No content for binning %zu", i);
+      NLogWarning("NBinning::FillAll: No content for binning %zu", i);
       continue;
     }
 
     if (content[i].size() > 1) {
       TAxis * axis  = fAxes[i];
       fAxisTypes[i] = AxisType::kVariable;
-      NLogger::Trace("NBinning::FillAll: Axis id=%d name=%s bins=%zu", i, axis->GetName(), content[i].size());
+      NLogTrace("NBinning::FillAll: Axis id=%d name=%s bins=%zu", i, axis->GetName(), content[i].size());
       // check if i is persent in variable axes of def
       bool found = false;
       for (size_t j = 0; j < def->GetVariableAxes().size(); j++) {
         if (def->GetVariableAxes()[j] == static_cast<int>(i)) {
-          NLogger::Trace("NBinning::FillAll: Axis id=%d name=%s already in variable axes of def", i, axis->GetName());
+          NLogTrace("NBinning::FillAll: Axis id=%d name=%s already in variable axes of def", i, axis->GetName());
           found = true;
           break;
         }
       }
-      NLogger::Trace("NBinning::FillAll: Axis id=%d name=%s set to variable found=%d", i, axis->GetName(), found);
+      NLogTrace("NBinning::FillAll: Axis id=%d name=%s set to variable found=%d", i, axis->GetName(), found);
       if (!found) def->AddVariableAxis(i);
     }
     nTotalBins *= content[i].size();
   }
 
   def->Print();
-  NLogger::Debug("NBinning::FillAll: Filling total of %lld bins ...", nTotalBins);
+  NLogDebug("NBinning::FillAll: Filling total of %lld bins ...", nTotalBins);
 
   auto start_par = std::chrono::high_resolution_clock::now();
   // Loop over all binning combinations
@@ -496,7 +494,7 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   auto binning_task = [&content, &nBinsFilled, &nTotalBins, start_par, def, this](const std::vector<int> & coords) {
     std::vector<int> pointContentVector;
     int              iContentpoint = 0;
-    // NLogger::Debug("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
+    // NLogDebug("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
     for (size_t i = 0; i < coords.size(); i++) {
       if (content[i][coords[i] - 1].size() == 2) {
         pointContentVector.push_back(content[i][coords[i] - 1][1]);
@@ -525,23 +523,23 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     }
     fContent->SetBinContent(pointContentBin, 1);
     nBinsFilled++;
-    // NLogger::Debug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,
+    // NLogDebug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,
     //                NUtils::GetCoordsString(pointContentVector, -1).c_str());
-    NLogger::Trace("NBinning::FillAll: Filled bin %lld: %lld", nBinsFilled, nTotalBins);
+    NLogTrace("NBinning::FillAll: Filled bin %lld: %lld", nBinsFilled, nTotalBins);
     int refreshRate = nTotalBins / 100;
     if (refreshRate == 0) refreshRate = nTotalBins;
     if (nBinsFilled % (refreshRate) == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par);
-    // NLogger::Debug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
+    // NLogDebug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
     //                nBinsFilled);
   };
   executor.Execute(binning_task);
-  Printf("");
+  Printf("%s", "");
 
   auto                                      end_par      = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
 
-  Ndmspc::NLogger::Info("NBinning::FillAll: Filled %lld bins in %s s", nTotalBins,
-                        NUtils::FormatTime(par_duration.count() / 1000).c_str());
+  NLogInfo("NBinning::FillAll: Filled %lld bins in %s s", nTotalBins,
+           NUtils::FormatTime(par_duration.count() / 1000).c_str());
 
   fMap->Reset();
 
@@ -555,12 +553,12 @@ bool NBinning::AddBinning(int id, std::vector<int> binning, int n)
   ///
 
   if (fAxes.size() == 0) {
-    NLogger::Error("AddBinning: No axes defined !!!");
+    NLogError("AddBinning: No axes defined !!!");
     return false;
   }
 
   if (id <= 0 || id > fAxes.size()) {
-    NLogger::Error("AddBinning: Invalid binning id %d", id);
+    NLogError("AddBinning: Invalid binning id %d", id);
     return false;
   }
 
@@ -573,7 +571,7 @@ bool NBinning::AddBinning(int id, std::vector<int> binning, int n)
     point[1] = 1;
   }
   for (int i = 0; i < n; i++) {
-    NLogger::Trace("Adding binning %d: %d %d %d %d", i, point[0], point[1], point[2], point[3]);
+    NLogTrace("Adding binning %d: %d %d %d %d", i, point[0], point[1], point[2], point[3]);
     fMap->SetBinContent(point, 1);
     point[3] += 1;
   }
@@ -587,7 +585,7 @@ bool NBinning::AddBinningVariable(int id, std::vector<int> mins)
   /// Add Variable binning
   ///
   if (id <= 0 || id > fAxes.size()) {
-    NLogger::Error("AddBinningVariable: Invalid binning id %d", id);
+    NLogError("AddBinningVariable: Invalid binning id %d", id);
     return false;
   }
 
@@ -595,13 +593,13 @@ bool NBinning::AddBinningVariable(int id, std::vector<int> mins)
   for (int i = 1; i < mins.size(); i++) {
 
     if (mins[i] < 1 || mins[i] > fAxes[id - 1]->GetNbins() + 1) {
-      // NLogger::Warning("AddBinningVariable: Invalid binning value mins=%d", mins[i]);
+      // NLogWarning("AddBinningVariable: Invalid binning value mins=%d", mins[i]);
       return true;
     }
     // if (mins[i] == fAxes[id - 1]->GetNbins() || i == mins.size() - 1) mins[i]++;
     int rebin = mins[i] - mins[i - 1];
     if (rebin < 1) {
-      NLogger::Error("AddBinningVariable: Invalid binning value rebin=%d", rebin);
+      NLogError("AddBinningVariable: Invalid binning value rebin=%d", rebin);
       return false;
     }
 
@@ -615,7 +613,7 @@ bool NBinning::AddBinningVariable(int id, std::vector<int> mins)
       bin         = mins[i - 1];
     }
     // rebin_start + 1 is just that it looks better in the output
-    // NLogger::Debug("Adding partial binning %d: %d %d %d %d [%d,%d]", i - 1, id, rebin, rebin_start + 1, bin,
+    // NLogDebug("Adding partial binning %d: %d %d %d %d [%d,%d]", i - 1, id, rebin, rebin_start + 1, bin,
     //                mins[i - 1], mins[i]);
     AddBinning(id, {rebin, rebin_start, bin}, 1);
   }
@@ -627,7 +625,7 @@ bool NBinning::AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widt
   ///
   /// Add binning via bin widths
   ///
-  // NLogger::Trace("Adding binning via bin widths for id=%d", id);
+  // NLogTrace("Adding binning via bin widths for id=%d", id);
   std::vector<int> mins;
   // Print vector of widths
   mins.push_back(1);
@@ -636,19 +634,19 @@ bool NBinning::AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widt
     int     width   = w[0];
     int     nWidths = w.size() > 1 ? w[1] : axis->GetNbins() / width;
 
-    // NLogger::Debug("  width=%d nWidths=%d last min=%d", width, nWidths, mins[mins.size() - 1]);
+    // NLogDebug("  width=%d nWidths=%d last min=%d", width, nWidths, mins[mins.size() - 1]);
     for (int iWidth = 0; iWidth < nWidths; iWidth++) {
       if (mins[mins.size() - 1] > axis->GetNbins()) {
-        // NLogger::Warning("NBinning::AddBinningViaBinWidths: Exceeding axis nbins %d", axis->GetNbins());
+        // NLogWarning("NBinning::AddBinningViaBinWidths: Exceeding axis nbins %d", axis->GetNbins());
         break;
       }
       mins.push_back(mins[mins.size() - 1] + width);
-      // NLogger::Debug("  width=%d nWidths=%d iWidth=%d -> min=%d", width, nWidths, iWidth, mins[mins.size() - 1]);
+      // NLogDebug("  width=%d nWidths=%d iWidth=%d -> min=%d", width, nWidths, iWidth, mins[mins.size() - 1]);
     }
   }
 
-  NLogger::Trace("NBinning::AddBinningViaBinWidths: Adding binning via bin widths: %s",
-                 NUtils::GetCoordsString(mins, -1).c_str());
+  NLogTrace("NBinning::AddBinningViaBinWidths: Adding binning via bin widths: %s",
+            NUtils::GetCoordsString(mins, -1).c_str());
 
   return AddBinningVariable(id, mins);
 }
@@ -680,15 +678,15 @@ std::vector<std::vector<int>> NBinning::GetCoordsRange(std::vector<int> c) const
       index++;
     }
     else {
-      NLogger::Error("NBinning::GetCoordsRange: Unknown binning type %d", fBinningTypes[iAxis]);
+      NLogError("NBinning::GetCoordsRange: Unknown binning type %d", fBinningTypes[iAxis]);
       continue;
     }
     if (!isValid) {
-      // NLogger::Error("Cannot get axis range for axis %d", iAxis);
+      // NLogError("Cannot get axis range for axis %d", iAxis);
       return {};
     }
     // print min max
-    NLogger::Debug("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
+    NLogDebug("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
     ids.push_back(iAxis); // +1 because id starts from 1
     mins.push_back(min);
     maxs.push_back(max);
@@ -703,7 +701,7 @@ std::vector<std::vector<int>> NBinning::GetCoordsRange(std::vector<int> c) const
 Binning NBinning::GetBinningType(int i) const
 {
   if (i < 0 || i >= fBinningTypes.size()) {
-    NLogger::Error("Invalid binning type %d", i);
+    NLogError("Invalid binning type %d", i);
     // return Binning::kSingle;
     return Binning::kUndefined;
   }
@@ -736,15 +734,15 @@ std::vector<std::vector<int>> NBinning::GetAxisRanges(std::vector<int> c) const
       index++;
     }
     else {
-      NLogger::Error("[NBinning::GetAxisRanges] Unknown binning type [%d]", fBinningTypes[iAxis]);
+      NLogError("[NBinning::GetAxisRanges] Unknown binning type [%d]", fBinningTypes[iAxis]);
       continue;
     }
     if (!isValid) {
-      // NLogger::Error("Cannot get axis range for axis %d", iAxis);
+      // NLogError("Cannot get axis range for axis %d", iAxis);
       return {};
     }
     // print min max
-    NLogger::Trace("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
+    NLogTrace("Axis %d: %s [%d,%d]", iAxis, fAxes[iAxis]->GetName(), min, max);
     axisRanges.push_back({iAxis, min, max});
   }
 
@@ -791,7 +789,7 @@ std::vector<int> NBinning::GetAxisBinning(int axisId, const std::vector<int> & c
       index++;
     }
     else {
-      NLogger::Error("[NBinning::GetAxisBinning] Unknown binning type [%d]", fBinningTypes[iAxis]);
+      NLogError("[NBinning::GetAxisBinning] Unknown binning type [%d]", fBinningTypes[iAxis]);
       continue;
     }
   }
@@ -819,7 +817,7 @@ bool NBinning::GetAxisRangeInBase(int axisId, int & min, int & max, std::vector<
   /// Get axis range for given axis id
   ///
   if (axisId < 0 || axisId >= fAxes.size()) {
-    NLogger::Error("Invalid axis id %d", axisId);
+    NLogError("Invalid axis id %d", axisId);
     return false;
   }
 
@@ -856,7 +854,7 @@ TObjArray * NBinning::GenerateListOfAxes()
     TAxis * axisNew = (TAxis *)axis->Clone();
 
     std::string name = axis->GetName();
-    NLogger::Trace("NBinning::GetListOfAxes(): Binning '%s': %d", name.c_str(), axis->GetNbins());
+    NLogTrace("NBinning::GetListOfAxes(): Binning '%s': %d", name.c_str(), axis->GetNbins());
 
     double bins[axis->GetNbins() + 1];
     int    count  = 0;
@@ -866,7 +864,7 @@ TObjArray * NBinning::GenerateListOfAxes()
     NBinningDef *                                        def        = GetDefinition();
     std::map<std::string, std::vector<std::vector<int>>> definition = def->GetDefinition();
     for (auto & v : definition.at(name)) {
-      NLogger::Trace("  %s", NUtils::GetCoordsString(v, -1).c_str());
+      NLogTrace("  %s", NUtils::GetCoordsString(v, -1).c_str());
 
       int n = v.size() > 1 ? v[1] : axis->GetNbins() / v[0];
       for (int i = 0; i < n; i++) {
@@ -876,7 +874,7 @@ TObjArray * NBinning::GenerateListOfAxes()
     }
     // loop over bins and print
     for (int i = 0; i < count; i++) {
-      NLogger::Trace("  %s: %d %f", axis->GetName(), i + 1, bins[i]);
+      NLogTrace("  %s: %d %f", axis->GetName(), i + 1, bins[i]);
     }
     axisNew->Set(count - 1, bins);
     axesArray->Add(axisNew);
@@ -891,7 +889,7 @@ bool NBinning::SetAxisType(int axisId, AxisType at)
   /// Set axis type
   ///
   if (axisId < 0 || axisId >= fAxes.size()) {
-    NLogger::Error("Invalid axis id %d", axisId);
+    NLogError("Invalid axis id %d", axisId);
     return false;
   }
   fAxisTypes[axisId] = at;
@@ -904,7 +902,7 @@ AxisType NBinning::GetAxisType(int i) const
   /// Get axis type
   ///
   if (i < 0 || i >= fAxisTypes.size()) {
-    NLogger::Error("Invalid axis type %d", i);
+    NLogError("Invalid axis type %d", i);
     return AxisType::kUndefined; // Undefined
   }
   return fAxisTypes[i];
@@ -912,7 +910,7 @@ AxisType NBinning::GetAxisType(int i) const
 char NBinning::GetAxisTypeChar(int i) const
 {
   if (i < 0 || i >= fAxisTypes.size()) {
-    NLogger::Error("Invalid axis type %d", i);
+    NLogError("Invalid axis type %d", i);
     return 'X'; // Undefined
   }
   switch (fAxisTypes[i]) {
@@ -931,11 +929,11 @@ std::vector<int> NBinning::GetAxisIndexes(AxisType type) const
   std::vector<int> ids;
   for (int i = 0; i < fAxes.size(); i++) {
     if (fAxisTypes[i] == type) {
-      NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      NLogTrace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
       ids.push_back(i);
     }
     else {
-      NLogger::Trace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      NLogTrace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
     }
   }
   return ids;
@@ -949,11 +947,11 @@ std::vector<TAxis *> NBinning::GetAxesByType(AxisType type) const
   std::vector<TAxis *> axes;
   for (int i = 0; i < fAxes.size(); i++) {
     if (fAxisTypes[i] == type) {
-      NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      NLogTrace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
       axes.push_back(fAxes[i]);
     }
     else {
-      NLogger::Trace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      NLogTrace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
     }
   }
   return axes;
@@ -968,7 +966,7 @@ std::vector<int> NBinning::GetAxisIndexesByNames(std::vector<std::string> names)
   for (auto & name : names) {
     for (int i = 0; i < fAxes.size(); i++) {
       if (fAxes[i]->GetName() == name) {
-        NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+        NLogTrace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
         ids.push_back(i);
         break; // break inner loop if found
       }
@@ -985,12 +983,12 @@ std::vector<std::string> NBinning::GetAxisNamesByType(AxisType type) const
   std::vector<std::string> names;
   for (int i = 0; i < fAxes.size(); i++) {
     if (fAxisTypes[i] == type) {
-      NLogger::Trace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      NLogTrace("Axis %d: %s type=%d", i, fAxes[i]->GetName(), fAxisTypes[i]);
       names.push_back(fAxes[i]->GetName());
       continue;
     }
     else {
-      NLogger::Trace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
+      NLogTrace("Axis %d: %s type=%d [not selected]", i, fAxes[i]->GetName(), fAxisTypes[i]);
     }
   }
   return names;
@@ -1003,10 +1001,10 @@ std::vector<std::string> NBinning::GetAxisNamesByIndexes(std::vector<int> ids) c
   std::vector<std::string> names;
   for (auto & id : ids) {
     if (id < 0 || id >= fAxes.size()) {
-      NLogger::Error("Invalid axis id %d", id);
+      NLogError("Invalid axis id %d", id);
       continue;
     }
-    NLogger::Trace("Axis %d: %s type=%d", id, fAxes[id]->GetName(), fAxisTypes[id]);
+    NLogTrace("Axis %d: %s type=%d", id, fAxes[id]->GetName(), fAxisTypes[id]);
     names.push_back(fAxes[id]->GetName());
   }
   return names;
@@ -1025,18 +1023,18 @@ NBinningDef * NBinning::GetDefinition(const std::string & name)
     }
     // check if current definition exists
     if (fDefinitions.find(fCurrentDefinitionName) == fDefinitions.end()) {
-      NLogger::Error("NBinning::GetDefinition: Current definition '%s' not found", fCurrentDefinitionName.c_str());
+      NLogError("NBinning::GetDefinition: Current definition '%s' not found", fCurrentDefinitionName.c_str());
       return nullptr;
     }
-    NLogger::Trace("NBinning::GetDefinition: Using current definition '%s'", fCurrentDefinitionName.c_str());
+    NLogTrace("NBinning::GetDefinition: Using current definition '%s'", fCurrentDefinitionName.c_str());
     return fDefinitions.at(fCurrentDefinitionName);
   }
 
   if (fDefinitions.find(name) == fDefinitions.end()) {
-    NLogger::Error("NBinning::GetDefinition: Definition '%s' not found", name.c_str());
+    NLogError("NBinning::GetDefinition: Definition '%s' not found", name.c_str());
     return nullptr;
   }
-  NLogger::Trace("NBinning::GetDefinition: Using definition '%s'", name.c_str());
+  NLogTrace("NBinning::GetDefinition: Using definition '%s'", name.c_str());
   fCurrentDefinitionName = name;
   return fDefinitions.at(name);
 }
@@ -1048,11 +1046,11 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   /// Add binning definition
   ///
   if (fDefinitions.find(name) != fDefinitions.end()) {
-    NLogger::Error("Binning definition '%s' already exists", name.c_str());
+    NLogError("Binning definition '%s' already exists", name.c_str());
     return;
   }
 
-  NLogger::Info("NBinning::AddBinningDefinition: Adding binning definition '%s'", name.c_str());
+  NLogInfo("NBinning::AddBinningDefinition: Adding binning definition '%s'", name.c_str());
   NBinningDef * def = new NBinningDef(name, binning, this);
   fDefinitionNames.push_back(name);
   fDefinitions[name]     = def;
@@ -1062,7 +1060,7 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   for (size_t i = 0; i < fAxes.size(); i++) {
     TAxis *     axis     = fAxes[i];
     std::string axisName = axis->GetName();
-    // Ndmspc::NLogger::Debug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
+    // NLogDebug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
     //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     if (!binning[axisName].empty()) {
       AddBinningViaBinWidths(i + 1, binning[axisName]);
@@ -1082,16 +1080,16 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   // std::vector<Long64_t> entries;
   Long64_t nFilled = FillAll(def);
   // def->Print();
-  // NLogger::Debug("NBinning::AddBinningDefinition: Filled %lld bins for definition '%s'", nFilled,
+  // NLogDebug("NBinning::AddBinningDefinition: Filled %lld bins for definition '%s'", nFilled,
   //                NUtils::GetCoordsString(def->GetIds(), -1).c_str());
   // def->SetNEntries(nFilled);
 
   if (forceDefault || fCurrentDefinitionName.empty()) {
     fCurrentDefinitionName = name;
-    NLogger::Trace("Set default binning definition '%s'", fCurrentDefinitionName.c_str());
+    NLogTrace("Set default binning definition '%s'", fCurrentDefinitionName.c_str());
   }
   else {
-    NLogger::Trace("Added binning definition '%s' [not default]", name.c_str());
+    NLogTrace("Added binning definition '%s' [not default]", name.c_str());
   }
 }
 
@@ -1117,7 +1115,7 @@ NBinningPoint * NBinning::GetPoint(int id, std::string binning)
 
   NBinningDef * def = GetDefinition(binning);
   if (def == nullptr) {
-    NLogger::Error("NBinning::FillPoint: Definition '%s' not found", binning.c_str());
+    NLogError("NBinning::FillPoint: Definition '%s' not found", binning.c_str());
     return nullptr;
   }
 
@@ -1127,13 +1125,12 @@ NBinningPoint * NBinning::GetPoint(int id, std::string binning)
 
   Long64_t linBin = def->GetId(id);
   if (linBin < 0) {
-    NLogger::Error("NBinning::GetPoint: Invalid linear bin %lld for id=%d in definition '%s'", linBin, id,
-                   binning.c_str());
+    NLogError("NBinning::GetPoint: Invalid linear bin %lld for id=%d in definition '%s'", linBin, id, binning.c_str());
     return nullptr;
   }
   if (linBin >= fContent->GetNbins()) {
-    NLogger::Error("NBinning::GetPoint: Linear bin %lld out of range [0,%lld) for id=%d in definition '%s'", linBin,
-                   fContent->GetNbins(), id, binning.c_str());
+    NLogError("NBinning::GetPoint: Linear bin %lld out of range [0,%lld) for id=%d in definition '%s'", linBin,
+              fContent->GetNbins(), id, binning.c_str());
     return nullptr;
   }
   fContent->GetBinContent(linBin, fPoint->GetCoords());
@@ -1162,24 +1159,23 @@ void NBinning::SetCurrentDefinitionName(const std::string & name)
   if (name.empty()) {
     if (!fDefinitionNames.empty()) {
       fCurrentDefinitionName = fDefinitionNames[0];
-      NLogger::Info("Binning definition name='' set to first available definition '%s'",
-                    fCurrentDefinitionName.c_str());
+      NLogInfo("Binning definition name='' set to first available definition '%s'", fCurrentDefinitionName.c_str());
       return;
     }
     else {
-      NLogger::Error("Binning definition name='' and no definitions are available !!! Ignorred ...");
+      NLogError("Binning definition name='' and no definitions are available !!! Ignorred ...");
       return;
     }
   }
 
   if (fDefinitions.find(name) == fDefinitions.end()) {
-    NLogger::Error("Binning definition '%s' not found", name.c_str());
+    NLogError("Binning definition '%s' not found", name.c_str());
     return;
   }
 
   // check if name is already current
   if (fCurrentDefinitionName.compare(name) == 0) {
-    NLogger::Trace("Binning definition '%s' is already current", name.c_str());
+    NLogTrace("Binning definition '%s' is already current", name.c_str());
     return;
   }
 

@@ -12,21 +12,21 @@
 #include <vector>
 #include <functional>
 
-// Forward declaration of the global LWS callback function.
-/**
- * @brief Global callback function for libwebsockets client events.
- *
- * Handles various websocket events such as connection, message receipt, errors, etc.
- *
- * @param wsi Pointer to the websocket instance.
- * @param reason Callback reason/event type.
- * @param user User data pointer.
- * @param in Input data pointer.
- * @param len Length of input data.
- * @return Status code for libwebsockets.
- */
-static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in,
-                                    size_t len);
+// // Forward declaration of the global LWS callback function.
+// /**
+//  * @brief Global callback function for libwebsockets client events.
+//  *
+//  * Handles various websocket events such as connection, message receipt, errors, etc.
+//  *
+//  * @param wsi Pointer to the websocket instance.
+//  * @param reason Callback reason/event type.
+//  * @param user User data pointer.
+//  * @param in Input data pointer.
+//  * @param len Length of input data.
+//  * @return Status code for libwebsockets.
+//  */
+// static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in,
+//                                     size_t len);
 
 namespace Ndmspc {
 
@@ -103,7 +103,7 @@ class NWsClient {
    */
   static WS_URI ParseUri(const std::string & uriString);
 
-  private:
+  // private:
   struct lws_context * fLwsContext;       ///< libwebsockets context
   struct lws *         fWsi;              ///< WebSocket instance
   std::thread          fLwsServiceThread; ///< Thread running the service loop
@@ -135,11 +135,11 @@ class NWsClient {
    */
   void LwsServiceLoop();
 
-  /**
-   * @brief Friend declaration for the global callback function.
-   */
-  friend int ::lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in,
-                                        size_t len);
+  // /**
+  //  * @brief Friend declaration for the global callback function.
+  //  */
+  // friend int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in,
+  //                                       size_t len);
 };
 
 } // namespace Ndmspc

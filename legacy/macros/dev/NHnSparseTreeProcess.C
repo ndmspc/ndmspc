@@ -3,7 +3,7 @@
 #include "NHnSparseTree.h"
 #include "MyProcess.C"
 
-void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmspc/dev/hnst.root",
+void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmspc/dev/ngnt.root",
                           std::string enabledBranches = "unlikepm,mixingpm")
 {
 
@@ -19,7 +19,7 @@ void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmsp
 
   Ndmspc::NHnSparseTree * hnstOut = new Ndmspc::NHnSparseTreeC("$HOME/.ndmspc/dev/hnst_out.root");
   if (hnstOut == nullptr) {
-    Ndmspc::NLogger::Error("Cannot create output HnSparseTree");
+    NLogError("Cannot create output HnSparseTree");
     return;
   }
 
@@ -34,27 +34,27 @@ void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmsp
   // Get binning definition from input HnSparseTree
   Ndmspc::NBinningDef * def = hnstIn->GetBinning()->GetDefinition();
   if (!def) {
-    Ndmspc::NLogger::Error("Binning definition is nullptr in input HnSparseTree");
+    NLogError("Binning definition is nullptr in input HnSparseTree");
     return;
   }
   std::map<std::string, std::vector<std::vector<int>>> b = def->GetDefinition();
   // print size of b
-  Ndmspc::NLogger::Info("Binning size: %zu", b.size());
+  NLogInfo("Binning size: %zu", b.size());
 
   if (!hnstOut->ImportBinning("default", b)) {
-    Ndmspc::NLogger::Error("Cannot import binning to output HnSparseTree");
+    NLogError("Cannot import binning to output HnSparseTree");
     return;
   }
   hnstOut->Print();
   // return;
 
   if (hnstOut->GetBinning() == nullptr) {
-    Ndmspc::NLogger::Error("Binning is not initialized in output HnSparseTree");
+    NLogError("Binning is not initialized in output HnSparseTree");
     return;
   }
 
   if (hnstOut->GetBinning()->GetContent()->GetNbins() <= 0) {
-    Ndmspc::NLogger::Error("No bins in output HnSparseTree");
+    NLogError("No bins in output HnSparseTree");
     return;
   }
   std::vector<int> mins = {1};
@@ -63,7 +63,7 @@ void NHnSparseTreeProcess(int nThreads = 1, std::string filename = "$HOME/.ndmsp
   // maxs[0] = 400;
   // maxs[0] = 1;
   //
-  // hnst->Close();
+  // ngnt->Close();
 
   hnstOut->Process(NdmspcUserProcess, mins, maxs, nThreads, hnstIn, hnstOut);
   hnstOut->Close(true);

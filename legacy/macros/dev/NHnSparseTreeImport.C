@@ -8,7 +8,7 @@ void NHnSparseTreeImport(
     std::vector<std::string> objNames = {"unlikepm", "likepp", "likemm", "mixingpm"})
 {
 
-  Ndmspc::NHnSparseTree * hnst = new Ndmspc::NHnSparseTreeC("$HOME/.ndmspc/dev/hnst.root", "hnst");
+  Ndmspc::NHnSparseTree * ngnt = new Ndmspc::NHnSparseTreeC("$HOME/.ndmspc/dev/ngnt.root", "ngnt");
   std::map<std::string, std::vector<std::vector<int>>> b;
   // b["axis1-pt"] = {{4, 1}, {1, 46}, {2, 15}, {5, 2}, {10, 1}, {20, 1}, {30, 1}, {50, 1}};
   // b["axis1-pt"] = {{1}};
@@ -29,6 +29,6 @@ void NHnSparseTreeImport(
   // b["axis1-pt"]  = {{10}};
   // b["axis2-ce"]  = {{50}};
   // b["axis5-eta"] = {{8}};
-  hnst->Import(filename, dir, objNames, b);
-  hnst->Close(true);
+  ngnt->Import(filename, dir, objNames, b);
+  ngnt->Close(true);
 }

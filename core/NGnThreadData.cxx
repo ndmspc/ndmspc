@@ -28,19 +28,19 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
 
   // if (!func) {
-  //   NLogger::Error("NGnThreadData::Init: Process function is not set !!!");
+  //   NLogError("NGnThreadData::Init: Process function is not set !!!");
   //   return false;
   // }
   fProcessFunc = func;
 
   if (ngnt == nullptr) {
-    NLogger::Error("NGnThreadData::Init: NGnTree is nullptr !!!");
+    NLogError("NGnThreadData::Init: NGnTree is nullptr !!!");
     return false;
   }
   fBiningSource = binningIn;
 
   if (fBiningSource == nullptr) {
-    NLogger::Error("NGnThreadData::Init: Binning Source is nullptr !!!");
+    NLogError("NGnThreadData::Init: Binning Source is nullptr !!!");
     return false;
   }
 
@@ -50,12 +50,12 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   // fHnSparseBase = new NGnTree(hnsb->GetBinning(), nullptr);
 
   if (fHnSparseBase->GetBinning() == nullptr) {
-    NLogger::Error("NGnThreadData::InitStorage: Binning is not set !!!");
+    NLogError("NGnThreadData::InitStorage: Binning is not set !!!");
     return false;
   }
 
   if (fHnSparseBase->GetStorageTree() == nullptr) {
-    NLogger::Error("NGnThreadData::InitStorage: Storage tree is not set !!!");
+    NLogError("NGnThreadData::InitStorage: Storage tree is not set !!!");
     return false;
   }
 
@@ -66,7 +66,7 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
 
   // loop over all branches and add them to the new storage tree
   for (auto & kv : ngnt->GetStorageTree()->GetBranchesMap()) {
-    NLogger::Trace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
+    NLogTrace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
     NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch(kv.first);
     if (b) continue;
 
@@ -80,7 +80,7 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   fHnSparseBase->GetBinning()->GetPoint()->SetTreeStorage(fHnSparseBase->GetStorageTree());
 
   // for (auto & kv : ts->GetBranchesMap()) {
-  //   NLogger::Trace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
+  //   NLogTrace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
   //   fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
   // }
 
@@ -115,23 +115,23 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   fNProcessed++;
   // NThreadData::Process(coords);
 
-  // NLogger::Debug("NGnThreadData::Process: Thread %d processing coordinates %s", GetAssignedIndex(),
+  // NLogDebug("NGnThreadData::Process: Thread %d processing coordinates %s", GetAssignedIndex(),
   //                NUtils::GetCoordsString(coords).c_str());
 
   if (!fHnSparseBase) {
-    NLogger::Error("NGnThreadData::Process: NGnTree is not set in NGnThreadData !!!");
+    NLogError("NGnThreadData::Process: NGnTree is not set in NGnThreadData !!!");
     return;
   }
 
   if (!fProcessFunc) {
-    NLogger::Error("NGnThreadData::Process: Process function is not set in NGnThreadData !!!");
+    NLogError("NGnThreadData::Process: Process function is not set in NGnThreadData !!!");
     return;
   }
 
   // NBinning *     binning    = fBiningSource;
   NBinningDef * binningDef = fBiningSource->GetDefinition();
   if (binningDef == nullptr) {
-    NLogger::Error("NGnThreadData::Process: Binning definition is not set in NGnThreadData !!!");
+    NLogError("NGnThreadData::Process: Binning definition is not set in NGnThreadData !!!");
     return;
   }
 
@@ -146,7 +146,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     fHnSparseBase->GetBinning()->GetDefinition()->GetIds().push_back(entry);
     // entry = binningDef->GetContent()->GetBinContent(entry);
     // point->SetEntryNumber(entry);
-    NLogger::Debug("NGnThreadData::Process: [%zu] Skipping entry=%lld, because it was already process !!!",
+    NLogDebug("NGnThreadData::Process: [%zu] Skipping entry=%lld, because it was already process !!!",
                    GetAssignedIndex(), entry);
     return;
   }
@@ -158,7 +158,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   }
 
   // Long64_t        entry = binningDef->GetId(coords[0]);
-  // Ndmspc::NLogger::Debug("NGnThreadData::Process: [%zu] Entry in global content mapping: %lld",
+  // NLogDebug("NGnThreadData::Process: [%zu] Entry in global content mapping: %lld",
   //                        GetAssignedIndex(), entry);
   fBiningSource->GetContent()->GetBinContent(entry, point->GetCoords());
   point->RecalculateStorageCoords(entry, false);
@@ -168,7 +168,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   // TODO: check if entry was already processed
   // So we dont execute the function again
 
-  // NLogger::Debug(
+  // NLogDebug(
   //     "AAA NGnThreadData::Process: Thread %zu processing entry %lld for coordinates %s", GetAssignedIndex(),
   //     entry,
   //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
@@ -183,12 +183,12 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   fResourceMonitor->End();
   fResourceMonitor->Fill(point->GetStorageCoords(), GetAssignedIndex());
 
-  // Ndmspc::NLogger::Trace(
+  // NLogTrace(
   //     "NGnThreadData::Process: [%zu] entry=%lld coords=%s outputPoint=%d", GetAssignedIndex(), entry,
   //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str(),
   //     outputPoint->GetEntries());
   if (outputPoint->GetEntries() > 0) {
-    Ndmspc::NLogger::Trace(
+    NLogTrace(
         "NGnThreadData::Process: [%zu] Entry '%lld' was accepted. %s", GetAssignedIndex(), entry,
         NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
 
@@ -197,17 +197,17 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     Int_t bytes = ts->Fill(point, nullptr, false, {}, false);
     if (bytes > 0) {
       // Long64_t entryInBinDef = binningDefgcc->GetId(coords[0]);
-      // NLogger::Debug("NGnThreadData::Process: Thread %zu: Filled %d bytes for coordinates %s entry=%lld",
+      // NLogDebug("NGnThreadData::Process: Thread %zu: Filled %d bytes for coordinates %s entry=%lld",
       //                GetAssignedIndex(), bytes, NUtils::GetCoordsString(coords).c_str(), entry);
 
       fHnSparseBase->GetBinning()->GetDefinition()->GetIds().push_back(entry);
-      // NLogger::Info("Entry number in storage tree: %lld", point->GetEntryNumber());
+      // NLogInfo("Entry number in storage tree: %lld", point->GetEntryNumber());
       // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().push_back(point->GetEntryNumber());
     }
     else {
-      Ndmspc::NLogger::Trace("NGnThreadData::Process: [%zu] Entry '%lld' Fill was done with 0 bytes. Skipping ...",
+      NLogTrace("NGnThreadData::Process: [%zu] Entry '%lld' Fill was done with 0 bytes. Skipping ...",
                              GetAssignedIndex(), entry);
-      // NLogger::Error("NGnThreadData::Process: Thread %zu: zero bytes were writtent for coordinates %s
+      // NLogError("NGnThreadData::Process: Thread %zu: zero bytes were writtent for coordinates %s
       // entry=%lld",
       //                GetAssignedIndex(), NUtils::GetCoordsString(coords).c_str(), entry);
     }
@@ -215,10 +215,10 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     // outputPoint->Clear(); // Clear the list to avoid memory leaks
   }
   else {
-    Ndmspc::NLogger::Trace(
+    NLogTrace(
         "NGnThreadData::Process: [%zu] Entry '%lld' No output %s. Skipping ...", GetAssignedIndex(), entry,
         NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
-    // NLogger::Trace(
+    // NLogTrace(
     //     "No output for coordinates %s",
     //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
   }
@@ -250,8 +250,8 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   ///
   Long64_t nmerged = 0;
 
-  NLogger::Trace("NGnThreadData::Merge: BEGIN ------------------------------------------------");
-  NLogger::Trace("NGnThreadData::Merge: Merging thread data from %zu threads ...", list->GetEntries());
+  NLogTrace("NGnThreadData::Merge: BEGIN ------------------------------------------------");
+  NLogTrace("NGnThreadData::Merge: Merging thread data from %zu threads ...", list->GetEntries());
 
   NStorageTree *                 ts = nullptr;
   std::map<std::string, TList *> listOutputs;
@@ -262,20 +262,20 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   for (auto obj : *list) {
     if (obj->IsA() == NGnThreadData::Class()) {
       NGnThreadData * hnsttd = (NGnThreadData *)obj;
-      NLogger::Debug("NGnThreadData::Merge: Merging thread %zu processed %lld ...", hnsttd->GetAssignedIndex(),
+      NLogDebug("NGnThreadData::Merge: Merging thread %zu processed %lld ...", hnsttd->GetAssignedIndex(),
                      hnsttd->GetNProcessed());
       ts = hnsttd->GetHnSparseBase()->GetStorageTree();
       if (!ts) {
-        NLogger::Error("NGnThreadData::Merge: Storage tree is not set in NGnTree !!!");
+        NLogError("NGnThreadData::Merge: Storage tree is not set in NGnTree !!!");
         continue;
       }
       // hnsttd->Print();
 
       for (auto & kv : hnsttd->GetHnSparseBase()->GetOutputs()) {
-        NLogger::Trace("NGnThreadData::Merge: Found output list '%s' with %d objects", kv.first.c_str(),
+        NLogTrace("NGnThreadData::Merge: Found output list '%s' with %d objects", kv.first.c_str(),
                        kv.second ? kv.second->GetEntries() : 0);
         if (kv.second && !kv.second->IsEmpty()) {
-          NLogger::Trace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
+          NLogTrace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
                          kv.second->GetEntries());
           if (listOutputs.find(kv.first) == listOutputs.end()) {
             if (fHnSparseBase->GetOutput(kv.first)->IsEmpty()) {
@@ -298,7 +298,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
 
       NGnTree * hnsb = NGnTree::Open(ts->GetFileName());
       if (!hnsb) {
-        NLogger::Error("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", ts->GetFileName().c_str());
+        NLogError("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", ts->GetFileName().c_str());
         continue;
       }
 
@@ -320,7 +320,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       NBinningPoint point(fHnSparseBase->GetBinning());
       fBiningSource->GetContent()->GetBinContent(id, point.GetCoords());
       Long64_t bin = fHnSparseBase->GetBinning()->GetContent()->GetBin(point.GetCoords());
-      NLogger::Trace("NGnThreadData::Merge: Adding def_id=%lld to content_bin=%lld", id, bin);
+      NLogTrace("NGnThreadData::Merge: Adding def_id=%lld to content_bin=%lld", id, bin);
       fHnSparseBase->GetBinning()->GetContent()->SetBinContent(bin, id);
 
       // fHnSparseBase->GetBinning()->GetDefinition(name)->GetContent()->SetBinContent(bin, id);
@@ -329,38 +329,38 @@ Long64_t NGnThreadData::Merge(TCollection * list)
     // fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
   }
   // FIXME: End
-  NLogger::Debug("NGnThreadData::Merge: Total entries to merge: %lld", nmerged);
+  NLogDebug("NGnThreadData::Merge: Total entries to merge: %lld", nmerged);
 
   for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
     auto binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
     if (!binningDef) {
-      NLogger::Error("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+      NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       continue;
     }
     // add ids from fBiningSource to binningDef
     // binningDef->GetIds().insert(binningDef->GetIds().end(), fBiningSource->GetDefinition(name)->GetIds().begin(),
     //                             fBiningSource->GetDefinition(name)->GetIds().end());
-    NLogger::Trace("NGnThreadData::Merge: Final IDs in definition '%s': %s", name.c_str(),
+    NLogTrace("NGnThreadData::Merge: Final IDs in definition '%s': %s", name.c_str(),
                    NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
   }
 
   // fHnSparseBase->GetBinning()->GetContent()->Projection(5)->Print("all");
-  // NLogger::Debug("Not ready to merge, exiting ...");
+  // NLogDebug("Not ready to merge, exiting ...");
   // return 0;
 
-  NLogger::Trace("NGnThreadData::Merge: Merging %d storage trees ...", listTreeStorage->GetEntries());
+  NLogTrace("NGnThreadData::Merge: Merging %d storage trees ...", listTreeStorage->GetEntries());
   // fHnSparseBase->GetBinning()->GetPoint()->Reset();
   // fHnSparseBase->GetBinning()->GetDefinition("default")->Print();
   // fHnSparseBase->GetBinning()->GetDefinition("b2")->Print();
   fHnSparseBase->GetStorageTree()->SetBinning(fHnSparseBase->GetBinning()); // Update binning to the merged one
   fHnSparseBase->GetStorageTree()->Merge(listTreeStorage);
-  // NLogger::Debug("Not ready to merge after Storage merge, exiting ...");
+  // NLogDebug("Not ready to merge after Storage merge, exiting ...");
   // return 0;
 
   // loop over all output lists and merge them
   for (auto & kv : listOutputs) {
     if (kv.second && !kv.second->IsEmpty()) {
-      NLogger::Trace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
+      NLogTrace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
                      kv.second->GetEntries() + 1);
       fHnSparseBase->GetOutput(kv.first)->Merge(kv.second);
       // fHnSparseBase->GetOutput(kv.first)->Print();
@@ -372,7 +372,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
     NBinningDef * binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
     if (!binningDef) {
-      NLogger::Error("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+      NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       continue;
     }
     // binningDef->Print();
@@ -383,7 +383,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       Long64_t bin = binningDef->GetContent()->GetBin(fHnSparseBase->GetBinning()->GetPoint()->GetStorageCoords());
       binningDef->GetContent()->SetBinContent(bin, id);
       // binningDef->GetIds().push_back(id);
-      NLogger::Trace("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
+      NLogTrace("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
     }
   }
 
@@ -401,10 +401,10 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   fHnSparseBase->GetStorageTree()->SetEnabledBranches({}, 1);
   fHnSparseBase->GetBinning()->SetCurrentDefinitionName(fHnSparseBase->GetBinning()->GetDefinitionNames().front());
 
-  NLogger::Trace("NGnThreadData::Merge: END ------------------------------------------------");
+  NLogTrace("NGnThreadData::Merge: END ------------------------------------------------");
 
   /// \cond CLASSIMP
-  // NLogger::Error("NGnThreadData::Merge: Not implemented !!!");
+  // NLogError("NGnThreadData::Merge: Not implemented !!!");
   /// \endcond;
   return nmerged;
 }

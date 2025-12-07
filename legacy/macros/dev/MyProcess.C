@@ -30,18 +30,18 @@ Ndmspc::ProcessFuncPtr NdmspcUserProcess = [](Ndmspc::NHnSparseTreePoint * p, TL
   // Print point
   p->Print();
 
-  Ndmspc::NHnSparseTree * hnst = p->GetHnSparseTree();
+  Ndmspc::NHnSparseTree * ngnt = p->GetHnSparseTree();
 
-  TH1D * hSigBg = hnst->ProjectionFromObject("unlikepm", 0);
+  TH1D * hSigBg = ngnt->ProjectionFromObject("unlikepm", 0);
   if (!hSigBg) {
-    Ndmspc::NLogger::Error("Histogram 'unlikepm' not found !!!");
+    NLogError("Histogram 'unlikepm' not found !!!");
     return;
   }
   hSigBg->SetTitle(p->GetTitle("Signal Background").c_str());
 
-  TH1D * hBg = hnst->ProjectionFromObject("mixingpm", 0);
+  TH1D * hBg = ngnt->ProjectionFromObject("mixingpm", 0);
   if (!hBg) {
-    Ndmspc::NLogger::Error("Histogram 'mixingpm' not found !!!");
+    NLogError("Histogram 'mixingpm' not found !!!");
     return;
   }
   hBg->SetTitle(p->GetTitle("Background").c_str());

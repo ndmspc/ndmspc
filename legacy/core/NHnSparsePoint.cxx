@@ -13,6 +13,6 @@ void NHnSparsePoint::Print(Option_t * option) const
   /// Print object
   ///
 
-  NLogger::Info("NHnSparsePoint: %s", option);
+  NLogInfo("NHnSparsePoint: %s", option);
 }
 } // namespace Ndmspc

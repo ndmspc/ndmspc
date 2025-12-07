@@ -8,7 +8,7 @@
 #include <NLogger.h>
 #include <NUtils.h>
 
-void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/ngnt_alirsn.root")
+void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/NAliRsnDownload_ngnt.root")
 {
   // Enable multithreading if nThreads > 1
   if (nThreads != 1) {
@@ -28,7 +28,7 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/ngnt_alirsn.r
   std::vector<std::string>                     axesNames = {"analysis", "id"};
   std::map<std::string, std::set<std::string>> axes;
   for (const auto & path : paths) {
-    Ndmspc::NLogger::Info("Found file: %s", path.c_str());
+    NLogInfo("Found file: %s", path.c_str());
     // remove the base path from the path
     // remove the analysisResultsFileName from the path
     std::string relativePath = path;
@@ -36,7 +36,7 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/ngnt_alirsn.r
     if (basePath.back() != '/') basePath += "/";
     relativePath.erase(0, basePath.size());
     relativePath.erase(relativePath.size() - analysisResultsFileName.size(), analysisResultsFileName.size());
-    Ndmspc::NLogger::Info("Found file: %s", relativePath.c_str());
+    NLogInfo("Found file: %s", relativePath.c_str());
     std::vector<std::string> tokens = Ndmspc::NUtils::Tokenize(relativePath, '/');
     axes["analysis"].insert(tokens[0]);
     axes["id"].insert(tokens[1]);
@@ -45,8 +45,8 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/ngnt_alirsn.r
   // print axes
   TObjArray * axesArr = new TObjArray();
   for (const auto & axisName : axesNames) {
-    Ndmspc::NLogger::Info("Axis: %s", axisName.c_str());
-    TAxis * axis = Ndmspc::NUtils::CreateAxisFromLabels(axisName, axisName, axes[axisName]); // Convert set to vector
+    NLogInfo("Axis: %s", axisName.c_str());
+    TAxis * axis = Ndmspc::NUtils::CreateAxisFromLabelsSet(axisName, axisName, axes[axisName]); // Convert set to vector
     axesArr->Add(axis);
     axis->Print("all");
   }
@@ -68,7 +68,7 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/ngnt_alirsn.r
 
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
-    // Ndmspc::NLogger::Info("Thread ID: %d", threadId);
+    // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();
     json        cfg                 = point->GetCfg();
@@ -80,23 +80,23 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/ngnt_alirsn.r
     filePath += point->GetLabels()[0] + "/";
     filePath += point->GetLabels()[1] + "/";
     filePath += analysisResultsFile;
-    Ndmspc::NLogger::Info("Processing file: %s", filePath.c_str());
+    NLogInfo("Processing file: %s", filePath.c_str());
 
     TFile * f = Ndmspc::NUtils::OpenFile(filePath);
     if (!f) {
-      Ndmspc::NLogger::Error("Failed to open file: %s", filePath.c_str());
+      NLogError("Failed to open file: %s", filePath.c_str());
       return;
     }
 
     std::string              objectDir   = cfg["objectDirecotry"].get<std::string>();
     std::vector<std::string> objectNames = cfg["objectNames"].get<std::vector<std::string>>();
     for (const auto & objectName : objectNames) {
-      Ndmspc::NLogger::Info("Getting object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(),
+      NLogInfo("Getting object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(),
                             filePath.c_str());
       THnSparse * hns =
           dynamic_cast<THnSparse *>(f->Get(TString::Format("%s/%s", objectDir.c_str(), objectName.c_str()).Data()));
       if (!hns) {
-        Ndmspc::NLogger::Error("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(),
+        NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(),
                                filePath.c_str());
 
         point->GetTreeStorage()->GetBranch(objectName)->SetAddress(nullptr, true);
@@ -114,11 +114,11 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/ngnt_alirsn.r
   // // ngnt_taxi->Print();
   //
   if (rc) {
-    Ndmspc::NLogger::Info("NAliRsnDownload: Processing completed successfully.");
+    NLogInfo("NAliRsnDownload: Processing completed successfully.");
     ngnt->Close(true);
   }
   else {
-    Ndmspc::NLogger::Error("NAliRsnDownload: Processing failed.");
+    NLogError("NAliRsnDownload: Processing failed.");
     ngnt->Close(false);
   }
 

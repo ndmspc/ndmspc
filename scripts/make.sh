@@ -8,9 +8,10 @@ USING_CLANG=false
 BEING_STRICT=false
 
 BUILDING_DOC=false
-RUNNING_TEST=false
+WITH_TEST=${WITH_TEST-false}
 WITH_LEGACY=${WITH_LEGACY-false}
 WITH_PARQUET=${WITH_PARQUET-false}
+WITH_OPENTELEMETRY=${WITH_OPENTELEMETRY-false}
 
 PRINT_DEBUG=${PRINT_DEBUG-false}
 MY_CMAKE_OPTS=""
@@ -34,6 +35,8 @@ for ARG in $@; do
     "release")
       echo "Building release version"
       MY_CMAKE_BUILD_TYPE=RelWithDebInfo
+      #MY_CMAKE_BUILD_TYPE=Release
+      MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DENABLE_STRICT_WARNINGS:bool=ON"
       BUILDING_DOC=true
       # RUNNING_TEST=true;
       ;;
@@ -50,37 +53,11 @@ for ARG in $@; do
       fi
       ;;
 
-    "clang")
-      which clang &>/dev/null
-      if [[ $? != 0 ]]; then
-        echo "Clang compiler specified, but not found! Exiting..."
-        exit 2
-      fi
-
-      which clang++ &>/dev/null
-      if [[ $? != 0 ]]; then
-        echo "Clang++ compiler specified, but not found! Exiting..."
-        exit 2
-      fi
-
-      echo "Using Clang compiler"
-
-      CC=$(which clang)
-      CXX=$(which clang++)
-      USING_CLANG=true
-      ;;
-
     "strict")
       echo "Enabling strict mode (-Weverything)"
-      [[ $USING_CLANG == false ]] && echo "Warning: this only works with Clang compiler!"
       BEING_STRICT=true
-      MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWARN_EVERYTHING:bool=ON"
-      ;;
-
-    "check_")
-      echo "Enabling checking mode (use with release)."
-      echo "WARNING: Use of this parameter in production is STRICTLY FORBIDDEN!!!"
-      MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWARN_CHECK:bool=ON"
+      MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DENABLE_STRICT_WARNINGS:bool=ON"
+      MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWARNINGS_AS_ERRORS:bool=ON"
       ;;
 
     "debug_")
@@ -98,14 +75,16 @@ for ARG in $@; do
     "rpm")
       echo "Building rpm"
       MY_MAKE_OPTS="${MY_MAKE_OPTS} rpm"
+      WITH_TEST=false
       ;;
     "srpm")
       echo "Building srpm"
       MY_MAKE_OPTS="${MY_MAKE_OPTS} srpm"
+      WITH_TEST=false
       ;;
     "test")
-      echo "Running tests"
-      RUNNING_TEST=true
+      echo "Building with tests ..."
+      WITH_TEST=true
       ;;
 
     *)
@@ -114,11 +93,6 @@ for ARG in $@; do
       ;;
   esac
 done
-
-if [[ $BEING_STRICT == true && $USING_CLANG == false ]]; then
-  echo "Cannot use strict mode without Clang compiler! Exiting..."
-  exit 2
-fi
 
 echo "MY_CMAKE_BUILD_TYPE=$MY_CMAKE_BUILD_TYPE"
 MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE}"
@@ -131,8 +105,15 @@ if [[ $WITH_LEGACY == true ]]; then
   echo "Building with legacy support"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DUSE_LEGACY:bool=ON"
 fi
+if [[ $WITH_TEST == true ]]; then
+  echo "Building with testing support"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_TEST:bool=ON"
+fi
 if [[ $WITH_PARQUET == true ]]; then
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_PARQUET=ON"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_PARQUET:bool=ON"
+fi
+if [[ $WITH_OPENTELEMETRY == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_OPENTELEMETRY:bool=ON"
 fi
 
 # MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"
@@ -179,7 +160,7 @@ cmake -DCMAKE_INSTALL_PREFIX=${PROJECT_DIR} ${MY_CMAKE_OPTS} ../
 
 ${MY_BUILDSYS} -j$(nproc) ${MY_MAKE_OPTS}
 
-if [[ $RUNNING_TEST == true ]]; then
-  echo "Running tests"
+if [[ $WITH_TEST == true ]]; then
+  echo "Running tests ..."
   ${MY_BUILDSYS} test
 fi

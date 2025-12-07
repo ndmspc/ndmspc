@@ -26,7 +26,7 @@ void NHnSparseTreeInfo::Print(Option_t * option) const
   ///
 
   if (fHnSparseTree == nullptr) {
-    NLogger::Error("HnSparseTree is not set !!!");
+    NLogError("HnSparseTree is not set !!!");
     return;
   }
   fHnSparseTree->Print(option);

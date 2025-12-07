@@ -32,7 +32,7 @@ bool NConfig::Load(const std::string & config, const std::string & userNConfig, 
   /// Load configuration
   ///
 
-  NLogger::Debug("Loading configuration from '%s' ['%s','%s']...", config.c_str(), userNConfig.c_str(),
+  NLogDebug("Loading configuration from '%s' ['%s','%s']...", config.c_str(), userNConfig.c_str(),
                  userNConfigRaw.c_str());
 
   fCfgLoaded = false;
@@ -41,10 +41,10 @@ bool NConfig::Load(const std::string & config, const std::string & userNConfig, 
     std::string fileContent = NUtils::OpenRawFile(config);
     if (!fileContent.empty()) {
       fCfg = json::parse(fileContent);
-      NLogger::Info("Using config file '%s' ...", config.c_str());
+      NLogInfo("Using config file '%s' ...", config.c_str());
     }
     else {
-      NLogger::Error("Problem opening config file '%s' !!! Exiting ...", config.c_str());
+      NLogError("Problem opening config file '%s' !!! Exiting ...", config.c_str());
       return false;
     }
   }
@@ -53,17 +53,17 @@ bool NConfig::Load(const std::string & config, const std::string & userNConfig, 
     if (!fileContentUser.empty()) {
       json userCfg = json::parse(fileContentUser);
       fCfg.merge_patch(userCfg);
-      NLogger::Info("User config file '%s' was merged ...", userNConfig.c_str());
+      NLogInfo("User config file '%s' was merged ...", userNConfig.c_str());
     }
     else {
-      NLogger::Warning("User config '%s' was specified, but it was not open !!!", userNConfig.c_str());
+      NLogWarning("User config '%s' was specified, but it was not open !!!", userNConfig.c_str());
       return false;
     }
   }
   if (!userNConfigRaw.empty()) {
     json userCfgRaw = json::parse(userNConfigRaw);
     fCfg.merge_patch(userCfgRaw);
-    NLogger::Info("NConfig raw '%s' was merged...", userNConfigRaw.c_str());
+    NLogInfo("NConfig raw '%s' was merged...", userNConfigRaw.c_str());
   }
 
   // INFO: Set default binning from configuration
@@ -80,27 +80,27 @@ void NConfig::Print(Option_t * option) const
   ///
 
   if (!fCfgLoaded) {
-    NLogger::Error("Error: Configuration was not loaded !!!");
+    NLogError("Error: Configuration was not loaded !!!");
     return;
   }
 
   std::string opt = option;
 
-  NLogger::Info("NDMSPC configuration:");
-  NLogger::Info("  - Name: '%s'", GetAnalysisName().c_str());
-  NLogger::Info("  - Revision: '%s'", GetAnalysisRevision().c_str());
-  NLogger::Info("  - Environment: '%s'", GetEnvironment().c_str());
-  NLogger::Info("  - Base path: '%s'", GetAnalysisBasePath().c_str());
-  NLogger::Info("  - Workspace path: '%s'", GetWorkspacePath().c_str());
-  NLogger::Info("  - Map file: '%s'", GetMapFileName().c_str());
-  NLogger::Info("  - Map object: '%s'", GetMapObjectName().c_str());
-  NLogger::Info("  - Input prefix: '%s'", GetInputPrefix().c_str());
-  NLogger::Info("  - Input object directory: '%s'", GetInputObjectDirecotry().c_str());
+  NLogInfo("NDMSPC configuration:");
+  NLogInfo("  - Name: '%s'", GetAnalysisName().c_str());
+  NLogInfo("  - Revision: '%s'", GetAnalysisRevision().c_str());
+  NLogInfo("  - Environment: '%s'", GetEnvironment().c_str());
+  NLogInfo("  - Base path: '%s'", GetAnalysisBasePath().c_str());
+  NLogInfo("  - Workspace path: '%s'", GetWorkspacePath().c_str());
+  NLogInfo("  - Map file: '%s'", GetMapFileName().c_str());
+  NLogInfo("  - Map object: '%s'", GetMapObjectName().c_str());
+  NLogInfo("  - Input prefix: '%s'", GetInputPrefix().c_str());
+  NLogInfo("  - Input object directory: '%s'", GetInputObjectDirecotry().c_str());
 
   // Print input objects
-  NLogger::Info("  - Input objects:");
+  NLogInfo("  - Input objects:");
   for (auto & obj : GetInputObjectNames()) {
-    NLogger::Info("    - '%s'", obj.c_str());
+    NLogInfo("    - '%s'", obj.c_str());
   }
 
   // Printf("  - Binning: '%s'", GetBinning().c_str());
@@ -259,10 +259,10 @@ bool NConfig::SetEnvironment(const std::string & environment)
         fCfg.merge_patch(myCfg);
         return true;
       }
-      NLogger::Error("Error: Environment 'local' was not found !!! Exiting ...");
+      NLogError("Error: Environment 'local' was not found !!! Exiting ...");
       return false;
     }
-    NLogger::Error("Error: Environment '%s' was not found !!! Exiting ...", environment.c_str());
+    NLogError("Error: Environment '%s' was not found !!! Exiting ...", environment.c_str());
     return false;
   }
 

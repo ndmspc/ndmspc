@@ -16,15 +16,15 @@ NBinningPoint::NBinningPoint(NBinning * b) : TObject(), fBinning(b)
 {
 
   if (fBinning == nullptr) {
-    // NLogger::Error("NBinningPoint: Binning is nullptr");
+    // NLogError("NBinningPoint: Binning is nullptr");
     return;
   }
   if (fBinning->GetAxes().empty()) {
-    NLogger::Error("NBinningPoint: Binning has no axes");
+    NLogError("NBinningPoint: Binning has no axes");
     return;
   }
   if (fBinning->GetContent() == nullptr) {
-    NLogger::Error("NBinningPoint: Binning content is nullptr");
+    NLogError("NBinningPoint: Binning content is nullptr");
     return;
   }
 
@@ -57,10 +57,10 @@ void NBinningPoint::Reset()
   /// Reset the point coordinates
   ///
 
-  NLogger::Trace("NBinningPoint::Reset: Resetting point ...");
+  NLogTrace("NBinningPoint::Reset: Resetting point ...");
 
   if (fContentNDimensions <= 0 || fNDimensions <= 0 || fContentCoords == nullptr) {
-    NLogger::Error("NBinningPoint::Reset: Invalid dimensions or coordinates");
+    NLogError("NBinningPoint::Reset: Invalid dimensions or coordinates");
     return;
   }
   for (Int_t i = 0; i < fContentNDimensions; ++i) {
@@ -82,25 +82,25 @@ void NBinningPoint::Print(Option_t * option) const
   /// Print the binning point
   ///
   if (fContentNDimensions <= 0 || fNDimensions <= 0 || fContentCoords == nullptr) {
-    NLogger::Error("NBinningPoint::Print: Invalid dimensions or coordinates");
+    NLogError("NBinningPoint::Print: Invalid dimensions or coordinates");
     return;
   }
   TString opt = option;
   opt.ToUpper();
 
-  NLogger::Info("NBinningPoint: %s",
-                NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
-  NLogger::Info("  Storage coordinates: %s",
-                NUtils::GetCoordsString(NUtils::ArrayToVector(fStorageCoords, fNDimensions)).c_str());
-  NLogger::Info("  Entry number: %lld", fEntryNumber);
-  NLogger::Info("  Title: '%s'", GetTitle().c_str());
+  NLogInfo("NBinningPoint: %s",
+           NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
+  NLogInfo("  Storage coordinates: %s",
+           NUtils::GetCoordsString(NUtils::ArrayToVector(fStorageCoords, fNDimensions)).c_str());
+  NLogInfo("  Entry number: %lld", fEntryNumber);
+  NLogInfo("  Title: '%s'", GetString().c_str());
   if (opt.Contains("C")) {
-    NLogger::Info("  Config: %s", fCfg.dump().c_str());
+    NLogInfo("  Config: %s", fCfg.dump().c_str());
   }
 
   if (opt.Contains("A")) {
     for (int i = 0; i < fNDimensions; ++i) {
-      NLogger::Info("  Axis %d: min=%.3f max=%.3f label='%s'", i, fMins[i], fMaxs[i], fLabels[i].c_str());
+      NLogInfo("  Axis %d: min=%.3f max=%.3f label='%s'", i, fMins[i], fMaxs[i], fLabels[i].c_str());
     }
   }
 }
@@ -112,7 +112,7 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
   ///
 
   if (fBinning == nullptr || fBinning->GetContent() == nullptr) {
-    NLogger::Error("NBinningPoint::RecalculateStorageCoords: Binning or content is nullptr");
+    NLogError("NBinningPoint::RecalculateStorageCoords: Binning or content is nullptr");
     return false;
   }
 
@@ -120,11 +120,11 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
   std::vector<int>              contentVec = NUtils::ArrayToVector(fContentCoords, fContentNDimensions);
   std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(contentVec);
   // for (size_t i = 0; i < axisRanges.size(); i++) {
-  //   NLogger::Debug("Axis %zu: %s", i, NUtils::GetCoordsString(axisRanges[i], -1).c_str());
+  //   NLogDebug("Axis %zu: %s", i, NUtils::GetCoordsString(axisRanges[i], -1).c_str());
   // }
   NBinningDef * binDef = fBinning->GetDefinition();
   if (binDef == nullptr) {
-    NLogger::Error("NBinningPoint::RecalculateStorageCoords: Binning definition is nullptr");
+    NLogError("NBinningPoint::RecalculateStorageCoords: Binning definition is nullptr");
     return false;
   }
   std::vector<Long64_t> ids = binDef->GetIds();
@@ -132,16 +132,16 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
   // useBinningDefCheck = false;
   if (useBinningDefCheck) {
     if (fTreeStorage == nullptr) {
-      NLogger::Error("NBinningPoint::RecalculateStorageCoords: Storage tree is nullptr !!! Skipping check ...");
+      NLogError("NBinningPoint::RecalculateStorageCoords: Storage tree is nullptr !!! Skipping check ...");
     }
     else {
       if (std::find(ids.begin(), ids.end(), fEntryNumber) == ids.end() && fEntryNumber >= 0 &&
           fEntryNumber < fTreeStorage->GetEntries()) {
-        NLogger::Error("NBinningPoint::RecalculateStorageCoords: Entry %lld not found in binning definition '%s' !!!",
-                       fEntryNumber, fBinning->GetCurrentDefinitionName().c_str());
+        NLogError("NBinningPoint::RecalculateStorageCoords: Entry %lld not found in binning definition '%s' !!!",
+                  fEntryNumber, fBinning->GetCurrentDefinitionName().c_str());
 
         // loop over all available definitions and print their ids
-        NLogger::Error("Available binning definitions for entry=%lld :", fEntryNumber);
+        NLogError("Available binning definitions for entry=%lld :", fEntryNumber);
         std::string firstDefName;
         for (const auto & kv : fBinning->GetDefinitions()) {
           NBinningDef * def = kv.second;
@@ -149,11 +149,11 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
           std::vector<Long64_t> defIds = def->GetIds();
           if (std::find(defIds.begin(), defIds.end(), fEntryNumber) != defIds.end()) {
             if (firstDefName.empty()) firstDefName = kv.first;
-            NLogger::Error("  Definition '%s' size=%zu ", kv.first.c_str(), defIds.size());
+            NLogError("  Definition '%s' size=%zu ", kv.first.c_str(), defIds.size());
           }
         }
 
-        NLogger::Error(
+        NLogError(
             "One can set definition via 'NBinning::SetCurrentDefinitionName(\"%s\")' before calling 'GetEntry(%lld)'",
             firstDefName.c_str(), fEntryNumber);
         Reset();
@@ -190,18 +190,18 @@ std::map<int, std::vector<int>> NBinningPoint::GetBaseAxisRanges() const
   return axisRanges;
 }
 
-std::string NBinningPoint::GetTitle(const std::string & prefix, bool all) const
+std::string NBinningPoint::GetString(const std::string & prefix, bool all) const
 {
 
   ///
-  /// Returns point title
+  /// Returns point as string
   ///
 
   std::string title = !prefix.empty() ? prefix + " " : "";
   for (int i = 0; i < fNDimensions; i++) {
     TAxis * a = fBinning->GetAxes()[i];
     if (a == nullptr) {
-      NLogger::Error("NBinningPoint::GetTitle: Axis %d is nullptr !!!", i);
+      NLogError("NBinningPoint::GetTitle: Axis %d is nullptr !!!", i);
       continue;
     }
 
@@ -226,7 +226,7 @@ Long64_t NBinningPoint::Fill(bool ignoreFilledCheck)
   /// Fill the content histogram at the current point
   ///
   if (fBinning == nullptr || fBinning->GetContent() == nullptr) {
-    NLogger::Error("NBinningPoint::Fill: Binning or content is nullptr");
+    NLogError("NBinningPoint::Fill: Binning or content is nullptr");
     return -1;
   }
 
@@ -235,7 +235,7 @@ Long64_t NBinningPoint::Fill(bool ignoreFilledCheck)
   if (bin >= 0 && ignoreFilledCheck == false) {
     fBinning->GetDefinition()->GetContent()->SetBinContent(fStorageCoords, bin);
     fBinning->GetDefinition()->GetIds().push_back(bin);
-    // NLogger::Error("NBinningPoint::Fill: Bin for content already exists for coordinates: %s",
+    // NLogError("NBinningPoint::Fill: Bin for content already exists for coordinates: %s",
     //                NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
     return -bin;
   }
@@ -251,12 +251,12 @@ bool NBinningPoint::SetPointContentFromLinearIndex(Long64_t linBin, bool checkBi
   /// Set point content coordinates from linear index
   ///
   if (fBinning == nullptr || fBinning->GetContent() == nullptr) {
-    NLogger::Error("NBinningPoint::SetPointContentFromLinearIndex: Binning or content is nullptr");
+    NLogError("NBinningPoint::SetPointContentFromLinearIndex: Binning or content is nullptr");
     return false;
   }
 
   if (linBin < 0 || linBin >= fBinning->GetContent()->GetNbins()) {
-    NLogger::Error("NBinningPoint::SetPointContentFromLinearIndex: Invalid linear bin index: %lld", linBin);
+    NLogError("NBinningPoint::SetPointContentFromLinearIndex: Invalid linear bin index: %lld", linBin);
     return false;
   }
 
@@ -274,7 +274,7 @@ Double_t NBinningPoint::GetMin(std::string axis) const
   for (int i = 0; i < fNDimensions; i++) {
     TAxis * a = fBinning->GetAxes()[i];
     if (a == nullptr) {
-      NLogger::Error("NBinningPoint::GetMin: Axis %d is nullptr !!!", i);
+      NLogError("NBinningPoint::GetMin: Axis %d is nullptr !!!", i);
       continue;
     }
     if (axis.compare(a->GetName()) == 0) {
@@ -282,7 +282,7 @@ Double_t NBinningPoint::GetMin(std::string axis) const
     }
   }
 
-  NLogger::Error("NBinningPoint::GetMin: Axis '%s' not found !!!", axis.c_str());
+  NLogError("NBinningPoint::GetMin: Axis '%s' not found !!!", axis.c_str());
   return -1;
 }
 
@@ -296,7 +296,7 @@ Double_t NBinningPoint::GetMax(std::string axis) const
   for (int i = 0; i < fNDimensions; i++) {
     TAxis * a = fBinning->GetAxes()[i];
     if (a == nullptr) {
-      NLogger::Error("NBinningPoint::GetMax: Axis %d is nullptr !!!", i);
+      NLogError("NBinningPoint::GetMax: Axis %d is nullptr !!!", i);
       continue;
     }
     if (axis.compare(a->GetName()) == 0) {
@@ -304,7 +304,7 @@ Double_t NBinningPoint::GetMax(std::string axis) const
     }
   }
 
-  NLogger::Error("NBinningPoint::GetMax: Axis '%s' not found !!!", axis.c_str());
+  NLogError("NBinningPoint::GetMax: Axis '%s' not found !!!", axis.c_str());
   return -1;
 }
 
@@ -318,7 +318,7 @@ std::string NBinningPoint::GetLabel(std::string axis) const
   for (int i = 0; i < fNDimensions; i++) {
     TAxis * a = fBinning->GetAxes()[i];
     if (a == nullptr) {
-      NLogger::Error("NBinningPoint::GetLabel: Axis %d is nullptr !!!", i);
+      NLogError("NBinningPoint::GetLabel: Axis %d is nullptr !!!", i);
       continue;
     }
     if (axis.compare(a->GetName()) == 0) {
@@ -326,7 +326,7 @@ std::string NBinningPoint::GetLabel(std::string axis) const
     }
   }
 
-  NLogger::Error("NBinningPoint::GetLabel: Axis '%s' not found !!!", axis.c_str());
+  NLogError("NBinningPoint::GetLabel: Axis '%s' not found !!!", axis.c_str());
   return "";
 }
 

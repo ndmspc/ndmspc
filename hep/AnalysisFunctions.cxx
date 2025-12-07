@@ -91,7 +91,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
                                  double corrMax)
 {
   if (fitResult.Get() == nullptr) {
-    NLogger::Warning("Fit result is null");
+    NLogWarning("Fit result is null");
     return false;
   }
   int status = fitResult->Status();
@@ -102,12 +102,12 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
   double prob = fitResult->Prob();
 
   if (status < 0) {
-    NLogger::Warning("Fit did not converge properly, status = %d", status);
+    NLogWarning("Fit did not converge properly, status = %d", status);
     return status;
   }
 
   if (ndf <= 0) {
-    NLogger::Warning("Fit has non-positive degrees of freedom, ndf = %d", ndf);
+    NLogWarning("Fit has non-positive degrees of freedom, ndf = %d", ndf);
     return 4;
   }
   // 2. Reduced Chi-squared (Chi^2 / NDF)
@@ -118,7 +118,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
   // or too many free parameters (overfitting).
   double chi2n = chi2 / ndf;
   if (chi2n < chi2nMin || chi2n > chi2nMax) {
-    NLogger::Warning("Fit has poor chi2/ndf = %E (min: %.3f, max: %.3f)", chi2n, chi2nMin, chi2nMax);
+    NLogWarning("Fit has poor chi2/ndf = %E (min: %.3f, max: %.3f)", chi2n, chi2nMin, chi2nMax);
     return 3;
   }
   // 3. p-value
@@ -127,7 +127,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
   // A low p-value (e.g., < 0.05) suggests the model is a poor description.
   // ROOT's TFitResult gives a p-value.
   if (prob < probMin) {
-    NLogger::Warning("Fit has low probability = %E (min: %.4f)", prob, probMin);
+    NLogWarning("Fit has low probability = %E (min: %.4f)", prob, probMin);
     return 2;
   }
   // 5. Correlation Matrix
@@ -139,14 +139,14 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
     for (int j = i + 1; j < func->GetNpar(); ++j) {
       double correlation = fitResult->Correlation(i, j);
       if (std::abs(correlation) > corrMax) { // Highlight high correlations
-        NLogger::Warning("Fit has high correlation (%.2f) between parameters %s and %s", correlation,
+        NLogWarning("Fit has high correlation (%.2f) between parameters %s and %s", correlation,
                          func->GetParName(i), func->GetParName(j));
         return 1;
       }
     }
   }
 
-  NLogger::Info("Fit is good: chi2/ndf=%.2f, prob=%.4f", chi2n, prob);
+  NLogInfo("Fit is good: chi2/ndf=%.2f, prob=%.4f", chi2n, prob);
 
   return 0;
 }

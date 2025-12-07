@@ -31,15 +31,15 @@ int NDimExecutor()
     std::vector<int> min2D = {0, 0};
     std::vector<int> max2D = {10, 20};
     // std::vector<int> max2D = {20000, 20000};
-    NLogger::Info("2D Example: (%d, %d) to (%d, %d)", min2D[0], min2D[1], max2D[0], max2D[1]);
+    NLogInfo("2D Example: (%d, %d) to (%d, %d)", min2D[0], min2D[1], max2D[0], max2D[1]);
     NDimensionalExecutor exec2D_seq(min2D, max2D);
     // exec2D_seq.Execute([](const std::vector<int> & c) { print_coordinates_safe(c, c.size()); });
     exec2D_seq.Execute([](const std::vector<int> & c) {});
-    NLogger::Info("Sequential 2D execution completed.");
+    NLogInfo("Sequential 2D execution completed.");
     // --- Parallel Example with User-Provided TObjects ---
     std::vector<int> min3D = {0, 0, 0};
     std::vector<int> max3D = {500, 60, 70};
-    NLogger::Info("3D Example: (%d, %d, %d) to (%d, %d, %d)", min3D[0], min3D[1], min3D[2], max3D[0], max3D[1],
+    NLogInfo("3D Example: (%d, %d, %d) to (%d, %d, %d)", min3D[0], min3D[1], min3D[2], max3D[0], max3D[1],
                   max3D[2]);
     NDimensionalExecutor exec3D_par(min3D, max3D);
 
@@ -69,7 +69,7 @@ int NDimExecutor()
     auto                                      end_par3d      = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> par3d_duration = end_par3d - start_par3d;
 
-    NLogger::Info("Parallel 3D execution completed and it took %.0f ms", par3d_duration.count());
+    NLogInfo("Parallel 3D execution completed and it took %.0f ms", par3d_duration.count());
 
     // --- Process Results (Inspect the original vector) ---
     // Merging results

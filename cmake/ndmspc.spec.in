@@ -12,8 +12,9 @@ Source0:    %{name}-%{version}.tar.gz
 BuildRequires: systemd-rpm-macros
 BuildRequires: gcc-c++, cmake
 BuildRequires: doxygen
-BuildRequires: openssl-devel, libcurl-devel, libuv-devel, libwebsockets-devel
-BuildRequires: opentelemetry-cpp-devel, json-devel, protobuf-devel
+BuildRequires: openssl-devel, libcurl-devel, libuv-devel, libwebsockets-devel, protobuf-devel
+BuildRequires: json-devel
+# BuildRequires: opentelemetry-cpp-devel
 # BuildRequires: parquet-libs-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
@@ -28,7 +29,6 @@ Requires: %{name} = %{version}-%{release}, pkgconfig
 
 %description doc
 This package contains @PROJECT_NAME@ documentation.
-
 
 %package jupyroot
 Summary:  Jupyroot bindings for @PROJECT_NAME@
@@ -45,7 +45,14 @@ This package contains Jupyroot bindings for @PROJECT_NAME@.
 %build
 mkdir build
 cd build
-cmake ../ -DWITH_PARQUET=OFF -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENTATION=on
+cmake ../ \
+-DCMAKE_INSTALL_PREFIX=/usr \
+-DCMAKE_BUILD_TYPE=Release \
+-DBUILD_DOCUMENTATION=on \
+-DWITH_TEST=OFF \
+-DWITH_PARQUET=OFF \
+-DWITH_OPENTELEMETRY=OFF
+
 make %{?_smp_mflags}
 cd ../
 
@@ -76,14 +83,18 @@ make install DESTDIR=%{buildroot}
 %{_bindir}/*
 %{_libdir}/*
 %{_datadir}/%{name}/*
-%{_sysconfdir}/*
+%{_sysconfdir}/ndmspc/*
+%{_sysconfdir}/profile.d/*
 %{_includedir}/*
 %{_unitdir}/ndmspc-http@.service
+%{_sysconfdir}/systemd/user/ndmspc-http@.service
 
 %files doc
 %doc /usr/share/doc/%{name}/
 
 %files jupyroot
 %{_unitdir}/ndmspc-notebook@.service
+%{_sysconfdir}/systemd/user/ndmspc-notebook@.service
+
 
 %changelog

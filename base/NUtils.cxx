@@ -37,18 +37,18 @@ bool NUtils::EnableMT(UInt_t numthreads)
   if (ROOT::IsImplicitMTEnabled()) {
     ROOT::DisableImplicitMT();
   }
-  NLogger::Info("Enabling IMT (Implicit Multi-Threading) ...");
+  NLogInfo("Enabling IMT (Implicit Multi-Threading) ...");
 
   if (numthreads == 1) {
     // take numeber of cores from env variable
     const char * nThreadsEnv = gSystem->Getenv("ROOT_MAX_THREADS");
-    NLogger::Info("Setting number of threads from ROOT_MAX_THREADS env variable: %s", nThreadsEnv);
+    NLogInfo("Setting number of threads from ROOT_MAX_THREADS env variable: %s", nThreadsEnv);
     if (nThreadsEnv) {
       try {
         numthreads = std::stoul(nThreadsEnv);
       }
       catch (const std::exception & e) {
-        NLogger::Error("Error parsing ROOT_MAX_THREADS: %s !!! Setting it to '1' ...", e.what());
+        NLogError("Error parsing ROOT_MAX_THREADS: %s !!! Setting it to '1' ...", e.what());
         numthreads = 1;
       }
     }
@@ -59,7 +59,7 @@ bool NUtils::EnableMT(UInt_t numthreads)
 
   // Check if IMT is enabled
   if (ROOT::IsImplicitMTEnabled()) {
-    NLogger::Info("IMT is enabled with number of threads: %d", ROOT::GetThreadPoolSize());
+    NLogInfo("IMT is enabled with number of threads: %d", ROOT::GetThreadPoolSize());
   }
 
   return previouslyEnabled;
@@ -79,7 +79,7 @@ bool NUtils::IsFileSupported(std::string filename)
   if (fn.BeginsWith("/") || !fn.Contains("://")) {
     return true;
   }
-  NLogger::Error("NUtils::IsFileSupported: File '%s' not found", filename.c_str());
+  NLogError("NUtils::IsFileSupported: File '%s' not found", filename.c_str());
   return false;
 }
 
@@ -112,7 +112,7 @@ bool NUtils::AccessPathName(std::string path)
       // For raw files, we cannot use TFile
       pathStr += "?filetype=raw";
     }
-    NLogger::Debug("NUtils::AccessPathName: Trying to open file '%s' ...", pathStr.Data());
+    NLogDebug("NUtils::AccessPathName: Trying to open file '%s' ...", pathStr.Data());
     TFile * f = TFile::Open(pathStr.Data());
     if (f && !f->IsZombie()) {
       f->Close();
@@ -131,24 +131,24 @@ int NUtils::Cp(std::string source, std::string destination)
   int rc = 0;
 
   if (source.empty()) {
-    NLogger::Error("NUtils::Cp: Source file is empty");
+    NLogError("NUtils::Cp: Source file is empty");
     return -1;
   }
   if (destination.empty()) {
-    NLogger::Error("NUtils::Cp: Destination file is empty");
+    NLogError("NUtils::Cp: Destination file is empty");
     return -1;
   }
 
   if (IsFileSupported(source) == false) {
-    NLogger::Error("NUtils::Cp: Source file '%s' is not supported", source.c_str());
+    NLogError("NUtils::Cp: Source file '%s' is not supported", source.c_str());
     return -1;
   }
   if (IsFileSupported(destination) == false) {
-    NLogger::Error("NUtils::Cp: Destination file '%s' is not supported", destination.c_str());
+    NLogError("NUtils::Cp: Destination file '%s' is not supported", destination.c_str());
     return -1;
   }
 
-  NLogger::Info("Copying file from '%s' to '%s' ...", source.c_str(), destination.c_str());
+  NLogInfo("Copying file from '%s' to '%s' ...", source.c_str(), destination.c_str());
   // rc = TFile::Cp(source, destination);
   return rc;
 }
@@ -164,7 +164,7 @@ TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string
   a->SetName(name.c_str());
   a->SetTitle(title.c_str());
   for (int i = 0; i < nBins; i++) {
-    NLogger::Debug("NUtils::CreateAxisFromLabels: Adding label: %s", labels[i].c_str());
+    NLogDebug("NUtils::CreateAxisFromLabels: Adding label: %s", labels[i].c_str());
     a->SetBinLabel(i + 1, labels[i].c_str());
   }
   return a;
@@ -182,7 +182,7 @@ TAxis * NUtils::CreateAxisFromLabelsSet(const std::string & name, const std::str
   a->SetTitle(title.c_str());
   int i = 1;
   for (const auto & label : labels) {
-    NLogger::Debug("NUtils::CreateAxisFromLabels: Adding label: %s", label.c_str());
+    NLogDebug("NUtils::CreateAxisFromLabels: Adding label: %s", label.c_str());
     a->SetBinLabel(i, label.c_str());
     i++;
   }
@@ -196,11 +196,11 @@ THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vecto
   ///
 
   if (h1 == nullptr) {
-    NLogger::Error("TH1 h1 is null");
+    NLogError("TH1 h1 is null");
     return nullptr;
   }
 
-  NLogger::Info("Converting TH1 '%s' to THnSparse ...", h1->GetName());
+  NLogInfo("Converting TH1 '%s' to THnSparse ...", h1->GetName());
 
   int      nDims = 1;
   Int_t    bins[nDims];
@@ -230,7 +230,7 @@ THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vecto
     }
   }
 
-  for (size_t i = 0; i < nDims; i++) {
+  for (int i = 0; i < nDims; i++) {
     if (!names[i].empty()) hns->GetAxis(i)->SetName(names[i].c_str());
     if (!titles[i].empty()) hns->GetAxis(i)->SetTitle(titles[i].c_str());
   }
@@ -256,10 +256,10 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
   /// Convert TH2 to THnSparse
   ///
   if (h2 == nullptr) {
-    NLogger::Error("TH2 h2 is null");
+    NLogError("TH2 h2 is null");
     return nullptr;
   }
-  NLogger::Info("Converting TH2 '%s' to THnSparse ...", h2->GetName());
+  NLogInfo("Converting TH2 '%s' to THnSparse ...", h2->GetName());
   int      nDims = 2;
   Int_t    bins[nDims];
   Double_t xmin[nDims];
@@ -272,7 +272,7 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
     else if (i == 1)
       aIn = h2->GetYaxis();
     else {
-      NLogger::Error("Invalid axis index %d", i);
+      NLogError("Invalid axis index %d", i);
       return nullptr;
     }
     bins[i] = aIn->GetNbins();
@@ -282,7 +282,7 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
 
   THnSparse * hns = new THnSparseD(h2->GetName(), h2->GetTitle(), nDims, bins, xmin, xmax);
 
-  for (int i = 0; i < nDims; i++) {
+  for (Int_t i = 0; i < nDims; i++) {
     TAxis * a   = hns->GetAxis(i);
     TAxis * aIn = nullptr;
     if (i == 0)
@@ -290,7 +290,7 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
     else if (i == 1)
       aIn = h2->GetYaxis();
     else {
-      NLogger::Error("Invalid axis index %d", i);
+      NLogError("Invalid axis index %d", i);
       delete hns;
       return nullptr;
     }
@@ -306,7 +306,7 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
     }
   }
 
-  for (size_t i = 0; i < nDims; i++) {
+  for (Int_t i = 0; i < nDims; i++) {
     if (!names[i].empty()) hns->GetAxis(i)->SetName(names[i].c_str());
     if (!titles[i].empty()) hns->GetAxis(i)->SetTitle(titles[i].c_str());
   }
@@ -335,11 +335,11 @@ THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vecto
   ///
 
   if (h3 == nullptr) {
-    NLogger::Error("TH3 h3 is null");
+    NLogError("TH3 h3 is null");
     return nullptr;
   }
 
-  NLogger::Info("Converting TH3 '%s' to THnSparse ...", h3->GetName());
+  NLogInfo("Converting TH3 '%s' to THnSparse ...", h3->GetName());
 
   int      nDims = 3;
   Int_t    bins[nDims];
@@ -355,7 +355,7 @@ THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vecto
     else if (i == 2)
       aIn = h3->GetZaxis();
     else {
-      NLogger::Error("Invalid axis index %d", i);
+      NLogError("Invalid axis index %d", i);
       return nullptr;
     }
     bins[i] = aIn->GetNbins();
@@ -376,7 +376,7 @@ THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vecto
     else if (i == 2)
       aIn = h3->GetZaxis();
     else {
-      NLogger::Error("Invalid axis index %d", i);
+      NLogError("Invalid axis index %d", i);
       delete hns;
       return nullptr;
     }
@@ -392,7 +392,7 @@ THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vecto
     }
   }
 
-  for (size_t i = 0; i < nDims; i++) {
+  for (Int_t i = 0; i < nDims; i++) {
     if (!names[i].empty()) hns->GetAxis(i)->SetName(names[i].c_str());
     if (!titles[i].empty()) hns->GetAxis(i)->SetTitle(titles[i].c_str());
   }
@@ -426,21 +426,21 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   TString opt(option);
 
   if (hns == nullptr) {
-    NLogger::Error("NUtils::ReshapeSparseAxes: THnSparse hns is null");
+    NLogError("NUtils::ReshapeSparseAxes: THnSparse hns is null");
     return nullptr;
   }
 
   if (order.empty()) {
-    NLogger::Trace("NUtils::ReshapeSparseAxes: Order vector is empty");
-    for (int i = 0; i < hns->GetNdimensions() + newAxes.size(); i++) {
-      NLogger::Trace("NUtils::ReshapeSparseAxes: Adding axis %d to order", i);
+    NLogTrace("NUtils::ReshapeSparseAxes: Order vector is empty");
+    for (long unsigned int i = 0; i < hns->GetNdimensions() + newAxes.size(); i++) {
+      NLogTrace("NUtils::ReshapeSparseAxes: Adding axis %d to order", i);
       order.push_back(i);
     }
   }
 
   if (order.size() != hns->GetNdimensions() + newAxes.size()) {
-    NLogger::Error("NUtils::ReshapeSparseAxes: Invalid size %d [order] != %d [hns->GetNdimensions()+newAxes]",
-                   order.size(), hns->GetNdimensions() + newAxes.size());
+    NLogError("NUtils::ReshapeSparseAxes: Invalid size %d [order] != %d [hns->GetNdimensions()+newAxes]", order.size(),
+               hns->GetNdimensions() + newAxes.size());
     return nullptr;
   }
 
@@ -448,37 +448,37 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   }
   else {
     if (newAxes.size() != newPoint.size()) {
-      NLogger::Error("NUtils::ReshapeSparseAxes: Invalid size %d [newAxes] != %d [newPoint]", newAxes.size(),
-                     newPoint.size());
+      NLogError("NUtils::ReshapeSparseAxes: Invalid size %d [newAxes] != %d [newPoint]", newAxes.size(),
+                 newPoint.size());
       return nullptr;
     }
   }
   // loop over order and check if order contains values from 0 to hns->GetNdimensions() + newAxes.size()
-  for (int i = 0; i < order.size(); i++) {
-    if (order[i] < 0 || order[i] >= hns->GetNdimensions() + newAxes.size()) {
-      NLogger::Error("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d. Value is negative or higher then "
-                     "'hns->GetNdimensions() + newAxes.size()' !!!",
-                     i, order[i]);
+  for (size_t i = 0; i < order.size(); i++) {
+    if (order[i] < 0 || order[i] >= hns->GetNdimensions() + (int)newAxes.size()) {
+      NLogError("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d. Value is negative or higher then "
+                 "'hns->GetNdimensions() + newAxes.size()' !!!",
+                 i, order[i]);
       return nullptr;
     }
   }
 
   // check if order contains unique values
-  for (int i = 0; i < order.size(); i++) {
-    for (int j = i + 1; j < order.size(); j++) {
+  for (size_t i = 0; i < order.size(); i++) {
+    for (size_t j = i + 1; j < order.size(); j++) {
       if (order[i] == order[j]) {
-        NLogger::Error("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d and order[%d]=%d. Value is not unique !!!", i,
-                       order[i], j, order[j]);
+        NLogError("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d and order[%d]=%d. Value is not unique !!!", i,
+                   order[i], j, order[j]);
         return nullptr;
       }
     }
   }
 
   // print info about original THnSparse
-  // NLogger::Debug("NUtils::ReshapeSparseAxes: Original THnSparse object:");
+  // NLogDebug("NUtils::ReshapeSparseAxes: Original THnSparse object:");
   // hns->Print();
 
-  NLogger::Trace("NUtils::ReshapeSparseAxes: Reshaping sparse axes ...");
+  NLogTrace("NUtils::ReshapeSparseAxes: Reshaping sparse axes ...");
 
   int      nDims = hns->GetNdimensions() + newAxes.size();
   Int_t    bins[nDims];
@@ -491,14 +491,14 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     int     id = order[i];
     if (id < hns->GetNdimensions()) {
       a = hns->GetAxis(id);
-      NLogger::Trace("NUtils::ReshapeSparseAxes: [ORIG] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
-                     a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
+      NLogTrace("NUtils::ReshapeSparseAxes: [ORIG] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
+                 a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
     }
     else {
       newAxesIndex = id - hns->GetNdimensions();
       a            = newAxes[newAxesIndex];
-      NLogger::Trace("NUtils::ReshapeSparseAxes: [NEW ] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
-                     a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
+      NLogTrace("NUtils::ReshapeSparseAxes: [NEW ] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
+                 a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
     }
     bins[i] = a->GetNbins();
     xmin[i] = a->GetXmin();
@@ -540,7 +540,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   }
 
   if (newPoint.empty()) {
-    NLogger::Trace("NUtils::ReshapeSparseAxes: New point is empty, filling is skipped and doing reset ...");
+    NLogTrace("NUtils::ReshapeSparseAxes: New point is empty, filling is skipped and doing reset ...");
     // hnsNew->Reset();
     // hnsNew->SetEntries(0);
     return hnsNew;
@@ -548,7 +548,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
 
   if (hns->GetNbins() > 0) {
     // loop over all bins
-    NLogger::Trace("NUtils::ReshapeSparseAxes: Filling all bins ...");
+    NLogTrace("NUtils::ReshapeSparseAxes: Filling all bins ...");
     for (Long64_t i = 0; i < hns->GetNbins(); i++) {
       Int_t p[nDims];
       Int_t pNew[nDims];
@@ -571,15 +571,15 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   }
   // Calsculate sumw2
   if (opt.Contains("E")) {
-    NLogger::Trace("ReshapeSparseAxes: Calculating sumw2 ...");
+    NLogTrace("ReshapeSparseAxes: Calculating sumw2 ...");
     hnsNew->Sumw2();
   }
-  NLogger::Trace("ReshapeSparseAxes: Reshaped sparse axes:");
+  NLogTrace("ReshapeSparseAxes: Reshaped sparse axes:");
   // print all axes
   for (int i = 0; i < nDims; i++) {
     TAxis * a = hnsNew->GetAxis(i);
-    NLogger::Trace("ReshapeSparseAxes: Axis %d: %s %s %d %.2f %.2f", i, a->GetName(), a->GetTitle(), a->GetNbins(),
-                   a->GetXmin(), a->GetXmax());
+    NLogTrace("ReshapeSparseAxes: Axis %d: %s %s %d %.2f %.2f", i, a->GetName(), a->GetTitle(), a->GetNbins(),
+               a->GetXmin(), a->GetXmax());
   }
   // hnsNew->Print("all");
   return hnsNew;
@@ -637,9 +637,9 @@ void NUtils::GetTrueHistogramMinMax(const TH1 * h, double & min_val, double & ma
     }
   }
   else {
-    NLogger::Warning("GetTrueHistogramMinMax: Histogram '%s' has unsupported dimension %d. "
-                     "Using GetMaximum/GetMinimum as fallback.",
-                     h->GetName(), h->GetDimension());
+    NLogWarning("GetTrueHistogramMinMax: Histogram '%s' has unsupported dimension %d. "
+              "Using GetMaximum/GetMinimum as fallback.",
+              h->GetName(), h->GetDimension());
     // As a fallback, try to get from GetMaximum/GetMinimum if dimension not 1,2,3
     max_val = h->GetMaximum();
     min_val = h->GetMinimum();
@@ -727,7 +727,7 @@ bool NUtils::SaveRawFile(std::string filename, std::string content)
 
   TFile * f = OpenFile(TString::Format("%s?filetype=raw", filename.c_str()).Data(), "RECREATE");
   if (!f) {
-    NLogger::Error("Error: Problem opening file '%s' in 'rw' mode  ...", filename.c_str());
+    NLogError("Error: Problem opening file '%s' in 'rw' mode  ...", filename.c_str());
     return false;
   }
   f->WriteBuffer(content.c_str(), content.size());
@@ -766,18 +766,18 @@ bool NUtils::LoadJsonFile(json & cfg, std::string filename)
 
   std::string content = OpenRawFile(filename);
   if (content.empty()) {
-    NLogger::Error("NUtils::LoadJsonFile: Problem opening JSON file '%s' ...", filename.c_str());
+    NLogError("NUtils::LoadJsonFile: Problem opening JSON file '%s' ...", filename.c_str());
     return false;
   }
 
   try {
     json myCfg = json::parse(content.c_str());
     cfg.merge_patch(myCfg);
-    NLogger::Info("NUtils::LoadJsonFile: Successfully parsed JSON file '%s' ...", filename.c_str());
+    NLogInfo("NUtils::LoadJsonFile: Successfully parsed JSON file '%s' ...", filename.c_str());
   }
   catch (json::parse_error & e) {
-    NLogger::Error("NUtils::LoadJsonFile: JSON parse error in file '%s' at byte %d: %s", filename.c_str(), e.byte,
-                   e.what());
+    NLogError("NUtils::LoadJsonFile: JSON parse error in file '%s' at byte %d: %s", filename.c_str(), e.byte,
+               e.what());
     return false;
   }
 
@@ -793,7 +793,7 @@ std::vector<std::string> NUtils::Find(std::string path, std::string filename)
   std::vector<std::string> files;
   TString                  pathStr = gSystem->ExpandPathName(path.c_str());
   if (pathStr.IsNull() || filename.empty()) {
-    NLogger::Error("NUtils::Find: Path or filename is empty");
+    NLogError("NUtils::Find: Path or filename is empty");
     return files;
   }
 
@@ -815,10 +815,10 @@ std::vector<std::string> NUtils::FindLocal(std::string path, std::string filenam
 
   std::vector<std::string> files;
   if (gSystem->AccessPathName(path.c_str())) {
-    NLogger::Error("NUtils::FindLocal: Path '%s' does not exist", path.c_str());
+    NLogError("NUtils::FindLocal: Path '%s' does not exist", path.c_str());
     return files;
   }
-  NLogger::Info("Doing find %s -name %s", path.c_str(), filename.c_str());
+  NLogInfo("Doing find %s -name %s", path.c_str(), filename.c_str());
   std::string linesMerge =
       gSystem->GetFromPipe(TString::Format("find %s -name %s", path.c_str(), filename.c_str())).Data();
 
@@ -836,7 +836,7 @@ std::vector<std::string> NUtils::FindEos(std::string path, std::string filename)
   ///
 
   std::vector<std::string> files;
-  NLogger::Info("Doing eos find -f --name %s %s ", filename.c_str(), path.c_str());
+  NLogInfo("Doing eos find -f --name %s %s ", filename.c_str(), path.c_str());
 
   TUrl        url(path.c_str());
   std::string host      = url.GetHost();
@@ -846,7 +846,7 @@ std::vector<std::string> NUtils::FindEos(std::string path, std::string filename)
   findUrl += "?mgm.cmd=find&mgm.find.match=" + filename;
   findUrl += "&mgm.path=" + directory;
   findUrl += "&mgm.format=json&mgm.option=f&filetype=raw";
-  NLogger::Info("Doing TFile::Open on '%s' ...", findUrl.c_str());
+  NLogInfo("Doing TFile::Open on '%s' ...", findUrl.c_str());
 
   TFile * f = Ndmspc::NUtils::OpenFile(findUrl.c_str());
   if (!f) return files;
@@ -992,7 +992,7 @@ TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes
   /// Project THnSparse onto TH1
   ///
   if (sparse == nullptr) {
-    NLogger::Error("Error: Sparse is nullptr ...");
+    NLogError("Error: Sparse is nullptr ...");
     return nullptr;
   }
 
@@ -1007,7 +1007,7 @@ TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes
     h = sparse->Projection(axes[0], axes[1], axes[2], option);
   }
   else {
-    NLogger::Error("Error: Only projection onto single axis is supported for TH1 ...");
+    NLogError("Error: Only projection onto single axis is supported for TH1 ...");
   }
 
   h->SetName(TString::Format("%s_proj", sparse->GetName()).Data());
@@ -1024,38 +1024,37 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
   ///
 
   if (sparse == nullptr) {
-    NLogger::Error("Error: Sparse is nullptr ...");
+    NLogError("Error: Sparse is nullptr ...");
     return false;
   }
   if (sparse->GetNdimensions() == 0) return true;
 
-  NLogger::Trace("Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
+  NLogTrace("Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
   /// Reset all axis ranges
   for (int i = 0; i < sparse->GetNdimensions(); i++) {
     if (withOverflow) {
-      NLogger::Trace("Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
+      NLogTrace("Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
       sparse->GetAxis(i)->SetRange(0, 0);
     }
     else {
-      NLogger::Trace("Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1,
-                     sparse->GetAxis(i)->GetNbins());
+      NLogTrace("Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1, sparse->GetAxis(i)->GetNbins());
       sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
     }
   }
 
   if (ranges.empty()) {
-    NLogger::Trace("No axis ranges to set ...");
+    NLogTrace("No axis ranges to set ...");
     return true;
   }
 
   TAxis * axis  = nullptr;
   TString title = sparse->GetTitle();
   if (modifyTitle) title += " Ranges:";
-  for (int i = 0; i < ranges.size(); i++) {
+  for (size_t i = 0; i < ranges.size(); i++) {
     axis = sparse->GetAxis(ranges[i][0]);
-    NLogger::Trace("Setting axis range %s=[%d,%d] ...", axis->GetName(), ranges[i][1], ranges[i][2]);
+    NLogTrace("Setting axis range %s=[%d,%d] ...", axis->GetName(), ranges[i][1], ranges[i][2]);
     if (ranges[i].size() != 3) {
-      NLogger::Error("Error: Axis range must have 3 values, but has %zu ...", ranges[i].size());
+      NLogError("Error: Axis range must have 3 values, but has %zu ...", ranges[i].size());
       return false;
     }
     axis->SetRange(ranges[i][1], ranges[i][2]);
@@ -1081,39 +1080,39 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
   ///
 
   if (sparse == nullptr) {
-    NLogger::Error("NUtils::SetAxisRanges: Sparse is nullptr ...");
+    NLogError("NUtils::SetAxisRanges: Sparse is nullptr ...");
     return false;
   }
   if (sparse->GetNdimensions() == 0) return true;
 
-  NLogger::Trace("NUtils::SetAxisRanges: Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
+  NLogTrace("NUtils::SetAxisRanges: Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
   /// Reset all axis ranges
   for (int i = 0; i < sparse->GetNdimensions(); i++) {
     if (withOverflow) {
-      NLogger::Trace("NUtils::SetAxisRanges: Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
+      NLogTrace("NUtils::SetAxisRanges: Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
       sparse->GetAxis(i)->SetRange(0, 0);
     }
     else {
-      NLogger::Trace("NUtils::SetAxisRanges: Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1,
-                     sparse->GetAxis(i)->GetNbins());
+      NLogTrace("NUtils::SetAxisRanges: Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1,
+                 sparse->GetAxis(i)->GetNbins());
       sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
     }
   }
 
   if (ranges.empty()) {
-    NLogger::Trace("NUtils::SetAxisRanges: No axis ranges to set ...");
+    NLogTrace("NUtils::SetAxisRanges: No axis ranges to set ...");
     return true;
   }
   TAxis * axis  = nullptr;
   TString title = sparse->GetTitle();
   for (const auto & [key, val] : ranges) {
-    NLogger::Trace("NUtils::SetAxisRanges: Setting axis range for axis %d to [%d,%d] ...", key, val[0], val[1]);
+    NLogTrace("NUtils::SetAxisRanges: Setting axis range for axis %d to [%d,%d] ...", key, val[0], val[1]);
     axis = sparse->GetAxis(key);
     if (axis == nullptr) {
-      NLogger::Error("NUtils::SetAxisRanges: Axis %d is nullptr ...", key);
+      NLogError("NUtils::SetAxisRanges: Axis %d is nullptr ...", key);
       return false;
     }
-    NLogger::Trace("NUtils::SetAxisRanges: Setting axis range %s=[%d,%d] ...", axis->GetName(), val[0], val[1]);
+    NLogTrace("NUtils::SetAxisRanges: Setting axis range %s=[%d,%d] ...", axis->GetName(), val[0], val[1]);
     axis->SetRange(val[0], val[1]);
     if (axis->IsAlphanumeric()) {
 
@@ -1126,7 +1125,7 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
   }
 
   if (modifyTitle) sparse->SetTitle(title.Data());
-  NLogger::Trace("NUtils::SetAxisRanges: New title: %s", sparse->GetTitle());
+  NLogTrace("NUtils::SetAxisRanges: New title: %s", sparse->GetTitle());
 
   return true;
 }
@@ -1136,28 +1135,28 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, 
   /// Returns axis range in base in min and max variables
   ///
   if (a == nullptr) {
-    NLogger::Error("Error: Axis is nullptr ...");
+    NLogError("Error: Axis is nullptr ...");
     return false;
   }
   min = -1;
   max = -1;
 
-  NLogger::Trace("Getting axis range in base for '%s' rebin=%d rebin_start=%d bin=%d...", a->GetName(), rebin,
-                 rebin_start, bin);
+  NLogTrace("Getting axis range in base for '%s' rebin=%d rebin_start=%d bin=%d...", a->GetName(), rebin, rebin_start,
+             bin);
 
   min = rebin * (bin - 1) + rebin_start;
   max = min + rebin - 1;
-  NLogger::Trace("Axis '%s' min=%d max=%d", a->GetName(), min, max);
+  NLogTrace("Axis '%s' min=%d max=%d", a->GetName(), min, max);
 
   if (min < 1) {
-    NLogger::Error("Error: Axis '%s' min=%d is lower then 1 ...", a->GetName(), min);
+    NLogError("Error: Axis '%s' min=%d is lower then 1 ...", a->GetName(), min);
     min = -1;
     max = -1;
     return false;
   }
 
   if (max > a->GetNbins()) {
-    NLogger::Error("Error: Axis '%s' max=%d is higher then %d ...", a->GetName(), max, a->GetNbins());
+    NLogError("Error: Axis '%s' max=%d is higher then %d ...", a->GetName(), max, a->GetNbins());
     min = -1;
     max = -1;
     return false;
@@ -1177,13 +1176,13 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int &
   int rebin_start = (base->GetNbins() % a->GetNbins()) + 1;
   rebin_start     = rebin != 1 ? rebin_start : 1; // start from 1
 
-  NLogger::Trace("Getting axis range in base for '%s' min=%d max=%d rebin=%d rebin_start=%d...", a->GetName(), min, max,
-                 rebin, rebin_start);
+  NLogTrace("Getting axis range in base for '%s' min=%d max=%d rebin=%d rebin_start=%d...", a->GetName(), min, max,
+             rebin, rebin_start);
 
   int tmp;
   GetAxisRangeInBase(base, rebin, rebin_start, min, minBase, tmp);
   GetAxisRangeInBase(base, rebin, rebin_start, max, tmp, maxBase);
-  NLogger::Trace("Axis '%s' minBase=%d maxBase=%d", a->GetName(), minBase, maxBase);
+  NLogTrace("Axis '%s' minBase=%d maxBase=%d", a->GetName(), minBase, maxBase);
 
   return true;
 }
@@ -1368,7 +1367,7 @@ void NUtils::PrintPointSafe(const std::vector<int> & coords, int index)
   /// Print point safe
   ///
 
-  NLogger::Info("%s", GetCoordsString(coords, index).c_str());
+  NLogInfo("%s", GetCoordsString(coords, index).c_str());
 }
 
 std::vector<std::vector<int>> NUtils::Permutations(const std::vector<int> & v)
@@ -1384,9 +1383,9 @@ std::vector<std::vector<int>> NUtils::Permutations(const std::vector<int> & v)
   } while (std::next_permutation(current.begin(), current.end()));
 
   // print the permutations
-  NLogger::Trace("Permutations of vector: %s", GetCoordsString(v).c_str());
+  NLogTrace("Permutations of vector: %s", GetCoordsString(v).c_str());
   for (const auto & perm : result) {
-    NLogger::Trace("Permutation: %s", GetCoordsString(perm).c_str());
+    NLogTrace("Permutation: %s", GetCoordsString(perm).c_str());
   }
 
   return result;
@@ -1482,15 +1481,15 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
 #ifdef WITH_PARQUET
 
   if (hns == nullptr) {
-    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: THnSparse 'hns' is nullptr ...");
+    NLogError("NUtils::CreateSparseFromParquetTaxi: THnSparse 'hns' is nullptr ...");
     return nullptr;
   }
 
   std::shared_ptr<arrow::io::ReadableFile>                infile;
   arrow::Result<std::shared_ptr<arrow::io::ReadableFile>> infile_result = arrow::io::ReadableFile::Open(filename);
   if (!infile_result.ok()) {
-    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error opening file %s: %s", filename.c_str(),
-                   infile_result.status().ToString().c_str());
+    NLogError("NUtils::CreateSparseFromParquetTaxi: Error opening file %s: %s", filename.c_str(),
+               infile_result.status().ToString().c_str());
     return nullptr;
   }
   infile = infile_result.ValueUnsafe();
@@ -1502,8 +1501,8 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   arrow::Result<std::unique_ptr<parquet::arrow::FileReader>> reader_result =
       parquet::arrow::OpenFile(infile, arrow::default_memory_pool()); // No third parameter!
   if (!reader_result.ok()) {
-    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error opening Parquet file reader for file %s: %s",
-                   filename.c_str(), reader_result.status().ToString().c_str());
+    NLogError("NUtils::CreateSparseFromParquetTaxi: Error opening Parquet file reader for file %s: %s",
+               filename.c_str(), reader_result.status().ToString().c_str());
     arrow::Status status = infile->Close(); // Attempt to close
     return nullptr;
   }
@@ -1512,12 +1511,12 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   // Get file metadata (optional)
   // Note: parquet_reader() returns a const ptr, and metadata() returns a shared_ptr
   std::shared_ptr<parquet::FileMetaData> file_metadata = reader->parquet_reader()->metadata();
-  NLogger::Trace("Parquet file '%s' opened successfully.", filename.c_str());
-  NLogger::Trace("Parquet file version: %d", file_metadata->version());
-  NLogger::Trace("Parquet created by: %s", file_metadata->created_by().c_str());
-  NLogger::Trace("Parquet number of columns: %d", file_metadata->num_columns());
-  NLogger::Trace("Parquet number of rows: %lld", file_metadata->num_rows());
-  NLogger::Trace("Parquet number of row groups: %d", file_metadata->num_row_groups());
+  NLogTrace("Parquet file '%s' opened successfully.", filename.c_str());
+  NLogTrace("Parquet file version: %d", file_metadata->version());
+  NLogTrace("Parquet created by: %s", file_metadata->created_by().c_str());
+  NLogTrace("Parquet number of columns: %d", file_metadata->num_columns());
+  NLogTrace("Parquet number of rows: %lld", file_metadata->num_rows());
+  NLogTrace("Parquet number of row groups: %d", file_metadata->num_row_groups());
 
   // Read the entire file as a Table
   // std::shared_ptr<arrow::Table> table;
@@ -1525,8 +1524,8 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   std::shared_ptr<arrow::RecordBatchReader> batch_reader;
   arrow::Status                             status = reader->GetRecordBatchReader(&batch_reader);
   if (!status.ok()) {
-    NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error reading table from Parquet file %s: %s",
-                   filename.c_str(), status.ToString().c_str());
+    NLogError("NUtils::CreateSparseFromParquetTaxi: Error reading table from Parquet file %s: %s", filename.c_str(),
+               status.ToString().c_str());
     status = infile->Close();
     return nullptr;
   }
@@ -1534,13 +1533,13 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   // It's good practice to close the input file stream when done
   status = infile->Close();
   if (!status.ok()) {
-    NLogger::Warning("NUtils::CreateSparseFromParquetTaxi: Error closing input file %s: %s", filename.c_str(),
-                     status.ToString().c_str());
+    NLogWarning("NUtils::CreateSparseFromParquetTaxi: Error closing input file %s: %s", filename.c_str(),
+              status.ToString().c_str());
     // This is a warning, we still want to return the table.
   }
 
   // Print schema of the table
-  NLogger::Trace("Parquet Table Schema:\n%s", batch_reader->schema()->ToString().c_str());
+  NLogTrace("Parquet Table Schema:\n%s", batch_reader->schema()->ToString().c_str());
 
   const Int_t              nDims = hns->GetNdimensions();
   std::vector<std::string> column_names;
@@ -1559,14 +1558,14 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   Double_t                            point[nDims];
 
   if (print_rows > 0) {
-    NLogger::Trace("Printing first %d rows of Parquet file '%s' ...", print_rows, filename.c_str());
-    // NLogger::Info("Columns: %s", NUtils::Join(column_names, '\t').c_str());
+    NLogTrace("Printing first %d rows of Parquet file '%s' ...", print_rows, filename.c_str());
+    // NLogInfo("Columns: %s", NUtils::Join(column_names, '\t').c_str());
   }
 
   int batch_count = 0;
   while (table_batch_reader->ReadNext(&batch).ok() && batch) {
     batch_count++;
-    NLogger::Trace("Processing batch with %d rows and %d columns ...", batch->num_rows(), batch->num_columns());
+    NLogTrace("Processing batch with %d rows and %d columns ...", batch->num_rows(), batch->num_columns());
     for (int i = 0; i < batch->num_rows(); ++i) {
       if (i >= max_rows) break; // Limit to first 5 rows for display
 
@@ -1575,7 +1574,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
       for (int j = 0; j < batch->num_columns(); ++j) {
         if (std::find(column_names.begin(), column_names.end(), batch->column_name(j)) == column_names.end())
           continue; // Skip columns not in our list
-        // NLogger::Debug("[%d %s]Processing row %d, column '%s' ...", idx, hns->GetAxis(idx)->GetName(), i,
+        // NLogDebug("[%d %s]Processing row %d, column '%s' ...", idx, hns->GetAxis(idx)->GetName(), i,
         //                batch->column_name(j).c_str());
         // std::cout << batch->column_name(j) << "\t";
         const auto &                                  array         = batch->column(j);
@@ -1590,7 +1589,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
               // It's best to convert it to std::string for general use.
               std::string value = scalar_result.ValueUnsafe()->ToString();
               // TODO: check if not shifted by one
-              // NLogger::Info("NUtils::CreateSparseFromParquetTaxi: Mapping string value '%s' to axis '%s' ...",
+              // NLogInfo("NUtils::CreateSparseFromParquetTaxi: Mapping string value '%s' to axis '%s' ...",
               //               value.c_str(), axis->GetName());
               point[idx] = axis->GetBinCenter(axis->FindBin(value.c_str()));
             }
@@ -1616,8 +1615,8 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
               point[idx]         = double_scalar->value;
             }
             else {
-              NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Unsupported data type for column '%s' ...",
-                             batch->column_name(j).c_str());
+              NLogError("NUtils::CreateSparseFromParquetTaxi: Unsupported data type for column '%s' ...",
+                         batch->column_name(j).c_str());
               isValid = false;
             }
           }
@@ -1631,8 +1630,8 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
           }
         }
         else {
-          NLogger::Error("NUtils::CreateSparseFromParquetTaxi: Error getting scalar at (%d,%d): %s", i, j,
-                         scalar_result.status().ToString().c_str());
+          NLogError("NUtils::CreateSparseFromParquetTaxi: Error getting scalar at (%d,%d): %s", i, j,
+                     scalar_result.status().ToString().c_str());
           isValid = false;
         }
         idx++;
@@ -1641,19 +1640,19 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
       if (isValid) {
         // print point
         // for (int d = 0; d < nDims; ++d) {
-        //   NLogger::Debug("Point[%d=%s]=%f", d, hns->GetAxis(d)->GetName(), point[d]);
+        //   NLogDebug("Point[%d=%s]=%f", d, hns->GetAxis(d)->GetName(), point[d]);
         // }
         hns->Fill(point);
       }
       else {
-        NLogger::Warning("Skipping row %d due to invalid data.", i);
+        NLogWarning("Skipping row %d due to invalid data.", i);
       }
     }
   }
   return hns;
 
 #else
-  NLogger::Error("Parquet support is not enabled. Please compile with Parquet support.");
+  NLogError("Parquet support is not enabled. Please compile with Parquet support.");
   return nullptr;
 #endif
 }

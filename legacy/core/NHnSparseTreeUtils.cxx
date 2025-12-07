@@ -53,7 +53,7 @@ NHnSparseTree * NHnSparseTreeUtils::Create(std::vector<std::vector<std::string>>
     for (auto & j : space[i]) {
       s += j + " ";
     }
-    NLogger::Debug("Set %d: %s", i, s.c_str());
+    NLogDebug("Set %d: %s", i, s.c_str());
   }
 
   for (int i = 0; i < nDims; i++) {
@@ -69,13 +69,13 @@ NHnSparseTree * NHnSparseTreeUtils::Create(std::vector<std::vector<std::string>>
   }
 
   if (axisNames.size() != axisTitles.size()) {
-    NLogger::Error("Invalid size %d [axisNames] != %d [axisTitles]", axisNames.size(), axisTitles.size());
+    NLogError("Invalid size %d [axisNames] != %d [axisTitles]", axisNames.size(), axisTitles.size());
     return nullptr;
   }
 
-  NHnSparseTree * hnst = new NHnSparseTreeC("hnst", "hnst", nDims, nbins, mins, maxs);
-  if (hnst == nullptr) {
-    NLogger::Error("Cannot create HnSparseTree");
+  NHnSparseTree * ngnt = new NHnSparseTreeC("ngnt", "ngnt", nDims, nbins, mins, maxs);
+  if (ngnt == nullptr) {
+    NLogError("Cannot create HnSparseTree");
     return nullptr;
   }
 
@@ -86,20 +86,20 @@ NHnSparseTree * NHnSparseTreeUtils::Create(std::vector<std::vector<std::string>>
     // check if name is in axisNames and set name and title for this axis
 
     if (i < axisNames.size()) {
-      hnst->GetAxis(i)->SetNameTitle(axisNames[i].c_str(), TString::Format("%s", axisTitles[i].c_str()).Data());
+      ngnt->GetAxis(i)->SetNameTitle(axisNames[i].c_str(), TString::Format("%s", axisTitles[i].c_str()).Data());
     }
 
     for (auto & b : space[i]) {
-      hnst->GetAxis(i)->SetBinLabel(j, b.c_str());
+      ngnt->GetAxis(i)->SetBinLabel(j, b.c_str());
       j++;
     }
   }
 
   // print all axes and their bin labels
   for (int i = 0; i < nDims; i++) {
-    NLogger::Info("Axis %d: %s", i, hnst->GetAxis(i)->GetName());
+    NLogInfo("Axis %d: %s", i, ngnt->GetAxis(i)->GetName());
     for (int j = 1; j <= nbins[i]; j++) {
-      NLogger::Info("  Bin %d: %s", j, hnst->GetAxis(i)->GetBinLabel(j));
+      NLogInfo("  Bin %d: %s", j, ngnt->GetAxis(i)->GetBinLabel(j));
     }
   }
 
@@ -107,18 +107,18 @@ NHnSparseTree * NHnSparseTreeUtils::Create(std::vector<std::vector<std::string>>
   int p[nDims];
   for (auto & point : points) {
     for (size_t i = 0; i < point.size(); i++) {
-      p[i] = hnst->GetAxis(i)->FindBin(point[i].c_str());
+      p[i] = ngnt->GetAxis(i)->FindBin(point[i].c_str());
     }
-    hnst->SetBinContent(p, 1);
+    ngnt->SetBinContent(p, 1);
   }
-  // hnst->Print();
-  // hnst->Projection(1, 2)->Draw();
+  // ngnt->Print();
+  // ngnt->Projection(1, 2)->Draw();
 
   delete[] nbins;
   delete[] mins;
   delete[] maxs;
 
-  return hnst;
+  return ngnt;
 }
 
 bool NHnSparseTreeUtils::CreateFromDir(std::string dir, std::vector<std::string> axisNames, std::string filter)
@@ -141,7 +141,7 @@ bool NHnSparseTreeUtils::CreateFromDir(std::string dir, std::vector<std::string>
   for (auto & p : paths) {
     p.erase(p.find(dir), dir.length());
     if (!filter.empty()) p.erase(p.find(filter), filter.length());
-    NLogger::Debug("Path: %s", p.c_str());
+    NLogDebug("Path: %s", p.c_str());
     std::vector<std::string> bin = NUtils::Tokenize(p, '/');
 
     bins.push_back(bin);
@@ -153,18 +153,18 @@ bool NHnSparseTreeUtils::CreateFromDir(std::string dir, std::vector<std::string>
     for (auto & i : b) {
       s += i + " ";
     }
-    NLogger::Debug("Bin: %s", s.c_str());
+    NLogDebug("Bin: %s", s.c_str());
   }
-  NHnSparseTree * hnst = NHnSparseTreeUtils::Create(bins, axisNames);
+  NHnSparseTree * ngnt = NHnSparseTreeUtils::Create(bins, axisNames);
 
-  NLogger::Debug("postfix=%s", filter.c_str());
-  hnst->SetPrefix(dir);
-  hnst->SetPostfix(filter);
-  hnst->InitTree(dir + "/hnst.root");
-  // // hnst->FillPoints(points);
-  hnst->Print();
-  hnst->Close(true);
-  delete hnst;
+  NLogDebug("postfix=%s", filter.c_str());
+  ngnt->SetPrefix(dir);
+  ngnt->SetPostfix(filter);
+  ngnt->InitTree(dir + "/ngnt.root");
+  // // ngnt->FillPoints(points);
+  ngnt->Print();
+  ngnt->Close(true);
+  delete ngnt;
   timer.Stop();
   timer.Print();
   return true;
@@ -180,7 +180,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
 
   NHnSparseTree * hnstIn = NHnSparseTree::Open(hnstFileNameIn.c_str());
   if (!hnstIn) {
-    NLogger::Error("Cannot open file '%s'", hnstFileNameIn.c_str());
+    NLogError("Cannot open file '%s'", hnstFileNameIn.c_str());
     return false;
   }
   // hnstIn->Print("PU");
@@ -210,7 +210,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   binningIn->AddBinning(4, {1, 1, 14}, 1);
   nBinsFilled += binningIn->FillAll();
 
-  NLogger::Info("Filled %d bins", nBinsFilled);
+  NLogInfo("Filled %d bins", nBinsFilled);
 
   // binningIn->GetContent()->Print();
   // NUtils::SetAxisRanges(binningIn->GetContent(), {});
@@ -224,7 +224,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
 
   NHnSparseTree * hnstOut = new NHnSparseTreeC(hnstFileNameOut.c_str());
   if (!hnstOut) {
-    NLogger::Error("Cannot create NHnSparseTree via file '%s'", hnstFileNameOut.c_str());
+    NLogError("Cannot create NHnSparseTree via file '%s'", hnstFileNameOut.c_str());
     return false;
   }
 
@@ -243,7 +243,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   Long64_t         idx           = cSparse->GetBin(cCoords);
   std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
   std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
-  // NLogger::Debug("Bin %lld: %s", linBin, binCoordsStr.c_str());
+  // NLogDebug("Bin %lld: %s", linBin, binCoordsStr.c_str());
   std::vector<std::vector<int>> coordsRange = binningIn->GetCoordsRange(cCoordsVector);
   // NUtils::PrintPointSafe(coordsRange[1], -1); // mins
   // NUtils::PrintPointSafe(coordsRange[2], -1); // maxs
@@ -252,12 +252,12 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   NUtils::VectorToArray(coordsRange[1], p);
 
   // print full path
-  NLogger::Debug("Bin %lld: %s", hnstIn->GetBin(p), hnstIn->GetFullPath(coordsRange[1]).c_str());
+  NLogDebug("Bin %lld: %s", hnstIn->GetBin(p), hnstIn->GetFullPath(coordsRange[1]).c_str());
   std::string fileName = hnstIn->GetFullPath(coordsRange[1]);
   std::string cachedir = TFile::GetCacheFileDir();
   TFile *     fOne     = NUtils::OpenFile(fileName.c_str(), cachedir.empty() ? "READ" : "CACHEREAD");
   if (fOne == nullptr) {
-    NLogger::Error("Cannot open file '%s'", fileName.c_str());
+    NLogError("Cannot open file '%s'", fileName.c_str());
     return false;
   }
   hnstOut->Print();
@@ -269,12 +269,12 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
     }
     objName += objNames[i];
     if (!hnstOut->GetNdimensions()) {
-      NLogger::Debug("Preparing branch %s from object '%s' ...", objNames[i].c_str(), objName.c_str());
-      NLogger::Info("Initializing 'hnstOut' from %s", objName.c_str());
+      NLogDebug("Preparing branch %s from object '%s' ...", objNames[i].c_str(), objName.c_str());
+      NLogInfo("Initializing 'hnstOut' from %s", objName.c_str());
       TObjArray * axesNew = (TObjArray *)hnstIn->GetListOfAxes()->Clone();
       THnSparse * hns     = (THnSparse *)fOne->Get(objName.c_str());
       if (hns == nullptr) {
-        NLogger::Warning("Cannot find object '%s' in file '%s'!!! Skipping ...", objName.c_str(), fileName.c_str());
+        NLogWarning("Cannot find object '%s' in file '%s'!!! Skipping ...", objName.c_str(), fileName.c_str());
         continue;
       }
       // loop over all axes in hns and get axis
@@ -283,7 +283,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
         axesNew->Add(aIn->Clone());
         std::string axisName = aIn->GetName();
         if (axisName == "axis1-pt") {
-          NLogger::Info("Found axis1-pt axis_id=%d", axesNew->GetEntries() - 1);
+          NLogInfo("Found axis1-pt axis_id=%d", axesNew->GetEntries() - 1);
         }
       }
       // axesNew->Print();
@@ -305,7 +305,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
     Long64_t         idx           = cSparse->GetBin(cCoords);
     std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
     std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
-    NLogger::Debug("Bin %lld: %s", linBin, binCoordsStr.c_str());
+    NLogDebug("Bin %lld: %s", linBin, binCoordsStr.c_str());
     std::vector<std::vector<int>> coordsRange = binningIn->GetCoordsRange(cCoordsVector);
     // NUtils::PrintPointSafe(coordsRange[1], -1); // mins
     // NUtils::PrintPointSafe(coordsRange[2], -1); // maxs
@@ -318,12 +318,12 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
     int i     = 0;
     for (auto & iAxis : binningOut->GetAxes()) {
 
-      NLogger::Debug("Axis %d [%s]: %d %s", i, iAxis->GetName(), p[index],
+      NLogDebug("Axis %d [%s]: %d %s", i, iAxis->GetName(), p[index],
                      binningOut->GetBinningType(i) == Binning::kSingle ? "single" : "multiple");
       if (binningOut->GetBinningType(i) == Binning::kSingle) {
         if (i < hnstIn->GetNdimensions()) {
 
-          // NLogger::Debug("p= [%d,%d,%d,%d]", i + 1, 1, 1, p[index]);
+          // NLogDebug("p= [%d,%d,%d,%d]", i + 1, 1, 1, p[index]);
           binningOut->AddBinning(i + 1, {1, 1, p[index]}, 1);
         }
         else {
@@ -386,7 +386,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   //   Long64_t         idx           = cSparse->GetBin(cCoords);
   //   std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
   //   std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
-  //   // NLogger::Debug("Bin %lld: %s", linBin, binCoordsStr.c_str());
+  //   // NLogDebug("Bin %lld: %s", linBin, binCoordsStr.c_str());
   //   std::vector<std::vector<int>> coordsRange = binningIn->GetCoordsRange(cCoordsVector);
   //   // NUtils::PrintPointSafe(coordsRange[1], -1); // mins
   //   // NUtils::PrintPointSafe(coordsRange[2], -1); // maxs
@@ -395,12 +395,12 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   //   NUtils::VectorToArray(coordsRange[1], p);
   //
   //   // print full path
-  //   NLogger::Debug("Bin %lld: %s", hnstIn->GetBin(p), hnstIn->GetFullPath(coordsRange[1]).c_str());
+  //   NLogDebug("Bin %lld: %s", hnstIn->GetBin(p), hnstIn->GetFullPath(coordsRange[1]).c_str());
   //   std::string fileName = hnstIn->GetFullPath(coordsRange[1]);
   //   std::string cachedir = TFile::GetCacheFileDir();
   //   TFile *     f        = NUtils::OpenFile(fileName.c_str(), cachedir.empty() ? "READ" : "CACHEREAD");
   //   if (f == nullptr) {
-  //     NLogger::Error("Cannot open file '%s'", fileName.c_str());
+  //     NLogError("Cannot open file '%s'", fileName.c_str());
   //     continue;
   //   }
   //   // loop over objNames and print content
@@ -410,14 +410,14 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   //       objName += "/";
   //     }
   //     objName += objNames[i];
-  //     NLogger::Debug("Preparing branch %s from object '%s' ...", objNames[i].c_str(), objName.c_str());
+  //     NLogDebug("Preparing branch %s from object '%s' ...", objNames[i].c_str(), objName.c_str());
   //     THnSparse * hns = (THnSparse *)f->Get(objName.c_str());
   //     if (hns == nullptr) {
-  //       NLogger::Warning("Cannot find object '%s' in file '%s'!!! Skipping ...", objName.c_str(), fileName.c_str());
+  //       NLogWarning("Cannot find object '%s' in file '%s'!!! Skipping ...", objName.c_str(), fileName.c_str());
   //       continue;
   //     }
   //     if (!hnstOut->GetNdimensions()) {
-  //       NLogger::Info("Initializing 'hnstOut' from %s", objName.c_str());
+  //       NLogInfo("Initializing 'hnstOut' from %s", objName.c_str());
   //       TObjArray * axesNew = (TObjArray *)hnstIn->GetListOfAxes()->Clone();
   //       // loop over all axes in hns and get axis
   //       for (int j = 0; j < hns->GetNdimensions(); j++) {
@@ -425,7 +425,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   //         axesNew->Add(aIn->Clone());
   //         std::string axisName = aIn->GetName();
   //         if (axisName == "axis1-pt") {
-  //           NLogger::Info("Found axis1-pt axis_id=%d", axesNew->GetEntries() - 1);
+  //           NLogInfo("Found axis1-pt axis_id=%d", axesNew->GetEntries() - 1);
   //         }
   //       }
   //       // axesNew->Print();
@@ -473,7 +473,7 @@ bool NHnSparseTreeUtils::Reshape(std::string hnstFileNameIn, std::vector<std::st
   // hnstOut->Close(true);
   //
   // // return true;
-  // NLogger::Info("%s", NUtils::GetCoordsString(objNames, -1).c_str());
+  // NLogInfo("%s", NUtils::GetCoordsString(objNames, -1).c_str());
   //
   // // NUtils::SetAxisRanges(binningIn->GetMap(), {});
   // TCanvas * c = new TCanvas("c", "c", 800, 600);

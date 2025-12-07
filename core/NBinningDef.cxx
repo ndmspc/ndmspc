@@ -13,7 +13,7 @@ ClassImp(Ndmspc::NBinningDef);
 namespace Ndmspc {
 NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std::vector<int>>> definition,
                          NBinning * binning)
-    : TObject(), fName(name), fDefinition(definition), fBinning(binning)
+    : TObject(), fBinning(binning), fName(name), fDefinition(definition)
 {
   ///
   /// Constructor
@@ -22,14 +22,14 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
   // TODO: build vector of TAxis from the definition
   // Print definition
   // for (const auto & kv : fDefinition) {
-  //   NLogger::Debug("NBinningDef: Binning '%s': %zu entries", kv.first.c_str(), kv.second.size());
+  //   NLogDebug("NBinningDef: Binning '%s': %zu entries", kv.first.c_str(), kv.second.size());
   //   for (const auto & v : kv.second) {
-  //     NLogger::Debug("  %s", NUtils::GetCoordsString(v, -1).c_str());
+  //     NLogDebug("  %s", NUtils::GetCoordsString(v, -1).c_str());
   //   }
   // }
 
   if (binning == nullptr) {
-    // NLogger::Error("NBinningDef: Binning is nullptr");
+    // NLogError("NBinningDef: Binning is nullptr");
     return;
   }
 
@@ -37,7 +37,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
   for (size_t i = 0; i < axes.size(); i++) {
     TAxis *     axis     = axes[i];
     std::string axisName = axis->GetName();
-    // Ndmspc::NLogger::Debug("NBinningDef::NBinningDef: Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
+    // NLogDebug("NBinningDef::NBinningDef: Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
     // axisName.c_str(),
     //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     if (fDefinition[axisName].empty()) {
@@ -59,7 +59,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     TAxis * axisNew = (TAxis *)axis->Clone();
 
     std::string name = axis->GetName();
-    NLogger::Trace("NBinningDef: Binning '%s': %d", name.c_str(), axis->GetNbins());
+    NLogTrace("NBinningDef: Binning '%s': %d", name.c_str(), axis->GetNbins());
 
     double bins[axis->GetNbins() + 1];
     int    count  = 0;
@@ -68,7 +68,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     int                                                  iBin       = 0;
     std::map<std::string, std::vector<std::vector<int>>> definition = GetDefinition();
     for (auto & v : definition.at(name)) {
-      // NLogger::Debug("  %s", NUtils::GetCoordsString(v, -1).c_str());
+      // NLogDebug("  %s", NUtils::GetCoordsString(v, -1).c_str());
 
       int n = v.size() > 1 ? v[1] : axis->GetNbins() / v[0];
       for (int i = 0; i < n; i++) {
@@ -81,7 +81,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     }
     // loop over bins and print
     // for (int i = 0; i < count; i++) {
-    //   NLogger::Debug("  %s: %d %f", axis->GetName(), i + 1, bins[i]);
+    //   NLogDebug("  %s: %d %f", axis->GetName(), i + 1, bins[i]);
     // }
     axisNew->Set(count - 1, bins);
     cAxes->Add(axisNew);
@@ -94,7 +94,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     xmax[i]      = axis->GetNbins();
   }
   fContent = new THnSparseL("content", "content", dims, nbins, xmin, xmax);
-  // NLogger::Info("---------- NBinningDef::NBinningDef: Created content THnSparse with %d dimensions", dims);
+  // NLogInfo("---------- NBinningDef::NBinningDef: Created content THnSparse with %d dimensions", dims);
 
   for (int i = 0; i < cAxes->GetEntries(); i++) {
     TAxis * axis        = (TAxis *)cAxes->At(i);
@@ -110,8 +110,8 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
 
     if (axes[i]->IsAlphanumeric()) {
       for (int b = 1; b <= axis->GetNbins(); b++) {
-        NLogger::Trace("NBinningDef::NBinningDef: Setting bin label for axis '%s' bin %d: '%s'", axis->GetName(), b,
-                       axis->GetBinLabel(b));
+        NLogTrace("NBinningDef::NBinningDef: Setting bin label for axis '%s' bin %d: '%s'", axis->GetName(), b,
+                  axis->GetBinLabel(b));
         axisContent->SetBinLabel(b, axes[i]->GetBinLabel(b));
       }
     }
@@ -120,7 +120,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
   for (int i = 0; i < fBinning->GetAxes().size(); i++) {
     TAxis * a = fBinning->GetAxes()[i];
     if (a == nullptr) {
-      NLogger::Error("NBinningPoint::GetTitle: Axis %d is nullptr !!!", i);
+      NLogError("NBinningPoint::GetTitle: Axis %d is nullptr !!!", i);
       continue;
     }
   }
@@ -147,9 +147,9 @@ void NBinningDef::Print(Option_t * option) const
   /// Print the binning definition
   ///
 
-  NLogger::Info("NBinningDef: name='%s' %zu axes with %zu entries : %s", fName.c_str(), fDefinition.size(), fIds.size(),
-                NUtils::GetCoordsString(fIds, -1).c_str());
-  NLogger::Info("             axes='%s'", NUtils::GetCoordsString(fVariableAxes).c_str());
+  NLogInfo("NBinningDef: name='%s' %zu axes with %zu entries : %s", fName.c_str(), fDefinition.size(), fIds.size(),
+           NUtils::GetCoordsString(fIds, -1).c_str());
+  NLogInfo("             axes='%s'", NUtils::GetCoordsString(fVariableAxes).c_str());
 
   TString opt = option;
   opt.ToUpper();
@@ -157,10 +157,10 @@ void NBinningDef::Print(Option_t * option) const
     // loop over content dimensions and print name title
     for (int i = 0; i < fContent->GetNdimensions(); i++) {
       std::string name = fContent->GetAxis(i)->GetName();
-      NLogger::Info("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f base: nbins=%d", i,
-                    fContent->GetAxis(i)->GetName(), fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(),
-                    fContent->GetAxis(i)->GetXmin(), fContent->GetAxis(i)->GetXmax(),
-                    fDefinition.at(fContent->GetAxis(i)->GetName())[0][0]);
+      NLogInfo("    [%d] name='%s' title='%s' nbins=%d min=%.3f max=%.3f base: nbins=%d", i,
+               fContent->GetAxis(i)->GetName(), fContent->GetAxis(i)->GetTitle(), fContent->GetAxis(i)->GetNbins(),
+               fContent->GetAxis(i)->GetXmin(), fContent->GetAxis(i)->GetXmax(),
+               fDefinition.at(fContent->GetAxis(i)->GetName())[0][0]);
     }
   }
 }
@@ -172,7 +172,7 @@ Long64_t NBinningDef::GetId(int index) const
   ///
 
   if (index < 0 || index >= static_cast<int>(fIds.size())) {
-    NLogger::Error("NBinningDef::GetId: Index %d is out of range [0, %zu)", index, fIds.size());
+    NLogError("NBinningDef::GetId: Index %d is out of range [0, %zu)", index, fIds.size());
     return -1;
   }
   return fIds[index];
@@ -187,8 +187,7 @@ void NBinningDef::RefreshIdsFromContent()
   fIds.clear();
   Int_t * c    = new Int_t[fContent->GetNdimensions()];
   auto    task = [this, c](const std::vector<int> & coords) {
-    NLogger::Trace("NBinningDef::RefreshIdsFromContent: Processing coordinates %s",
-                      NUtils::GetCoordsString(coords).c_str());
+    NLogTrace("NBinningDef::RefreshIdsFromContent: Processing coordinates %s", NUtils::GetCoordsString(coords).c_str());
 
     for (int i = 0; i < fContent->GetNdimensions(); i++) {
       c[i] = coords[i];
@@ -196,7 +195,7 @@ void NBinningDef::RefreshIdsFromContent()
 
     Long64_t id = fContent->GetBinContent(c);
     if (id > 0) {
-      NLogger::Trace("NBinningDef::RefreshIdsFromContent: -> Bin content: %lld", id - 1);
+      NLogTrace("NBinningDef::RefreshIdsFromContent: -> Bin content: %lld", id - 1);
       fIds.push_back(id - 1);
     }
   };
@@ -205,8 +204,8 @@ void NBinningDef::RefreshIdsFromContent()
   std::vector<int> maxs(fContent->GetNdimensions());
   for (int i = 0; i < fContent->GetNdimensions(); i++) {
     TAxis * axis = fContent->GetAxis(i);
-    NLogger::Trace("NBinningDef::RefreshIdsFromContent: Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
-                   axis->GetName(), axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    NLogTrace("NBinningDef::RefreshIdsFromContent: Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
+              axis->GetName(), axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     maxs[i] = axis->GetNbins();
   }
 
@@ -222,8 +221,8 @@ void NBinningDef::RefreshContentFromIds()
   ///
 
   // print all ids
-  NLogger::Trace("NBinningDef::RefreshContentfomIds: Refreshing content from %zu IDs: %s", fIds.size(),
-                 NUtils::GetCoordsString(fIds, -1).c_str());
+  NLogTrace("NBinningDef::RefreshContentfomIds: Refreshing content from %zu IDs: %s", fIds.size(),
+            NUtils::GetCoordsString(fIds, -1).c_str());
 
   fContent->Reset();
   // loop over all ids and set content
@@ -237,8 +236,7 @@ void NBinningDef::RefreshContentFromIds()
   std::vector<Long64_t> newIds;
   fIds.clear();
   auto task = [this, &newIds, c](const std::vector<int> & coords) {
-    NLogger::Trace("NBinningDef::RefreshContentfomIds: Processing coordinates %s",
-                   NUtils::GetCoordsString(coords).c_str());
+    NLogTrace("NBinningDef::RefreshContentfomIds: Processing coordinates %s", NUtils::GetCoordsString(coords).c_str());
 
     for (int i = 0; i < fContent->GetNdimensions(); i++) {
       c[i] = coords[i];
@@ -250,7 +248,7 @@ void NBinningDef::RefreshContentFromIds()
     // if (id == 0 && fIds.size() > 0) return; // skip empty bins after first filled one
     // it should be ok now
     if (id > 0) {
-      NLogger::Trace("NBinningDef::RefreshContentfomIds: -> Bin content: %lld", id - 1);
+      NLogTrace("NBinningDef::RefreshContentfomIds: -> Bin content: %lld", id - 1);
       fIds.push_back(id - 1);
     }
   };
@@ -259,8 +257,8 @@ void NBinningDef::RefreshContentFromIds()
   std::vector<int> maxs(fContent->GetNdimensions());
   for (int i = 0; i < fContent->GetNdimensions(); i++) {
     TAxis * axis = fContent->GetAxis(i);
-    NLogger::Trace("NBinningDef::RefreshContentfomIds: Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
-                   axis->GetName(), axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+    NLogTrace("NBinningDef::RefreshContentfomIds: Axis %d: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i,
+              axis->GetName(), axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
     maxs[i] = axis->GetNbins();
   }
 

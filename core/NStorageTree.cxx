@@ -22,7 +22,7 @@ NStorageTree::NStorageTree(NBinning * binning) : TObject(), fBinning(binning)
   ///
   /// Constructor
   ///
-  // InitTree("/tmp/hnst.root", "hnst");
+  // InitTree("/tmp/ngnt.root", "ngnt");
 }
 NStorageTree::~NStorageTree()
 {
@@ -48,7 +48,7 @@ void NStorageTree::Clear(Option_t * option)
     fTree = nullptr;
   }
   fBranchesMap.clear();
-  fFileName = "hnst.root";
+  fFileName = "ngnt.root";
   fPrefix.clear();
   fPostfix.clear();
 }
@@ -62,15 +62,15 @@ void NStorageTree::Print(Option_t * option) const
   TString opt(option);
   opt.ToUpper();
 
-  NLogger::Info("TTree:");
-  NLogger::Info("  filename='%s'", fFileName.c_str());
-  NLogger::Info("  tree name='%s' entries=%lld address=%p", fTree ? fTree->GetName() : "n/a",
+  NLogInfo("TTree:");
+  NLogInfo("  filename='%s'", fFileName.c_str());
+  NLogInfo("  tree name='%s' entries=%lld address=%p", fTree ? fTree->GetName() : "n/a",
                 fTree ? fTree->GetEntries() : -1, fTree);
-  NLogger::Info("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
-  NLogger::Info("  prefix='%s'", fPrefix.c_str());
-  NLogger::Info("  postfix='%s'", fPostfix.c_str());
+  NLogInfo("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
+  NLogInfo("  prefix='%s'", fPrefix.c_str());
+  NLogInfo("  postfix='%s'", fPostfix.c_str());
   std::string branchNames = NUtils::GetCoordsString(GetBrancheNames());
-  NLogger::Info("  branches: size=%d %s", fBranchesMap.size(), branchNames.c_str());
+  NLogInfo("  branches: size=%d %s", fBranchesMap.size(), branchNames.c_str());
 
   if (opt.Contains("A")) {
     for (auto & kv : fBranchesMap) {
@@ -91,28 +91,28 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
     fFileName = gSystem->ExpandPathName(filename.c_str());
   }
   else {
-    // NLogger::Warning("NStorageTree::InitTree: File was not defined, using RAM memory as storage ...",
+    // NLogWarning("NStorageTree::InitTree: File was not defined, using RAM memory as storage ...",
     //                  fFileName.c_str());
     fFileName = "";
     gROOT->cd();
   }
 
-  NLogger::Trace("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
+  NLogTrace("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
 
   if (!fFileName.empty()) {
     // Open file
     fFile = NUtils::OpenFile(fFileName.c_str(), "RECREATE");
     if (!fFile) {
-      NLogger::Error("NStorageTree::InitTree: Cannot open file '%s' !!!", fFileName.c_str());
+      NLogError("NStorageTree::InitTree: Cannot open file '%s' !!!", fFileName.c_str());
       return false;
     }
     if (fPrefix.empty()) fPrefix = gSystem->GetDirName(fFileName.c_str());
     if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFileName.c_str());
   }
 
-  fTree = new TTree(treename.c_str(), "hnst tree");
+  fTree = new TTree(treename.c_str(), "ngnt tree");
   if (!fTree) {
-    NLogger::Error("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), fFileName.c_str());
+    NLogError("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), fFileName.c_str());
     return false;
   }
 
@@ -124,7 +124,7 @@ bool NStorageTree::SetFileTree(TFile * file, TTree * tree, bool force)
   /// Set File and tree
   ///
   if (!tree) {
-    NLogger::Error("NStorageTree::SetFileTree: tree is nullptr !!!");
+    NLogError("NStorageTree::SetFileTree: tree is nullptr !!!");
     return false;
   }
   fFile = file;
@@ -143,11 +143,11 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool chec
   /// Get entry
   ///
 
-  NLogger::Trace("Getting entry=%lld nbranches=%d ...", entry, fBranchesMap.size());
+  NLogTrace("Getting entry=%lld nbranches=%d ...", entry, fBranchesMap.size());
   // fTree->Print();
   // Print warning if entry is out of bounds and return 0
   if (entry < 0 || entry >= fTree->GetEntries()) {
-    NLogger::Warning("Entry %lld is out of bounds [0, %lld]. Reading 0 bytes and objects remain from last valid entry.",
+    NLogWarning("Entry %lld is out of bounds [0, %lld]. Reading 0 bytes and objects remain from last valid entry.",
                      entry, fTree->GetEntries() - 1);
     fBinning->GetPoint()->Reset();
     return 0;
@@ -155,32 +155,32 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool chec
 
   if (point) {
     if (!point->SetPointContentFromLinearIndex(entry, checkBinningDef)) {
-      NLogger::Error("NStorageTree::GetEntry: Cannot set point content from linear index %lld !!!", entry);
+      NLogError("NStorageTree::GetEntry: Cannot set point content from linear index %lld !!!", entry);
       return 0;
     }
   }
   else {
-    NLogger::Warning("NStorageTree::GetEntry: Binning point is nullptr, cannot set point content !!!");
+    NLogWarning("NStorageTree::GetEntry: Binning point is nullptr, cannot set point content !!!");
     return 0;
   }
   Long64_t bytessum = 0;
 
   for (auto & kv : fBranchesMap) {
-    NLogger::Trace("NStorageTree::GetEntry: Getting content from '%s' branch ...", kv.first.c_str());
+    NLogTrace("NStorageTree::GetEntry: Getting content from '%s' branch ...", kv.first.c_str());
     if (kv.second.GetBranch() == nullptr) {
-      NLogger::Error("NStorageTree::GetEntry: Branch '%s' is not initialized !!!", kv.first.c_str());
+      NLogError("NStorageTree::GetEntry: Branch '%s' is not initialized !!!", kv.first.c_str());
       continue;
     }
     // check if branch is enabled
     if (kv.second.GetBranchStatus() == 0) {
-      NLogger::Trace("NStorageTree::GetEntry: Branch '%s' is disabled !!! Skipping ...", kv.first.c_str());
+      NLogTrace("NStorageTree::GetEntry: Branch '%s' is disabled !!! Skipping ...", kv.first.c_str());
       continue;
     }
     bytessum += kv.second.GetEntry(fTree, entry);
   }
 
   // Print byte sum
-  NLogger::Debug("NStorageTree::GetEntry: [entry=%lld] Bytes read : %.3f MB file='%s'", entry,
+  NLogDebug("NStorageTree::GetEntry: [entry=%lld] Bytes read : %.3f MB file='%s'", entry,
                  (double)bytessum / (1024 * 1024), fFileName.empty() ? "memory" : fFileName.c_str());
   return bytessum;
 }
@@ -191,15 +191,15 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   ///
   /// Fill Entry
   ///
-  NLogger::Trace("NStorageTree::Fill: Filling entry in NStorageTree ...");
+  NLogTrace("NStorageTree::Fill: Filling entry in NStorageTree ...");
 
   if (fTree == nullptr) {
-    NLogger::Error("NStorageTree::Fill: Tree is not initialized !!! Run 'NStorageTree::InitTree(...)' first !!!");
+    NLogError("NStorageTree::Fill: Tree is not initialized !!! Run 'NStorageTree::InitTree(...)' first !!!");
     return -2;
   }
 
   for (auto & kv : fBranchesMap) {
-    NLogger::Trace("NStorageTree::Fill: Saving content from %s ...", kv.first.c_str());
+    NLogTrace("NStorageTree::Fill: Saving content from %s ...", kv.first.c_str());
     if (hnstIn) {
       THnSparse * in = (THnSparse *)hnstIn->GetBranch(kv.first)->GetObject();
       if (ranges.size() > 0) {
@@ -217,35 +217,35 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   if (bin < 0 && ignoreFilledCheck == false) {
     fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
 
-    NLogger::Warning("Point was already processed, skipping ...");
-    // NLogger::Warning("NStorageTree::Fill: Point was already filled !!!");
+    NLogWarning("Point was already processed, skipping ...");
+    // NLogWarning("NStorageTree::Fill: Point was already filled !!!");
     return -2;
   }
 
-  // NLogger::Info("NStorageTree::Fill: bin=%lld -> tree entries=%lld", bin, fTree->GetEntries());
+  // NLogInfo("NStorageTree::Fill: bin=%lld -> tree entries=%lld", bin, fTree->GetEntries());
   // if (bin > fTree->GetEntries()) {
-  //   NLogger::Error("NStorageTree::Fill: Filled bin %lld is greater than tree entries %lld !!!", bin,
+  //   NLogError("NStorageTree::Fill: Filled bin %lld is greater than tree entries %lld !!!", bin,
   //                  fTree->GetEntries());
   //   return -2;
   // }
 
   if (fTree == nullptr) {
-    NLogger::Error("NStorageTree::Fill: Tree is not initialized !!!");
+    NLogError("NStorageTree::Fill: Tree is not initialized !!!");
     return -2;
   }
   // Filling entry to tree
   Int_t nBytes = fTree->Fill();
-  NLogger::Trace("NStorageTree::Fill: Filled entry %lld -> tree entries=%lld %d", bin, fTree->GetEntries(), nBytes);
+  NLogTrace("NStorageTree::Fill: Filled entry %lld -> tree entries=%lld %d", bin, fTree->GetEntries(), nBytes);
 
   if (fFile && nBytes <= 0) {
-    NLogger::Error("NStorageTree::Fill: Failed to fill tree '%s' in file '%s' !!!", fTree->GetName(), fFile->GetName());
+    NLogError("NStorageTree::Fill: Failed to fill tree '%s' in file '%s' !!!", fTree->GetName(), fFile->GetName());
     return -3;
   }
 
   Long64_t entry = fTree->GetEntries() - 1;
   fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
   point->SetEntryNumber(entry);
-  NLogger::Debug("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f MB file='%s'", entry,
+  NLogDebug("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f MB file='%s'", entry,
                  (Double_t)nBytes / (1024 * 1024),
                  fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
 
@@ -259,7 +259,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
   ///
 
   if (!fTree) {
-    NLogger::Error("NStorageTree::Close: Tree is not initialized !!!");
+    NLogError("NStorageTree::Close: Tree is not initialized !!!");
     return false;
   }
 
@@ -269,7 +269,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
       userInfo->Add(fBinning->Clone());
     }
     else {
-      NLogger::Error("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
+      NLogError("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
                      "Skipping to store tree content also ...");
       if (fFile) fFile->Close();
       return false;
@@ -285,20 +285,20 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
         if (kv.second && !kv.second->IsEmpty()) {
 
           kv.second->Write(kv.first.c_str(), TObject::kSingleKey);
-          NLogger::Debug("NStorageTree::Close: Output list '%s' with %d objects was written", kv.first.c_str(),
+          NLogDebug("NStorageTree::Close: Output list '%s' with %d objects was written", kv.first.c_str(),
                          kv.second->GetEntries());
         }
       }
       fFile->cd();
       fTree->Write("", TObject::kOverwrite);
       fFile->Close();
-      NLogger::Debug("NStorageTree::Close: HnSparseTree was written to file '%s' ...", fFile->GetName());
+      NLogDebug("NStorageTree::Close: HnSparseTree was written to file '%s' ...", fFile->GetName());
     }
   }
   else {
     if (fFile) {
       fFile->Close();
-      NLogger::Debug("File '%s' was closed", fFile->GetName());
+      NLogDebug("File '%s' was closed", fFile->GetName());
     }
   }
   fFile = nullptr;
@@ -323,12 +323,12 @@ bool NStorageTree::AddBranch(const std::string & name, void * address, const std
 {
 
   if (fBranchesMap.find(name) != fBranchesMap.end()) {
-    NLogger::Warning("Branch '%s' already exists, returning existing branch ...", name.c_str());
+    NLogWarning("Branch '%s' already exists, returning existing branch ...", name.c_str());
     return fBranchesMap[name].GetBranch();
   }
 
   if (fTree == nullptr) {
-    NLogger::Error("Tree is not initialized !!! Run 'HnSparseTree::InitTree(...)' first !!!");
+    NLogError("Tree is not initialized !!! Run 'HnSparseTree::InitTree(...)' first !!!");
     return false;
   }
 
@@ -341,12 +341,12 @@ NTreeBranch * NStorageTree::GetBranch(const std::string & name)
   /// Return branch by name
   ///
   if (name.empty()) {
-    NLogger::Error("NStorageTree::GetBranch: Branch name is empty !!!");
+    NLogError("NStorageTree::GetBranch: Branch name is empty !!!");
     return nullptr;
   }
 
   if (fBranchesMap.find(name) == fBranchesMap.end()) {
-    // NLogger::Error("NStorageTree::GetBranch: Branch '%s' not found !!!", name.c_str());
+    // NLogError("NStorageTree::GetBranch: Branch '%s' not found !!!", name.c_str());
     return nullptr;
   }
 
@@ -371,17 +371,17 @@ void NStorageTree::SetBranchAddresses()
   ///
 
   if (!fTree) {
-    NLogger::Error("NStorageTree::SetBranchAddresses:Tree is nullptr !!!");
+    NLogError("NStorageTree::SetBranchAddresses:Tree is nullptr !!!");
     return;
   }
 
-  // NLogger::Trace("Setting branch addresses ...");
+  // NLogTrace("Setting branch addresses ...");
 
   // Print size of branches map
-  NLogger::Trace("NStorageTree::SetBranchAddresses: Setting branch addresses for %d branches ...", fBranchesMap.size());
+  NLogTrace("NStorageTree::SetBranchAddresses: Setting branch addresses for %d branches ...", fBranchesMap.size());
   // fTree->SetBranchStatus("*", 0);
   for (auto & kv : fBranchesMap) {
-    NLogger::Trace("NStorageTree::SetBranchAddresses: Setting branch address '%s' ...", kv.first.c_str());
+    NLogTrace("NStorageTree::SetBranchAddresses: Setting branch address '%s' ...", kv.first.c_str());
     kv.second.SetBranchAddress(fTree);
   }
 }
@@ -395,11 +395,11 @@ void NStorageTree::SetEnabledBranches(std::vector<std::string> branches, int sta
   // loop over all branches
   for (auto & kv : fBranchesMap) {
     if (branches.empty() || std::find(branches.begin(), branches.end(), kv.first) != branches.end()) {
-      NLogger::Trace("%s branch '%s' ...", status == 1 ? "Enabling" : "Disabling", kv.first.c_str());
+      NLogTrace("%s branch '%s' ...", status == 1 ? "Enabling" : "Disabling", kv.first.c_str());
       kv.second.SetBranchStatus(status == 1 ? 1 : 0);
     }
     else {
-      NLogger::Trace("%s branch '%s' ...", status == 1 ? "Disabling" : "Enabling", kv.first.c_str());
+      NLogTrace("%s branch '%s' ...", status == 1 ? "Disabling" : "Enabling", kv.first.c_str());
       kv.second.SetBranchStatus(status == 1 ? 0 : 1);
     }
   }
@@ -412,26 +412,26 @@ Long64_t NStorageTree::Merge(TCollection * list)
   ///
 
   if (!list) {
-    NLogger::Error("NStorageTree::Merge: List is nullptr !!!");
+    NLogError("NStorageTree::Merge: List is nullptr !!!");
     return -1;
   }
   if (list->IsEmpty()) {
-    NLogger::Error("NStorageTree::Merge: List is empty !!!");
+    NLogError("NStorageTree::Merge: List is empty !!!");
     return -1;
   }
   // return 0;
   if (fTree == nullptr) {
-    NLogger::Error("NStorageTree::Merge: Tree is not initialized !!! Run 'NStorageTree::InitTree(...)' first !!!");
+    NLogError("NStorageTree::Merge: Tree is not initialized !!! Run 'NStorageTree::InitTree(...)' first !!!");
     return -1;
   }
 
   Long64_t nmerged = list->GetEntries();
-  NLogger::Trace("NStorageTree::Merge: Merging %d trees into tree '%s' ...", list->GetEntries(), fTree->GetName());
-  NLogger::Trace("NStorageTree::Merge: Merging %zu objects via NStorageTree::Merge ...", list->GetEntries());
+  NLogTrace("NStorageTree::Merge: Merging %d trees into tree '%s' ...", list->GetEntries(), fTree->GetName());
+  NLogTrace("NStorageTree::Merge: Merging %zu objects via NStorageTree::Merge ...", list->GetEntries());
 
   // Loop over all binning definitions in the list
   for (auto & kv : fBinning->GetDefinitions()) {
-    NLogger::Trace("NStorageTree::Merge: Clearing ids in binning definition '%s' ...", kv.first.c_str());
+    NLogTrace("NStorageTree::Merge: Clearing ids in binning definition '%s' ...", kv.first.c_str());
     kv.second->GetIds().clear();
   }
 
@@ -449,10 +449,10 @@ Long64_t NStorageTree::Merge(TCollection * list)
   NStorageTree * obj     = nullptr;
   THnSparse *    cSparse = fBinning->GetContent();
   if (cSparse == nullptr) {
-    NLogger::Error("NHnSparseTree::Merge: Content is nullptr !!! Cannot merge and exiting ...");
+    NLogError("NHnSparseTree::Merge: Content is nullptr !!! Cannot merge and exiting ...");
     return 0;
   }
-  NLogger::Trace("NStorageTree::Merge: Number of entries in content: %lld", cSparse->GetNbins());
+  NLogTrace("NStorageTree::Merge: Number of entries in content: %lld", cSparse->GetNbins());
   Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
   Long64_t                                        linBin  = 0;
   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
@@ -461,40 +461,40 @@ Long64_t NStorageTree::Merge(TCollection * list)
     Long64_t         idx           = cSparse->GetBin(cCoords);
     std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
     std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
-    NLogger::Trace("NStorageTree::Merge: Bin %lld(idx=%lld): %s", linBin, idx, binCoordsStr.c_str());
+    NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s", linBin, idx, binCoordsStr.c_str());
 
     // if (linBin >= cSparse->GetNbins()) break;
     // continue;
-    NLogger::Trace("NStorageTree::Merge: BEGIN linBin=%lld ===================================", linBin);
+    NLogTrace("NStorageTree::Merge: BEGIN linBin=%lld ===================================", linBin);
     bool found = false;
 
     while ((obj = dynamic_cast<NStorageTree *>(next()))) {
       if (found) break;
       if (obj == this || !obj) continue;
-      NLogger::Trace("NHnSparseTree::Merge: Scanning object '%s' with %lld entries ...", obj->GetFileName().c_str(),
+      NLogTrace("NHnSparseTree::Merge: Scanning object '%s' with %lld entries ...", obj->GetFileName().c_str(),
                      obj->GetTree()->GetEntries());
       // continue;
       Long64_t binObj = fBinning->GetContent()->GetBin(cCoords, false);
       if (binObj < 0) {
-        NLogger::Trace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' binObj=%lld, skipping ...", linBin,
+        NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' binObj=%lld, skipping ...", linBin,
                        idx, binCoordsStr.c_str(), obj->GetFileName().c_str(), binObj);
         continue;
       }
-      NLogger::Trace("NStorageTree::Merge: binObj=%lld", binObj);
+      NLogTrace("NStorageTree::Merge: binObj=%lld", binObj);
       Long64_t binGlobal = (Long64_t)fBinning->GetContent()->GetBinContent(binObj);
-      NLogger::Trace("NStorageTree::Merge: bcObj=%lld", binGlobal);
+      NLogTrace("NStorageTree::Merge: bcObj=%lld", binGlobal);
       // Long64_t bin = fBinning->GetContent()->GetBin(cCoords, false);
       Long64_t bin = obj->GetBinning()->GetContent()->GetBin(cCoords, false);
 
-      NLogger::Trace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' is bin=%lld binGlobal=%lld", linBin, idx,
+      NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' is bin=%lld binGlobal=%lld", linBin, idx,
                      binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
       if (bin < 0) {
-        NLogger::Trace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' bin=%lld, skipping ...", linBin, idx,
+        NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' bin=%lld, skipping ...", linBin, idx,
                        binCoordsStr.c_str(), obj->GetFileName().c_str(), bin);
         continue;
       }
 
-      NLogger::Trace("NStorageTree::Merge: bin=%lld obj->GetTree()->GetEntries()=%lld", bin,
+      NLogTrace("NStorageTree::Merge: bin=%lld obj->GetTree()->GetEntries()=%lld", bin,
                      obj->GetTree()->GetEntries());
       if (bin < obj->GetTree()->GetEntries()) {
         // obj->Print();
@@ -503,12 +503,12 @@ Long64_t NStorageTree::Merge(TCollection * list)
         // point->Print();
         // // FIXME: check why ids are not filled correctly when merging
         found = false;
-        NLogger::Trace("NHnSparseTree::Merge: Looping over all binning definitions to fill ids ...");
+        NLogTrace("NHnSparseTree::Merge: Looping over all binning definitions to fill ids ...");
         for (auto & name : fBinning->GetDefinitionNames()) {
           // check if id
           auto binningDefIn = obj->GetBinning()->GetDefinition(name);
           if (binningDefIn) {
-            NLogger::Trace("NHnSparseTree::Merge: Checking bin %lld to binning definition '%s' entry %lld  linBin=%d "
+            NLogTrace("NHnSparseTree::Merge: Checking bin %lld to binning definition '%s' entry %lld  linBin=%d "
                            "binGlobal=%lld ...",
                            idx, name.c_str(), point->GetEntryNumber(), linBin, binGlobal);
 
@@ -517,12 +517,12 @@ Long64_t NStorageTree::Merge(TCollection * list)
             if (std::find(binningDefIn->GetIds().begin(), binningDefIn->GetIds().end(), binGlobal) ==
                 binningDefIn->GetIds().end()) {
               // binningDefIn->GetIds().push_back(binGlobal);
-              NLogger::Trace("***** NHnSparseTree::Merge: Found and added %lld to definition '%s' Skipping", binGlobal,
+              NLogTrace("***** NHnSparseTree::Merge: Found and added %lld to definition '%s' Skipping", binGlobal,
                              name.c_str());
               continue;
             }
             else {
-              NLogger::Trace("***** NHnSparseTree::Merge: ID %lld already exists in definition '%s', Found ...",
+              NLogTrace("***** NHnSparseTree::Merge: ID %lld already exists in definition '%s', Found ...",
                              binGlobal, name.c_str());
               found = true;
             }
@@ -530,39 +530,39 @@ Long64_t NStorageTree::Merge(TCollection * list)
             //
             // // binningDefIn->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
             // // binningDefIn->GetContent()->Print();
-            // // NLogger::Debug("  IDs before: %s", NUtils::GetCoordsString(kv.second->GetIds(), -1).c_str());
+            // // NLogDebug("  IDs before: %s", NUtils::GetCoordsString(kv.second->GetIds(), -1).c_str());
             NBinningDef * def = fBinning->GetDefinition(name);
             // binningDefIn->Print();
             // def->Print();
             def->GetIds().push_back(linBin);
             // Long64_t xxx = def->GetContent()->GetBin(point->GetStorageCoords(), false);
-            // NLogger::Debug("  xxx = %lld", xxx);
+            // NLogDebug("  xxx = %lld", xxx);
             // if (xxx >= 0) {
             //   // def->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
             //   def->GetIds().push_back(point->GetEntryNumber());
             //   def->Print();
-            //   NLogger::Info("***** NHnSparseTree::Merge: Found %lld", point->GetEntryNumber());
+            //   NLogInfo("***** NHnSparseTree::Merge: Found %lld", point->GetEntryNumber());
             //   found = true;
             // }
           }
         }
         if (found == false) {
-          NLogger::Warning("NHnSparseTree::Merge: Bin %lld(idx=%lld): %s -> bin in obj='%s' is bin=%lld binGlobal=%lld "
+          NLogWarning("NHnSparseTree::Merge: Bin %lld(idx=%lld): %s -> bin in obj='%s' is bin=%lld binGlobal=%lld "
                            "but no definition found, skipping ...",
                            linBin, idx, binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
           continue;
         }
         // Lopp over all branches in the object
         for (auto & kv : obj->GetBranchesMap()) {
-          NLogger::Trace("NHnSparseTree::Merge: Merging branch '%s' ...", kv.first.c_str());
+          NLogTrace("NHnSparseTree::Merge: Merging branch '%s' ...", kv.first.c_str());
           if (kv.second.GetBranchStatus() == 0) {
-            NLogger::Trace("NHnSparseTree::Merge: Branch '%s' is disabled !!! Skipping ...", kv.first.c_str());
+            NLogTrace("NHnSparseTree::Merge: Branch '%s' is disabled !!! Skipping ...", kv.first.c_str());
             continue;
           }
           // Get the branch object
           TObject * branchObj = kv.second.GetObject();
           if (!branchObj) {
-            NLogger::Warning("NHnSparseTree::Merge: Branch '%s' object is nullptr !!! Skipping ...", kv.first.c_str());
+            NLogWarning("NHnSparseTree::Merge: Branch '%s' object is nullptr !!! Skipping ...", kv.first.c_str());
             continue;
           }
 
@@ -577,17 +577,17 @@ Long64_t NStorageTree::Merge(TCollection * list)
         // SaveEntry();
         // fBinning->SetPoint(obj->GetBinning()->GetPoint());
         Fill(point, obj, true, {}, false);
-        NLogger::Trace("NHnSparseTree::Merge: Filling point %s linBin=%d idx=%d entry_number=%d...",
+        NLogTrace("NHnSparseTree::Merge: Filling point %s linBin=%d idx=%d entry_number=%d...",
                        binCoordsStr.c_str(), linBin, idx, point->GetEntryNumber());
       }
     }
-    NLogger::Trace("NHnSparseTree::Merge: END linBin=%lld ===================================", linBin);
+    NLogTrace("NHnSparseTree::Merge: END linBin=%lld ===================================", linBin);
     next.Reset(); // Reset the iterator to start from the beginning again
   }
 
   // Print all definition ids after merging
   for (auto & kv : fBinning->GetDefinitions()) {
-    NLogger::Trace("NHnSparseTree::Merge: IDs in definition '%s': %s", kv.first.c_str(),
+    NLogTrace("NHnSparseTree::Merge: IDs in definition '%s': %s", kv.first.c_str(),
                    NUtils::GetCoordsString(kv.second->GetIds(), -1).c_str());
   }
 

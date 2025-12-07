@@ -16,7 +16,7 @@ using json = nlohmann::json;
 Ndmspc::NWsClient *     wsClient = nullptr;
 Int_t                   binx_old = -1;
 Int_t                   biny_old = -1;
-Ndmspc::NHnSparseTree * hnst     = nullptr;
+Ndmspc::NHnSparseTree * ngnt     = nullptr;
 
 void Interactive()
 {
@@ -52,7 +52,7 @@ void Interactive()
     binx     = h1->GetXaxis()->FindBin(x);
   }
   else {
-    Ndmspc::NLogger::Trace("Interactive: no TH1 or TH2 selected, skipping");
+    NLogTrace("Interactive: no TH1 or TH2 selected, skipping");
     return;
   }
 
@@ -64,72 +64,72 @@ void Interactive()
   binx_old = binx;
   biny_old = biny;
 
-  // Int_t   nDim     = hnst->GetNdimensions();
+  // Int_t   nDim     = ngnt->GetNdimensions();
   // Int_t * binCoord = new Int_t[nDim];
   // for (Int_t i = 0; i < nDim; ++i) {
   //   binCoord[i] = 1; // Initialize all dimensions to 0
   // }
 
-  std::vector<int> point = hnst->GetPoint()->GetPointContent();
+  std::vector<int> point = ngnt->GetPoint()->GetPointContent();
   point[5]               = binx; // Set the x bin coordinate
   point[8]               = biny; // Set the y bin coordinate
-  hnst->GetPoint()->SetPointContent(point);
-  Long64_t entry = hnst->GetPoint()->GetEntryNumber(); // Update the entry number
-  Ndmspc::NLogger::Debug("Interactive: entry=%lld, binx=%d, biny=%d", entry, binx, biny);
-  hnst->GetEntry(entry); // Load the entry in the HnSparseTree)
+  ngnt->GetPoint()->SetPointContent(point);
+  Long64_t entry = ngnt->GetPoint()->GetEntryNumber(); // Update the entry number
+  NLogDebug("Interactive: entry=%lld, binx=%d, biny=%d", entry, binx, biny);
+  ngnt->GetEntry(entry); // Load the entry in the HnSparseTree)
   //
-  Ndmspc::NLogger::Debug("Interactive: selected object name='%s', title='%s'", select->GetName(), select->GetTitle());
-  ((TNamed *)select)->SetTitle(hnst->GetPoint()->GetTitle("Map").c_str());
+  NLogDebug("Interactive: selected object name='%s', title='%s'", select->GetName(), select->GetTitle());
+  ((TNamed *)select)->SetTitle(ngnt->GetPoint()->GetTitle("Map").c_str());
   gPad->GetCanvas()->ModifiedUpdate();
 
   TObjArray * arr = new TObjArray();
   arr->SetOwner(kTRUE);
-  THnSparse * unlikep    = (THnSparse *)hnst->GetBranchObject("unlikepm");
+  THnSparse * unlikep    = (THnSparse *)ngnt->GetBranchObject("unlikepm");
   TH1 *       projection = nullptr;
   if (unlikep) {
     projection = unlikep->Projection(0);
-    projection->SetTitle(hnst->GetPoint()->GetTitle("unlikepm").c_str());
+    projection->SetTitle(ngnt->GetPoint()->GetTitle("unlikepm").c_str());
     arr->Add(projection);
   }
   else {
-    Ndmspc::NLogger::Error("Interactive: unlikepm branch not found in HnSparseTree");
+    NLogError("Interactive: unlikepm branch not found in HnSparseTree");
   }
 
-  THnSparse * likepp           = (THnSparse *)hnst->GetBranchObject("likepp");
+  THnSparse * likepp           = (THnSparse *)ngnt->GetBranchObject("likepp");
   TH1 *       likeppProjection = nullptr;
   if (likepp) {
     likeppProjection = likepp->Projection(0);
-    likeppProjection->SetTitle(hnst->GetPoint()->GetTitle("likepm").c_str());
+    likeppProjection->SetTitle(ngnt->GetPoint()->GetTitle("likepm").c_str());
     arr->Add(likeppProjection);
   }
   else {
-    Ndmspc::NLogger::Error("Interactive: likepm branch not found in HnSparseTree");
+    NLogError("Interactive: likepm branch not found in HnSparseTree");
   }
 
-  THnSparse * likemm           = (THnSparse *)hnst->GetBranchObject("likemm");
+  THnSparse * likemm           = (THnSparse *)ngnt->GetBranchObject("likemm");
   TH1 *       likemmProjection = nullptr;
   if (likemm) {
     likemmProjection = likemm->Projection(0);
-    likemmProjection->SetTitle(hnst->GetPoint()->GetTitle("likemm").c_str());
+    likemmProjection->SetTitle(ngnt->GetPoint()->GetTitle("likemm").c_str());
     arr->Add(likemmProjection);
   }
   else {
-    Ndmspc::NLogger::Error("Interactive: likemm branch not found in HnSparseTree");
+    NLogError("Interactive: likemm branch not found in HnSparseTree");
   }
 
-  THnSparse * mixingpm           = (THnSparse *)hnst->GetBranchObject("mixingpm");
+  THnSparse * mixingpm           = (THnSparse *)ngnt->GetBranchObject("mixingpm");
   TH1 *       mixingpmProjection = nullptr;
   if (mixingpm) {
     mixingpmProjection = mixingpm->Projection(0);
-    mixingpmProjection->SetTitle(hnst->GetPoint()->GetTitle("mixingpm").c_str());
+    mixingpmProjection->SetTitle(ngnt->GetPoint()->GetTitle("mixingpm").c_str());
     arr->Add(mixingpmProjection);
   }
   else {
-    Ndmspc::NLogger::Error("Interactive: mixingpm branch not found in HnSparseTree");
+    NLogError("Interactive: mixingpm branch not found in HnSparseTree");
   }
 
   // Print bin coordinates
-  // Ndmspc::NLogger::Info("Interactive: name='%s' bin: [%d,%d]", select->GetName(), binx, biny);
+  // NLogInfo("Interactive: name='%s' bin: [%d,%d]", select->GetName(), binx, biny);
   // json data;
   // data["event"] = event == kButton1Down ? "click" : event == kMouseMotion ? "hover" : "unknown";
   // data["name"]  = select->GetName();
@@ -142,22 +142,22 @@ void Interactive()
   }
 
   if (wsClient == nullptr) {
-    Ndmspc::NLogger::Info("Interactive: creating WebSocket client");
+    NLogInfo("Interactive: creating WebSocket client");
     wsClient = new Ndmspc::NWsClient();
     if (!wsClient->Connect("ws://localhost:8080/ws/root.websocket")) {
-      Ndmspc::NLogger::Error("Failed to connect to WebSocket server");
+      NLogError("Failed to connect to WebSocket server");
       delete wsClient;
       wsClient = nullptr;
       return;
     }
 
     wsClient->SetOnMessageCallback([](const std::string & msg) {
-      Ndmspc::NLogger::Trace("Interactive: [User Callback] Received message: %s", msg.c_str());
+      NLogTrace("Interactive: [User Callback] Received message: %s", msg.c_str());
       // Process message here.
     });
   }
-  // Ndmspc::NLogger::Debug("Interactive: data=%s", data.dump().c_str());
-  // Ndmspc::NLogger::Debug("Interactive: data=%s", data.c_str());
+  // NLogDebug("Interactive: data=%s", data.dump().c_str());
+  // NLogDebug("Interactive: data=%s", data.c_str());
   if (wsClient->IsConnected()) {
     static std::chrono::steady_clock::time_point lastSendTime;
     static constexpr auto                        debounceInterval = std::chrono::milliseconds(10);
@@ -166,24 +166,24 @@ void Interactive()
       return;
     }
     lastSendTime = now;
-    Ndmspc::NLogger::Trace("NHnSparseTreeDraw: sending data to WebSocket server");
+    NLogTrace("NHnSparseTreeDraw: sending data to WebSocket server");
     bool rc = wsClient->Send(data.c_str());
   }
 }
 
-void NHnSparseTreeDraw(std::string filename = "$HOME/.ndmspc/dev/hnst.root", std::string enabledBranches = "")
+void NHnSparseTreeDraw(std::string filename = "$HOME/.ndmspc/dev/ngnt.root", std::string enabledBranches = "")
 {
   TH1::AddDirectory(kFALSE);
 
-  hnst = Ndmspc::NHnSparseTree::Open(filename.c_str(), enabledBranches);
-  if (hnst == nullptr) {
+  ngnt = Ndmspc::NHnSparseTree::Open(filename.c_str(), enabledBranches);
+  if (ngnt == nullptr) {
     return;
   }
 
-  // hnst->Print("P");
-  // Ndmspc::NLogger::Info("Entries=%d", hnst->GetEntries());
+  // ngnt->Print("P");
+  // NLogInfo("Entries=%d", ngnt->GetEntries());
   TCanvas * c = new TCanvas("c", "HNST Draw", 800, 600);
-  auto *    h = hnst->Projection(2, 1);
+  auto *    h = ngnt->Projection(2, 1);
   h->SetMinimum(0);
   h->SetStats(0);
   h->Draw("colz");

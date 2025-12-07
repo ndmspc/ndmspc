@@ -9,7 +9,7 @@ ClassImp(Ndmspc::NHnSparseTreePoint);
 /// \endcond
 
 namespace Ndmspc {
-NHnSparseTreePoint::NHnSparseTreePoint(NHnSparseTree * hnst) : TObject(), fHnst(hnst)
+NHnSparseTreePoint::NHnSparseTreePoint(NHnSparseTree * ngnt) : TObject(), fHnst(ngnt)
 {
   ///
   /// Constructor
@@ -49,10 +49,10 @@ void NHnSparseTreePoint::SetPointContent(const std::vector<int> & content)
 
   //
   // Print content coordinates
-  NLogger::Trace("Setting point content: %s", NUtils::GetCoordsString(content, -1).c_str());
+  NLogTrace("Setting point content: %s", NUtils::GetCoordsString(content, -1).c_str());
   //
   if (content.size() != fPointContent.size()) {
-    NLogger::Error("Content size does not match point size %d != %d !!!", content.size(), fPointContent.size());
+    NLogError("Content size does not match point size %d != %d !!!", content.size(), fPointContent.size());
     return;
   }
   fPointContent = content;
@@ -60,13 +60,13 @@ void NHnSparseTreePoint::SetPointContent(const std::vector<int> & content)
   std::vector<std::vector<int>> axisRanges = fHnst->GetBinning()->GetAxisRanges(content);
 
   // for (size_t i = 0; i < axisRanges.size(); i++) {
-  //   NLogger::Trace("Axis %zu: %s", i, NUtils::GetCoordsString(axisRanges[i], -1).c_str());
+  //   NLogTrace("Axis %zu: %s", i, NUtils::GetCoordsString(axisRanges[i], -1).c_str());
   // }
 
   std::vector<int> coords(fHnst->GetNdimensions(), 1);
   // print axis ranges
-  // NLogger::Debug("Setting point storage coordinates:");
-  // NLogger::Debug("  %s", NUtils::GetCoordsString(coords, -1).c_str());
+  // NLogDebug("Setting point storage coordinates:");
+  // NLogDebug("  %s", NUtils::GetCoordsString(coords, -1).c_str());
   for (size_t i = 0; i < axisRanges.size(); i++) {
     std::string rangeStr = NUtils::GetCoordsString(axisRanges[i], -1);
     TAxis *     axis     = fHnst->GetBinning()->GetAxes()[i];
@@ -87,7 +87,7 @@ void NHnSparseTreePoint::SetPointContent(const std::vector<int> & content)
 //   ///
 //
 //   if (storage.size() != fPointStorage.size()) {
-//     NLogger::Error("Storage size does not match point size !!!");
+//     NLogError("Storage size does not match point size !!!");
 //     return;
 //   }
 //   fPointStorage = storage;
@@ -101,15 +101,15 @@ void NHnSparseTreePoint::Print(Option_t * option) const
 
   TString opt(option);
   opt.ToUpper();
-  NLogger::Info("NHnSparseTreePoint: opt='%s'", opt.Data());
+  NLogInfo("NHnSparseTreePoint: opt='%s'", opt.Data());
 
   // Print content point coordinates
-  NLogger::Info("  content: %s", NUtils::GetCoordsString(fPointContent, -1).c_str());
-  NLogger::Info("  storage: %s", NUtils::GetCoordsString(fPointStorage, -1).c_str());
+  NLogInfo("  content: %s", NUtils::GetCoordsString(fPointContent, -1).c_str());
+  NLogInfo("  storage: %s", NUtils::GetCoordsString(fPointStorage, -1).c_str());
   std::vector<std::vector<int>> axisRanges = fHnst->GetBinning()->GetAxisRanges(fPointContent);
 
   if (opt.Contains("A")) {
-    NLogger::Info("  Axis ranges:");
+    NLogInfo("  Axis ranges:");
     for (size_t i = 0; i < axisRanges.size(); i++) {
       std::string rangeStr = NUtils::GetCoordsString(axisRanges[i], -1);
       TAxis *     axis     = fHnst->GetBinning()->GetAxes()[i];
@@ -117,7 +117,7 @@ void NHnSparseTreePoint::Print(Option_t * option) const
       double_t min = axis->GetBinLowEdge(axisRanges[i][1]);
       double_t max = axis->GetBinUpEdge(axisRanges[i][2]);
       int      bin = fHnst->GetAxis(i)->FindBin((min + max) / 2.0);
-      NLogger::Info("    [%d] [%c] name='%s' title='%s' range=[%.3f,%.3f] localBin=%d baseRange[%d,%d]", i,
+      NLogInfo("    [%d] [%c] name='%s' title='%s' range=[%.3f,%.3f] localBin=%d baseRange[%d,%d]", i,
                     fHnst->GetBinning()->GetAxisTypeChar(i), axis->GetName(), axis->GetTitle(), min, max, bin,
                     axisRanges[i][1], axisRanges[i][2]);
     }
@@ -131,7 +131,7 @@ std::vector<int> NHnSparseTreePoint::GetPointBinning(Int_t axisId) const
   ///
 
   if (axisId < 0 || axisId >= fHnst->GetNdimensions()) {
-    NLogger::Error("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
+    NLogError("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
     return {};
   }
 
@@ -166,7 +166,7 @@ void NHnSparseTreePoint::GetPointMinMax(int axisId, double & min, double & max) 
   ///
 
   if (axisId < 0 || axisId >= fHnst->GetNdimensions()) {
-    NLogger::Error("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
+    NLogError("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
     return;
   }
   TAxis * a = fHnst->GetAxis(axisId);
@@ -181,7 +181,7 @@ double NHnSparseTreePoint::GetPointMin(int axisId) const
   ///
 
   if (axisId < 0 || axisId >= fHnst->GetNdimensions()) {
-    NLogger::Error("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
+    NLogError("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
     return 0.0;
   }
   return fPointMin[axisId];
@@ -194,7 +194,7 @@ double NHnSparseTreePoint::GetPointMax(int axisId) const
   ///
 
   if (axisId < 0 || axisId >= fHnst->GetNdimensions()) {
-    NLogger::Error("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
+    NLogError("Axis index %d is out of range [0, %d)", axisId, fHnst->GetNdimensions());
     return 0.0;
   }
   return fPointMax[axisId];
@@ -224,7 +224,7 @@ Long64_t NHnSparseTreePoint::GetEntryNumber() const
     delete[] p;
     return entry;
   }
-  NLogger::Error("NHnSparseTreePoint::GetEntryNumber: HnSparseTree is not set");
+  NLogError("NHnSparseTreePoint::GetEntryNumber: HnSparseTree is not set");
   return -1;
 }
 } // namespace Ndmspc

@@ -26,7 +26,7 @@ NThreadData::~NThreadData()
 void NThreadData::Process(const std::vector<int> & coords)
 {
 
-  NLogger::Trace("Processing coordinates in thread %llu",
+  NLogTrace("Processing coordinates in thread %llu",
                  (unsigned long long)std::hash<std::thread::id>{}(std::this_thread::get_id()));
   // Use renamed members with lowercase 'f'
   if (!fIdSet) {
@@ -42,7 +42,7 @@ void NThreadData::Process(const std::vector<int> & coords)
 
 void NThreadData::Print(Option_t * /*option*/) const
 {
-  NLogger::Trace("NThreadData [Index: %zu, ThreadId: %llu, Items: %lld, Sum: %lld]", fAssignedIndex,
+  NLogTrace("NThreadData [Index: %zu, ThreadId: %llu, Items: %lld, Sum: %lld]", fAssignedIndex,
                  (unsigned long long)std::hash<std::thread::id>{}(fThreadId), fItemCount, fCoordSum);
 }
 

@@ -13,6 +13,18 @@
 namespace Ndmspc {
 
 /**
+ * @brief Function pointer type for processing sparse nodes in the tree.
+ *
+ * This function is expected to process a binning point and two lists, with an additional integer parameter.
+ *
+ * @param Ndmspc::NBinningPoint* Pointer to the binning point to process.
+ * @param TList* Pointer to the first list involved in processing.
+ * @param TList* Pointer to the second list involved in processing.
+ * @param int Additional integer parameter for processing.
+ */
+using NHnSparseProcessFuncPtr = void (*)(Ndmspc::NBinningPoint *, TList *, TList *, int);
+
+/**
  * @class NGnTree
  * @brief NDMSPC tree object for managing multi-dimensional data storage and processing.
  *
@@ -22,7 +34,6 @@ namespace Ndmspc {
  *
  * @author Martin Vala <mvala@cern.ch>
  */
-using NHnSparseProcessFuncPtr = void (*)(Ndmspc::NBinningPoint *, TList *, TList *, int);
 class NGnNavigator;
 class NGnTree : public TObject {
   public:
@@ -35,25 +46,25 @@ class NGnTree : public TObject {
    * @brief Constructor from vector of axes.
    * @param axes Vector of TAxis pointers.
    * @param filename Optional file name.
-   * @param treename Optional tree name (default: "hnst").
+   * @param treename Optional tree name (default: "ngnt").
    */
-  NGnTree(std::vector<TAxis *> axes, std::string filename = "", std::string treename = "hnst");
+  NGnTree(std::vector<TAxis *> axes, std::string filename = "", std::string treename = "ngnt");
 
   /**
    * @brief Constructor from TObjArray of axes.
    * @param axes TObjArray of axes.
    * @param filename Optional file name.
-   * @param treename Optional tree name (default: "hnst").
+   * @param treename Optional tree name (default: "ngnt").
    */
-  NGnTree(TObjArray * axes, std::string filename = "", std::string treename = "hnst");
+  NGnTree(TObjArray * axes, std::string filename = "", std::string treename = "ngnt");
 
   /**
    * @brief Constructor from another NGnTree.
    * @param ngnt Pointer to NGnTree object.
    * @param filename Optional file name.
-   * @param treename Optional tree name (default: "hnst").
+   * @param treename Optional tree name (default: "ngnt").
    */
-  NGnTree(NGnTree * ngnt, std::string filename = "", std::string treename = "hnst");
+  NGnTree(NGnTree * ngnt, std::string filename = "", std::string treename = "ngnt");
 
   /**
    * @brief Constructor from NBinning and NStorageTree.
@@ -233,11 +244,11 @@ class NGnTree : public TObject {
    * @brief Open NGnTree from file.
    * @param filename File name.
    * @param branches Branches to open.
-   * @param treename Tree name (default: "hnst").
+   * @param treename Tree name (default: "ngnt").
    * @return Pointer to opened NGnTree.
    */
   static NGnTree * Open(const std::string & filename, const std::string & branches = "",
-                        const std::string & treename = "hnst");
+                        const std::string & treename = "ngnt");
 
   /**
    * @brief Open NGnTree from TTree.

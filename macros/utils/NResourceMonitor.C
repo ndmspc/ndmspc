@@ -13,21 +13,21 @@ void NResourceMonitor(std::string filename, std::string binningName = "",
 
   THnSparse * hnsMesourceMonitor = (THnSparse *)outputs->FindObject("resource_monitor");
   if (hnsMesourceMonitor == nullptr) {
-    Ndmspc::NLogger::Error("NResourceMonitor: THnSparse 'resource_monitor' not found in outputs for binning '%s' !!!",
+    NLogError("NResourceMonitor: THnSparse 'resource_monitor' not found in outputs for binning '%s' !!!",
                            binningName.c_str());
     return;
   }
 
   hnsMesourceMonitor->Print();
   //
-  TString           tmpFile  = "/tmp/ngnt_resource_monitor.root";
+  TString           tmpFile  = "/tmp/NResourceMonitor_ngnt_tmp.root";
   Ndmspc::NGnTree * ngntStat = Ndmspc::NGnTree::Import(hnsMesourceMonitor, "stat", tmpFile.Data());
 
   Ndmspc::NGnNavigator * navStat = Ndmspc::NGnNavigator::Open(tmpFile.Data());
 
   Ndmspc::NGnNavigator * nav = navStat->Reshape("", {});
   if (nav == nullptr) {
-    Ndmspc::NLogger::Error("NResourceMonitor: Failed to reshape navigator for resource monitor !!!");
+    NLogError("NResourceMonitor: Failed to reshape navigator for resource monitor !!!");
     return;
   }
   tmpFile.ReplaceAll(".root", ".json");
