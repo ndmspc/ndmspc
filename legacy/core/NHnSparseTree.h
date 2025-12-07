@@ -31,12 +31,12 @@ class NHnSparseTree : public THnSparse {
   NHnSparseTree();
   virtual ~NHnSparseTree();
 
-  NHnSparseTree(const std::string & filename, const std::string & treename = "hnst");
+  NHnSparseTree(const std::string & filename, const std::string & treename = "ngnt");
   NHnSparseTree(const char * name, const char * title, Int_t dim, const Int_t * nbins, const Double_t * xmin = 0,
                 const Double_t * xmax = 0, Int_t chunksize = 1024 * 16);
 
   static NHnSparseTree * Open(const std::string & filename, const std::string & branches = "",
-                              const std::string & treename = "hnst");
+                              const std::string & treename = "ngnt");
   virtual void           Print(Option_t * option = "") const;
   virtual Long64_t       Merge(TCollection * list);
   bool ExportNavigatorObject(NHnSparseObject * obj, std::vector<std::vector<int>> levels, int level = 0,
@@ -48,7 +48,7 @@ class NHnSparseTree : public THnSparse {
   bool ImportBinning(std::string                                          binningName = "default",
                      std::map<std::string, std::vector<std::vector<int>>> binning = {{}}, THnSparse * hnstIn = nullptr);
 
-  bool     InitTree(const std::string & filename = "", const std::string & treename = "hnst");
+  bool     InitTree(const std::string & filename = "", const std::string & treename = "ngnt");
   bool     InitAxes(TObjArray * newAxes, int n = 0);
   bool     InitBinnings(std::vector<TAxis *> axes);
   Int_t    FillTree();
@@ -112,7 +112,7 @@ class NHnSparseTree : public THnSparse {
                                       std::map<int, std::vector<int>> ranges = {}, Option_t * option = "");
 
   private:
-  std::string fFileName{"hnst.root"}; ///< Current filename
+  std::string fFileName{"ngnt.root"}; ///< Current filename
   TFile *     fFile{nullptr};         ///<! Current file
   std::string fPrefix{""};            ///< Prefix path
   std::string fPostfix{""};           ///< Postfix path

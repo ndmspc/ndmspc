@@ -10,7 +10,6 @@ set(MY_INCLUDE_DIRS
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/base
-  ${CMAKE_SOURCE_DIR}/http
   ${CMAKE_SOURCE_DIR}/core
 )
 set(MY_EXTERNAL_LIBS
@@ -23,7 +22,6 @@ set(MY_EXTERNAL_LIBS
   ${LIBWEBSOCKETS_LIBRARIES}
   # nlohmann_json::nlohmann_json
   NdmspcBase
-  NdmspcHttp
   NdmspcCore
 )
 file(COPY ${CMAKE_SOURCE_DIR}/macros/root/cernstaff/cernstaff.root

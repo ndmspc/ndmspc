@@ -27,7 +27,7 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms) : THttp
 void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {
 
-  // NLogger::Info("NHttpServer::ProcessRequest");
+  // NLogInfo("NHttpServer::ProcessRequest");
   NCloudEvent ce(arg.get());
   if (ce.IsValid()) {
     NHttpServer::ProcessNCloudEventRequest(&ce, arg);

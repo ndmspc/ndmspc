@@ -36,11 +36,11 @@ class NGnThreadData : public NThreadData {
    * @param binningIn Pointer to NBinning object.
    * @param input Optional input NGnTree pointer.
    * @param filename Optional file name.
-   * @param treename Optional tree name (default: "hnst").
+   * @param treename Optional tree name (default: "ngnt").
    * @return True if initialization successful.
    */
   bool Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt, NBinning * binningIn, NGnTree * input = nullptr,
-            const std::string & filename = "", const std::string & treename = "hnst");
+            const std::string & filename = "", const std::string & treename = "ngnt");
 
   /**
    * @brief Set the processing function pointer.
@@ -52,10 +52,10 @@ class NGnThreadData : public NThreadData {
    * @brief Initialize storage tree for thread data.
    * @param ts Pointer to NStorageTree.
    * @param filename Optional file name.
-   * @param treename Optional tree name (default: "hnst").
+   * @param treename Optional tree name (default: "ngnt").
    * @return True if storage initialized successfully.
    */
-  bool InitStorage(NStorageTree * ts, const std::string & filename = "", const std::string & treename = "hnst");
+  bool InitStorage(NStorageTree * ts, const std::string & filename = "", const std::string & treename = "ngnt");
 
   /**
    * @brief Get pointer to base NGnTree object.

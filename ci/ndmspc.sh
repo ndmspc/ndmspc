@@ -5,7 +5,7 @@ requires:
   - ROOT
   - JAliEn-ROOT
   - nlohmann_json
-  - opentelemetry-cpp
+  # - opentelemetry-cpp
   - libwebsockets
   - curl
   - libuv

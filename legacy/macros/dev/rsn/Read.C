@@ -14,20 +14,20 @@ void Read(std::string config = "PWGLF-376-dev.json", std::string enabledBranches
   Ndmspc::NConfig * cfg = Ndmspc::NConfig::Instance(config);
   cfg->SetEnvironment("local");
   cfg->Print();
-  // std::string hnstFileNameOut = cfg->GetAnalysisPath() + "/hnst.root";
-  std::string hnstFileNameOut = "/tmp/hnst.root";
+  // std::string hnstFileNameOut = cfg->GetAnalysisPath() + "/ngnt.root";
+  std::string hnstFileNameOut = "/tmp/ngnt.root";
 
-  Ndmspc::NHnSparseTree * hnst = Ndmspc::NHnSparseTree::Open(hnstFileNameOut.c_str(), enabledBranches);
-  if (hnst == nullptr) {
+  Ndmspc::NHnSparseTree * ngnt = Ndmspc::NHnSparseTree::Open(hnstFileNameOut.c_str(), enabledBranches);
+  if (ngnt == nullptr) {
     return;
   }
 
-  hnst->Print("P");
+  ngnt->Print("P");
 
   // return;
   TCanvas * c = new TCanvas("c", "c", 800, 600);
   c->Divide(2, 1);
-  auto h = hnst->Projection(1, 2, 3);
+  auto h = ngnt->Projection(1, 2, 3);
   h->SetStats(kFALSE);
   gSystem->ProcessEvents();
   h->SetMinimum(0);
@@ -37,14 +37,14 @@ void Read(std::string config = "PWGLF-376-dev.json", std::string enabledBranches
   gPad->ModifiedUpdate();
   gSystem->ProcessEvents();
 
-  THnSparse * sUnlikePM = (THnSparse *)hnst->GetBranchObject("unlikepm");
+  THnSparse * sUnlikePM = (THnSparse *)ngnt->GetBranchObject("unlikepm");
   if (sUnlikePM == nullptr) {
-    Ndmspc::NLogger::Error("Cannot get object 'unlikepm' from file '%s'", hnstFileNameOut.c_str());
+    NLogError("Cannot get object 'unlikepm' from file '%s'", hnstFileNameOut.c_str());
     return;
   }
   c->cd(2);
-  for (Long64_t i = 0; i < hnst->GetEntries(); i++) {
-    hnst->GetEntry(i);
+  for (Long64_t i = 0; i < ngnt->GetEntries(); i++) {
+    ngnt->GetEntry(i);
     sUnlikePM->Print();
     TH1 * hUnlikePM = sUnlikePM->Projection(0);
     hUnlikePM->SetMinimum(0);

@@ -109,12 +109,13 @@ class NBinningPoint : public TObject {
   std::map<int, std::vector<int>> GetBaseAxisRanges() const;
 
   /**
-   * @brief Get title string for the point.
-   * @param prefix Optional prefix.
-   * @param all Include all axes.
-   * @return Title string.
+   * @brief Returns a string representation of the binning point.
+   *
+   * @param prefix Optional prefix to prepend to the string.
+   * @param all If true, includes all details in the string; otherwise, provides a summary.
+   * @return std::string String representation of the binning point.
    */
-  std::string GetTitle(const std::string & prefix = "", bool all = false) const;
+  std::string GetString(const std::string & prefix = "", bool all = false) const;
 
   /**
    * @brief Get labels for each axis.

@@ -4,8 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/ndmspc/ndmspc-notebook
-EnvironmentFile=-/etc/ndmspc/ndmspc-notebook.%I
+EnvironmentFile=/etc/ndmspc/notebook
+EnvironmentFile=-/etc/ndmspc/notebook.%I
+EnvironmentFile=-%h/.ndmspc/notebook
+EnvironmentFile=-%h/.ndmspc/notebook.%I
 ExecStart=/usr/bin/root --notebook --port $NDMSPC_NOTEBOOK_PORT $NDMSPC_NOTEBOOK_EXTRA_ARGS
 Restart=on-abort
 

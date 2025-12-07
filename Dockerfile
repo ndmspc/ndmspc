@@ -28,7 +28,7 @@ RUN rm -rf *.rpm
 RUN dnf clean all
 ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
 RUN ln -sf /usr/lib/systemd/system/ndmspc-http@.service /etc/systemd/system/multi-user.target.wants/ndmspc-http@default.service
-# RUN ln -sf /usr/lib/systemd/system/ndmspc-notebook@.service /etc/systemd/system/multi-user.target.wants/ndmspc-notebook@ndmspc.service
+# RUN ln -sf /usr/lib/systemd/system/ndmspc-notebook@.service /etc/systemd/system/multi-user.target.wants/ndmspc-notebook@default.service
 ARG MY_USER=user
 RUN useradd -G wheel $MY_USER
 # USER $MY_USER

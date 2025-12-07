@@ -2,12 +2,12 @@
 #include <TSystem.h>
 #include <TFile.h>
 #include <TApplication.h>
-#include "ndmspc.h"
 #include "NUtils.h"
 #include "NHttpServer.h"
 #include "NWsHandler.h"
 #include "NStressHistograms.h"
 #include "NLogger.h"
+#include "ndmspc.h"
 std::string app_description()
 {
   size_t size = 64;
@@ -75,30 +75,31 @@ int main(int argc, char ** argv)
 
           Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
           if (serv == nullptr) {
-            Ndmspc::NLogger::Error("Server was not created !!!");
+            NLogError("Server was not created !!!");
             exit(1);
           }
 
-          int timeout = 100;
+          // int timeout = 100;
           // serv->SetTimer(0, kTRUE);
           // press Ctrl-C to stop macro
           // while (!gSystem->ProcessEvents()) {
-          //   // Ndmspc::NLogger::Debug("Waiting for requests ...");
+          //   // NLogDebug("Waiting for requests ...");
           //   gSystem->Sleep(timeout);
           // }
           //
-          Ndmspc::NLogger::Info("Starting server on port %d ...", port);
+          NLogInfo("Starting server on port %d ...", port);
           app.Run();
         }
         else if (!subsubcom->get_name().compare("stress")) {
           TApplication app("myapp", &argc, argv);
           int          port = 8080;
+
           if (gSystem->Getenv("PORT")) {
             port = atoi(gSystem->Getenv("PORT"));
           }
 
           Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
-          Ndmspc::NLogger::Info("Starting server on port %d ...", port);
+          NLogInfo("Starting server on port %d ...", port);
           Ndmspc::NWsHandler * ws = serv->GetWebSocketHandler();
 
           // when read-only mode disabled one could execute object methods like TTree::Draw()

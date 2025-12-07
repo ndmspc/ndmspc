@@ -38,7 +38,7 @@ TBranch * NTreeBranch::Branch(TTree * tree, void * address)
   /// Setting up branch
   ///
   if (!tree) {
-    NLogger::Error("Tree is nullptr !!!");
+    NLogError("Tree is nullptr !!!");
     return nullptr;
   }
 
@@ -56,10 +56,10 @@ void NTreeBranch::SetAddress(void * address, bool deleteExisting)
   ///
   /// Setting up address
   ///
-  NLogger::Trace("NTreeBranch::SetAddress: Setting address %p for branch '%s' ...", address, fName.c_str());
+  NLogTrace("NTreeBranch::SetAddress: Setting address %p for branch '%s' ...", address, fName.c_str());
 
   if (fObject && deleteExisting) {
-    NLogger::Debug("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
+    NLogDebug("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
     delete fObject;
     fObject = nullptr;
   }
@@ -73,11 +73,11 @@ void NTreeBranch::SetBranchAddress(TTree * tree)
   ///
 
   if (!tree) {
-    NLogger::Error("Tree is nullptr !!!");
+    NLogError("Tree is nullptr !!!");
     return;
   }
 
-  NLogger::Trace("NTreeBranch::SetBranchAddress: Setting branch address '%s' ...", fName.c_str());
+  NLogTrace("NTreeBranch::SetBranchAddress: Setting branch address '%s' ...", fName.c_str());
   // fObject = nullptr;
 
   tree->SetBranchStatus(fName.c_str(), fBranchStatus);
@@ -92,17 +92,17 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
   ///
 
   if (tree == nullptr) {
-    NLogger::Error("Tree is not initialized !!!");
+    NLogError("Tree is not initialized !!!");
     return -1;
   }
 
-  NLogger::Trace("Getting entry for branch '%s' %lld status=%d ...", fBranch->GetName(), entry,
+  NLogTrace("Getting entry for branch '%s' %lld status=%d ...", fBranch->GetName(), entry,
                  tree->GetBranchStatus(fBranch->GetName()));
 
   Long64_t bytes = 0;
   if (fBranch && tree->GetBranchStatus(fBranch->GetName()) == 1) {
     bytes = fBranch->GetEntry(entry);
-    NLogger::Trace("Getting content from %s with size %.3f MB", fBranch->GetName(), (double)bytes / (1024 * 1024));
+    NLogTrace("Getting content from %s with size %.3f MB", fBranch->GetName(), (double)bytes / (1024 * 1024));
     // if (fObject) {
     //   fObject->Print();
     // }
@@ -115,10 +115,10 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
   ///
   /// Save entry
   ///
-  NLogger::Trace("Saving entry for branch=%s ...", fName.c_str());
+  NLogTrace("Saving entry for branch=%s ...", fName.c_str());
 
   TString classNameStr = hnstBranchIn->GetObjectClassName().c_str();
-  // NLogger::Debug("NTreeBranch::SaveEntry: Obj class name %s ...", classNameStr.Data());
+  // NLogDebug("NTreeBranch::SaveEntry: Obj class name %s ...", classNameStr.Data());
   if (classNameStr.BeginsWith("THnSparse")) {
 
     THnSparse * in = (THnSparse *)hnstBranchIn->GetObject();
@@ -133,9 +133,9 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
           THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, projOpt.c_str());
           // Loop over all bins
           double sum = 0;
-          NLogger::Trace("Projection of %s with filled bins %lld ...", in->GetName(), out->GetNbins());
+          NLogTrace("Projection of %s with filled bins %lld ...", in->GetName(), out->GetNbins());
           for (Int_t i = 0; i < out->GetNbins(); i++) {
-            NLogger::Trace("Bin %d content=%f", i, out->GetBinContent(i));
+            NLogTrace("Bin %d content=%f", i, out->GetBinContent(i));
             sum += out->GetBinContent(i);
           }
           // out->Projection(0)->Print();
@@ -154,7 +154,7 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
     }
   }
   else {
-    NLogger::Trace("Class '%s' is stored default method !!!", classNameStr.Data());
+    NLogTrace("Class '%s' is stored default method !!!", classNameStr.Data());
     // return;
   }
 }
@@ -164,7 +164,7 @@ void NTreeBranch::Print(Option_t * option) const
   ///
   /// Print
   ///
-  NLogger::Info("Branch name='%s' objClassName='%s' address=%p branch=%p status=%d", fName.c_str(),
+  NLogInfo("Branch name='%s' objClassName='%s' address=%p branch=%p status=%d", fName.c_str(),
                 fObjectClassName.c_str(), fObject, fBranch, fBranchStatus);
 }
 

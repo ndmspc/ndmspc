@@ -345,11 +345,11 @@ class NGnNavigator : public TNamed {
   //  * @brief Open navigator from file.
   //  * @param filename File name.
   //  * @param branches Branches to open.
-  //  * @param treename Tree name (default: "hnst").
+  //  * @param treename Tree name (default: "ngnt").
   //  * @return Pointer to opened NGnNavigator.
   //  */
   // static NGnNavigator * Open(const std::string & filename, const std::string & branches = "",
-  //                            const std::string & treename = "hnst");
+  //                            const std::string & treename = "ngnt");
   //
   // /**
   //  * @brief Open navigator from TTree.

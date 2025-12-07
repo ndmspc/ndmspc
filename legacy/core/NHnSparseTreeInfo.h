@@ -20,7 +20,7 @@ class NHnSparseTreeInfo : public TNamed {
   virtual void Print(Option_t * option = "") const;
 
   ///< Set HnSparseTree
-  void SetHnSparseTree(NHnSparseTree * hnst) { fHnSparseTree = hnst; }
+  void SetHnSparseTree(NHnSparseTree * ngnt) { fHnSparseTree = ngnt; }
   ///< Getter for HnSparseTree
   NHnSparseTree * GetHnSparseTree() const { return fHnSparseTree; }
 

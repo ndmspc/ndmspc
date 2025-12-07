@@ -48,7 +48,7 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
   /// Draws the NProjection object with the specified projection IDs
   ///
 
-  Ndmspc::NLogger::Debug("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
+  NLogDebug("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
   // return;
 
   int       canvsCounter = 0;
@@ -61,7 +61,7 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
   for (size_t i = 0; i < projIds.size(); i++) {
     dims.push_back(projIds[i] * 3 + 2); // +2 because first two dimensions are reserved for mass and pt
   }
-  Ndmspc::NLogger::Debug("Projection IDs: %s", NUtils::GetCoordsString(dims, -1).c_str());
+  NLogDebug("Projection IDs: %s", NUtils::GetCoordsString(dims, -1).c_str());
 
   // std::vector<int> dims = {2, 5};
   // std::vector<int> dims = {2, 5, 8};
@@ -81,7 +81,7 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
     Double_t    v         = hnsObjContent->GetBinContent(linBin, p);
     Long64_t    idx       = hnsObjContent->GetBin(p);
     std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(p, hnsObjContent->GetNdimensions()), -1);
-    Ndmspc::NLogger::Info("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
+    NLogInfo("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
     dimsResults[0].insert(p[dims[0]]);
     if (dims.size() > 1) dimsResults[1].insert(p[dims[1]]);
     if (dims.size() > 2) dimsResults[2].insert(p[dims[2]]);
@@ -103,22 +103,22 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
   Int_t            canvasWidth  = static_cast<Int_t>(screenWidth * canvasScale);
   Int_t            canvasHeight = static_cast<Int_t>(screenHeight * canvasScale);
 
-  Ndmspc::NLogger::Info("Screen size: %dx%d", screenWidth, screenHeight);
+  NLogInfo("Screen size: %dx%d", screenWidth, screenHeight);
   // if (dims.size() <= 2) {
   //   dims.push_back(0); // Add a dummy dimension for 2D plotting
   // }
   int nCanvases = dims.size() > 2 ? dimsResults[2].size() : 1;
-  Ndmspc::NLogger::Info("Number of canvases: %d", nCanvases);
+  NLogInfo("Number of canvases: %d", nCanvases);
   std::vector<std::string> projNames = fBinning->GetAxisNamesByIndexes(projIds);
   std::string              posfix    = NUtils::Join(projNames, '_');
   for (int iCanvas = 0; iCanvas < nCanvases; iCanvas++) {
     if (c == nullptr) {
       canvsCounter++;
-      // Ndmspc::NLogger::Info("Creating canvas for dimension %d: %s", dims[2],
+      // NLogInfo("Creating canvas for dimension %d: %s", dims[2],
       //                       hnsObjContent->GetAxis(dims[2])->GetName());
 
       std::string canvasName = Form("c_%s", posfix.c_str());
-      NLogger::Info("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
+      NLogInfo("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
       c           = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
       int divideX = int(TMath::Sqrt(nCanvases));
 
@@ -137,7 +137,7 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
       fBinning->GetAxisRange(projIds[2], min, max, {p[projIds[2] * 3], p[projIds[2] * 3 + 1], p[projIds[2] * 3 + 2]});
       stackTitle += projNames.size() > 2 ? " for " + projNames[2] + " " + Form(" [%f,%f]", min, max) : "";
     }
-    NLogger::Info("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
+    NLogInfo("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
 
     THStack * hStack  = new THStack(stackName.c_str(), stackTitle.c_str());
     int       nStacks = dims.size() > 1 ? dimsResults[1].size() : 1;
@@ -149,7 +149,7 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
       linBin     = hnsObjContent->GetBin(p);
       TH1 * hTmp = (TH1 *)GetObject("mass", linBin);
       if (hTmp == nullptr) {
-        Ndmspc::NLogger::Error("No histogram found for bin %lld", linBin);
+        NLogError("No histogram found for bin %lld", linBin);
         continue;
       }
 
@@ -181,9 +181,9 @@ void NProjection::Draw(std::vector<int> projIds, Option_t * option) const
   }
 
   for (size_t i = 0; i < dims.size(); i++) {
-    Ndmspc::NLogger::Info("Dimension %d: %zu unique values", dims[i], dimsResults[i].size());
+    NLogInfo("Dimension %d: %zu unique values", dims[i], dimsResults[i].size());
     for (auto & v : dimsResults[i]) {
-      Ndmspc::NLogger::Info("  Value: %d", v);
+      NLogInfo("  Value: %d", v);
     }
   }
 }

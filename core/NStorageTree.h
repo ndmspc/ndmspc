@@ -58,10 +58,10 @@ class NStorageTree : public TObject {
   /**
    * @brief Initialize tree from file and tree name.
    * @param filename File name (optional).
-   * @param treename Tree name (default: "hnst").
+   * @param treename Tree name (default: "ngnt").
    * @return True if initialized successfully.
    */
-  bool InitTree(const std::string & filename = "", const std::string & treename = "hnst");
+  bool InitTree(const std::string & filename = "", const std::string & treename = "ngnt");
 
   /**
    * @brief Get number of entries in the tree.
@@ -206,7 +206,7 @@ class NStorageTree : public TObject {
   void SetOutputs(TMap * outputs) { fOutputs = outputs; }
 
   protected:
-  std::string                        fFileName{"hnst.root"}; ///< Current filename
+  std::string                        fFileName{"ngnt.root"}; ///< Current filename
   TFile *                            fFile{nullptr};         ///<! Current file
   TTree *                            fTree{nullptr};         ///<! TTree container
   std::string                        fPrefix{""};            ///< Prefix path

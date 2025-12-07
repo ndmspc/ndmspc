@@ -42,7 +42,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
   ///
   NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName);
   if (!binningDef) {
-    NLogger::Error("NGnNavigator::Reshape: Binning definition is null !!!");
+    NLogError("NGnNavigator::Reshape: Binning definition is null !!!");
     return nullptr;
   }
   std::vector<int> axes;
@@ -51,15 +51,15 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
 
     size_t nVarAxes = binningDef->GetVariableAxes().size();
     if (nVarAxes == 0) {
-      NLogger::Error("NGnNavigator::Reshape: Binning definition has no variable axes !!!");
+      NLogError("NGnNavigator::Reshape: Binning definition has no variable axes !!!");
       return nullptr;
     }
     if (nVarAxes > 3) {
-      NLogger::Error("NGnNavigator::Reshape: Binning definition has more than 3 variable axes (%zu) !!!", nVarAxes);
+      NLogError("NGnNavigator::Reshape: Binning definition has more than 3 variable axes (%zu) !!!", nVarAxes);
       return nullptr;
     }
 
-    NLogger::Info("========== NGnNavigator::Reshape: Levels are empty, using all variable axes...");
+    NLogInfo("========== NGnNavigator::Reshape: Levels are empty, using all variable axes...");
     levels.resize(1);
     for (size_t i = 0; i < nVarAxes; i++) {
       levels[0].push_back(i);
@@ -78,14 +78,14 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
       }
     }
   }
-  NLogger::Debug("============= NGnNavigator::Reshape: Number of axes in levels = %s",
+  NLogDebug("============= NGnNavigator::Reshape: Number of axes in levels = %s",
                  NUtils::GetCoordsString(axes, -1).c_str());
   std::vector<int> axesSorted = axes;
   std::sort(axesSorted.begin(), axesSorted.end());
   std::vector<int> axesVariavble = binningDef->GetVariableAxes();
   std::sort(axesVariavble.begin(), axesVariavble.end());
 
-  NLogger::Trace("NGnNavigator::Reshape: Axes in levels before removing duplicates: %s",
+  NLogTrace("NGnNavigator::Reshape: Axes in levels before removing duplicates: %s",
                  NUtils::GetCoordsString(axesSorted, -1).c_str());
 
   // remove all duplicates from axesSorted
@@ -97,18 +97,18 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
   }
 
   if (axesSorted != axesVariavble) {
-    NLogger::Error(
+    NLogError(
         "NGnNavigator::Reshape: Axes in levels '%s' do not match variable axes in binning definition '%s' !!!",
         NUtils::GetCoordsString(axesSorted, -1).c_str(), NUtils::GetCoordsString(axesVariavble, -1).c_str());
     return nullptr;
   }
 
-  // NLogger::Debug("NGnNavigator::Reshape: Number of axes in levels = %d GetVariableAxes=%zu", nAxes,
+  // NLogDebug("NGnNavigator::Reshape: Number of axes in levels = %d GetVariableAxes=%zu", nAxes,
   //                binningDef->GetVariableAxes().size());
   // return nullptr;
 
   if (nAxes != binningDef->GetVariableAxes().size()) {
-    NLogger::Error("NGnNavigator::Reshape: Number of axes in levels (%d) does not match number of axes in binning "
+    NLogError("NGnNavigator::Reshape: Number of axes in levels (%d) does not match number of axes in binning "
                    "definition (%d) !!! Available axes indices: %s",
                    nAxes, binningDef->GetVariableAxes().size(),
                    NUtils::GetCoordsString(binningDef->GetVariableAxes(), -1).c_str());
@@ -116,7 +116,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
     return nullptr;
   }
 
-  NLogger::Info("NGnNavigator::Reshape: Reshaping navigator for level %d/%zu with binning '%s' ...", level,
+  NLogInfo("NGnNavigator::Reshape: Reshaping navigator for level %d/%zu with binning '%s' ...", level,
                 levels.size(), binningName.c_str());
   return Reshape(binningDef, levels, level, ranges, rangesBase);
 }
@@ -128,7 +128,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   /// Reshape the navigator
   ///
 
-  NLogger::Trace("NGnNavigator::Reshape: Reshaping navigator for level=%d levels=%zu", level, levels.size());
+  NLogTrace("NGnNavigator::Reshape: Reshaping navigator for level=%d levels=%zu", level, levels.size());
   TH1::AddDirectory(kFALSE);
 
   fNLevels = levels.size();
@@ -137,7 +137,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
   NGnNavigator * current = parent;
   if (current == nullptr) {
-    NLogger::Debug("NGnNavigator::Reshape: Creating root navigator %d/%zu...", level, levels.size());
+    NLogDebug("NGnNavigator::Reshape: Creating root navigator %d/%zu...", level, levels.size());
     current = new NGnNavigator(TString::Format("%s_L%d", GetName(), level).Data(),
                                TString::Format("%s_L%d", GetTitle(), level).Data());
     // current->SetParent(this);
@@ -149,7 +149,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   // return current;
 
   if (level < levels.size()) {
-    NLogger::Trace("NGnNavigator::Reshape: levels[%d]=%s...", level, NUtils::GetCoordsString(levels[level]).c_str());
+    NLogTrace("NGnNavigator::Reshape: levels[%d]=%s...", level, NUtils::GetCoordsString(levels[level]).c_str());
 
     // Generate projection histogram
 
@@ -158,23 +158,23 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
     std::vector<int> minsBin;
     std::vector<int> maxsBin;
     for (auto & idx : levels[level]) {
-      NLogger::Trace("NGnNavigator::Reshape: [B%d] Axis %d: %s", level, idx,
+      NLogTrace("NGnNavigator::Reshape: [B%d] Axis %d: %s", level, idx,
                      binningDef->GetContent()->GetAxis(idx)->GetName());
       // int minBase = 0, maxBase = 0;
       // NUtils::GetAxisRangeInBase(GetAxis(idx), 1, GetAxis(idx)->GetNbins(), fBinning->GetAxes()[idx], minBase,
       // maxBase); ranges[idx] = {minBase, maxBase};            // Set the ranges for the axis
       minsBin.push_back(1);                                                  // Get the minimum bin edge);
       maxsBin.push_back(binningDef->GetContent()->GetAxis(idx)->GetNbins()); // Get the maximum bin edge);
-      NLogger::Trace("NGnNavigator::Reshape: [B%d] Axis %d: %s bins=[%d,%d]", level, idx,
+      NLogTrace("NGnNavigator::Reshape: [B%d] Axis %d: %s bins=[%d,%d]", level, idx,
                      binningDef->GetContent()->GetAxis(idx)->GetName(), minsBin.back(), maxsBin.back());
     }
 
     NDimensionalExecutor executorBin(minsBin, maxsBin);
     auto                 loop_task_bin = [this, current, binningDef, levels, level, ranges,
                           rangesBase](const std::vector<int> & coords) {
-      NLogger::Trace("NGnNavigator::Reshape: [B%d] Processing coordinates: coords=%s levels=%s", level,
+      NLogTrace("NGnNavigator::Reshape: [B%d] Processing coordinates: coords=%s levels=%s", level,
                                      NUtils::GetCoordsString(coords, -1).c_str(), NUtils::GetCoordsString(levels[level]).c_str());
-      NLogger::Trace("NGnNavigator::Reshape: [L%d] Generating %zuD histogram %s with ranges: %s", level,
+      NLogTrace("NGnNavigator::Reshape: [L%d] Generating %zuD histogram %s with ranges: %s", level,
                                      levels[level].size(), NUtils::GetCoordsString(levels[level]).c_str(),
                      ranges.size() == 0 ? "[]" : "");
 
@@ -191,7 +191,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       NUtils::SetAxisRanges(hnsIn, ranges); // Set the ranges for the axes
       hns = static_cast<THnSparse *>(hnsIn->ProjectionND(axesIds.size(), dims, "O"));
       if (!hns) {
-        NLogger::Error("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
+        NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
         return;
       }
 
@@ -210,7 +210,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       title = title.substr(0, title.size() - 4); // Remove last " vs "
       if (ranges.size() > 0) title += " for ranges: ";
       for (const auto & [axisId, range] : rangesBase) {
-        // NLogger::Debug("XX Axis '%s' range: [%d, %d]", GetAxis(axisId)->GetName(), range[0], range[1]);
+        // NLogDebug("XX Axis '%s' range: [%d, %d]", GetAxis(axisId)->GetName(), range[0], range[1]);
         TAxis * a = hnsIn->GetAxis(axisId);
         title += TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
       }
@@ -219,7 +219,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
       // TODO: Handle it via NGnSparseObject
       // if (obj->GetHnSparse() == nullptr) {
-      //   NLogger::Debug("NGnNavigator::Reshape: Setting histogram '%s' ...", hns->GetTitle());
+      //   NLogDebug("NGnNavigator::Reshape: Setting histogram '%s' ...", hns->GetTitle());
       //   obj->SetHnSparse(hns);
       // }
 
@@ -271,13 +271,13 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                                               hProj->GetZaxis()->GetBinCenter(coords[2]));
       }
       if (!hProj) {
-        NLogger::Error("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
+        NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
         return;
       }
 
       hProj->SetName(name.c_str());
       hProj->SetTitle(title.c_str());
-      NLogger::Trace("NGnNavigator::Reshape: [L%d] Projection histogram '%s' for coords=%s index=%d", level,
+      NLogTrace("NGnNavigator::Reshape: [L%d] Projection histogram '%s' for coords=%s index=%d", level,
                                      hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
       //
       // hProj->SetMinimum(0);
@@ -295,24 +295,24 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       std::map<int, std::vector<int>> rangesBaseTmp = rangesBase;
       for (auto & kv : rangesBaseTmp) {
         std::vector<int> range = rangesTmp[kv.first];
-        NLogger::Trace("NGnNavigator::Reshape: [L%d]   Axis %d[%s]: rangeBase=%s range=%s", level, kv.first,
+        NLogTrace("NGnNavigator::Reshape: [L%d]   Axis %d[%s]: rangeBase=%s range=%s", level, kv.first,
                                        hnsIn->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
                                        NUtils::GetCoordsString(range).c_str());
       }
       int minBase = 0, maxBase = 0;
       int i = 0;
       for (auto & c : coords) {
-        // NLogger::Debug("Coordinate: %d v=%d axis=%d", i, coords[i], axes[i]);
+        // NLogDebug("Coordinate: %d v=%d axis=%d", i, coords[i], axes[i]);
         NUtils::GetAxisRangeInBase(hnsIn->GetAxis(axesIds[i]), c, c, binningDef->GetBinning()->GetAxes()[axesIds[i]],
                                                    minBase, maxBase);
-        NLogger::Trace("NGnNavigator::Reshape: Axis %d: minBase=%d maxBase=%d", axesIds[i], minBase, maxBase);
+        NLogTrace("NGnNavigator::Reshape: Axis %d: minBase=%d maxBase=%d", axesIds[i], minBase, maxBase);
         rangesTmp[axesIds[i]]     = {c, c};             // Set the range for the first axis
         rangesBaseTmp[axesIds[i]] = {minBase, maxBase}; // Set the range for the first axis
         i++;
       }
 
       if (hProj == nullptr) {
-        NLogger::Error("NGnNavigator::Reshape: Projection histogram is null for level %d !!!", level);
+        NLogError("NGnNavigator::Reshape: Projection histogram is null for level %d !!!", level);
         return;
       }
 
@@ -321,7 +321,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       // NGnNavigator * o = fParent->GetChild(indexInProj);
       NGnNavigator * currentChild = current->GetChild(indexInProj);
       if (currentChild == nullptr) {
-        NLogger::Trace("NGnNavigator::Reshape: [L%d] Creating new child for index %d nCells=%d ...", level, indexInProj,
+        NLogTrace("NGnNavigator::Reshape: [L%d] Creating new child for index %d nCells=%d ...", level, indexInProj,
                                        nCells);
         std::string childName = TString::Format("%s_L%d_C%d", GetName(), level + 1, indexInProj).Data();
         currentChild          = new NGnNavigator(childName.c_str(), childName.c_str());
@@ -339,7 +339,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         // currentChild->Print();
       }
       else {
-        NLogger::Error("NGnNavigator::Reshape: [L%d] Using existing child for index %d [NOT OK] ...", level,
+        NLogError("NGnNavigator::Reshape: [L%d] Using existing child for index %d [NOT OK] ...", level,
                                        indexInProj);
       }
 
@@ -347,11 +347,11 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       // return;
 
       if (level == levels.size() - 1) {
-        NLogger::Trace("NGnNavigator::Reshape: [L%d] Filling projections from all branches %s for ranges:", level,
+        NLogTrace("NGnNavigator::Reshape: [L%d] Filling projections from all branches %s for ranges:", level,
                                        NUtils::GetCoordsString(levels[level]).c_str());
         for (auto & kv : rangesBaseTmp) {
           std::vector<int> range = rangesTmp[kv.first];
-          NLogger::Trace("NGnNavigator::Reshape: [L%d]   Axis %d ['%s']: rangeBase=%s range=%s", level, kv.first,
+          NLogTrace("NGnNavigator::Reshape: [L%d]   Axis %d ['%s']: rangeBase=%s range=%s", level, kv.first,
                                          binningDef->GetContent()->GetAxis(kv.first)->GetName(),
                                          NUtils::GetCoordsString(kv.second).c_str(), NUtils::GetCoordsString(range).c_str());
           // rangesTmp[kv.first] = range;
@@ -369,23 +369,23 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         // loop over all bins in the sparse
 
         while ((linBin = iter->Next()) >= 0) {
-          NLogger::Trace("NGnNavigator::Reshape: [L%d]   Found bin %lld", level, linBin);
+          NLogTrace("NGnNavigator::Reshape: [L%d]   Found bin %lld", level, linBin);
           linBins.push_back(linBin);
         }
         if (linBins.empty()) {
-          NLogger::Trace("NGnNavigator::Reshape: [L%d] No bins found for the given ranges, skipping ...", level);
+          NLogTrace("NGnNavigator::Reshape: [L%d] No bins found for the given ranges, skipping ...", level);
           // continue;
           return; // No bins found, nothing to process
         }
         //     // bool skipBin = false; // Skip bin if no bins are found
-        NLogger::Trace("NGnNavigator::Reshape: Branch object Point coordinates: %s",
+        NLogTrace("NGnNavigator::Reshape: Branch object Point coordinates: %s",
                                        NUtils::GetCoordsString(linBins, -1).c_str());
         for (auto & [key, val] : fGnTree->GetStorageTree()->GetBranchesMap()) {
           if (val.GetBranchStatus() == 0) {
-            NLogger::Trace("NGnNavigator::Reshape: [L%d] Branch '%s' is disabled, skipping ...", level, key.c_str());
+            NLogTrace("NGnNavigator::Reshape: [L%d] Branch '%s' is disabled, skipping ...", level, key.c_str());
             continue; // Skip disabled branches
           }
-          NLogger::Trace("NGnNavigator::Reshape: [L%d] Processing branch '%s' with %zu objects to loop ...", level,
+          NLogTrace("NGnNavigator::Reshape: [L%d] Processing branch '%s' with %zu objects to loop ...", level,
                                          key.c_str(), linBins.size());
 
           // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
@@ -413,11 +413,11 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             //   fGnTree->GetEntry(lb);
             //   if (hProjTmp == nullptr) {
             //     hProjTmp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
-            //     // NLogger::Debug("AAAA %.0f", hProjTmp ? hProjTmp->GetEntries() : 0);
+            //     // NLogDebug("AAAA %.0f", hProjTmp ? hProjTmp->GetEntries() : 0);
             //   }
             //   else {
             //     TH1 * temp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
-            //     // NLogger::Debug("BBBB %.0f", temp ? temp->GetEntries() : 0);
+            //     // NLogDebug("BBBB %.0f", temp ? temp->GetEntries() : 0);
             //     if (temp) {
             //       hProjTmp->Add(temp);
             //       delete temp; // Delete the temporary histogram to avoid memory leaks
@@ -438,7 +438,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             //       a->GetBinUpEdge(range[1]));
             // }
             // hProjTmp->SetTitle(title.c_str());
-            // NLogger::Trace("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d,
+            // NLogTrace("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d,
             //                entries = % .0f ",
             //                          level,
             //                hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
@@ -450,7 +450,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             // // TODO: We may to set entries from projection histogram to the bin content of mapping file
           }
           else if (className.BeginsWith("TList")) {
-            NLogger::Trace("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
+            NLogTrace("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
                                            indexInProj);
             for (int lb : linBins) {
               fGnTree->GetEntry(lb);
@@ -466,7 +466,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             // remove "results" histogram
             objNames.erase(std::remove(objNames.begin(), objNames.end(), "results"), objNames.end());
 
-            NLogger::Trace("[L%d] Branch '%s' TList contains %d objects: %s", level, key.c_str(), list->GetEntries(),
+            NLogTrace("[L%d] Branch '%s' TList contains %d objects: %s", level, key.c_str(), list->GetEntries(),
                                            NUtils::GetCoordsString(objNames).c_str());
 
             // std::vector<std::string> possibleNames = {"hPeak", "hBgNorm", "unlikepm_proj_0"};
@@ -476,20 +476,20 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             for (auto & name : objNames) {
               TH1 * hProjTmp = dynamic_cast<TH1 *>(list->FindObject(name.c_str()));
               if (hProjTmp == nullptr) {
-                NLogger::Warning("NGnNavigator::Reshape: Branch '%s' TList does not contain '%s' !!!", key.c_str(),
+                NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain '%s' !!!", key.c_str(),
                                                  name.c_str());
                 isValid = false;
 
                 continue;
               }
               if (TMath::IsNaN(hProjTmp->GetEntries()) || TMath::IsNaN(hProjTmp->GetSumOfWeights())) {
-                NLogger::Warning("NGnNavigator::Reshape: Branch '%s' '%s' histogram is nan !!!", key.c_str(),
+                NLogWarning("NGnNavigator::Reshape: Branch '%s' '%s' histogram is nan !!!", key.c_str(),
 
                                                  name.c_str());
                 isValid = false;
                 continue;
               }
-              NLogger::Trace(
+              NLogTrace(
                   "[L%d] Histogram name='%s' title='%s' for branch '%s' storing with indexInProj=%d, entries=%.0f",
                   level, name.c_str(), hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
               // if (obj->GetParent()->GetObjectContentMap()[name].size() != nCells)
@@ -502,25 +502,25 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
               current->SetObject(name, hProjTmp, indexInProj);
             }
             if (isValid == false) {
-              NLogger::Warning("NGnNavigator::Reshape: Branch '%s' TList does not contain any valid histograms !!!",
+              NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain any valid histograms !!!",
                                                key.c_str());
               continue;
             }
             TH1 * hResults = dynamic_cast<TH1 *>(list->FindObject("results"));
             if (hResults) {
-              NLogger::Trace("[L%d] Branch '%s' TList contains 'results' histogram with %.0f entries ...", level,
+              NLogTrace("[L%d] Branch '%s' TList contains 'results' histogram with %.0f entries ...", level,
                                              key.c_str(), hResults->GetEntries());
               // loop over bin labels
               for (int b = 1; b <= hResults->GetNbinsX(); b++) {
 
                 std::string binLabel = hResults->GetXaxis()->GetBinLabel(b);
                 double      binValue = hResults->GetBinContent(b);
-                NLogger::Trace("[L%d]   Bin %d: %s = %e", level, b, binLabel.c_str(), binValue);
+                NLogTrace("[L%d]   Bin %d: %s = %e", level, b, binLabel.c_str(), binValue);
                 // // check if binlabel is "mass"
                 // if (binLabel.compare("mass") == 0) {
-                //   NLogger::Info("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
+                //   NLogInfo("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
                 //   if (binValue < 1.015 || binValue > 1.025) {
-                //     NLogger::Info("[L%d]   Skipping bin 'mass' with value %f ...", level, binValue);
+                //     NLogInfo("[L%d]   Skipping bin 'mass' with value %f ...", level, binValue);
                 //     continue;
                 //   }
                 // }
@@ -531,7 +531,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             }
           }
           else {
-            NLogger::Warning("NGnNavigator::Reshape: Branch '%s' has unsupported class '%s' !!! Skipping ...",
+            NLogWarning("NGnNavigator::Reshape: Branch '%s' has unsupported class '%s' !!! Skipping ...",
                                              key.c_str(), className.Data());
           }
         }
@@ -547,14 +547,14 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
     executorBin.Execute(loop_task_bin);
   }
   else {
-    NLogger::Trace("NGnNavigator::Reshape: Reached the end of levels, level=%d", level);
+    NLogTrace("NGnNavigator::Reshape: Reached the end of levels, level=%d", level);
     return current;
   }
 
-  NLogger::Trace("NGnNavigator::Reshape: =========== Reshaping navigator for level %d DONE ================", level);
+  NLogTrace("NGnNavigator::Reshape: =========== Reshaping navigator for level %d DONE ================", level);
 
   if (level == 0) {
-    NLogger::Info("NGnNavigator::Reshape: Reshaping navigator DONE.");
+    NLogInfo("NGnNavigator::Reshape: Reshaping navigator DONE.");
     // print exported axes from indexes from levels
     for (size_t l = 0; l < levels.size(); l++) {
       std::string axesStr = "";
@@ -562,7 +562,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         TAxis * axis = binningDef->GetContent()->GetAxis(a);
         axesStr += TString::Format("%d('%s') ", a, axis->GetName()).Data();
       }
-      NLogger::Info("  Level %zu axes: %s", l, axesStr.c_str());
+      NLogInfo("  Level %zu axes: %s", l, axesStr.c_str());
     }
   }
 
@@ -577,16 +577,16 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
   ///
   /// Export object to file
   ///
-  NLogger::Info("Exporting NGnNavigator to file: %s", filename.c_str());
+  NLogInfo("Exporting NGnNavigator to file: %s", filename.c_str());
 
   json objJson;
 
   // if filename ends with .root, remove it
   if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".root") {
-    NLogger::Info("Exporting NGnNavigator to ROOT file: %s", filename.c_str());
+    NLogInfo("Exporting NGnNavigator to ROOT file: %s", filename.c_str());
     TFile * file = TFile::Open(filename.c_str(), "RECREATE");
     if (!file || file->IsZombie()) {
-      NLogger::Error("Failed to open file: %s", filename.c_str());
+      NLogError("Failed to open file: %s", filename.c_str());
       return;
     }
     file->cd();
@@ -595,52 +595,52 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
     delete file;
   }
   else if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".json") {
-    NLogger::Info("Exporting NGnNavigator to JSON file: %s", filename.c_str());
+    NLogInfo("Exporting NGnNavigator to JSON file: %s", filename.c_str());
     NGnNavigator * obj = const_cast<NGnNavigator *>(this);
     ExportToJson(objJson, obj, objectNames);
     // std::cout << objJson.dump(2) << std::endl;
     bool rc = NUtils::SaveRawFile(filename, objJson.dump());
     if (rc == false) {
-      NLogger::Error("Failed to save JSON file: %s", filename.c_str());
+      NLogError("Failed to save JSON file: %s", filename.c_str());
       return;
     }
   }
   else {
-    NLogger::Error("Unsupported file format for export: %s", filename.c_str());
+    NLogError("Unsupported file format for export: %s", filename.c_str());
     return;
   }
   if (!wsUrl.empty()) {
-    NLogger::Info("Uploading exported file to web socket: %s", wsUrl.c_str());
+    NLogInfo("Uploading exported file to web socket: %s", wsUrl.c_str());
     // NUtils::UploadFileToWebService(filename, wsUrl);
 
     std::string       message = objJson.dump();
     Ndmspc::NWsClient client;
     if (!message.empty()) {
-      NLogger::Info("Connecting to web socket: %s", wsUrl.c_str());
+      NLogInfo("Connecting to web socket: %s", wsUrl.c_str());
       if (!client.Connect(wsUrl)) {
-        Ndmspc::NLogger::Error("Failed to connect to '%s' !!!", wsUrl.c_str());
+        NLogError("Failed to connect to '%s' !!!", wsUrl.c_str());
       }
       else {
 
         if (!client.Send(objJson.dump())) {
-          Ndmspc::NLogger::Error("Failed to send message `%s`", message.c_str());
+          NLogError("Failed to send message `%s`", message.c_str());
         }
         else {
-          Ndmspc::NLogger::Info("Successfully sent message to '%s'", wsUrl.c_str());
+          NLogInfo("Successfully sent message to '%s'", wsUrl.c_str());
         }
       }
       if (timeoutMs > 0) {
-        Ndmspc::NLogger::Info("Waiting %d ms before disconnecting ...", timeoutMs);
+        NLogInfo("Waiting %d ms before disconnecting ...", timeoutMs);
         gSystem->Sleep(timeoutMs); // wait for a while to ensure message is sent
       }
-      Ndmspc::NLogger::Info("Disconnecting from '%s' ...", wsUrl.c_str());
+      NLogInfo("Disconnecting from '%s' ...", wsUrl.c_str());
       client.Disconnect();
     }
 
-    Ndmspc::NLogger::Info("Sent: %s", message.c_str());
+    NLogInfo("Sent: %s", message.c_str());
   }
 
-  NLogger::Info("Exported NGnNavigator to file: %s", filename.c_str());
+  NLogInfo("Exported NGnNavigator to file: %s", filename.c_str());
 }
 
 void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames)
@@ -650,20 +650,20 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   ///
 
   if (obj == nullptr) {
-    NLogger::Error("NGnNavigator::ExportJson: Object is nullptr !!!");
+    NLogError("NGnNavigator::ExportJson: Object is nullptr !!!");
     return;
   }
 
   // THnSparse * hns = obj->GetProjection();
   // if (hns == nullptr) {
-  //   // NLogger::Error("NGnNavigator::ExportJson: HnSparse is nullptr !!!");
+  //   // NLogError("NGnNavigator::ExportJson: HnSparse is nullptr !!!");
   //   return;
   // }
 
   // std::string name        = hns->GetName();
   // std::string title       = hns->GetTitle();
   // int         nDimensions = hns->GetNdimensions();
-  // NLogger::Debug("ExportJson : Exporting '%s' [%dD] (might take some time) ...", title.c_str(), nDimensions);
+  // NLogDebug("ExportJson : Exporting '%s' [%dD] (might take some time) ...", title.c_str(), nDimensions);
 
   if (obj->GetChildren().empty()) {
     return;
@@ -697,12 +697,12 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   //   obj->SetProjection(h);
   // }
   // else {
-  //   NLogger::Error("NGnNavigator::ExportJson: Unsupported number of dimensions: %d", nDimensions);
+  //   NLogError("NGnNavigator::ExportJson: Unsupported number of dimensions: %d", nDimensions);
   //   return;
   // }
 
   if (h == nullptr) {
-    NLogger::Error("NGnNavigator::ExportJson: Projection is nullptr !!!");
+    NLogError("NGnNavigator::ExportJson: Projection is nullptr !!!");
     return;
   }
 
@@ -718,27 +718,27 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   double entries = 0.0;
   // int    idx     = 0;
   if (objectNames.empty()) {
-    // NLogger::Debug("NGnNavigator::ExportJson: Exporting all objects ...");
+    // NLogDebug("NGnNavigator::ExportJson: Exporting all objects ...");
     // loop over all keys and add them to objectNames
     bool isValid = false;
     for (const auto & [key, val] : obj->GetObjectContentMap()) {
       isValid = false;
       for (size_t i = 0; i < val.size(); i++) {
         TObject * objContent = val[i];
-        // NLogger::Debug("NGnNavigator::ExportJson: Processing object '%s' at index %zu ...", key.c_str(), i);
+        // NLogDebug("NGnNavigator::ExportJson: Processing object '%s' at index %zu ...", key.c_str(), i);
         if (objContent) {
           // check if object type is inherited from list of names in objectTypes
           std::string className = objContent ? objContent->ClassName() : "";
           if (className.empty()) {
-            NLogger::Warning("NGnNavigator::ExportJson: Object %s has empty class name", key.c_str());
+            NLogWarning("NGnNavigator::ExportJson: Object %s has empty class name", key.c_str());
             continue;
           }
           // shrink className string to 3 characters if it is longer than 3
           className = className.substr(0, 3);
-          // NLogger::Debug("NGnNavigator::ExportJson: Object %s has class '%s'", key.c_str(), className.c_str());
+          // NLogDebug("NGnNavigator::ExportJson: Object %s has class '%s'", key.c_str(), className.c_str());
           if (std::find(NGnNavigator::fObjectTypes.begin(), NGnNavigator::fObjectTypes.end(), className) !=
               NGnNavigator::fObjectTypes.end()) {
-            // NLogger::Warning(
+            // NLogWarning(
             //     "NGnNavigator::ExportJson: Skipping unsupported object type '%s' for object '%s' at index %zu",
             //     className.c_str(), key.c_str(), i);
             isValid = true;
@@ -750,20 +750,20 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     }
   }
   else {
-    NLogger::Debug("NGnNavigator::ExportJson: Exporting selected objects: %s",
+    NLogDebug("NGnNavigator::ExportJson: Exporting selected objects: %s",
                    NUtils::GetCoordsString(objectNames).c_str());
   }
 
   // Print all included object names
   for (const auto & name : objectNames) {
-    NLogger::Trace("NGnNavigator::ExportJson: Included object name: '%s'", name.c_str());
+    NLogTrace("NGnNavigator::ExportJson: Included object name: '%s'", name.c_str());
   }
 
   for (const auto & [key, val] : obj->GetObjectContentMap()) {
 
     // Filter by objectNames
     if (std::find(objectNames.begin(), objectNames.end(), key) == objectNames.end()) {
-      NLogger::Debug("NGnNavigator::ExportJson: Skipping object '%s' ...", key.c_str());
+      NLogDebug("NGnNavigator::ExportJson: Skipping object '%s' ...", key.c_str());
       continue;
     }
 
@@ -780,13 +780,13 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
       if (objContent) {
         double objMin, objMax;
         NUtils::GetTrueHistogramMinMax((TH1 *)objContent, objMin, objMax, false);
-        // NLogger::Debug("NGnNavigator::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
+        // NLogDebug("NGnNavigator::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
         //                objMax);
 
         min     = TMath::Min(min, objMin);
         max     = TMath::Max(max, objMax);
         entries = ((TH1 *)objContent)->GetEntries();
-        // NLogger::Debug("NGnNavigator::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
+        // NLogDebug("NGnNavigator::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
         // min,
         //                max);
         // j["fArray"][i] = entries / val.size(); // Store the average entries for this object
@@ -816,7 +816,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     j["ndmspc"][key]["fMinimum"] = min;
     j["ndmspc"][key]["fMaximum"] = max;
     // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogger::Debug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
     // idx++;
   }
 
@@ -831,7 +831,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         min                            = TMath::Min(min, param);
         max                            = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
-        // NLogger::Debug("NGnNavigator::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
+        // NLogDebug("NGnNavigator::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
         // entries += 1.0;
       }
       else {
@@ -850,7 +850,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
       j["fArrays"][key]["max"] = max;
     }
     // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogger::Debug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
   }
 
   double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
@@ -858,7 +858,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   std::vector<double> tmpContent;
   for (const auto & child : obj->GetChildren()) {
     // if (child == nullptr) {
-    //   NLogger::Error("NGnNavigator::ExportJson: Child is nullptr !!!");
+    //   NLogError("NGnNavigator::ExportJson: Child is nullptr !!!");
     //   continue;
     // }
     json   childJson;
@@ -876,7 +876,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         min     = 0;
         max     = TMath::Max(max, objMax);
         entries = childProjection->GetEntries();
-        NLogger::Trace("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
+        NLogTrace("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
                        objMax);
       }
     }
@@ -904,12 +904,12 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   }
 
   if (obj->GetParent() == nullptr) {
-    // NLogger::Debug("NGnNavigator::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
+    // NLogDebug("NGnNavigator::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
     int i = -1;
     for (const auto & child : j["children"]["content"]) {
       i++;
       if (child == nullptr) {
-        // NLogger::Error("NGnNavigator::ExportJson: Child is nullptr !!!");
+        // NLogError("NGnNavigator::ExportJson: Child is nullptr !!!");
         j["fArray"][i] = 0; // Store the maximum value for the content
         continue;
       }
@@ -940,16 +940,16 @@ void NGnNavigator::Print(Option_t * option) const
 
   if (opt.Contains("A") && fGnTree) fGnTree->Print(option);
   if (fProjection) {
-    NLogger::Info("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection='%s' title='%s'", GetName(),
+    NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection='%s' title='%s'", GetName(),
                   GetTitle(), fLevel, fNLevels, fProjection->GetName(), fProjection->GetTitle());
     // fProjection->Print(option);
   }
   else {
-    NLogger::Info("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection=nullptr", GetName(), GetTitle(),
+    NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection=nullptr", GetName(), GetTitle(),
                   fLevel, fNLevels);
   }
   // for (int i = 0; i < fChildren.size(); i++) {
-  //   NLogger::Info("NGnNavigator: Child %d/%d: %s", i + 1, fChildren.size(),
+  //   NLogInfo("NGnNavigator: Child %d/%d: %s", i + 1, fChildren.size(),
   //                 fChildren[i] ? fChildren[i]->GetName() : "nullptr");
   // }
   // print children
@@ -958,11 +958,11 @@ void NGnNavigator::Print(Option_t * option) const
     NGnNavigator * child = fChildren[i];
     if (child) {
       childIndices.push_back(i);
-      // NLogger::Info("NGnNavigator: Child %d/%d:", i + 1, fChildren.size());
+      // NLogInfo("NGnNavigator: Child %d/%d:", i + 1, fChildren.size());
       // child->Print(option);
     }
   }
-  NLogger::Info("NGnNavigator: %zu children with indices: %s", childIndices.size(),
+  NLogInfo("NGnNavigator: %zu children with indices: %s", childIndices.size(),
                 NUtils::GetCoordsString(childIndices, -1).c_str());
   for (int i = 0; i < fChildren.size(); i++) {
     NGnNavigator * child = fChildren[i];
@@ -980,13 +980,13 @@ void NGnNavigator::Draw(Option_t * option)
   ///
 
   // if (fGnTree == nullptr) {
-  //   NLogger::Error("NGnNavigator::Draw: NGnTree is nullptr !!!");
+  //   NLogError("NGnNavigator::Draw: NGnTree is nullptr !!!");
   //   return;
   // }
 
   // std::string name;
   if (!gPad) {
-    // NLogger::Info("NGnNavigator::Draw: Making default canvas ...");
+    // NLogInfo("NGnNavigator::Draw: Making default canvas ...");
     gROOT->MakeDefCanvas();
     // if (!gPad->IsEditable()) return;
     if (fNLevels > 1) {
@@ -998,15 +998,15 @@ void NGnNavigator::Draw(Option_t * option)
   TVirtualPad *  originalPad = gPad; // Save the original pad
   NGnNavigator * obj         = nullptr;
   for (int level = 0; level < fNLevels; level++) {
-    NLogger::Debug("NGnNavigator::Draw: Drawing level %d", level);
+    NLogDebug("NGnNavigator::Draw: Drawing level %d", level);
     TVirtualPad * pad = originalPad->cd(level + 1);
     if (pad) {
-      NLogger::Debug("NGnNavigator::Draw: Clearing pad %d", level + 1);
+      NLogDebug("NGnNavigator::Draw: Clearing pad %d", level + 1);
       pad->Clear();
       gPad = pad; // Set the current pad to the level + 1 pad
       if (level == 0) {
         obj = this; // For the first level, use the current object
-        NLogger::Debug("NGnNavigator::Draw: Using current object at level %d: %s", level, obj->GetName());
+        NLogDebug("NGnNavigator::Draw: Using current object at level %d: %s", level, obj->GetName());
       }
       else {
 
@@ -1014,22 +1014,22 @@ void NGnNavigator::Draw(Option_t * option)
         for (int i = 0; i < obj->GetChildren().size(); i++) {
           NGnNavigator * child = obj->GetChild(i);
           if (child) {
-            NLogger::Debug("NGnNavigator::Draw: Found child at level %d: %s", level,
+            NLogDebug("NGnNavigator::Draw: Found child at level %d: %s", level,
                            child->GetProjection()->GetTitle());
             obj = child; // Get the child object at the current level
             break;
           }
         }
-        NLogger::Debug("NGnNavigator::Draw: Using child object at level %d: %s", level,
+        NLogDebug("NGnNavigator::Draw: Using child object at level %d: %s", level,
                        obj ? obj->GetName() : "nullptr");
       }
       if (obj == nullptr) {
-        NLogger::Error("NGnNavigator::Draw: Child object at level %d is nullptr !!!", level);
+        NLogError("NGnNavigator::Draw: Child object at level %d is nullptr !!!", level);
         continue; // Skip to the next level if the child is nullptr
       }
       TH1 * projection = obj->GetProjection();
       if (projection) {
-        NLogger::Debug("NGnNavigator::Draw: Drawing projection at level %d: %s", level, projection->GetTitle());
+        NLogDebug("NGnNavigator::Draw: Drawing projection at level %d: %s", level, projection->GetTitle());
         projection->SetMinimum(0);
         projection->SetStats(kFALSE); // Turn off stats box for clarity
         // gPad->cd();                   // Change to the current pad
@@ -1038,11 +1038,11 @@ void NGnNavigator::Draw(Option_t * option)
         obj->AppendPad(option); // Append the pad to the current pad stack
       }
       else {
-        NLogger::Error("NGnNavigator::Draw: Projection at level %d is nullptr !!!", level);
+        NLogError("NGnNavigator::Draw: Projection at level %d is nullptr !!!", level);
       }
     }
     else {
-      NLogger::Error("NGnNavigator::Draw: Pad %d is nullptr !!!", level + 1);
+      NLogError("NGnNavigator::Draw: Pad %d is nullptr !!!", level + 1);
     }
   }
   gPad = originalPad; // Restore the original pad
@@ -1053,9 +1053,9 @@ void NGnNavigator::Paint(Option_t * option)
   ///
   /// Paint object
   ///
-  NLogger::Info("NGnNavigator::Paint: Painting object ...");
+  NLogInfo("NGnNavigator::Paint: Painting object ...");
   if (fProjection) {
-    NLogger::Debug("NGnNavigator::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
+    NLogDebug("NGnNavigator::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
                    fProjection->GetName(), fProjection->GetTitle());
     // fProjection->Paint(option);
     fProjection->Paint("colz text");
@@ -1080,14 +1080,14 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
   ///
   ///
 
-  // NLogger::Info("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
+  // NLogInfo("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
 
   if (!fProjection || !gPad) return;
 
   // gPad = gPad->GetMother();
-  // NLogger::Debug("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d, gPad=%s title=%s", event, px, py,
+  // NLogDebug("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d, gPad=%s title=%s", event, px, py,
   //                gPad->GetName(), gPad->GetTitle());
-  // NLogger::Debug("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
+  // NLogDebug("NGnNavigator::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
 
   // Step 1: Convert absolute pixel coordinates to the pad's normalized coordinates (0-1 range)
   Double_t x_pad = gPad->AbsPixeltoX(px);
@@ -1106,11 +1106,11 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       if (fProjection->GetBinContent(bin) > 0) {
         Int_t binx, biny, binz;
         fProjection->GetBinXYZ(bin, binx, biny, binz);
-        NLogger::Debug("[%s] Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
+        NLogDebug("[%s] Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
                        x_user, y_user, fLevel, fNLevels);
       }
       fLastHoverBin = bin;
-      NLogger::Debug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
+      NLogDebug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
     }
   }
 
@@ -1120,7 +1120,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
     Int_t binx, biny, binz;
     fProjection->GetBinXYZ(bin, binx, biny, binz);
     Double_t content = fProjection->GetBinContent(bin);
-    NLogger::Info("NGnNavigator::ExecuteEvent: [%s] Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  "
+    NLogInfo("NGnNavigator::ExecuteEvent: [%s] Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  "
                   "level=%d nLevels=%d",
                   gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
 
@@ -1132,11 +1132,11 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       // For 1D histograms, we need to find the index correctly
       index = fProjection->GetXaxis()->FindFixBin(fProjection->GetXaxis()->GetBinCenter(binx));
     }
-    NLogger::Debug("NGnNavigator::ExecuteEvent: Index in histogram: %d level=%d", index, fLevel);
+    NLogDebug("NGnNavigator::ExecuteEvent: Index in histogram: %d level=%d", index, fLevel);
     NGnNavigator * child   = GetChild(index);
     TCanvas *      cObject = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("cObject");
     if (child && child->GetProjection()) {
-      NLogger::Debug("NGnNavigator::ExecuteEvent: [%s]Child object '%p' found at index %d", gPad->GetName(),
+      NLogDebug("NGnNavigator::ExecuteEvent: [%s]Child object '%p' found at index %d", gPad->GetName(),
                      child->GetProjection(), index);
       // originalPad->Clear();               // Clear the original pad
       gPad              = originalPad->GetMother(); // Get the mother pad to avoid clearing the current pad
@@ -1149,7 +1149,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       hProj->SetMinimum(0);     // Set minimum to 0 for better visibility
       hProj->Draw("text colz"); // Draw the projection histogram of the child
       child->AppendPad();
-      NLogger::Debug("NGnNavigator::ExecuteEvent: %d", child->GetLastIndexSelected());
+      NLogDebug("NGnNavigator::ExecuteEvent: %d", child->GetLastIndexSelected());
       if (cObject) {
         cObject->Clear(); // Clear the existing canvas if it exists
         cObject->cd();    // Set the current canvas to cObject
@@ -1167,11 +1167,11 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 
       // TH1 * projection = child->GetProjection();
       // index            = projection->GetXaxis()->FindFixBin(projection->GetXaxis()->GetBinCenter(binx));
-      NLogger::Warning("NGnNavigator::ExecuteEvent: No child object found at index %d", index);
+      NLogWarning("NGnNavigator::ExecuteEvent: No child object found at index %d", index);
       std::string objName = fObjectNames.empty() ? "resource_monitor" : fObjectNames[0];
       TH1 *       hProj   = (TH1 *)GetObject(objName, index);
       if (hProj == nullptr) {
-        NLogger::Error("NGnNavigator::ExecuteEvent: No histogram found for index %d", index);
+        NLogError("NGnNavigator::ExecuteEvent: No histogram found for index %d", index);
         return;
       }
       // hProj->Print("all");
@@ -1208,7 +1208,7 @@ NGnNavigator * NGnNavigator::GetChild(int index) const
   ///
   /// Returns child object at given index
   ///
-  // NLogger::Debug("NGnNavigator::GetChild: index=%d, size=%zu", index, fChildren.size());
+  // NLogDebug("NGnNavigator::GetChild: index=%d, size=%zu", index, fChildren.size());
   return (index >= 0 && index < fChildren.size()) ? fChildren[index] : nullptr;
 }
 void NGnNavigator::SetChild(NGnNavigator * child, int index)
@@ -1284,7 +1284,7 @@ void NGnNavigator::SetObject(const std::string & name, TObject * obj, int index)
     if (fObjectContentMap.find(name) == fObjectContentMap.end()) {
       ResizeObjectContentMap(name, fNCells);
     }
-    NLogger::Trace("NGnNavigator::SetObject: name=%s, obj=%p, index=%d", name.c_str(), obj, index,
+    NLogTrace("NGnNavigator::SetObject: name=%s, obj=%p, index=%d", name.c_str(), obj, index,
                    fObjectContentMap[name].size());
 
     // Add object name if missing
@@ -1331,11 +1331,11 @@ void NGnNavigator::SetParameter(const std::string & name, double value, int inde
   ///
   if (!std::isnan(value)) {
     if (fParameterContentMap.find(name) == fParameterContentMap.end() || fParameterContentMap[name].size() < fNCells) {
-      NLogger::Trace("NGnNavigator::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
+      NLogTrace("NGnNavigator::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
                      fNCells);
       ResizeParameterContentMap(name, fNCells);
     }
-    NLogger::Trace("NGnNavigator::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
+    NLogTrace("NGnNavigator::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
                    fParameterContentMap[name].size());
 
     // Append parameter name if missing
@@ -1362,13 +1362,13 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
   ///
 
   if (parameterName.empty()) {
-    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Parameter name is empty");
+    NLogError("NGnNavigator::DrawSpectra: Parameter name is empty");
     return;
   }
 
   // check if parameterName exists in fParameterContentMap
   if (fParameterContentMap.find(parameterName) == fParameterContentMap.end()) {
-    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Parameter name '%s' not found in fParameterContentMap",
+    NLogError("NGnNavigator::DrawSpectra: Parameter name '%s' not found in fParameterContentMap",
                            parameterName.c_str());
     return;
   }
@@ -1382,7 +1382,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
   Int_t            canvasWidth  = static_cast<Int_t>(screenWidth * canvasScale);
   Int_t            canvasHeight = static_cast<Int_t>(screenHeight * canvasScale);
 
-  Ndmspc::NLogger::Trace("Screen size: %dx%d", screenWidth, screenHeight);
+  NLogTrace("Screen size: %dx%d", screenWidth, screenHeight);
 
   NBinningDef * binningDef    = fGnTree->GetBinning()->GetDefinition();
   THnSparse *   hnsObjContent = binningDef->GetContent();
@@ -1398,18 +1398,18 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
   }
 
   if (projections.empty()) {
-    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: No projections found");
+    NLogError("NGnNavigator::DrawSpectra: No projections found");
     return;
   }
   if (projections[0].size() > 3) {
-    Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)",
+    NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)",
                            projections[0].size());
     return;
   }
 
   for (const auto & proj : projections) {
 
-    // Ndmspc::NLogger::Debug("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
+    // NLogDebug("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
 
     // fProjection->Draw("colz");
     TH1 * hParameterProjection = (TH1 *)fProjection->Clone("hParameterProjection");
@@ -1444,7 +1444,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
 
     std::vector<int> dims = proj;
     if (dims.size() > 3) {
-      Ndmspc::NLogger::Error("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", dims.size());
+      NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", dims.size());
       return;
     }
     std::vector<std::set<int>> dimsResults(3);
@@ -1460,11 +1460,11 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
     Long64_t                                        linBin = 0;
     std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hnsObjContent->CreateIter(true /*use axis range*/)};
     while ((linBin = iter->Next()) >= 0) {
-      // NLogger::Debug("Linear bin: %lld", linBin);
+      // NLogDebug("Linear bin: %lld", linBin);
       Double_t    v         = hnsObjContent->GetBinContent(linBin, p);
       Long64_t    idx       = hnsObjContent->GetBin(p);
       std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(p, hnsObjContent->GetNdimensions()), -1);
-      // Ndmspc::NLogger::Info("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
+      // NLogInfo("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
       dimsResults[0].insert(p[dims[0]]);
       if (dims.size() > 1) dimsResults[1].insert(p[dims[1]]);
       if (dims.size() > 2) dimsResults[2].insert(p[dims[2]]);
@@ -1482,14 +1482,14 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
     //   dims.push_back(0); // Add a dummy dimension for 2D plotting
     // }
     int nPads = dims.size() > 2 ? dimsResults[2].size() : 1;
-    Ndmspc::NLogger::Trace("Number of pads: %d", nPads);
+    NLogTrace("Number of pads: %d", nPads);
     std::vector<std::string> projNames = {hsParam->GetAxis(dims[0])->GetName(), hsParam->GetAxis(dims[1])->GetName(),
                                           hsParam->GetAxis(dims[2])->GetName()};
 
     std::string posfix = NUtils::Join(projNames, '-');
 
     std::string canvasName = Form("c_%s", posfix.c_str());
-    NLogger::Trace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
+    NLogTrace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
     c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
     c->DivideSquare(nPads);
     for (int iPad = 0; iPad < nPads; iPad++) {
@@ -1502,8 +1502,8 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
         p[dims[2]] = iPad + 1; // 1-based index for the third dimension
 
         // print projIds[2] range
-        // Ndmspc::NLogger::Debug("Pad %d: Setting projection indices: %d %d %d", iPad, p[0], p[1], p[2]);
-        // Ndmspc::NLogger::Debug("Pad %d: Setting projection indices: %d %d %d", iPad, projIds[0], projIds[1],
+        // NLogDebug("Pad %d: Setting projection indices: %d %d %d", iPad, p[0], p[1], p[2]);
+        // NLogDebug("Pad %d: Setting projection indices: %d %d %d", iPad, projIds[0], projIds[1],
         // projIds[2]);
 
         TAxis * aPad = hsParam->GetAxis(dims[2]);
@@ -1517,7 +1517,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
               projNames.size() > 2 ? " for " + projNames[2] + " " + Form(" [%.3f,%.3f]", binLowEdge, binUpEdge) : "";
         }
       }
-      NLogger::Trace("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
+      NLogTrace("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
       //
       THStack * hStack  = new THStack(stackName.c_str(), stackTitle.c_str());
       int       nStacks = dims.size() > 1 ? dimsResults[1].size() : 1;
@@ -1528,7 +1528,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
         // if (dims.size() > 2) p[dims[2]] = iPad + 1; // 1-based index for the third dimension
         NUtils::SetAxisRanges(hsParam, {{dims[2], p[dims[2]], p[dims[2]]}, {dims[1], p[dims[1]], p[dims[1]]}}, true);
 
-        NLogger::Trace("Projecting for stack %d: Setting projection dims: %d %d %d", iStack, dims[0], dims[1], dims[2]);
+        NLogTrace("Projecting for stack %d: Setting projection dims: %d %d %d", iStack, dims[0], dims[1], dims[2]);
 
         TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {dims[0]}, option);
         hProj->SetMinimum(0);

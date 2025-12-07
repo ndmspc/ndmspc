@@ -46,12 +46,12 @@ void NHnSparseObject::Print(Option_t * option) const
   ///
   /// Print object
   ///
-  NLogger::Info("NHnSparseObject:");
+  NLogInfo("NHnSparseObject:");
   if (fBinning) {
     fBinning->Print(option);
   }
   else {
-    NLogger::Error("Binning is not initialized in NHnSparseObject !!!");
+    NLogError("Binning is not initialized in NHnSparseObject !!!");
   }
 }
 
@@ -61,38 +61,38 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
   /// Fill
   ///
   if (!fBinning) {
-    NLogger::Error("NHnSparseObject::Fill: Binning is not initialized in NHnSparseObject !!!");
+    NLogError("NHnSparseObject::Fill: Binning is not initialized in NHnSparseObject !!!");
     return -1;
   }
   if (!h) {
-    NLogger::Error("NHnSparseObject::Fill: Histogram is nullptr !!!");
+    NLogError("NHnSparseObject::Fill: Histogram is nullptr !!!");
     return -1;
   }
   if (!p) {
-    NLogger::Error("NHnSparseObject::Fill: Point is nullptr !!!");
+    NLogError("NHnSparseObject::Fill: Point is nullptr !!!");
     return -1;
   }
 
   std::vector<int> varAxes = p->GetVariableAxisIndexes();
-  Ndmspc::NLogger::Debug("Variable axes: %s", Ndmspc::NUtils::GetCoordsString(varAxes, -1).c_str());
+  NLogDebug("Variable axes: %s", Ndmspc::NUtils::GetCoordsString(varAxes, -1).c_str());
   std::vector<std::vector<int>> axisRanges;
   for (size_t i = 0; i < varAxes.size(); i++) {
     std::vector<int> varAxesPoint = {varAxes[i]};
     std::vector<int> axisCoords = p->GetHnSparseTree()->GetBinning()->GetAxisBinning(varAxes[i], p->GetPointContent());
     varAxesPoint.insert(varAxesPoint.end(), axisCoords.begin(), axisCoords.end());
     axisRanges.push_back(varAxesPoint);
-    Ndmspc::NLogger::Debug("Variable axis: %s", Ndmspc::NUtils::GetCoordsString(axisRanges[i], -1).c_str());
+    NLogDebug("Variable axis: %s", Ndmspc::NUtils::GetCoordsString(axisRanges[i], -1).c_str());
   }
 
   // loop over axisRanges
   std::vector<int> coords;
   for (const auto & range : axisRanges) {
-    // Ndmspc::NLogger::Debug("Axis range: %s", Ndmspc::NUtils::GetCoordsString(range, -1).c_str());
+    // NLogDebug("Axis range: %s", Ndmspc::NUtils::GetCoordsString(range, -1).c_str());
     coords.push_back(range[1]);
     coords.push_back(range[2]);
     coords.push_back(range[3]);
   }
-  // Ndmspc::NLogger::Debug("Point content: %s", Ndmspc::NUtils::GetCoordsString(coords, -1).c_str());
+  // NLogDebug("Point content: %s", Ndmspc::NUtils::GetCoordsString(coords, -1).c_str());
 
   Int_t coordsInt[coords.size()];
 
@@ -101,12 +101,12 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
     int              idAxis           = axisRanges[iVarAxis][0];
     std::vector<int> currentCoords    = coords;
     int              currentFillIndex = coords[iVarAxis * 3 + 2];
-    // NLogger::Debug("Current fill index for axis %d: %d", idAxis, currentFillIndex);
+    // NLogDebug("Current fill index for axis %d: %d", idAxis, currentFillIndex);
     currentCoords[iVarAxis * 3 + 2] = 0;
     h->Print();
     for (int i = 0; i < h->GetNbinsX(); i++) {
       std::string binLabel = h->GetXaxis()->GetBinLabel(i + 1);
-      // NLogger::Debug("Bin %d: %s", i + 1, binLabel.c_str());
+      // NLogDebug("Bin %d: %s", i + 1, binLabel.c_str());
 
       NUtils::VectorToArray(currentCoords, coordsInt);
       if (fBinning->GetContent()->GetBin(coordsInt, kFALSE) < 0) {
@@ -115,10 +115,10 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
       Int_t indexInVector = fBinning->GetContent()->GetBin(coordsInt);
 
       // if (i == 0) {
-      //   NLogger::Debug("Setting bin content for coords %s: index=%d",
+      //   NLogDebug("Setting bin content for coords %s: index=%d",
       //                  NUtils::GetCoordsString(currentCoords, -1).c_str(), indexInVector);
       // }
-      // NLogger::Debug("AAAA %d %d", fObjectContentMap[binLabel].size(), indexInVector);
+      // NLogDebug("AAAA %d %d", fObjectContentMap[binLabel].size(), indexInVector);
 
       TObject * obj  = fObjectContentMap[binLabel].empty() ? nullptr
                        : fObjectContentMap[binLabel].size() <= indexInVector
@@ -126,7 +126,7 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
                            : fObjectContentMap[binLabel][indexInVector];
       TH1 *     hist = dynamic_cast<TH1 *>(obj);
       if (obj == nullptr) {
-        if (i == 0) NLogger::Debug("Creating new object for bin %d: %s", i + 1, binLabel.c_str());
+        if (i == 0) NLogDebug("Creating new object for bin %d: %s", i + 1, binLabel.c_str());
         // Create object based on the histogram
         // TODO: Make it more generic (TObject)
         hist = new TH1D();
@@ -153,16 +153,16 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
         std::string title = name;
         hist->SetNameTitle(name.c_str(), title.c_str());
 
-        // if (i == 0) NLogger::Debug("fBinning->GetAxes()[idAxis=%d]", iVarAxis);
+        // if (i == 0) NLogDebug("fBinning->GetAxes()[idAxis=%d]", iVarAxis);
         TAxis * a = fBinning->GetAxes()[iVarAxis];
         if (a == nullptr) {
-          NLogger::Error("NHnSparseObject::Fill: Axis %d is nullptr !!!", iVarAxis);
+          NLogError("NHnSparseObject::Fill: Axis %d is nullptr !!!", iVarAxis);
           return -1;
         }
         int currentRebin = a->GetNbins() / currentCoords[iVarAxis * 3 + 0];
         hist->SetBins(currentRebin, a->GetXmin(), a->GetXmax());
         // if (i == 0)
-        //   NLogger::Debug("Setting histogram %s bins: %d, [%f,%f]", hist->GetName(), currentRebin, a->GetXmin(),
+        //   NLogDebug("Setting histogram %s bins: %d, [%f,%f]", hist->GetName(), currentRebin, a->GetXmin(),
         //                  a->GetXmax());
         // if (a->GetXbins()->GetSize() > 0) {
         //   // If the axis has variable bins, set the binning
@@ -180,7 +180,7 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
         fObjectContentMap[binLabel].push_back(obj);
       }
       else {
-        if (i == 0) NLogger::Debug("Adding content to existing object for bin %d: %s", i + 1, binLabel.c_str());
+        if (i == 0) NLogDebug("Adding content to existing object for bin %d: %s", i + 1, binLabel.c_str());
       }
 
       // check if obj is TH1
@@ -193,7 +193,7 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
       hist->SetBinContent(currentFillIndex, h->GetBinContent(i + 1));
       hist->SetBinError(currentFillIndex, h->GetBinError(i + 1));
       if (i == 0)
-        NLogger::Debug("2 Setting bin content for coords %s: index=%d, value=%e error=%e",
+        NLogDebug("2 Setting bin content for coords %s: index=%d, value=%e error=%e",
                        NUtils::GetCoordsString(currentCoords, -1).c_str(), indexInVector,
                        hist->GetBinContent(currentFillIndex), hist->GetBinError(currentFillIndex));
     }
@@ -270,11 +270,11 @@ void NHnSparseObject::SetParameter(const std::string & name, double value, int i
   ///
   if (!std::isnan(value)) {
     if (fParameterContentMap.find(name) == fParameterContentMap.end() || fParameterContentMap[name].size() < fNCells) {
-      NLogger::Trace("NHnSparseObject::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
+      NLogTrace("NHnSparseObject::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
                      fNCells);
       ResizeParameterContentMap(name, fNCells);
     }
-    NLogger::Trace("NHnSparseObject::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
+    NLogTrace("NHnSparseObject::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
                    fParameterContentMap[name].size());
     if (index < 0) {
       fParameterContentMap[name].push_back(value);
@@ -293,7 +293,7 @@ NHnSparseObject * NHnSparseObject::GetChild(int index) const
   ///
   /// Returns child object at given index
   ///
-  // NLogger::Debug("NHnSparseObject::GetChild: index=%d, size=%zu", index, fChildren.size());
+  // NLogDebug("NHnSparseObject::GetChild: index=%d, size=%zu", index, fChildren.size());
   return (index >= 0 && index < fChildren.size()) ? fChildren[index] : nullptr;
 }
 void NHnSparseObject::SetChild(NHnSparseObject * child, int index)
@@ -312,13 +312,13 @@ void NHnSparseObject::Export(std::string filename)
   ///
   /// Export object to file
   ///
-  NLogger::Info("Exporting NHnSparseObject to file: %s", filename.c_str());
+  NLogInfo("Exporting NHnSparseObject to file: %s", filename.c_str());
   // if filename ends with .root, remove it
   if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".root") {
-    NLogger::Info("Exporting NHnSparseObject to ROOT file: %s", filename.c_str());
+    NLogInfo("Exporting NHnSparseObject to ROOT file: %s", filename.c_str());
     TFile * file = TFile::Open(filename.c_str(), "RECREATE");
     if (!file || file->IsZombie()) {
-      NLogger::Error("Failed to open file: %s", filename.c_str());
+      NLogError("Failed to open file: %s", filename.c_str());
       return;
     }
     file->cd();
@@ -327,7 +327,7 @@ void NHnSparseObject::Export(std::string filename)
     delete file;
   }
   else if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".json") {
-    NLogger::Info("Exporting NHnSparseObject to JSON file: %s", filename.c_str());
+    NLogInfo("Exporting NHnSparseObject to JSON file: %s", filename.c_str());
     json              objJson;
     NHnSparseObject * obj = const_cast<NHnSparseObject *>(this);
     ExportJson(objJson, obj);
@@ -338,11 +338,11 @@ void NHnSparseObject::Export(std::string filename)
     outFile.close();
   }
   else {
-    NLogger::Error("Unsupported file format for export: %s", filename.c_str());
+    NLogError("Unsupported file format for export: %s", filename.c_str());
     return;
   }
 
-  NLogger::Info("Exported NHnSparseObject to file: %s", filename.c_str());
+  NLogInfo("Exported NHnSparseObject to file: %s", filename.c_str());
 }
 
 void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
@@ -352,20 +352,20 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
   ///
 
   if (obj == nullptr) {
-    NLogger::Error("NHnSparseObject::ExportJson: Object is nullptr !!!");
+    NLogError("NHnSparseObject::ExportJson: Object is nullptr !!!");
     return;
   }
 
   THnSparse * hns = obj->GetHnSparse();
   if (hns == nullptr) {
-    // NLogger::Error("NHnSparseObject::ExportJson: HnSparse is nullptr !!!");
+    // NLogError("NHnSparseObject::ExportJson: HnSparse is nullptr !!!");
     return;
   }
 
   std::string name        = hns->GetName();
   std::string title       = hns->GetTitle();
   int         nDimensions = hns->GetNdimensions();
-  NLogger::Debug("ExportJson : Exporting '%s' [%dD] (might take some time) ...", title.c_str(), nDimensions);
+  NLogDebug("ExportJson : Exporting '%s' [%dD] (might take some time) ...", title.c_str(), nDimensions);
 
   if (obj->GetChildren().empty()) {
     return;
@@ -398,12 +398,12 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
     obj->SetProjection(h);
   }
   else {
-    NLogger::Error("NHnSparseObject::ExportJson: Unsupported number of dimensions: %d", nDimensions);
+    NLogError("NHnSparseObject::ExportJson: Unsupported number of dimensions: %d", nDimensions);
     return;
   }
 
   if (h == nullptr) {
-    NLogger::Error("NHnSparseObject::ExportJson: Projection is nullptr !!!");
+    NLogError("NHnSparseObject::ExportJson: Projection is nullptr !!!");
     return;
   }
 
@@ -432,13 +432,13 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
       if (objContent) {
         double objMin, objMax;
         NUtils::GetTrueHistogramMinMax((TH1 *)objContent, objMin, objMax, false);
-        // NLogger::Debug("NHnSparseObject::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
+        // NLogDebug("NHnSparseObject::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
         //                objMax);
 
         min     = TMath::Min(min, objMin);
         max     = TMath::Max(max, objMax);
         entries = ((TH1 *)objContent)->GetEntries();
-        // NLogger::Debug("NHnSparseObject::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
+        // NLogDebug("NHnSparseObject::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
         // min,
         //                max);
         // j["fArray"][i] = entries / val.size(); // Store the average entries for this object
@@ -468,7 +468,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
     j["ndmspc"][key]["fMinimum"] = min;
     j["ndmspc"][key]["fMaximum"] = max;
     // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // NLogDebug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
     // idx++;
   }
 
@@ -483,7 +483,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
         min                            = TMath::Min(min, param);
         max                            = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
-        // NLogger::Debug("NHnSparseObject::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
+        // NLogDebug("NHnSparseObject::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
         // entries += 1.0;
       }
       else {
@@ -502,7 +502,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
       j["fArrays"][key]["max"] = max;
     }
     // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogger::Debug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // NLogDebug("NHnSparseObject::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
   }
 
   double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
@@ -510,7 +510,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
   std::vector<double> tmpContent;
   for (const auto & child : obj->GetChildren()) {
     // if (child == nullptr) {
-    //   NLogger::Error("NHnSparseObject::ExportJson: Child is nullptr !!!");
+    //   NLogError("NHnSparseObject::ExportJson: Child is nullptr !!!");
     //   continue;
     // }
     json   childJson;
@@ -528,7 +528,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
         min     = 0;
         max     = TMath::Max(max, objMax);
         entries = childProjection->GetEntries();
-        NLogger::Debug("NHnSparseObject::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
+        NLogDebug("NHnSparseObject::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
                        objMax);
       }
     }
@@ -553,16 +553,16 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
   else {
     j["ndmspc"]["content"]["fMinimum"] = min;
     j["ndmspc"]["content"]["fMaximum"] = max;
-    NLogger::Debug("NHnSparseObject::ExportJson: XXXX max=%f", max);
+    NLogDebug("NHnSparseObject::ExportJson: XXXX max=%f", max);
   }
 
   if (obj->GetParent() == nullptr) {
-    // NLogger::Debug("NHnSparseObject::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
+    // NLogDebug("NHnSparseObject::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
     int i = -1;
     for (const auto & child : j["children"]["content"]) {
       i++;
       if (child == nullptr) {
-        // NLogger::Error("NHnSparseObject::ExportJson: Child is nullptr !!!");
+        // NLogError("NHnSparseObject::ExportJson: Child is nullptr !!!");
         j["fArray"][i] = 0; // Store the maximum value for the content
         continue;
       }
@@ -592,7 +592,7 @@ void NHnSparseObject::Draw(Option_t * option)
 
   std::string name;
   if (!gPad) {
-    NLogger::Error("NHnSparseObject::Draw: gPad is nullptr !!!");
+    NLogError("NHnSparseObject::Draw: gPad is nullptr !!!");
     gROOT->MakeDefCanvas();
     if (!gPad->IsEditable()) return;
     Int_t cy = TMath::Sqrt(fNLevels);
@@ -601,22 +601,22 @@ void NHnSparseObject::Draw(Option_t * option)
   }
 
   if (fHnSparse == nullptr) {
-    NLogger::Error("NHnSparseObject::Draw: HnSparse is nullptr !!!");
+    NLogError("NHnSparseObject::Draw: HnSparse is nullptr !!!");
     return;
   }
 
   TVirtualPad *     originalPad = gPad; // Save the original pad
   NHnSparseObject * obj;
   for (int level = 0; level < fNLevels; level++) {
-    NLogger::Debug("NHnSparseObject::Draw: Drawing level %d", level);
+    NLogDebug("NHnSparseObject::Draw: Drawing level %d", level);
     TVirtualPad * pad = originalPad->cd(level + 1);
     if (pad) {
-      // NLogger::Debug("NHnSparseObject::Draw: Clearing pad %d", level + 1);
+      // NLogDebug("NHnSparseObject::Draw: Clearing pad %d", level + 1);
       pad->Clear();
       gPad = pad; // Set the current pad to the level + 1 pad
       if (level == 0) {
         obj = this; // For the first level, use the current object
-        NLogger::Debug("NHnSparseObject::Draw: Using current object at level %d: %s", level, obj->GetName());
+        NLogDebug("NHnSparseObject::Draw: Using current object at level %d: %s", level, obj->GetName());
       }
       else {
 
@@ -624,17 +624,17 @@ void NHnSparseObject::Draw(Option_t * option)
         for (int i = 0; i < obj->GetChildren().size(); i++) {
           NHnSparseObject * child = obj->GetChild(i);
           if (child) {
-            NLogger::Debug("NHnSparseObject::Draw: Found child at level %d: %s", level,
+            NLogDebug("NHnSparseObject::Draw: Found child at level %d: %s", level,
                            child->GetProjection()->GetTitle());
             obj = child; // Get the child object at the current level
             break;
           }
         }
-        NLogger::Debug("NHnSparseObject::Draw: Using child object at level %d: %s", level,
+        NLogDebug("NHnSparseObject::Draw: Using child object at level %d: %s", level,
                        obj ? obj->GetName() : "nullptr");
       }
       if (obj == nullptr) {
-        NLogger::Error("NHnSparseObject::Draw: Child object at level %d is nullptr !!!", level);
+        NLogError("NHnSparseObject::Draw: Child object at level %d is nullptr !!!", level);
         continue; // Skip to the next level if the child is nullptr
       }
       obj->GetProjection()->SetMinimum(0);
@@ -643,7 +643,7 @@ void NHnSparseObject::Draw(Option_t * option)
       obj->AppendPad(option);                 // Append the pad to the current pad stack
     }
     else {
-      NLogger::Error("NHnSparseObject::Draw: Pad %d is nullptr !!!", level + 1);
+      NLogError("NHnSparseObject::Draw: Pad %d is nullptr !!!", level + 1);
     }
   }
   gPad = originalPad; // Restore the original pad
@@ -654,9 +654,9 @@ void NHnSparseObject::Paint(Option_t * option)
   ///
   /// Paint object
   ///
-  // NLogger::Info("NHnSparseObject::Paint: Painting object ...");
+  // NLogInfo("NHnSparseObject::Paint: Painting object ...");
   if (fProjection) {
-    NLogger::Debug("NHnSparseObject::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
+    NLogDebug("NHnSparseObject::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
                    fProjection->GetName(), fProjection->GetTitle());
     // fProjection->Paint(option);
     fProjection->Paint("colz text");
@@ -686,9 +686,9 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
   if (!fProjection || !gPad) return;
 
   // gPad = gPad->GetMother();
-  // NLogger::Debug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d, gPad=%s title=%s", event, px, py,
+  // NLogDebug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d, gPad=%s title=%s", event, px, py,
   //                gPad->GetName(), gPad->GetTitle());
-  // NLogger::Debug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
+  // NLogDebug("NHnSparseObject::ExecuteEvent: event=%d, px=%d, py=%d", event, px, py);
 
   // Step 1: Convert absolute pixel coordinates to the pad's normalized coordinates (0-1 range)
   Double_t x_pad = gPad->AbsPixeltoX(px);
@@ -707,11 +707,11 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       if (fProjection->GetBinContent(bin) > 0) {
         Int_t binx, biny, binz;
         fProjection->GetBinXYZ(bin, binx, biny, binz);
-        NLogger::Debug("[%s]Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
+        NLogDebug("[%s]Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
                        x_user, y_user, fLevel, fNLevels);
       }
       fLastHoverBin = bin;
-      NLogger::Debug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
+      NLogDebug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
     }
   }
 
@@ -721,7 +721,7 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
     Int_t binx, biny, binz;
     fProjection->GetBinXYZ(bin, binx, biny, binz);
     Double_t content = fProjection->GetBinContent(bin);
-    NLogger::Info("[%s]Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  level=%d nLevels=%d",
+    NLogInfo("[%s]Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  level=%d nLevels=%d",
                   gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
 
     int nDimensions = fHnSparse->GetNdimensions();
@@ -732,11 +732,11 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       // For 1D histograms, we need to find the index correctly
       index = fProjection->GetXaxis()->FindFixBin(fProjection->GetXaxis()->GetBinCenter(binx));
     }
-    NLogger::Debug("Index in histogram: %d level=%d", index, fLevel);
+    NLogDebug("Index in histogram: %d level=%d", index, fLevel);
     NHnSparseObject * child   = GetChild(index);
     TCanvas *         cObject = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("cObject");
     if (child && child->GetProjection()) {
-      NLogger::Debug("[%s]Child object '%p' found at index %d", gPad->GetName(), child->GetProjection(), index);
+      NLogDebug("[%s]Child object '%p' found at index %d", gPad->GetName(), child->GetProjection(), index);
       // originalPad->Clear();               // Clear the original pad
       gPad              = originalPad->GetMother(); // Get the mother pad to avoid clearing the current pad
       TVirtualPad * pad = gPad->cd(fLevel + 1 + 1); // Ensure we are in the correct pad
@@ -748,7 +748,7 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       hProj->SetMinimum(0);     // Set minimum to 0 for better visibility
       hProj->Draw("text colz"); // Draw the projection histogram of the child
       child->AppendPad();
-      NLogger::Debug("NHnSparseObject::ExecuteEvent: %d", child->GetLastIndexSelected());
+      NLogDebug("NHnSparseObject::ExecuteEvent: %d", child->GetLastIndexSelected());
       if (cObject) {
         cObject->Clear(); // Clear the existing canvas if it exists
         cObject->cd();    // Set the current canvas to cObject
@@ -766,10 +766,10 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 
       // TH1 * projection = child->GetProjection();
       // index            = projection->GetXaxis()->FindFixBin(projection->GetXaxis()->GetBinCenter(binx));
-      NLogger::Warning("No child object found at index %d", index);
+      NLogWarning("No child object found at index %d", index);
       TH1 * hProj = (TH1 *)GetObject("unlikepm", index);
       if (hProj == nullptr) {
-        NLogger::Error("No histogram found for index %d", index);
+        NLogError("No histogram found for index %d", index);
         return;
       }
       hProj->Print();

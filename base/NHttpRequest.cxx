@@ -171,7 +171,7 @@ CURLcode Ndmspc::NHttpRequest::request(const std::string & method, const std::st
 
   // // process received headers for HEAD request
   // for (const auto & header : received_headers) {
-  //   NLogger::Info("Header: %s", header.c_str());
+  //   NLogInfo("Header: %s", header.c_str());
   // }
 
   return res;

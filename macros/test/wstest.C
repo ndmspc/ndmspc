@@ -33,26 +33,26 @@ bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::stri
 
   Ndmspc::NWsClient client;
   if (!client.Connect(url)) {
-    Ndmspc::NLogger::Error("Failed to connect to '%s' !!!", url.c_str());
+    NLogError("Failed to connect to '%s' !!!", url.c_str());
     return false;
   }
 
-  Ndmspc::NLogger::Info("Connected to %s", url.c_str());
+  NLogInfo("Connected to %s", url.c_str());
 
   if (!message.empty()) {
     if (!client.Send(message)) {
-      Ndmspc::NLogger::Error("Failed to send message `%s`", message.c_str());
+      NLogError("Failed to send message `%s`", message.c_str());
       client.Disconnect();
       return false;
     }
 
-    Ndmspc::NLogger::Info("Sent: %s", message.c_str());
+    NLogInfo("Sent: %s", message.c_str());
   }
   TCanvas * c           = new TCanvas("c", "c", 800, 600);
   int       i           = 0;
   int       lastEntries = 0;
   client.SetOnMessageCallback([&c, &lastEntries](const std::string & msg) {
-    // Ndmspc::NLogger::Debug("Interactive: [User Callback] Received message: %s", msg.c_str());
+    // NLogDebug("Interactive: [User Callback] Received message: %s", msg.c_str());
 
     // std::cout << "Received message: " << msg << std::endl;
     // return;
@@ -62,25 +62,25 @@ bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::stri
       // response.erase(0, response.find(": ") + 2);
 
       if (msg[0] != '{') {
-        Ndmspc::NLogger::Warning("Response '%s' is not json object !!!", msg.c_str());
+        NLogWarning("Response '%s' is not json object !!!", msg.c_str());
         return;
       }
 
       json j = json::parse(msg);
       if (j.contains("event") && j["event"] == "heartbeat") {
-        Ndmspc::NLogger::Debug("Heartbeat received: %s", msg.c_str());
+        NLogDebug("Heartbeat received: %s", msg.c_str());
         return;
       }
 
-      // Ndmspc::NLogger::Debug("%s", j.dump(2).c_str());
+      // NLogDebug("%s", j.dump(2).c_str());
 
       TObjArray * arr = (TObjArray *)TBufferJSON::ConvertFromJSON(msg.c_str());
       if (arr == nullptr) {
-        Ndmspc::NLogger::Error("Failed to convert JSON to TObjArray: %s", msg.c_str());
+        NLogError("Failed to convert JSON to TObjArray: %s", msg.c_str());
         return;
       }
       // arr->Print();
-      // Ndmspc::NLogger::Debug("Received message: %p", (void *)arr);
+      // NLogDebug("Received message: %p", (void *)arr);
       if (arr) {
 
         if (c == nullptr || arr->GetEntries() != lastEntries) {
@@ -110,7 +110,7 @@ bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::stri
               h3->Draw("colz");
             }
             // else {
-            //   Ndmspc::NLogger::Warning("Object %d is not a histogram: %s", i, obj->ClassName());
+            //   NLogWarning("Object %d is not a histogram: %s", i, obj->ClassName());
             // }
           }
           else {

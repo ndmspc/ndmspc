@@ -30,7 +30,7 @@ void NHnSparseTreeThreadData::Process(const std::vector<int> & coords)
   output->SetOwner(true); // Set owner to true to delete objects in the list automatically
   fProcessFunc(hnstPoint, output, fOutputGlobal, GetAssignedIndex());
   // output->Print();
-  // NLogger::Error("Thread %d processed entry %d with output size %zu", GetAssignedIndex(), coords[0],
+  // NLogError("Thread %d processed entry %d with output size %zu", GetAssignedIndex(), coords[0],
   //                output->GetEntries());
   if (fHnstOut && output->GetEntries() > 0) {
     std::lock_guard<std::mutex> lock(fSharedMutex);
@@ -51,7 +51,7 @@ NHnSparseTree * NHnSparseTreeThreadData::GetHnstInput()
       std::lock_guard<std::mutex> lock(fSharedMutex);
       fHnstIn = NHnSparseTree::Open(fFileName, fEnabledBranches);
       if (fHnstIn == nullptr) {
-        NLogger::Error("Failed to open NHnSparseTree from file '%s'", fFileName.c_str());
+        NLogError("Failed to open NHnSparseTree from file '%s'", fFileName.c_str());
       }
     }
   }
@@ -65,7 +65,7 @@ NHnSparseTree * NHnSparseTreeThreadData::GetHnstOutput(NHnSparseTree * hnstOut)
       std::lock_guard<std::mutex> lock(fSharedMutex);
 
       std::string tmpFileName = "/tmp/test/hnst_out_" + std::to_string(GetAssignedIndex()) + ".root";
-      NLogger::Trace("Creating output NHnSparseTree in file '%s'", tmpFileName.c_str());
+      NLogTrace("Creating output NHnSparseTree in file '%s'", tmpFileName.c_str());
 
       if (hnstOut == nullptr) {
         fHnstOut = new NHnSparseTreeC(tmpFileName);
@@ -81,7 +81,7 @@ NHnSparseTree * NHnSparseTreeThreadData::GetHnstOutput(NHnSparseTree * hnstOut)
         // fHnstOut->Print();
       }
       if (fHnstOut == nullptr) {
-        NLogger::Error("Failed to open NHnSparseTree file '%s' for writing !!!", tmpFileName.c_str());
+        NLogError("Failed to open NHnSparseTree file '%s' for writing !!!", tmpFileName.c_str());
       }
       fHnstOut->AddBranch("output", nullptr, "TList");
     }
@@ -94,7 +94,7 @@ Long64_t NHnSparseTreeThreadData::Merge(TCollection * list)
   /// Merge method
   /// This method merges the output of the threads into a single NHnSparseTree
 
-  NLogger::Trace("Merging thread data from %zu threads ...", list->GetEntries());
+  NLogTrace("Merging thread data from %zu threads ...", list->GetEntries());
 
   Long64_t totalEntries = 0;
   TList *  listOut      = new TList();
@@ -102,7 +102,7 @@ Long64_t NHnSparseTreeThreadData::Merge(TCollection * list)
   for (auto obj : *list) {
     if (obj->IsA() == NHnSparseTreeThreadData::Class()) {
       NHnSparseTreeThreadData * hnsttd = (NHnSparseTreeThreadData *)obj;
-      NLogger::Trace("Processing thread %zu with file '%s'", hnsttd->GetAssignedIndex(), hnsttd->GetFileName().c_str());
+      NLogTrace("Processing thread %zu with file '%s'", hnsttd->GetAssignedIndex(), hnsttd->GetFileName().c_str());
 
       // TODO: Handle case where partial resutls are not closed before merging
       // NHnSparseTree * hnstOut = hnsttd->GetHnstOutput();
@@ -110,30 +110,30 @@ Long64_t NHnSparseTreeThreadData::Merge(TCollection * list)
       if (hnstOut == nullptr)
         hnstOut = NHnSparseTree::Open(hnsttd->GetHnstOutput()->GetFileName());
       else {
-        NLogger::Debug("Using existing output NHnSparseTree for thread %zu", hnsttd->GetAssignedIndex());
+        NLogDebug("Using existing output NHnSparseTree for thread %zu", hnsttd->GetAssignedIndex());
         // hnstOut->SetBranchAddresses();
       }
       if (hnstOut == nullptr) {
-        NLogger::Error("NHnSparseTreeThreadData::Merge: Output NHnSparseTree is nullptr for thread %zu",
+        NLogError("NHnSparseTreeThreadData::Merge: Output NHnSparseTree is nullptr for thread %zu",
                        hnsttd->GetAssignedIndex());
         continue;
       }
 
-      NLogger::Trace("Going to merge thread %zu with file '%s' entries=%lld", hnsttd->GetAssignedIndex(),
+      NLogTrace("Going to merge thread %zu with file '%s' entries=%lld", hnsttd->GetAssignedIndex(),
                      hnstOut->GetFileName().c_str(), hnstOut->GetTree()->GetEntries());
       listOut->Add(hnstOut);
 
       totalEntries++;
     }
   }
-  NLogger::Trace("Total entries to merge: %lld", totalEntries);
+  NLogTrace("Total entries to merge: %lld", totalEntries);
   fHnstOut->Merge(listOut);
 
   // TODO: Delete teporary files
   // for (auto obj : *listOut) {
-  //   NHnSparseTree * hnst = (NHnSparseTree *)obj;
-  //   NLogger::Debug("Deleting temporary file '%s' ...", hnst->GetFileName().c_str());
-  //   NUtils::DeleteFile(hnst->GetFileName());
+  //   NHnSparseTree * ngnt = (NHnSparseTree *)obj;
+  //   NLogDebug("Deleting temporary file '%s' ...", ngnt->GetFileName().c_str());
+  //   NUtils::DeleteFile(ngnt->GetFileName());
   // }
   return totalEntries;
 }
