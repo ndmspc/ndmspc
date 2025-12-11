@@ -7,6 +7,7 @@
 #include <TH3.h>
 #include <TObject.h>
 #include "NBinning.h"
+#include "NParameters.h"
 #include "NStorageTree.h"
 // #include "NBinningPoint.h"
 
@@ -239,6 +240,21 @@ class NGnTree : public TObject {
   NGnNavigator * GetResourceStatisticsNavigator(std::string binningName, std::vector<std::vector<int>> levels,
                                                 int level = 0, std::map<int, std::vector<int>> ranges = {},
                                                 std::map<int, std::vector<int>> rangesBase = {});
+  /**
+   * @brief Returns the parameters associated with this tree.
+   * @return Pointer to NParameters object containing the tree's parameters.
+   */
+  NParameters * GetParameters() const { return fParameters; }
+
+  /**
+   * @brief Initializes the parameters for the tree using the provided parameter names.
+   *
+   * This function sets up the internal parameter structure based on the given list of parameter names.
+   *
+   * @param paramNames A vector of strings containing the names of the parameters to initialize.
+   * @return true if initialization was successful, false otherwise.
+   */
+  bool InitParameters(const std::vector<std::string> & paramNames);
 
   /**
    * @brief Open NGnTree from file.
@@ -268,6 +284,7 @@ class NGnTree : public TObject {
   std::map<std::string, TList *> fOutputs;              ///< Outputs
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing
   NGnNavigator *                 fNavigator{nullptr};   ///<! Navigator object
+  NParameters *                  fParameters{nullptr};  ///< Parameters object
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);

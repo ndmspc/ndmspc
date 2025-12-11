@@ -35,7 +35,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
   }
 
   // Create an NHnSparseObject from the THnSparse
-  Ndmspc::NGnTree * hnsb = new Ndmspc::NGnTree(hsparse->GetListOfAxes(), outFile);
+  Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(hsparse->GetListOfAxes(), outFile);
   // return;
 
   // Define the binning for the axes
@@ -53,21 +53,21 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
   // b["Age"]   = {{1}};
   // b["Hrweek"]   = {{1}};
 
-  hnsb->GetBinning()->AddBinningDefinition("default", b);
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   // std::map<std::string, std::vector<std::vector<int>>> b2;
   // // b2["Nation"]   = {{1}};
   // // b2["Division"] = {{1}};
   // b2["Flag"] = {{1}};
-  // // hnsb->GetBinning()->AddBinningDefinition("b2", b2);
+  // // ngnt->GetBinning()->AddBinningDefinition("b2", b2);
   //
   // std::map<std::string, std::vector<std::vector<int>>> b3;
   // // b3["Nation"]   = {{1}};
   // // b3["Division"] = {{1}};
   // b3["Flag"] = {{2}};
-  // // hnsb->GetBinning()->AddBinningDefinition("b3", b3);
+  // // ngnt->GetBinning()->AddBinningDefinition("b3", b3);
   // // Print the sparse object
-  hnsb->Print();
+  ngnt->Print();
 
   // return;
 
@@ -79,6 +79,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
   cfg["sparse"]            = true;
   cfg["sparse"]            = false;
 
+  ngnt->InitParameters(cfg["parameters"].get<std::vector<std::string>>());
   // return;
 
   if (nThreads != 1) {
@@ -164,13 +165,8 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
             //                       point->GetEntryNumber(), hProj->GetTitle(), hProj->GetEntries());
             outputPoint->Add(hProj);
             // outputPoint->Print();
-            std::vector<std::string> labels  = cfg["parameters"].get<std::vector<std::string>>();
-            TH1D *                   results = new TH1D("results", "Results", labels.size(), 0, labels.size());
-            for (size_t i = 0; i < labels.size(); i++) {
-              results->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
-            }
-            results->SetBinContent(1, hProj->GetMean());
-            outputPoint->Add(results);
+            Ndmspc::NParameters * results = point->GetParameters();
+            results->SetParameter("mean", hProj->GetMean());
           }
         }
         else {
@@ -184,33 +180,33 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
     // gSystem->Sleep(100); // Simulate some processing time
   };
 
-  // hnsb->Process(processFunc, {1}, {1});
+  // ngnt->Process(processFunc, {1}, {1});
   bool rc = false;
-  rc      = hnsb->Process(processFunc, cfg);
-  // rc = hnsb->Process(processFunc, cfg, "default");
-  // rc = hnsb->Process(processFunc, cfg, "b2");
-  // hnsb->GetBinning()->SetCurrentDefinitionName(hnsb->GetBinning()->GetDefinitionNames().front());
-  // hnsb->Print();
+  rc      = ngnt->Process(processFunc, cfg);
+  // rc = ngnt->Process(processFunc, cfg, "default");
+  // rc = ngnt->Process(processFunc, cfg, "b2");
+  // ngnt->GetBinning()->SetCurrentDefinitionName(ngnt->GetBinning()->GetDefinitionNames().front());
+  // ngnt->Print();
 
   if (rc) {
     NLogInfo("NCernStaff: Processing completed successfully.");
-    hnsb->Close(true);
+    ngnt->Close(true);
   }
   else {
     NLogError("NCernStaff: Processing failed.");
-    hnsb->Close(false);
+    ngnt->Close(false);
   }
 
   // return;
   // TCanvas * c1 = new TCanvas("c1", "c1", 800, 600);
   // c1->Divide(2, 1);
-  // TH1 * htest = (TH1 *)hnsb->GetOutput("default")->FindObject("test");
+  // TH1 * htest = (TH1 *)ngnt->GetOutput("default")->FindObject("test");
   // if (htest) {
   //   // htest->Print();
   //   c1->cd(1);
   //   htest->DrawCopy();
   // }
-  // TH1 * htestb2 = (TH1 *)hnsb->GetOutput("b2")->FindObject("test");
+  // TH1 * htestb2 = (TH1 *)ngnt->GetOutput("b2")->FindObject("test");
   // if (htestb2) {
   //   // htestb2->Print();
   //   c1->cd(2);
@@ -218,6 +214,6 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
   // }
 
   // Clean up
-  delete hnsb;
+  delete ngnt;
   file->Close();
 }

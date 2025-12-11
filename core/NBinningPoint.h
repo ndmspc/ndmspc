@@ -2,6 +2,7 @@
 #define Ndmspc_NBinningPoint_H
 #include <TObject.h>
 #include <nlohmann/json.hpp>
+#include "NParameters.h"
 #include "RtypesCore.h"
 using json = nlohmann::json;
 
@@ -204,6 +205,24 @@ class NBinningPoint : public TObject {
    */
   Long64_t GetEntryNumber() const { return fEntryNumber; }
 
+  /**
+   * @brief Set the parameters for this binning point.
+   *
+   * Assigns the provided NParameters object to this binning point.
+   *
+   * @param params Pointer to the NParameters object to associate.
+   */
+  void SetParameters(NParameters * params) { fParameters = params; }
+
+  /**
+   * @brief Get the parameters associated with this binning point.
+   *
+   * Returns the pointer to the NParameters object currently associated with this binning point.
+   *
+   * @return Pointer to the NParameters object.
+   */
+  NParameters * GetParameters() const { return fParameters; }
+
   private:
   json                     fCfg{};                  ///< Configuration object
   NGnTree *                fInput{nullptr};         ///< Input NGnTree object
@@ -219,6 +238,7 @@ class NBinningPoint : public TObject {
   Int_t *                  fBaseBinMax{nullptr};    ///< Base bin maximum (for variable binning)
   std::vector<std::string> fLabels{};               ///< Labels for each axis
   Long64_t                 fEntryNumber{-1};        ///< Entry in the storage tree
+  NParameters *            fParameters{nullptr};    ///< Parameter axis (if any)
 
   /// \cond CLASSIMP
   ClassDef(NBinningPoint, 1);

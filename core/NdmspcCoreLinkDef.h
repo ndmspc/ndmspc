@@ -12,6 +12,7 @@
 #pragma link C++ class Ndmspc::NBinningPoint + ;
 #pragma link C++ class Ndmspc::NTreeBranch + ;
 #pragma link C++ class Ndmspc::NStorageTree + ;
+#pragma link C++ class Ndmspc::NParameters + ;
 #pragma link C++ class Ndmspc::NResourceMonitor + ;
 #pragma link C++ class Ndmspc::NGnTree + ;
 #pragma link C++ class Ndmspc::NGnThreadData + ;
