@@ -75,6 +75,8 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
 
     fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
   }
+  NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch("outputPoint");
+  if (!b) fHnSparseBase->GetStorageTree()->AddBranch("outputPoint", nullptr, "TList");
 
   if (ngnt->GetParameters()) {
     fHnSparseBase->GetBinning()->GetPoint()->SetParameters(ngnt->GetParameters());
@@ -104,6 +106,11 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
     std::string branches = NUtils::Join(input->GetStorageTree()->GetBrancheNames(true), ',');
     fHnSparseBase->SetInput(NGnTree::Open(input->GetStorageTree()->GetFileName(), branches)); // Set the input NGnTree
   }
+
+  if (ngnt->GetWsClient()) {
+    fHnSparseBase->SetWsClient(ngnt->GetWsClient());
+  }
+
   // fHnSparseBase->GetBinning()->GetDefinition()->GetContent()->Reset();
   // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().clear();
 

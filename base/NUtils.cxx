@@ -39,7 +39,7 @@ bool NUtils::EnableMT(UInt_t numthreads)
   }
   NLogInfo("Enabling IMT (Implicit Multi-Threading) ...");
 
-  if (numthreads == 1) {
+  if (numthreads == -1) {
     // take numeber of cores from env variable
     const char * nThreadsEnv = gSystem->Getenv("ROOT_MAX_THREADS");
     NLogInfo("Setting number of threads from ROOT_MAX_THREADS env variable: %s", nThreadsEnv);
@@ -51,6 +51,9 @@ bool NUtils::EnableMT(UInt_t numthreads)
         NLogError("Error parsing ROOT_MAX_THREADS: %s !!! Setting it to '1' ...", e.what());
         numthreads = 1;
       }
+    }
+    else {
+      numthreads = 1; // use default
     }
   }
 
@@ -440,7 +443,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
 
   if (order.size() != hns->GetNdimensions() + newAxes.size()) {
     NLogError("NUtils::ReshapeSparseAxes: Invalid size %d [order] != %d [hns->GetNdimensions()+newAxes]", order.size(),
-               hns->GetNdimensions() + newAxes.size());
+              hns->GetNdimensions() + newAxes.size());
     return nullptr;
   }
 
@@ -449,7 +452,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   else {
     if (newAxes.size() != newPoint.size()) {
       NLogError("NUtils::ReshapeSparseAxes: Invalid size %d [newAxes] != %d [newPoint]", newAxes.size(),
-                 newPoint.size());
+                newPoint.size());
       return nullptr;
     }
   }
@@ -457,8 +460,8 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   for (size_t i = 0; i < order.size(); i++) {
     if (order[i] < 0 || order[i] >= hns->GetNdimensions() + (int)newAxes.size()) {
       NLogError("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d. Value is negative or higher then "
-                 "'hns->GetNdimensions() + newAxes.size()' !!!",
-                 i, order[i]);
+                "'hns->GetNdimensions() + newAxes.size()' !!!",
+                i, order[i]);
       return nullptr;
     }
   }
@@ -468,7 +471,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     for (size_t j = i + 1; j < order.size(); j++) {
       if (order[i] == order[j]) {
         NLogError("NUtils::ReshapeSparseAxes: Invalid order[%d]=%d and order[%d]=%d. Value is not unique !!!", i,
-                   order[i], j, order[j]);
+                  order[i], j, order[j]);
         return nullptr;
       }
     }
@@ -492,13 +495,13 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     if (id < hns->GetNdimensions()) {
       a = hns->GetAxis(id);
       NLogTrace("NUtils::ReshapeSparseAxes: [ORIG] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
-                 a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
+                a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
     }
     else {
       newAxesIndex = id - hns->GetNdimensions();
       a            = newAxes[newAxesIndex];
       NLogTrace("NUtils::ReshapeSparseAxes: [NEW ] Axis [%d]->[%d]: %s %s %d %.2f %.2f", id, i, a->GetName(),
-                 a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
+                a->GetTitle(), a->GetNbins(), a->GetXmin(), a->GetXmax());
     }
     bins[i] = a->GetNbins();
     xmin[i] = a->GetXmin();
@@ -579,7 +582,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
   for (int i = 0; i < nDims; i++) {
     TAxis * a = hnsNew->GetAxis(i);
     NLogTrace("ReshapeSparseAxes: Axis %d: %s %s %d %.2f %.2f", i, a->GetName(), a->GetTitle(), a->GetNbins(),
-               a->GetXmin(), a->GetXmax());
+              a->GetXmin(), a->GetXmax());
   }
   // hnsNew->Print("all");
   return hnsNew;
@@ -638,8 +641,8 @@ void NUtils::GetTrueHistogramMinMax(const TH1 * h, double & min_val, double & ma
   }
   else {
     NLogWarning("GetTrueHistogramMinMax: Histogram '%s' has unsupported dimension %d. "
-              "Using GetMaximum/GetMinimum as fallback.",
-              h->GetName(), h->GetDimension());
+                "Using GetMaximum/GetMinimum as fallback.",
+                h->GetName(), h->GetDimension());
     // As a fallback, try to get from GetMaximum/GetMinimum if dimension not 1,2,3
     max_val = h->GetMaximum();
     min_val = h->GetMinimum();
@@ -776,8 +779,7 @@ bool NUtils::LoadJsonFile(json & cfg, std::string filename)
     NLogInfo("NUtils::LoadJsonFile: Successfully parsed JSON file '%s' ...", filename.c_str());
   }
   catch (json::parse_error & e) {
-    NLogError("NUtils::LoadJsonFile: JSON parse error in file '%s' at byte %d: %s", filename.c_str(), e.byte,
-               e.what());
+    NLogError("NUtils::LoadJsonFile: JSON parse error in file '%s' at byte %d: %s", filename.c_str(), e.byte, e.what());
     return false;
   }
 
@@ -1094,7 +1096,7 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
     }
     else {
       NLogTrace("NUtils::SetAxisRanges: Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1,
-                 sparse->GetAxis(i)->GetNbins());
+                sparse->GetAxis(i)->GetNbins());
       sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
     }
   }
@@ -1142,7 +1144,7 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int rebin, int rebin_start, int bin, 
   max = -1;
 
   NLogTrace("Getting axis range in base for '%s' rebin=%d rebin_start=%d bin=%d...", a->GetName(), rebin, rebin_start,
-             bin);
+            bin);
 
   min = rebin * (bin - 1) + rebin_start;
   max = min + rebin - 1;
@@ -1177,7 +1179,7 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int &
   rebin_start     = rebin != 1 ? rebin_start : 1; // start from 1
 
   NLogTrace("Getting axis range in base for '%s' min=%d max=%d rebin=%d rebin_start=%d...", a->GetName(), min, max,
-             rebin, rebin_start);
+            rebin, rebin_start);
 
   int tmp;
   GetAxisRangeInBase(base, rebin, rebin_start, min, minBase, tmp);
@@ -1489,7 +1491,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   arrow::Result<std::shared_ptr<arrow::io::ReadableFile>> infile_result = arrow::io::ReadableFile::Open(filename);
   if (!infile_result.ok()) {
     NLogError("NUtils::CreateSparseFromParquetTaxi: Error opening file %s: %s", filename.c_str(),
-               infile_result.status().ToString().c_str());
+              infile_result.status().ToString().c_str());
     return nullptr;
   }
   infile = infile_result.ValueUnsafe();
@@ -1502,7 +1504,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
       parquet::arrow::OpenFile(infile, arrow::default_memory_pool()); // No third parameter!
   if (!reader_result.ok()) {
     NLogError("NUtils::CreateSparseFromParquetTaxi: Error opening Parquet file reader for file %s: %s",
-               filename.c_str(), reader_result.status().ToString().c_str());
+              filename.c_str(), reader_result.status().ToString().c_str());
     arrow::Status status = infile->Close(); // Attempt to close
     return nullptr;
   }
@@ -1525,7 +1527,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   arrow::Status                             status = reader->GetRecordBatchReader(&batch_reader);
   if (!status.ok()) {
     NLogError("NUtils::CreateSparseFromParquetTaxi: Error reading table from Parquet file %s: %s", filename.c_str(),
-               status.ToString().c_str());
+              status.ToString().c_str());
     status = infile->Close();
     return nullptr;
   }
@@ -1534,7 +1536,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   status = infile->Close();
   if (!status.ok()) {
     NLogWarning("NUtils::CreateSparseFromParquetTaxi: Error closing input file %s: %s", filename.c_str(),
-              status.ToString().c_str());
+                status.ToString().c_str());
     // This is a warning, we still want to return the table.
   }
 
@@ -1616,7 +1618,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
             }
             else {
               NLogError("NUtils::CreateSparseFromParquetTaxi: Unsupported data type for column '%s' ...",
-                         batch->column_name(j).c_str());
+                        batch->column_name(j).c_str());
               isValid = false;
             }
           }
@@ -1631,7 +1633,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
         }
         else {
           NLogError("NUtils::CreateSparseFromParquetTaxi: Error getting scalar at (%d,%d): %s", i, j,
-                     scalar_result.status().ToString().c_str());
+                    scalar_result.status().ToString().c_str());
           isValid = false;
         }
         idx++;

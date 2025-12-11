@@ -65,7 +65,7 @@ void NStorageTree::Print(Option_t * option) const
   NLogInfo("TTree:");
   NLogInfo("  filename='%s'", fFileName.c_str());
   NLogInfo("  tree name='%s' entries=%lld address=%p", fTree ? fTree->GetName() : "n/a",
-                fTree ? fTree->GetEntries() : -1, fTree);
+           fTree ? fTree->GetEntries() : -1, fTree);
   NLogInfo("  tree entries=%lld", fTree ? fTree->GetEntries() : -1);
   NLogInfo("  prefix='%s'", fPrefix.c_str());
   NLogInfo("  postfix='%s'", fPostfix.c_str());
@@ -129,8 +129,12 @@ bool NStorageTree::SetFileTree(TFile * file, TTree * tree, bool force)
   }
   fFile = file;
   if (fFile) {
-    if (fPrefix.empty() || force) fPrefix = gSystem->GetDirName(fFile->GetName());
-    if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFile->GetName());
+    NLogTrace("NStorageTree::SetFileTree: Setting file tree from file '%s' ...", fFile->GetName());
+    // if (fPrefix.empty() || force) fPrefix = gSystem->GetDirName(fFile->GetName());
+    // if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFile->GetName());
+    fPrefix   = gSystem->GetDirName(fFile->GetName());
+    fPostfix  = gSystem->BaseName(fFile->GetName());
+    fFileName = fFile->GetName();
   }
   fTree = tree;
   // print prefix and postfix
@@ -148,7 +152,7 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool chec
   // Print warning if entry is out of bounds and return 0
   if (entry < 0 || entry >= fTree->GetEntries()) {
     NLogWarning("Entry %lld is out of bounds [0, %lld]. Reading 0 bytes and objects remain from last valid entry.",
-                     entry, fTree->GetEntries() - 1);
+                entry, fTree->GetEntries() - 1);
     fBinning->GetPoint()->Reset();
     return 0;
   }
@@ -181,7 +185,7 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool chec
 
   // Print byte sum
   NLogDebug("NStorageTree::GetEntry: [entry=%lld] Bytes read : %.3f MB file='%s'", entry,
-                 (double)bytessum / (1024 * 1024), fFileName.empty() ? "memory" : fFileName.c_str());
+            (double)bytessum / (1024 * 1024), fFileName.empty() ? "memory" : fFileName.c_str());
   return bytessum;
 }
 
@@ -246,8 +250,7 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
   point->SetEntryNumber(entry);
   NLogDebug("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f MB file='%s'", entry,
-                 (Double_t)nBytes / (1024 * 1024),
-                 fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
+            (Double_t)nBytes / (1024 * 1024), fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
 
   return nBytes;
 }
@@ -270,7 +273,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
     }
     else {
       NLogError("NStorageTree::Close: Binning is not present, cannot store binning in user info !!! "
-                     "Skipping to store tree content also ...");
+                "Skipping to store tree content also ...");
       if (fFile) fFile->Close();
       return false;
     }
@@ -286,7 +289,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
 
           kv.second->Write(kv.first.c_str(), TObject::kSingleKey);
           NLogDebug("NStorageTree::Close: Output list '%s' with %d objects was written", kv.first.c_str(),
-                         kv.second->GetEntries());
+                    kv.second->GetEntries());
         }
       }
       fFile->cd();
@@ -472,12 +475,12 @@ Long64_t NStorageTree::Merge(TCollection * list)
       if (found) break;
       if (obj == this || !obj) continue;
       NLogTrace("NHnSparseTree::Merge: Scanning object '%s' with %lld entries ...", obj->GetFileName().c_str(),
-                     obj->GetTree()->GetEntries());
+                obj->GetTree()->GetEntries());
       // continue;
       Long64_t binObj = fBinning->GetContent()->GetBin(cCoords, false);
       if (binObj < 0) {
-        NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' binObj=%lld, skipping ...", linBin,
-                       idx, binCoordsStr.c_str(), obj->GetFileName().c_str(), binObj);
+        NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' binObj=%lld, skipping ...", linBin, idx,
+                  binCoordsStr.c_str(), obj->GetFileName().c_str(), binObj);
         continue;
       }
       NLogTrace("NStorageTree::Merge: binObj=%lld", binObj);
@@ -487,15 +490,14 @@ Long64_t NStorageTree::Merge(TCollection * list)
       Long64_t bin = obj->GetBinning()->GetContent()->GetBin(cCoords, false);
 
       NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' is bin=%lld binGlobal=%lld", linBin, idx,
-                     binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
+                binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
       if (bin < 0) {
         NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' bin=%lld, skipping ...", linBin, idx,
-                       binCoordsStr.c_str(), obj->GetFileName().c_str(), bin);
+                  binCoordsStr.c_str(), obj->GetFileName().c_str(), bin);
         continue;
       }
 
-      NLogTrace("NStorageTree::Merge: bin=%lld obj->GetTree()->GetEntries()=%lld", bin,
-                     obj->GetTree()->GetEntries());
+      NLogTrace("NStorageTree::Merge: bin=%lld obj->GetTree()->GetEntries()=%lld", bin, obj->GetTree()->GetEntries());
       if (bin < obj->GetTree()->GetEntries()) {
         // obj->Print();
         obj->GetEntry(bin, point);
@@ -509,8 +511,8 @@ Long64_t NStorageTree::Merge(TCollection * list)
           auto binningDefIn = obj->GetBinning()->GetDefinition(name);
           if (binningDefIn) {
             NLogTrace("NHnSparseTree::Merge: Checking bin %lld to binning definition '%s' entry %lld  linBin=%d "
-                           "binGlobal=%lld ...",
-                           idx, name.c_str(), point->GetEntryNumber(), linBin, binGlobal);
+                      "binGlobal=%lld ...",
+                      idx, name.c_str(), point->GetEntryNumber(), linBin, binGlobal);
 
             // binningDefIn->Print();
             // check if binGlobal is already in the binningDefIn->GetIds()
@@ -518,12 +520,12 @@ Long64_t NStorageTree::Merge(TCollection * list)
                 binningDefIn->GetIds().end()) {
               // binningDefIn->GetIds().push_back(binGlobal);
               NLogTrace("***** NHnSparseTree::Merge: Found and added %lld to definition '%s' Skipping", binGlobal,
-                             name.c_str());
+                        name.c_str());
               continue;
             }
             else {
-              NLogTrace("***** NHnSparseTree::Merge: ID %lld already exists in definition '%s', Found ...",
-                             binGlobal, name.c_str());
+              NLogTrace("***** NHnSparseTree::Merge: ID %lld already exists in definition '%s', Found ...", binGlobal,
+                        name.c_str());
               found = true;
             }
 
@@ -548,8 +550,8 @@ Long64_t NStorageTree::Merge(TCollection * list)
         }
         if (found == false) {
           NLogWarning("NHnSparseTree::Merge: Bin %lld(idx=%lld): %s -> bin in obj='%s' is bin=%lld binGlobal=%lld "
-                           "but no definition found, skipping ...",
-                           linBin, idx, binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
+                      "but no definition found, skipping ...",
+                      linBin, idx, binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
           continue;
         }
         // Lopp over all branches in the object
@@ -577,8 +579,8 @@ Long64_t NStorageTree::Merge(TCollection * list)
         // SaveEntry();
         // fBinning->SetPoint(obj->GetBinning()->GetPoint());
         Fill(point, obj, true, {}, false);
-        NLogTrace("NHnSparseTree::Merge: Filling point %s linBin=%d idx=%d entry_number=%d...",
-                       binCoordsStr.c_str(), linBin, idx, point->GetEntryNumber());
+        NLogTrace("NHnSparseTree::Merge: Filling point %s linBin=%d idx=%d entry_number=%d...", binCoordsStr.c_str(),
+                  linBin, idx, point->GetEntryNumber());
       }
     }
     NLogTrace("NHnSparseTree::Merge: END linBin=%lld ===================================", linBin);
@@ -588,7 +590,7 @@ Long64_t NStorageTree::Merge(TCollection * list)
   // Print all definition ids after merging
   for (auto & kv : fBinning->GetDefinitions()) {
     NLogTrace("NHnSparseTree::Merge: IDs in definition '%s': %s", kv.first.c_str(),
-                   NUtils::GetCoordsString(kv.second->GetIds(), -1).c_str());
+              NUtils::GetCoordsString(kv.second->GetIds(), -1).c_str());
   }
 
   return nmerged;
