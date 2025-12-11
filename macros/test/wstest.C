@@ -54,7 +54,7 @@ bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::stri
   client.SetOnMessageCallback([&c, &lastEntries](const std::string & msg) {
     // NLogDebug("Interactive: [User Callback] Received message: %s", msg.c_str());
 
-    // std::cout << "Received message: " << msg << std::endl;
+    std::cout << "Received message: " << msg << std::endl;
     // return;
     if (!msg.empty()) {
       // Check if this is our echo

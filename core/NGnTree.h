@@ -9,6 +9,7 @@
 #include "NBinning.h"
 #include "NParameters.h"
 #include "NStorageTree.h"
+#include "NWsClient.h"
 // #include "NBinningPoint.h"
 
 namespace Ndmspc {
@@ -285,6 +286,7 @@ class NGnTree : public TObject {
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing
   NGnNavigator *                 fNavigator{nullptr};   ///<! Navigator object
   NParameters *                  fParameters{nullptr};  ///< Parameters object
+  NWsClient *                    fWsClient{nullptr};    ///< WebSocket client for communication
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);

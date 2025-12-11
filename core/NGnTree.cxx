@@ -213,6 +213,13 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   gROOT->SetBatch(kTRUE);
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
 
+  const char * wsUrl = gSystem->Getenv("NDMSPC_WS_URL");
+  if (!fWsClient && wsUrl) {
+    fWsClient = new NWsClient();
+    fWsClient->Connect(wsUrl);
+    NLogInfo("NGnTree::Process: Connected to WebSocket server at '%s'", wsUrl);
+  }
+
   // Disable TH1 add directory feature
   TH1::AddDirectory(kFALSE);
 
@@ -393,6 +400,10 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   }
   else {
 
+    if (fParameters) {
+      fBinning->GetPoint()->SetParameters(fParameters);
+      fTreeStorage->GetBranch("results")->SetAddress(fParameters); // Set the output list as branch address
+    }
     // int lastIdx = 0;
     for (auto & name : defNames) {
       // Get the binning definition
@@ -429,16 +440,33 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
 
       NResourceMonitor monitor;
       output->Add(monitor.Initialize(binningDef->GetContent())); // Add stat histogram to output list
-      if (fParameters) {
-        fBinning->GetPoint()->SetParameters(fParameters);
-        fTreeStorage->GetBranch("results")->SetAddress(fParameters); // Set the output list as branch address
+
+      json jobMon;
+      jobMon["jobName"] = name;
+      jobMon["user"]    = gSystem->Getenv("USER");
+      jobMon["host"]    = gSystem->HostName();
+      jobMon["pid"]     = gSystem->GetPid();
+      jobMon["ntasks"]  = maxs[0] + 1;
+      if (fWsClient) {
+        NLogInfo("NGnTree::Process: Sending job monitor info to WebSocket server ...");
+        fWsClient->Send(jobMon.dump());
       }
+      NLogInfo("NGnTree::Process: Starting processing for binning definition '%s' with %d tasks ...", name.c_str(),
+               maxs[0] + 1);
 
       auto start_par = std::chrono::high_resolution_clock::now();
       auto task      = [this, func, binningDef, start_par, &maxs, &refreshRate, binningIn,
                    &monitor](const std::vector<int> & coords) {
         NBinningPoint * point = fBinning->GetPoint();
         Long64_t        entry = binningIn->GetDefinition()->GetId(coords[0]);
+        json            progress;
+        progress["jobName"] = binningDef->GetName();
+        progress["status"]  = "R";
+        progress["task"]    = coords[0];
+        if (fWsClient) {
+          fWsClient->Send(progress.dump());
+          NLogDebug("NGnTree::Process: Sent progress for task %d", coords[0]);
+        }
 
         if (entry < fBinning->GetContent()->GetNbins()) {
           // entry = binningDef->GetContent()->GetBinContent(entry);
@@ -505,6 +533,11 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
 
         NLogTrace("NGnTree::Process: outputPoint contains %d objects", outputPoint->GetEntries());
 
+        progress["status"] = "D";
+        if (fWsClient) {
+          fWsClient->Send(progress.dump());
+          NLogDebug("NGnTree::Process: Sent done for task %d", coords[0]);
+        }
         // for (Int_t i = 0; i < outputPoint->GetEntries(); ++i) {
         //   TObject * obj = outputPoint->At(i);
         //   if (obj) {
@@ -624,6 +657,12 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   for (const auto & name : fBinning->GetDefinitionNames()) {
     fBinning->GetDefinition(name)->RefreshContentFromIds();
     fBinning->GetDefinition(name)->Print();
+  }
+
+  if (fWsClient) {
+    // gSystem->Sleep(1000); // wait for messages to be sent
+    fWsClient->Disconnect();
+    SafeDelete(fWsClient);
   }
 
   gROOT->SetBatch(batch); // Restore ROOT batch mode
@@ -775,7 +814,7 @@ Int_t NGnTree::GetEntry(Long64_t entry, bool checkBinningDef)
 
   int bytes =
       fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
-  fParameters = (NParameters *)fTreeStorage->GetBranch("results")->GetObject();
+  if (fTreeStorage->GetBranch("results")) fParameters = (NParameters *)fTreeStorage->GetBranch("results")->GetObject();
   return bytes;
 }
 

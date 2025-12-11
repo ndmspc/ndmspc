@@ -1,7 +1,6 @@
 #include <TString.h>
 #include <TSystem.h>
 #include <THttpCallArg.h>
-#include <cstring>
 #include <THttpServer.h>
 
 #include "NCloudEvent.h"
