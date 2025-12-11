@@ -1,9 +1,9 @@
-#include "NWsClient.h"
-#include "NLogger.h"
-
 #include <regex>
 #include <algorithm>
 #include <cstring>
+#include <TSystem.h>
+#include "NWsClient.h"
+#include "NLogger.h"
 
 // The global LWS callback function.
 static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in,
@@ -90,7 +90,7 @@ static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons 
 
       if (n < (int)message.size()) {
         NLogError("LWS Callback Error: lws_write failed to send the full message, sent %d bytes, expected %zu bytes.",
-                   n, message.size());
+                  n, message.size());
       }
       client->fOutgoingMessageQueue.pop();
 
@@ -238,7 +238,7 @@ bool NWsClient::Connect(const std::string & uriString)
     }
     if (!fConnected.load()) {
       NLogError("NWsClient: Connection to %s failed or shutdown requested (attempt %d).", uriString.c_str(),
-                 attempt + 1);
+                attempt + 1);
       Disconnect();
       attempt++;
       if (attempt < fMaxRetries) {
@@ -257,15 +257,27 @@ void NWsClient::Disconnect()
 {
   NLogTrace("NWsClient: Disconnect requested.");
   if (fLwsContext) {
+    // Wait until all outgoing messages are sent
+    while (true) {
+      {
+        std::lock_guard<std::mutex> lock(fOutgoingMutex);
+        if (fOutgoingMessageQueue.empty()) break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     fShutdownRequested         = true;
     fConnectionAttemptComplete = true;
     fConnectCv.notify_all();
+
+    NLogDebug("NWsClient: Cancelling LWS service.");
 
     lws_cancel_service(fLwsContext);
 
     if (fLwsServiceThread.joinable()) {
       fLwsServiceThread.join();
     }
+    NLogDebug("NWsClient: LWS service thread joined.");
 
     if (fWsi) {
       fWsi = nullptr;
@@ -281,6 +293,9 @@ void NWsClient::Disconnect()
 
     NLogTrace("NWsClient: LWS context destroyed.");
   }
+  fLwsContext = nullptr;
+  fWsi        = nullptr;
+  fConnected  = false;
 }
 bool NWsClient::Send(const std::string & message)
 {
@@ -299,14 +314,16 @@ bool NWsClient::Send(const std::string & message)
   lws_callback_on_writable(fWsi);
   NLogTrace("NWsClient: Called lws_callback_on_writable for message. Queue size: %zu", outgoingQueueSize);
 
-  // Wait until the message is sent (queue size decreases)
-  {
-    std::unique_lock<std::mutex> lock(fOutgoingMutex);
-    fSendCv.wait(lock, [this, outgoingQueueSize]() {
-      return fOutgoingMessageQueue.size() < outgoingQueueSize || !fConnected.load();
-    });
-  }
+  // // Wait until the message is sent (queue size decreases)
+  // {
+  //   std::unique_lock<std::mutex> lock(fOutgoingMutex);
+  //   fSendCv.wait(lock, [this, outgoingQueueSize]() {
+  //     NLogDebug("NWsClient: Waiting for message to be sent. Current queue size: %zu", fOutgoingMessageQueue.size());
+  //     return fOutgoingMessageQueue.size() < outgoingQueueSize || !fConnected.load();
+  //   });
+  // }
 
+  NLogTrace("NWsClient: Message sent successfully.");
   return fConnected.load();
 }
 
