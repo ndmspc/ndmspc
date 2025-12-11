@@ -11,6 +11,8 @@ variables:
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
   stage: build
+  tags:
+    - ndmspc-hosted
   script: scripts/make.sh release test
   except:
     - main
@@ -19,6 +21,8 @@ build-al9:
 build-al10:
   image: $CI_REGISTRY/ndmspc/user/al10:dep
   stage: build
+  tags:
+    - ndmspc-hosted
   script: scripts/make.sh release test
   allow_failure: true
   except:
@@ -27,6 +31,8 @@ build-al10:
 
 build-rpm-copr:
   stage: deploy
+  tags:
+    - ndmspc-hosted
   image:
     name: $CI_REGISTRY/ndmspc/user/al9:dep
   script:
@@ -42,6 +48,8 @@ build-rpm-copr:
 
 prod-image:
   stage: deploy
+  tags:
+    - images
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker pull $CI_REGISTRY_IMAGE:latest || true
@@ -59,6 +67,8 @@ prod-image:
 pages:
   image: registry.gitlab.com/ndmspc/user/fc43:dep
   stage: deploy
+  tags:
+    - ndmspc-hosted
   script:
     - scripts/make.sh doc install
     - mv share/doc/ndmspc/html public
