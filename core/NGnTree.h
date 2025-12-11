@@ -210,6 +210,8 @@ class NGnTree : public TObject {
   bool Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
                const json & cfg = json::object(), NBinning * binningIn = nullptr);
 
+  bool ProcessOld(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
+                  const json & cfg = json::object(), NBinning * binningIn = nullptr);
   /**
    * @brief Project tree data using configuration and binning name.
    * @param cfg JSON configuration object.
@@ -246,6 +248,18 @@ class NGnTree : public TObject {
    * @return Pointer to NParameters object containing the tree's parameters.
    */
   NParameters * GetParameters() const { return fParameters; }
+
+  /**
+   * @brief Returns the associated NWsClient instance.
+   * @return Pointer to the NWsClient object.
+   */
+  NWsClient * GetWsClient() const { return fWsClient; }
+
+  /**
+   * @brief Sets the NWsClient instance for this object.
+   * @param client Pointer to the NWsClient object to associate.
+   */
+  void SetWsClient(NWsClient * client) { fWsClient = client; }
 
   /**
    * @brief Initializes the parameters for the tree using the provided parameter names.
@@ -286,7 +300,7 @@ class NGnTree : public TObject {
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing
   NGnNavigator *                 fNavigator{nullptr};   ///<! Navigator object
   NParameters *                  fParameters{nullptr};  ///< Parameters object
-  NWsClient *                    fWsClient{nullptr};    ///< WebSocket client for communication
+  NWsClient *                    fWsClient{nullptr};    ///<! WebSocket client for communication
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);
