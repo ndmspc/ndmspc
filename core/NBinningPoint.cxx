@@ -175,6 +175,8 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
     fStorageCoords[i] = axisStorage->FindBin((fMins[i] + fMaxs[i]) / 2.0);
   }
 
+  if (fParameters) fParameters->GetHisto()->Reset();
+
   return true;
 }
 

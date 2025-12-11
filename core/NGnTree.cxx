@@ -15,6 +15,7 @@
 #include <TTree.h>
 #include <TBufferJSON.h>
 #include <sys/poll.h>
+#include "NParameters.h"
 #include "NResourceMonitor.h"
 #include "NStorageTree.h"
 #include "NBinning.h"
@@ -220,6 +221,11 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   NTreeBranch * b      = fTreeStorage->GetBranch("outputPoint");
   if (!b) fTreeStorage->AddBranch("outputPoint", nullptr, "TList");
 
+  if (fParameters) {
+    NTreeBranch * b = fTreeStorage->GetBranch("results");
+    if (!b) fTreeStorage->AddBranch("results", nullptr, "Ndmspc::NParameters");
+  }
+
   // Original binning
   NBinning * originalBinning = (NBinning *)binningIn->Clone();
 
@@ -271,7 +277,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       maxs.push_back(binningDef->GetIds().size() - 1);
 
       NLogDebug("NGnTree::Process: Processing with binning definition '%s' with %zu entries", name.c_str(),
-                     binningDef->GetIds().size());
+                binningDef->GetIds().size());
 
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
         threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
@@ -285,8 +291,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       sumIds += binningIn->GetDefinition(name)->GetIds().size();
       binningIn->GetDefinition(name)->GetIds().clear();
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
-        NLogTrace("NGnTree::Process: -> Thread %zu processed %lld entries", i,
-                       threadDataVector[i].GetNProcessed());
+        NLogTrace("NGnTree::Process: -> Thread %zu processed %lld entries", i, threadDataVector[i].GetNProcessed());
         // threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name)->Print();
         binningIn->GetDefinition(name)->GetIds().insert(
             binningIn->GetDefinition(name)->GetIds().end(),
@@ -310,7 +315,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
         // remove entries that has value less then sumIds
         for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
           NLogTrace("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
-                         other_name.c_str(), sumIds);
+                    other_name.c_str(), sumIds);
           if (*it < sumIds) {
             NLogTrace("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
             it = otherDef->GetIds().erase(it);
@@ -332,7 +337,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
 
     NLogInfo("NGnTree::Process: Parallel execution completed and it took %s .",
-                          NUtils::FormatTime(par_duration.count() / 1000).c_str());
+             NUtils::FormatTime(par_duration.count() / 1000).c_str());
 
     //
     // Print number of results
@@ -410,7 +415,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       int refreshRate = maxs[0] / 100;
 
       NLogTrace("NGnTree::Process Processing with binning definition '%s' with %zu entries", name.c_str(),
-                     binningDef->GetIds().size());
+                binningDef->GetIds().size());
 
       // binningDef->Print();
       binningDef->GetIds().clear();
@@ -423,8 +428,11 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       // Create stat histogram for processed entries
 
       NResourceMonitor monitor;
-
       output->Add(monitor.Initialize(binningDef->GetContent())); // Add stat histogram to output list
+      if (fParameters) {
+        fBinning->GetPoint()->SetParameters(fParameters);
+        fTreeStorage->GetBranch("results")->SetAddress(fParameters); // Set the output list as branch address
+      }
 
       auto start_par = std::chrono::high_resolution_clock::now();
       auto task      = [this, func, binningDef, start_par, &maxs, &refreshRate, binningIn,
@@ -479,14 +487,13 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
           if (bytes > 0) {
             if (point->GetEntryNumber() == 0 && fTreeStorage->GetEntries() > 1) {
               NLogError("NGnTree::Process: [!!!Should not happen!!!] entry number is zero: point=%lld "
-                                               "entries=%lld",
-                                          point->GetEntryNumber(), fTreeStorage->GetEntries());
+                                  "entries=%lld",
+                             point->GetEntryNumber(), fTreeStorage->GetEntries());
             }
             fBinning->GetDefinition()->GetIds().push_back(point->GetEntryNumber());
           }
           else {
-            NLogError(
-                "NGnTree::Process: [!!!Should not happen!!!] Failed to fill storage tree for entry %lld", entry);
+            NLogError("NGnTree::Process: [!!!Should not happen!!!] Failed to fill storage tree for entry %lld", entry);
           }
         }
         else {
@@ -566,8 +573,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     NLogTrace("NGnTree::Process: Updating entries to definition '%s' from previous definition", name.c_str());
     for (size_t j = i + 1; j < defNames.size(); ++j) {
       auto other_name = defNames[j];
-      NLogTrace("NGnTree::Process: Checking entries from definition '%s' -> '%s'", name.c_str(),
-                     other_name.c_str());
+      NLogTrace("NGnTree::Process: Checking entries from definition '%s' -> '%s'", name.c_str(), other_name.c_str());
       // fBinning->GetDefinition(name)->Print();
       // originalBinning->GetDefinition(other_name)->Print();
       // fBinning->GetDefinition(other_name)->Print();
@@ -646,7 +652,7 @@ NGnTree * NGnTree::Open(const std::string & filename, const std::string & branch
   ///
 
   NLogDebug("Opening '%s' with branches='%s' and treename='%s' ...", filename.c_str(), branches.c_str(),
-                 treename.c_str());
+            treename.c_str());
 
   TFile * file = TFile::Open(filename.c_str());
   if (!file) {
@@ -691,8 +697,8 @@ NGnTree * NGnTree::Open(TTree * tree, const std::string & branches, TFile * file
       TList * l = dynamic_cast<TList *>(obj);
       if (!l) continue;
       outputs[l->GetName()] = l;
-      NLogDebug("Imported output list for binning '%s' with %d object(s) from file '%s'", l->GetName(),
-                     l->GetEntries(), file->GetName());
+      NLogDebug("Imported output list for binning '%s' with %d object(s) from file '%s'", l->GetName(), l->GetEntries(),
+                file->GetName());
     }
   }
   // TDirectory * dir = (TDirectory *)tree->GetUserInfo()->FindObject("outputs");
@@ -767,7 +773,10 @@ Int_t NGnTree::GetEntry(Long64_t entry, bool checkBinningDef)
     return -1;
   }
 
-  return fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
+  int bytes =
+      fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
+  fParameters = (NParameters *)fTreeStorage->GetBranch("results")->GetObject();
+  return bytes;
 }
 
 void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPointIds,
@@ -1164,6 +1173,22 @@ NGnNavigator * NGnTree::GetResourceStatisticsNavigator(std::string binningName, 
   // nav->Draw();
 
   return nav;
+}
+
+bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
+{
+  ///
+  /// Initialize parameters
+  ///
+
+  if (fParameters) {
+    NLogWarning("NGnTree::InitParameters: Replacing existing parameters ...");
+    delete fParameters;
+  }
+
+  fParameters = new NParameters("results", "Results", paramNames);
+
+  return true;
 }
 
 } // namespace Ndmspc

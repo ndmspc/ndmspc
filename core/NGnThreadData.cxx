@@ -76,6 +76,11 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
     fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
   }
 
+  if (ngnt->GetParameters()) {
+    fHnSparseBase->GetBinning()->GetPoint()->SetParameters(ngnt->GetParameters());
+    fHnSparseBase->GetStorageTree()->GetBranch("results")->SetAddress(ngnt->GetParameters());
+  }
+
   // Recreate the point and set the storage tree
   fHnSparseBase->GetBinning()->GetPoint()->SetTreeStorage(fHnSparseBase->GetStorageTree());
 
@@ -147,7 +152,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     // entry = binningDef->GetContent()->GetBinContent(entry);
     // point->SetEntryNumber(entry);
     NLogDebug("NGnThreadData::Process: [%zu] Skipping entry=%lld, because it was already process !!!",
-                   GetAssignedIndex(), entry);
+              GetAssignedIndex(), entry);
     return;
   }
 
@@ -206,7 +211,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     }
     else {
       NLogTrace("NGnThreadData::Process: [%zu] Entry '%lld' Fill was done with 0 bytes. Skipping ...",
-                             GetAssignedIndex(), entry);
+                GetAssignedIndex(), entry);
       // NLogError("NGnThreadData::Process: Thread %zu: zero bytes were writtent for coordinates %s
       // entry=%lld",
       //                GetAssignedIndex(), NUtils::GetCoordsString(coords).c_str(), entry);
@@ -263,7 +268,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
     if (obj->IsA() == NGnThreadData::Class()) {
       NGnThreadData * hnsttd = (NGnThreadData *)obj;
       NLogDebug("NGnThreadData::Merge: Merging thread %zu processed %lld ...", hnsttd->GetAssignedIndex(),
-                     hnsttd->GetNProcessed());
+                hnsttd->GetNProcessed());
       ts = hnsttd->GetHnSparseBase()->GetStorageTree();
       if (!ts) {
         NLogError("NGnThreadData::Merge: Storage tree is not set in NGnTree !!!");
@@ -273,10 +278,10 @@ Long64_t NGnThreadData::Merge(TCollection * list)
 
       for (auto & kv : hnsttd->GetHnSparseBase()->GetOutputs()) {
         NLogTrace("NGnThreadData::Merge: Found output list '%s' with %d objects", kv.first.c_str(),
-                       kv.second ? kv.second->GetEntries() : 0);
+                  kv.second ? kv.second->GetEntries() : 0);
         if (kv.second && !kv.second->IsEmpty()) {
           NLogTrace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
-                         kv.second->GetEntries());
+                    kv.second->GetEntries());
           if (listOutputs.find(kv.first) == listOutputs.end()) {
             if (fHnSparseBase->GetOutput(kv.first)->IsEmpty()) {
               listOutputs[kv.first] = new TList();
@@ -341,7 +346,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
     // binningDef->GetIds().insert(binningDef->GetIds().end(), fBiningSource->GetDefinition(name)->GetIds().begin(),
     //                             fBiningSource->GetDefinition(name)->GetIds().end());
     NLogTrace("NGnThreadData::Merge: Final IDs in definition '%s': %s", name.c_str(),
-                   NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
+              NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
   }
 
   // fHnSparseBase->GetBinning()->GetContent()->Projection(5)->Print("all");
@@ -361,7 +366,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   for (auto & kv : listOutputs) {
     if (kv.second && !kv.second->IsEmpty()) {
       NLogTrace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
-                     kv.second->GetEntries() + 1);
+                kv.second->GetEntries() + 1);
       fHnSparseBase->GetOutput(kv.first)->Merge(kv.second);
       // fHnSparseBase->GetOutput(kv.first)->Print();
     }
