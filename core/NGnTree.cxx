@@ -1278,7 +1278,7 @@ Int_t NGnTree::GetEntry(Long64_t entry, bool checkBinningDef)
 
   int bytes =
       fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
-  if (fTreeStorage->GetBranch("results")) fParameters = (NParameters *)fTreeStorage->GetBranch("results")->GetObject();
+  if (fTreeStorage->GetBranch("_params")) fParameters = (NParameters *)fTreeStorage->GetBranch("_params")->GetObject();
   return bytes;
 }
 
@@ -1616,15 +1616,15 @@ NGnTree * NGnTree::Import(THnSparse * hns, std::string parameterAxis, const std:
 
       std::vector<std::string> labels = cfg["labels"].get<std::vector<std::string>>();
 
-      TH1D * results = new TH1D("results", "Results", labels.size(), 0, labels.size());
+      TH1D * hParams = new TH1D("_params", "Parameters", labels.size(), 0, labels.size());
       for (size_t i = 0; i < labels.size(); i++) {
         // NLogInfo("Setting results bin %zu label to '%s'", i + 1, labels[i].c_str());
-        results->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
+        hParams->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
       }
       for (int bin = 0; bin <= h->GetNbinsX(); bin++) {
-        results->SetBinContent(bin, h->GetBinContent(bin));
+        hParams->SetBinContent(bin, h->GetBinContent(bin));
       }
-      outputPoint->Add(results);
+      outputPoint->Add(hParams);
       outputPoint->Add(h);
     }
   };
