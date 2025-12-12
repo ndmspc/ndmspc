@@ -26,7 +26,7 @@ ClassImp(Ndmspc::NUtils);
 
 namespace Ndmspc {
 
-bool NUtils::EnableMT(UInt_t numthreads)
+bool NUtils::EnableMT(Int_t numthreads)
 {
   ///
   /// Enable multithreading
