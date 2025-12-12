@@ -79,8 +79,11 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   if (!b) fHnSparseBase->GetStorageTree()->AddBranch("outputPoint", nullptr, "TList");
 
   if (ngnt->GetParameters()) {
+    NLogDebug("NGnThreadData::Init: Setting parameters branch for thread %zu", id);
+    NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch("_params");
+    if (!b) fHnSparseBase->GetStorageTree()->AddBranch("_params", nullptr, "Ndmspc::NParameters");
+    fHnSparseBase->GetStorageTree()->GetBranch("_params")->SetAddress(ngnt->GetParameters());
     fHnSparseBase->GetBinning()->GetPoint()->SetParameters(ngnt->GetParameters());
-    fHnSparseBase->GetStorageTree()->GetBranch("results")->SetAddress(ngnt->GetParameters());
   }
 
   // Recreate the point and set the storage tree

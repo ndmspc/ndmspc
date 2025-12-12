@@ -65,7 +65,7 @@ class NGnNavigator : public TNamed {
    * @param timeoutMs Timeout in milliseconds (default: 5000).
    */
   void Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl = "",
-              int timeoutMs = 0);
+              int timeoutMs = 1000);
 
   /**
    * @brief Export navigator data to JSON.

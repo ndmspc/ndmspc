@@ -15,7 +15,7 @@ namespace Ndmspc {
 class NParameters : public TNamed {
   public:
   NParameters(const char * name = "parameters", const char * title = "Parameters",
-              std::vector<std::string> paramNames = {"par1"});
+              std::vector<std::string> paramNames = {});
   virtual ~NParameters();
 
   virtual void Print(Option_t * option = "") const override;

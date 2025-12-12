@@ -18,8 +18,10 @@
 #include "NDimensionalExecutor.h"
 #include "NGnTree.h"
 #include "NLogger.h"
+#include "NParameters.h"
 #include "NUtils.h"
 #include "NWsClient.h"
+#include "RtypesCore.h"
 
 #include "NGnNavigator.h"
 
@@ -59,7 +61,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
       return nullptr;
     }
 
-    NLogInfo("========== NGnNavigator::Reshape: Levels are empty, using all variable axes...");
+    NLogTrace("========== NGnNavigator::Reshape: Levels are empty, using all variable axes...");
     levels.resize(1);
     for (size_t i = 0; i < nVarAxes; i++) {
       levels[0].push_back(i);
@@ -78,15 +80,15 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
       }
     }
   }
-  NLogDebug("============= NGnNavigator::Reshape: Number of axes in levels = %s",
-                 NUtils::GetCoordsString(axes, -1).c_str());
+  NLogTrace("============= NGnNavigator::Reshape: Number of axes in levels = %s",
+            NUtils::GetCoordsString(axes, -1).c_str());
   std::vector<int> axesSorted = axes;
   std::sort(axesSorted.begin(), axesSorted.end());
   std::vector<int> axesVariavble = binningDef->GetVariableAxes();
   std::sort(axesVariavble.begin(), axesVariavble.end());
 
   NLogTrace("NGnNavigator::Reshape: Axes in levels before removing duplicates: %s",
-                 NUtils::GetCoordsString(axesSorted, -1).c_str());
+            NUtils::GetCoordsString(axesSorted, -1).c_str());
 
   // remove all duplicates from axesSorted
   for (size_t i = 1; i < axesSorted.size(); i++) {
@@ -97,9 +99,8 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
   }
 
   if (axesSorted != axesVariavble) {
-    NLogError(
-        "NGnNavigator::Reshape: Axes in levels '%s' do not match variable axes in binning definition '%s' !!!",
-        NUtils::GetCoordsString(axesSorted, -1).c_str(), NUtils::GetCoordsString(axesVariavble, -1).c_str());
+    NLogError("NGnNavigator::Reshape: Axes in levels '%s' do not match variable axes in binning definition '%s' !!!",
+              NUtils::GetCoordsString(axesSorted, -1).c_str(), NUtils::GetCoordsString(axesVariavble, -1).c_str());
     return nullptr;
   }
 
@@ -109,15 +110,15 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
 
   if (nAxes != binningDef->GetVariableAxes().size()) {
     NLogError("NGnNavigator::Reshape: Number of axes in levels (%d) does not match number of axes in binning "
-                   "definition (%d) !!! Available axes indices: %s",
-                   nAxes, binningDef->GetVariableAxes().size(),
-                   NUtils::GetCoordsString(binningDef->GetVariableAxes(), -1).c_str());
+              "definition (%d) !!! Available axes indices: %s",
+              nAxes, binningDef->GetVariableAxes().size(),
+              NUtils::GetCoordsString(binningDef->GetVariableAxes(), -1).c_str());
 
     return nullptr;
   }
 
-  NLogInfo("NGnNavigator::Reshape: Reshaping navigator for level %d/%zu with binning '%s' ...", level,
-                levels.size(), binningName.c_str());
+  NLogInfo("NGnNavigator::Reshape: Reshaping navigator for level %d/%zu with binning '%s' ...", level, levels.size(),
+           binningName.c_str());
   return Reshape(binningDef, levels, level, ranges, rangesBase);
 }
 NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, int level,
@@ -159,24 +160,23 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
     std::vector<int> maxsBin;
     for (auto & idx : levels[level]) {
       NLogTrace("NGnNavigator::Reshape: [B%d] Axis %d: %s", level, idx,
-                     binningDef->GetContent()->GetAxis(idx)->GetName());
+                binningDef->GetContent()->GetAxis(idx)->GetName());
       // int minBase = 0, maxBase = 0;
       // NUtils::GetAxisRangeInBase(GetAxis(idx), 1, GetAxis(idx)->GetNbins(), fBinning->GetAxes()[idx], minBase,
       // maxBase); ranges[idx] = {minBase, maxBase};            // Set the ranges for the axis
       minsBin.push_back(1);                                                  // Get the minimum bin edge);
       maxsBin.push_back(binningDef->GetContent()->GetAxis(idx)->GetNbins()); // Get the maximum bin edge);
       NLogTrace("NGnNavigator::Reshape: [B%d] Axis %d: %s bins=[%d,%d]", level, idx,
-                     binningDef->GetContent()->GetAxis(idx)->GetName(), minsBin.back(), maxsBin.back());
+                binningDef->GetContent()->GetAxis(idx)->GetName(), minsBin.back(), maxsBin.back());
     }
 
     NDimensionalExecutor executorBin(minsBin, maxsBin);
     auto                 loop_task_bin = [this, current, binningDef, levels, level, ranges,
                           rangesBase](const std::vector<int> & coords) {
       NLogTrace("NGnNavigator::Reshape: [B%d] Processing coordinates: coords=%s levels=%s", level,
-                                     NUtils::GetCoordsString(coords, -1).c_str(), NUtils::GetCoordsString(levels[level]).c_str());
+                                NUtils::GetCoordsString(coords, -1).c_str(), NUtils::GetCoordsString(levels[level]).c_str());
       NLogTrace("NGnNavigator::Reshape: [L%d] Generating %zuD histogram %s with ranges: %s", level,
-                                     levels[level].size(), NUtils::GetCoordsString(levels[level]).c_str(),
-                     ranges.size() == 0 ? "[]" : "");
+                                levels[level].size(), NUtils::GetCoordsString(levels[level]).c_str(), ranges.size() == 0 ? "[]" : "");
 
       std::vector<int> axesIds = levels[level];
       ///////// Make projection histogram /////////
@@ -229,46 +229,74 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       if (nDims == 1) {
         hProj = hnsIn->Projection(axesIds[0]);
         // set name from hnsIn
-        hProj->GetXaxis()->SetName(hnsIn->GetAxis(axesIds[0])->GetName());
+        TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
+        TAxis * axisProjX = hProj->GetXaxis();
+        axisProjX->SetName(axisIn0->GetName());
         // apply lables from hnsIn to hProj
-        for (int b = 1; b <= hProj->GetNbinsX(); b++) {
-          hProj->GetXaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[0])->GetBinLabel(b));
+        if (axisIn0->IsAlphanumeric()) {
+          for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+            axisProjX->SetBinLabel(b, axisIn0->GetBinLabel(b));
+          }
         }
-        indexInProj = hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]));
+        indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]));
       }
       else if (nDims == 2) {
-        hProj = hnsIn->Projection(axesIds[1], axesIds[0]);
-        hProj->GetXaxis()->SetName(hnsIn->GetAxis(axesIds[0])->GetName());
-        hProj->GetYaxis()->SetName(hnsIn->GetAxis(axesIds[1])->GetName());
+        // TODO: Check the order of axes is really correct
+        hProj             = hnsIn->Projection(axesIds[1], axesIds[0]);
+        TAxis * axisIn1   = hnsIn->GetAxis(axesIds[0]);
+        TAxis * axisIn0   = hnsIn->GetAxis(axesIds[1]);
+        TAxis * axisProjX = hProj->GetXaxis();
+        TAxis * axisProjY = hProj->GetYaxis();
+        axisProjX->SetName(axisIn1->GetName());
+        axisProjY->SetName(axisIn0->GetName());
         // apply lables from hnsIn to hProj
-        for (int b = 1; b <= hProj->GetNbinsX(); b++) {
-          hProj->GetXaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[0])->GetBinLabel(b));
+        if (axisIn1->IsAlphanumeric()) {
+          for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+            axisProjX->SetBinLabel(b, axisIn1->GetBinLabel(b));
+          }
         }
 
-        for (int b = 1; b <= hProj->GetNbinsY(); b++) {
-          hProj->GetYaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[1])->GetBinLabel(b));
+        if (axisIn0->IsAlphanumeric()) {
+          for (int b = 1; b <= hProj->GetNbinsY(); b++) {
+            axisProjY->SetBinLabel(b, axisIn0->GetBinLabel(b));
+          }
         }
-        indexInProj =
-            hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]), hProj->GetYaxis()->GetBinCenter(coords[1]));
+        indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]), axisProjY->GetBinCenter(coords[1]));
       }
       else if (nDims == 3) {
-        hProj = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
-        hProj->GetXaxis()->SetName(hnsIn->GetAxis(axesIds[0])->GetName());
-        hProj->GetYaxis()->SetName(hnsIn->GetAxis(axesIds[1])->GetName());
-        hProj->GetZaxis()->SetName(hnsIn->GetAxis(axesIds[2])->GetName());
-        for (int b = 1; b <= hProj->GetNbinsX(); b++) {
-          hProj->GetXaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[0])->GetBinLabel(b));
+        hProj             = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
+        TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
+        TAxis * axisIn1   = hnsIn->GetAxis(axesIds[1]);
+        TAxis * axisIn2   = hnsIn->GetAxis(axesIds[2]);
+        TAxis * axisProjX = hProj->GetXaxis();
+        TAxis * axisProjY = hProj->GetYaxis();
+        TAxis * axisProjZ = hProj->GetZaxis();
+        axisProjX->SetName(axisIn0->GetName());
+        axisProjY->SetName(axisIn1->GetName());
+        axisProjZ->SetName(axisIn2->GetName());
+        // apply lables from hnsIn to hProj
+        if (axisIn0->IsAlphanumeric()) {
+          for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+            axisProjX->SetBinLabel(b, axisIn0->GetBinLabel(b));
+          }
         }
 
-        for (int b = 1; b <= hProj->GetNbinsY(); b++) {
-          hProj->GetYaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[1])->GetBinLabel(b));
+        if (axisIn1->IsAlphanumeric()) {
+          for (int b = 1; b <= hProj->GetNbinsY(); b++) {
+            axisProjY->SetBinLabel(b, axisIn1->GetBinLabel(b));
+          }
         }
-        for (int b = 1; b <= hProj->GetNbinsZ(); b++) {
-          hProj->GetZaxis()->SetBinLabel(b, hnsIn->GetAxis(axesIds[2])->GetBinLabel(b));
+        if (axisIn2->IsAlphanumeric()) {
+          for (int b = 1; b <= hProj->GetNbinsZ(); b++) {
+            axisProjZ->SetBinLabel(b, axisIn2->GetBinLabel(b));
+          }
         }
-        indexInProj =
-            hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]), hProj->GetYaxis()->GetBinCenter(coords[1]),
-                                              hProj->GetZaxis()->GetBinCenter(coords[2]));
+        indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]), axisProjY->GetBinCenter(coords[1]),
+                                                        axisProjZ->GetBinCenter(coords[2]));
+      }
+      else {
+        NLogError("NGnNavigator::Reshape: Cannot project THnSparse with %d dimensions", nDims);
+        return;
       }
       if (!hProj) {
         NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
@@ -278,7 +306,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       hProj->SetName(name.c_str());
       hProj->SetTitle(title.c_str());
       NLogTrace("NGnNavigator::Reshape: [L%d] Projection histogram '%s' for coords=%s index=%d", level,
-                                     hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
+                                hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
       //
       // hProj->SetMinimum(0);
       // hProj->SetStats(kFALSE);
@@ -287,7 +315,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       // gSystem->Sleep(1000);
       // }
       // hProj->Print();
-      // hProj->Draw();
+      // hProj->Draw("colz text");
       current->SetProjection(hProj);
       //////// End of projection histogram ////////
 
@@ -296,8 +324,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       for (auto & kv : rangesBaseTmp) {
         std::vector<int> range = rangesTmp[kv.first];
         NLogTrace("NGnNavigator::Reshape: [L%d]   Axis %d[%s]: rangeBase=%s range=%s", level, kv.first,
-                                       hnsIn->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
-                                       NUtils::GetCoordsString(range).c_str());
+                                  hnsIn->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
+                                  NUtils::GetCoordsString(range).c_str());
       }
       int minBase = 0, maxBase = 0;
       int i = 0;
@@ -322,7 +350,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       NGnNavigator * currentChild = current->GetChild(indexInProj);
       if (currentChild == nullptr) {
         NLogTrace("NGnNavigator::Reshape: [L%d] Creating new child for index %d nCells=%d ...", level, indexInProj,
-                                       nCells);
+                                  nCells);
         std::string childName = TString::Format("%s_L%d_C%d", GetName(), level + 1, indexInProj).Data();
         currentChild          = new NGnNavigator(childName.c_str(), childName.c_str());
         currentChild->SetLevel(level + 1);
@@ -339,8 +367,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         // currentChild->Print();
       }
       else {
-        NLogError("NGnNavigator::Reshape: [L%d] Using existing child for index %d [NOT OK] ...", level,
-                                       indexInProj);
+        NLogError("NGnNavigator::Reshape: [L%d] Using existing child for index %d [NOT OK] ...", level, indexInProj);
       }
 
       // currentChild->Print();
@@ -348,12 +375,12 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
       if (level == levels.size() - 1) {
         NLogTrace("NGnNavigator::Reshape: [L%d] Filling projections from all branches %s for ranges:", level,
-                                       NUtils::GetCoordsString(levels[level]).c_str());
+                                  NUtils::GetCoordsString(levels[level]).c_str());
         for (auto & kv : rangesBaseTmp) {
           std::vector<int> range = rangesTmp[kv.first];
           NLogTrace("NGnNavigator::Reshape: [L%d]   Axis %d ['%s']: rangeBase=%s range=%s", level, kv.first,
-                                         binningDef->GetContent()->GetAxis(kv.first)->GetName(),
-                                         NUtils::GetCoordsString(kv.second).c_str(), NUtils::GetCoordsString(range).c_str());
+                                    binningDef->GetContent()->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
+                                    NUtils::GetCoordsString(range).c_str());
           // rangesTmp[kv.first] = range;
         }
         // Get projectiosn histograms from all branches
@@ -379,164 +406,176 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         }
         //     // bool skipBin = false; // Skip bin if no bins are found
         NLogTrace("NGnNavigator::Reshape: Branch object Point coordinates: %s",
-                                       NUtils::GetCoordsString(linBins, -1).c_str());
-        for (auto & [key, val] : fGnTree->GetStorageTree()->GetBranchesMap()) {
-          if (val.GetBranchStatus() == 0) {
-            NLogTrace("NGnNavigator::Reshape: [L%d] Branch '%s' is disabled, skipping ...", level, key.c_str());
-            continue; // Skip disabled branches
-          }
-          NLogTrace("NGnNavigator::Reshape: [L%d] Processing branch '%s' with %zu objects to loop ...", level,
-                                         key.c_str(), linBins.size());
+                                  NUtils::GetCoordsString(linBins, -1).c_str());
+        current->SetNCells(nCells);
 
-          // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
-          //   obj->GetParent()->ResizeObjectContentMap(key, nCells);
-
-          //           if (skipBin) continue; // Skip processing if the previous bin was skipped
-
-          ///
-          /// Handle THnSparse branch object
-          ///
-          // obj->GetParent()->SetNCells(nCells);
-          // fParent->SetNCells(nCells);
-          current->SetNCells(nCells);
-
-          TString className = val.GetObjectClassName();
-          if (className.BeginsWith("THnSparse")) {
-            // // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
-            // //   obj->GetParent()->ResizeObjectContentMap(key, nCells);
-            // // TODO: Make it configurable
-            // int projectionAxis = 0;
-            //
-            // TH1 * hProjTmp = nullptr;
-            // // loop over all linBins
-            // for (int lb : linBins) {
-            //   fGnTree->GetEntry(lb);
-            //   if (hProjTmp == nullptr) {
-            //     hProjTmp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
-            //     // NLogDebug("AAAA %.0f", hProjTmp ? hProjTmp->GetEntries() : 0);
-            //   }
-            //   else {
-            //     TH1 * temp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
-            //     // NLogDebug("BBBB %.0f", temp ? temp->GetEntries() : 0);
-            //     if (temp) {
-            //       hProjTmp->Add(temp);
-            //       delete temp; // Delete the temporary histogram to avoid memory leaks
-            //     }
-            //   }
-            // }
-            // if (!hProjTmp) {
-            //   // skipBin = true; // Skip bin if no histogram is created
-            //   continue;
-            // }
-            // // generate histogram title from axis base ranges
-            // std::string title = "Projection of " + key + " ";
-            // for (const auto & [axis, range] : rangesBaseTmp) {
-            //   TAxis * a = fBinning->GetAxes()[axis];
-            //
-            //   title +=
-            //       TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]),
-            //       a->GetBinUpEdge(range[1]));
-            // }
-            // hProjTmp->SetTitle(title.c_str());
-            // NLogTrace("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d,
-            //                entries = % .0f ",
-            //                          level,
-            //                hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
-            // obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
-            // // hProjTmp->Draw();
-            // // gPad->Update();
-            // // gPad->Modified();
-            // // gSystem->ProcessEvents();
-            // // TODO: We may to set entries from projection histogram to the bin content of mapping file
-          }
-          else if (className.BeginsWith("TList")) {
-            NLogTrace("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
-                                           indexInProj);
-            for (int lb : linBins) {
-              fGnTree->GetEntry(lb);
+        for (int lb : linBins) {
+          fGnTree->GetEntry(lb);
+          for (auto & [key, val] : fGnTree->GetStorageTree()->GetBranchesMap()) {
+            if (val.GetBranchStatus() == 0) {
+              NLogTrace("NGnNavigator::Reshape: [L%d] Branch '%s' is disabled, skipping ...", level, key.c_str());
+              continue; // Skip disabled branches
             }
-            TList * list = dynamic_cast<TList *>(val.GetObject());
-            // list->Print();
-            // get list of object names
-            std::vector<std::string> objNames;
-            for (int i = 0; i < list->GetEntries(); i++) {
-              TObject * o = list->At(i);
-              objNames.push_back(o->GetName());
+            NLogTrace("NGnNavigator::Reshape: [L%d] Processing branch '%s' with %zu objects to loop ...", level,
+                                      key.c_str(), linBins.size());
+
+            // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
+            //   obj->GetParent()->ResizeObjectContentMap(key, nCells);
+
+            //           if (skipBin) continue; // Skip processing if the previous bin was skipped
+
+            ///
+            /// Handle THnSparse branch object
+            ///
+            // obj->GetParent()->SetNCells(nCells);
+            // fParent->SetNCells(nCells);
+            TString className = val.GetObjectClassName();
+            if (className.BeginsWith("THnSparse")) {
+              // // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
+              // //   obj->GetParent()->ResizeObjectContentMap(key, nCells);
+              // // TODO: Make it configurable
+              // int projectionAxis = 0;
+              //
+              // TH1 * hProjTmp = nullptr;
+              // // loop over all linBins
+              // for (int lb : linBins) {
+              //   fGnTree->GetEntry(lb);
+              //   if (hProjTmp == nullptr) {
+              //     hProjTmp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
+              //     // NLogDebug("AAAA %.0f", hProjTmp ? hProjTmp->GetEntries() : 0);
+              //   }
+              //   else {
+              //     TH1 * temp = ProjectionFromObject(key, projectionAxis, rangesBaseTmp);
+              //     // NLogDebug("BBBB %.0f", temp ? temp->GetEntries() : 0);
+              //     if (temp) {
+              //       hProjTmp->Add(temp);
+              //       delete temp; // Delete the temporary histogram to avoid memory leaks
+              //     }
+              //   }
+              // }
+              // if (!hProjTmp) {
+              //   // skipBin = true; // Skip bin if no histogram is created
+              //   continue;
+              // }
+              // // generate histogram title from axis base ranges
+              // std::string title = "Projection of " + key + " ";
+              // for (const auto & [axis, range] : rangesBaseTmp) {
+              //   TAxis * a = fBinning->GetAxes()[axis];
+              //
+              //   title +=
+              //       TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]),
+              //       a->GetBinUpEdge(range[1]));
+              // }
+              // hProjTmp->SetTitle(title.c_str());
+              // NLogTrace("[L%d] Projection histogram '%s' for branch '%s' storing with indexInProj=%d,
+              //                entries = % .0f ",
+              //                          level,
+              //                hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
+              // obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
+              // // hProjTmp->Draw();
+              // // gPad->Update();
+              // // gPad->Modified();
+              // // gSystem->ProcessEvents();
+              // // TODO: We may to set entries from projection histogram to the bin content of mapping file
             }
-            // remove "results" histogram
-            objNames.erase(std::remove(objNames.begin(), objNames.end(), "results"), objNames.end());
+            else if (className.BeginsWith("TList")) {
+              NLogTrace("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
+                                        indexInProj);
+              TList * list = dynamic_cast<TList *>(val.GetObject());
+              // list->Print();
+              // get list of object names
+              std::vector<std::string> objNames;
+              for (int i = 0; i < list->GetEntries(); i++) {
+                TObject * o = list->At(i);
+                objNames.push_back(o->GetName());
+              }
+              // remove "results" histogram
+              // objNames.erase(std::remove(objNames.begin(), objNames.end(), "_params"), objNames.end());
 
-            NLogTrace("[L%d] Branch '%s' TList contains %d objects: %s", level, key.c_str(), list->GetEntries(),
-                                           NUtils::GetCoordsString(objNames).c_str());
+              NLogTrace("[L%d] Branch '%s' TList contains %d objects: %s", level, key.c_str(), list->GetEntries(),
+                                        NUtils::GetCoordsString(objNames).c_str());
 
-            // std::vector<std::string> possibleNames = {"hPeak", "hBgNorm", "unlikepm_proj_0"};
+              // std::vector<std::string> possibleNames = {"hPeak", "hBgNorm", "unlikepm_proj_0"};
 
-            // current->SetObjectNames(objNames);
-            bool isValid = true;
-            for (auto & name : objNames) {
-              TH1 * hProjTmp = dynamic_cast<TH1 *>(list->FindObject(name.c_str()));
-              if (hProjTmp == nullptr) {
-                NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain '%s' !!!", key.c_str(),
-                                                 name.c_str());
-                isValid = false;
+              // current->SetObjectNames(objNames);
+              bool isValid = true;
+              for (auto & name : objNames) {
+                TH1 * hProjTmp = dynamic_cast<TH1 *>(list->FindObject(name.c_str()));
+                if (hProjTmp == nullptr) {
+                  NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain '%s' !!!", key.c_str(),
+                                              name.c_str());
+                  isValid = false;
 
+                  continue;
+                }
+                if (TMath::IsNaN(hProjTmp->GetEntries()) || TMath::IsNaN(hProjTmp->GetSumOfWeights())) {
+                  NLogWarning("NGnNavigator::Reshape: Branch '%s' '%s' histogram is nan !!!", key.c_str(),
+
+                                              name.c_str());
+                  isValid = false;
+                  continue;
+                }
+                NLogTrace(
+                    "[L%d] Histogram name='%s' title='%s' for branch '%s' storing with indexInProj=%d, entries=%.0f",
+                    level, name.c_str(), hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
+                // if (obj->GetParent()->GetObjectContentMap()[name].size() != nCells)
+                //   obj->GetParent()->ResizeObjectContentMap(name, nCells);
+                // // obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
+                // obj->GetParent()->SetObject(name, hProjTmp, indexInProj);
+                // if (fParent->GetObjectContentMap()[name].size() != nCells) fParent->ResizeObjectContentMap(name,
+                // nCells); fParent->SetObject(name, hProjTmp, indexInProj);
+                if (current->GetObjectContentMap()[name].size() != nCells)
+                  current->ResizeObjectContentMap(name, nCells);
+                current->SetObject(name, hProjTmp, indexInProj);
+              }
+              if (isValid == false) {
+                NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain any valid histograms !!!",
+                                            key.c_str());
                 continue;
               }
-              if (TMath::IsNaN(hProjTmp->GetEntries()) || TMath::IsNaN(hProjTmp->GetSumOfWeights())) {
-                NLogWarning("NGnNavigator::Reshape: Branch '%s' '%s' histogram is nan !!!", key.c_str(),
+            }
+            else if (className.BeginsWith("Ndmspc::NParameters")) {
 
-                                                 name.c_str());
-                isValid = false;
-                continue;
+              NParameters * parameters = dynamic_cast<NParameters *>(val.GetObject());
+              if (parameters) {
+                TH1 * hParams = parameters->GetHisto();
+                if (hParams) {
+                  // hParams->Print("all");
+                  NLogTrace("[L%d] Branch '%s' Point contains '_params' histogram with %.0f entries ...", level,
+                                            key.c_str(), hParams->GetEntries());
+                  // loop over bin labels
+                  for (int b = 1; b <= hParams->GetNbinsX(); b++) {
+
+                    std::string binLabel = hParams->GetXaxis()->GetBinLabel(b);
+                    double      binValue = hParams->GetBinContent(b);
+                    NLogTrace("[L%d]   Bin %d[%s] = %e indexInProj=%d", level, b, binLabel.c_str(), binValue,
+                                              indexInProj);
+                    // // check if binlabel is "mass"
+                    // if (binLabel.compare("mass") == 0) {
+                    //   NLogInfo("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
+                    //   if (binValue < 1.015 || binValue > 1.025) {
+                    //     NLogInfo("[L%d]   Skipping bin 'mass' with value %f ...", level, binValue);
+                    //     continue;
+                    //   }
+                    // }
+                    // obj->GetParent()->SetParameter(binLabel, binValue, indexInProj);
+                    // fParent->SetParameter(binLabel, binValue, indexInProj);
+                    current->SetParameter(binLabel, binValue, indexInProj);
+                  }
+                }
               }
-              NLogTrace(
-                  "[L%d] Histogram name='%s' title='%s' for branch '%s' storing with indexInProj=%d, entries=%.0f",
-                  level, name.c_str(), hProjTmp->GetTitle(), key.c_str(), indexInProj, hProjTmp->GetEntries());
-              // if (obj->GetParent()->GetObjectContentMap()[name].size() != nCells)
-              //   obj->GetParent()->ResizeObjectContentMap(name, nCells);
-              // // obj->GetParent()->SetObject(key, hProjTmp, indexInProj);
-              // obj->GetParent()->SetObject(name, hProjTmp, indexInProj);
-              // if (fParent->GetObjectContentMap()[name].size() != nCells) fParent->ResizeObjectContentMap(name,
-              // nCells); fParent->SetObject(name, hProjTmp, indexInProj);
-              if (current->GetObjectContentMap()[name].size() != nCells) current->ResizeObjectContentMap(name, nCells);
-              current->SetObject(name, hProjTmp, indexInProj);
-            }
-            if (isValid == false) {
-              NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain any valid histograms !!!",
-                                               key.c_str());
-              continue;
-            }
-            TH1 * hResults = dynamic_cast<TH1 *>(list->FindObject("results"));
-            if (hResults) {
-              NLogTrace("[L%d] Branch '%s' TList contains 'results' histogram with %.0f entries ...", level,
-                                             key.c_str(), hResults->GetEntries());
-              // loop over bin labels
-              for (int b = 1; b <= hResults->GetNbinsX(); b++) {
-
-                std::string binLabel = hResults->GetXaxis()->GetBinLabel(b);
-                double      binValue = hResults->GetBinContent(b);
-                NLogTrace("[L%d]   Bin %d: %s = %e", level, b, binLabel.c_str(), binValue);
-                // // check if binlabel is "mass"
-                // if (binLabel.compare("mass") == 0) {
-                //   NLogInfo("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
-                //   if (binValue < 1.015 || binValue > 1.025) {
-                //     NLogInfo("[L%d]   Skipping bin 'mass' with value %f ...", level, binValue);
-                //     continue;
-                //   }
-                // }
-                // obj->GetParent()->SetParameter(binLabel, binValue, indexInProj);
-                // fParent->SetParameter(binLabel, binValue, indexInProj);
-                current->SetParameter(binLabel, binValue, indexInProj);
+              else {
+                NLogWarning("NGnNavigator::Reshape: Branch '%s' Point parameters object is null !!!", key.c_str());
               }
             }
-          }
-          else {
-            NLogWarning("NGnNavigator::Reshape: Branch '%s' has unsupported class '%s' !!! Skipping ...",
-                                             key.c_str(), className.Data());
+            else {
+              NLogWarning("NGnNavigator::Reshape: Branch '%s' has unsupported class '%s' !!! Skipping ...", key.c_str(),
+                                          className.Data());
+            }
           }
         }
 
-        // Reshape(binningName, levels, level + 1, rangesTmp, rangesBaseTmp, currentChild);
+        // Reshape(binningDef, levels, level + 1, rangesTmp, rangesBaseTmp, currentChild);
         // return;
       }
       if (current->GetChildren().size() != nCells) current->SetChildrenSize(nCells);
@@ -750,8 +789,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     }
   }
   else {
-    NLogDebug("NGnNavigator::ExportJson: Exporting selected objects: %s",
-                   NUtils::GetCoordsString(objectNames).c_str());
+    NLogDebug("NGnNavigator::ExportJson: Exporting selected objects: %s", NUtils::GetCoordsString(objectNames).c_str());
   }
 
   // Print all included object names
@@ -876,8 +914,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         min     = 0;
         max     = TMath::Max(max, objMax);
         entries = childProjection->GetEntries();
-        NLogTrace("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
-                       objMax);
+        NLogTrace("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin, objMax);
       }
     }
     j["children"]["content"].push_back(childJson);
@@ -940,13 +977,13 @@ void NGnNavigator::Print(Option_t * option) const
 
   if (opt.Contains("A") && fGnTree) fGnTree->Print(option);
   if (fProjection) {
-    NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection='%s' title='%s'", GetName(),
-                  GetTitle(), fLevel, fNLevels, fProjection->GetName(), fProjection->GetTitle());
+    NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection='%s' title='%s'", GetName(), GetTitle(),
+             fLevel, fNLevels, fProjection->GetName(), fProjection->GetTitle());
     // fProjection->Print(option);
   }
   else {
-    NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection=nullptr", GetName(), GetTitle(),
-                  fLevel, fNLevels);
+    NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection=nullptr", GetName(), GetTitle(), fLevel,
+             fNLevels);
   }
   // for (int i = 0; i < fChildren.size(); i++) {
   //   NLogInfo("NGnNavigator: Child %d/%d: %s", i + 1, fChildren.size(),
@@ -963,7 +1000,7 @@ void NGnNavigator::Print(Option_t * option) const
     }
   }
   NLogInfo("NGnNavigator: %zu children with indices: %s", childIndices.size(),
-                NUtils::GetCoordsString(childIndices, -1).c_str());
+           NUtils::GetCoordsString(childIndices, -1).c_str());
   for (int i = 0; i < fChildren.size(); i++) {
     NGnNavigator * child = fChildren[i];
     if (child && child->GetChildren().empty() == false) {
@@ -1014,14 +1051,12 @@ void NGnNavigator::Draw(Option_t * option)
         for (int i = 0; i < obj->GetChildren().size(); i++) {
           NGnNavigator * child = obj->GetChild(i);
           if (child) {
-            NLogDebug("NGnNavigator::Draw: Found child at level %d: %s", level,
-                           child->GetProjection()->GetTitle());
+            NLogDebug("NGnNavigator::Draw: Found child at level %d: %s", level, child->GetProjection()->GetTitle());
             obj = child; // Get the child object at the current level
             break;
           }
         }
-        NLogDebug("NGnNavigator::Draw: Using child object at level %d: %s", level,
-                       obj ? obj->GetName() : "nullptr");
+        NLogDebug("NGnNavigator::Draw: Using child object at level %d: %s", level, obj ? obj->GetName() : "nullptr");
       }
       if (obj == nullptr) {
         NLogError("NGnNavigator::Draw: Child object at level %d is nullptr !!!", level);
@@ -1056,7 +1091,7 @@ void NGnNavigator::Paint(Option_t * option)
   NLogInfo("NGnNavigator::Paint: Painting object ...");
   if (fProjection) {
     NLogDebug("NGnNavigator::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
-                   fProjection->GetName(), fProjection->GetTitle());
+              fProjection->GetName(), fProjection->GetTitle());
     // fProjection->Paint(option);
     fProjection->Paint("colz text");
   }
@@ -1107,7 +1142,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
         Int_t binx, biny, binz;
         fProjection->GetBinXYZ(bin, binx, biny, binz);
         NLogDebug("[%s] Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
-                       x_user, y_user, fLevel, fNLevels);
+                  x_user, y_user, fLevel, fNLevels);
       }
       fLastHoverBin = bin;
       NLogDebug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
@@ -1121,8 +1156,8 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
     fProjection->GetBinXYZ(bin, binx, biny, binz);
     Double_t content = fProjection->GetBinContent(bin);
     NLogInfo("NGnNavigator::ExecuteEvent: [%s] Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  "
-                  "level=%d nLevels=%d",
-                  gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
+             "level=%d nLevels=%d",
+             gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
 
     int nDimensions = fGnTree->GetBinning()->GetDefinition()->GetContent()->GetNdimensions();
 
@@ -1137,7 +1172,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
     TCanvas *      cObject = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("cObject");
     if (child && child->GetProjection()) {
       NLogDebug("NGnNavigator::ExecuteEvent: [%s]Child object '%p' found at index %d", gPad->GetName(),
-                     child->GetProjection(), index);
+                child->GetProjection(), index);
       // originalPad->Clear();               // Clear the original pad
       gPad              = originalPad->GetMother(); // Get the mother pad to avoid clearing the current pad
       TVirtualPad * pad = gPad->cd(fLevel + 1 + 1); // Ensure we are in the correct pad
@@ -1285,7 +1320,7 @@ void NGnNavigator::SetObject(const std::string & name, TObject * obj, int index)
       ResizeObjectContentMap(name, fNCells);
     }
     NLogTrace("NGnNavigator::SetObject: name=%s, obj=%p, index=%d", name.c_str(), obj, index,
-                   fObjectContentMap[name].size());
+              fObjectContentMap[name].size());
 
     // Add object name if missing
     if (std::find(fObjectNames.begin(), fObjectNames.end(), name) == fObjectNames.end()) {
@@ -1331,12 +1366,11 @@ void NGnNavigator::SetParameter(const std::string & name, double value, int inde
   ///
   if (!std::isnan(value)) {
     if (fParameterContentMap.find(name) == fParameterContentMap.end() || fParameterContentMap[name].size() < fNCells) {
-      NLogTrace("NGnNavigator::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
-                     fNCells);
+      NLogTrace("NGnNavigator::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(), fNCells);
       ResizeParameterContentMap(name, fNCells);
     }
     NLogTrace("NGnNavigator::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
-                   fParameterContentMap[name].size());
+              fParameterContentMap[name].size());
 
     // Append parameter name if missing
     if (std::find(fParameterNames.begin(), fParameterNames.end(), name) == fParameterNames.end()) {
@@ -1369,7 +1403,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
   // check if parameterName exists in fParameterContentMap
   if (fParameterContentMap.find(parameterName) == fParameterContentMap.end()) {
     NLogError("NGnNavigator::DrawSpectra: Parameter name '%s' not found in fParameterContentMap",
-                           parameterName.c_str());
+              parameterName.c_str());
     return;
   }
   Int_t screenWidth  = gClient->GetDisplayWidth();
@@ -1402,21 +1436,23 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
     return;
   }
   if (projections[0].size() > 3) {
-    NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)",
-                           projections[0].size());
+    NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", projections[0].size());
     return;
   }
 
   for (const auto & proj : projections) {
 
-    // NLogDebug("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
+    NLogTrace("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
 
     // fProjection->Draw("colz");
     TH1 * hParameterProjection = (TH1 *)fProjection->Clone("hParameterProjection");
-    // hParameterProjection->Sumw2(); // Enable sum of squares of weights for error calculation
+    // hParameterProjection->Sumw2(kFALSE);
+
     // fill hParameterProjection from fParameterContentMap
     hParameterProjection->SetContent(GetParameters(parameterName).data());
     // hParameterProjection->SetError(GetParameters(parameterName).data());
+    // hParameterProjection->Draw("colz text");
+    // return;
 
     // Create parameter THnSparse
     THnSparse * hsParam = THnSparse::CreateSparse(parameterName.c_str(), parameterName.c_str(), hParameterProjection);
@@ -1431,12 +1467,21 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
       else if (i == 2)
         axis = hParameterProjection->GetZaxis();
 
+      ;
       hsParam->GetAxis(i)->SetName(axis->GetName());
       hsParam->GetAxis(i)->SetTitle(axis->GetTitle());
       // Apply all labels from fProjection to hs
       for (int j = 1; j <= axis->GetNbins(); j++) {
         std::string label = axis->GetBinLabel(j);
-        hsParam->GetAxis(i)->SetBinLabel(j, label.c_str());
+        // if (label.empty()) {
+        //   double binLowEdge = axis->GetBinLowEdge(j);
+        //   double binUpEdge  = axis->GetBinUpEdge(j);
+        //   label             = Form("%.3f-%.3f", binLowEdge, binUpEdge);
+        // }
+        if (!label.empty()) {
+          hsParam->GetAxis(i)->SetBinLabel(j, label.c_str());
+        }
+        hsParam->SetBinError(j, 1e-10);
       }
     }
 
@@ -1483,8 +1528,12 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
     // }
     int nPads = dims.size() > 2 ? dimsResults[2].size() : 1;
     NLogTrace("Number of pads: %d", nPads);
-    std::vector<std::string> projNames = {hsParam->GetAxis(dims[0])->GetName(), hsParam->GetAxis(dims[1])->GetName(),
-                                          hsParam->GetAxis(dims[2])->GetName()};
+    std::vector<std::string> projNames;
+    projNames.push_back(hsParam->GetAxis(dims[0])->GetName());
+    if (dims.size() > 1) projNames.push_back(hsParam->GetAxis(dims[1])->GetName());
+    if (dims.size() > 2) projNames.push_back(hsParam->GetAxis(dims[2])->GetName());
+
+    NLogDebug("Drawing %s ...", NUtils::GetCoordsString(projNames, -1).c_str());
 
     std::string posfix = NUtils::Join(projNames, '-');
 
@@ -1526,26 +1575,36 @@ void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std
         p[dims[0]] = 0;
         if (dims.size() > 1) p[dims[1]] = iStack + 1; // 1-based index for the second dimension
         // if (dims.size() > 2) p[dims[2]] = iPad + 1; // 1-based index for the third dimension
-        NUtils::SetAxisRanges(hsParam, {{dims[2], p[dims[2]], p[dims[2]]}, {dims[1], p[dims[1]], p[dims[1]]}}, true);
+        //
+        //
+        std::vector<std::vector<int>> ranges;
+        if (dims.size() > 2) ranges.push_back({dims[2], p[dims[2]], p[dims[2]]});
+        if (dims.size() > 1) ranges.push_back({dims[1], p[dims[1]], p[dims[1]]});
 
-        NLogTrace("Projecting for stack %d: Setting projection dims: %d %d %d", iStack, dims[0], dims[1], dims[2]);
+        NUtils::SetAxisRanges(hsParam, ranges, true);
+
+        // NLogTrace("Projecting for stack %d: Setting projection dims: %d %d %d", iStack, dims[0], dims[1], dims[2]);
 
         TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {dims[0]}, option);
         hProj->SetMinimum(0);
         TAxis * aStack = hsParam->GetAxis(dims[1]);
-        if (aStack->IsAlphanumeric()) {
-          std::string label = aStack->GetBinLabel(p[dims[1]]);
-          hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
-        }
-        else {
-          double binLowEdge = aStack->GetBinLowEdge(p[dims[1]]);
-          double binUpEdge  = aStack->GetBinUpEdge(p[dims[1]]);
-          hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
-        }
+        // if (aStack->IsAlphanumeric()) {
+        //   std::string label = aStack->GetBinLabel(p[dims[1]]);
+        //   hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
+        // }
+        // else {
+        double binLowEdge = aStack->GetBinLowEdge(p[dims[1]]);
+        double binUpEdge  = aStack->GetBinUpEdge(p[dims[1]]);
+        hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
+        // }
 
         // hProj->Print();
         hProj->SetMarkerStyle(20);
         hProj->SetMarkerColor(iStack + 1);
+        // set all errors to zero
+        for (int iBin = 1; iBin <= hProj->GetNbinsX(); iBin++) {
+          hProj->SetBinError(iBin, 1e-10);
+        }
         hStack->Add((TH1 *)hProj->Clone());
       }
 
