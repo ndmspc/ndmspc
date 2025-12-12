@@ -55,10 +55,11 @@ prod-image:
     - docker pull $CI_REGISTRY_IMAGE:latest || true
     - export MY_PROJECT_VER=${CI_COMMIT_REF_NAME/v/}
     - export MY_VER_RELEASE=$(echo $MY_PROJECT_VER | cut -sd '-' -f2)
-    - docker build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest .
+    - docker build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
     - if [ -z "$MY_VER_RELEASE" ];then docker push $CI_REGISTRY_IMAGE:latest; fi
+    - if [ -n "$MY_VER_RELEASE" ];then docker push $CI_REGISTRY_IMAGE:next; fi
   allow_failure: true
   # when: manual
   only:
