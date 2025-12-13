@@ -122,6 +122,144 @@ NGnTree::NGnTree(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTree
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
 }
+NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string & filename)
+{
+  ///
+  /// Import THnSparse as NGnTree and use given parameter axis as result parameter
+  ///
+
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  TObjArray *                                          axes             = new TObjArray();
+  int                                                  parameterAxisIdx = -1;
+  std::vector<std::string>                             labels;
+  for (int i = 0; i < hns->GetNdimensions(); i++) {
+    TAxis * axisIn = (TAxis *)hns->GetAxis(i);
+    TAxis * axis   = (TAxis *)axisIn->Clone();
+
+    // check if parameterAxis matches axis name
+    if (parameterAxis.compare(axis->GetName()) == 0) {
+      parameterAxisIdx = i;
+      TAxis * axis     = hns->GetAxis(parameterAxisIdx);
+      for (int bin = 1; bin <= axis->GetNbins(); bin++) {
+        // NLogInfo("Axis bin %d label: %s", bin, axis->GetBinLabel(bin));
+        labels.push_back(axis->GetBinLabel(bin));
+      }
+      continue;
+    }
+
+    // set label
+    if (axisIn->IsAlphanumeric()) {
+      NLogInfo("Setting axis '%s' labels from input THnSparse", axis->GetName());
+      for (int bin = 1; bin <= axisIn->GetNbins(); bin++) {
+        std::string label = axisIn->GetBinLabel(bin);
+        if (!labels.empty()) axis->SetBinLabel(bin, axisIn->GetBinLabel(bin));
+      }
+    }
+
+    axes->Add(axis);
+    b[axis->GetName()] = {{1}};
+  }
+
+  json cfg;
+  cfg["parameterAxis"] = parameterAxisIdx;
+  cfg["labels"]        = labels;
+  // return nullptr;
+  NLogDebug("Importing THnSparse as NGnTree with parameter axis '%s' (index %d) ...", parameterAxis.c_str(),
+            parameterAxisIdx);
+  NGnTree * ngnt = new NGnTree(axes, filename);
+  NLogDebug("Created NGnTree for THnSparse import ...");
+  if (ngnt->IsZombie()) {
+    NLogError("NGnTree::Import: Failed to create NGnTree !!!");
+    MakeZombie();
+    return;
+  }
+  // ngnt->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
+  NGnTree * ngntIn = new NGnTree(axes, "/tmp/hnst_imported_input.root");
+  if (ngntIn->IsZombie()) {
+    NLogError("NGnTree::Import: Failed to create NGnTree for input !!!");
+    SafeDelete(ngnt);
+    MakeZombie();
+    return;
+  }
+  // ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
+  ngntIn->GetOutput("default")->Add(hns->Clone("test"));
+  ngntIn->Close(true);
+
+  // return;
+  // delete ngntIn;
+
+  ngnt->SetInput(NGnTree::Open("/tmp/hnst_imported_input.root")); // Set input to self
+
+  ngnt->GetInput()->Print();
+
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
+
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
+                                                   int threadId) {
+    // NLogInfo("Thread ID: %d", threadId);
+    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
+    point->Print();
+    json cfg = point->GetCfg();
+
+    NGnTree * ngntIn = point->GetInput();
+    if (!ngntIn) {
+      NLogError("NGnTree::Import: Input NGnTree is nullptr !!!");
+      return;
+    }
+    // ngntIn->Print();
+
+    THnSparse * hns = (THnSparse *)ngntIn->GetOutput("default")->At(0);
+
+    // return;
+    // THnSparse * hns    = hnsIn;
+    // THnSparse * hns = (THnSparse *)ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->At(0);
+    if (hns == nullptr) {
+      NLogError("NGnTree::Import: THnSparse 'hns' not found in storage tree !!!");
+      return;
+    }
+
+    hns->Print("all");
+
+    int                           axisIdx = cfg["parameterAxis"].get<int>();
+    std::vector<std::vector<int>> ranges;
+    // set ranges from point storage coords
+    int iAxis = 0;
+    for (int i = 0; i < hns->GetNdimensions(); i++) {
+      if (i == axisIdx) continue; // skip parameter axis
+      int coord = point->GetStorageCoords()[iAxis++];
+      ranges.push_back({i, coord, coord});
+      // NLogInfo("Setting axis %d range to [%d, %d]", i, coord, coord);
+    }
+    NUtils::SetAxisRanges(hns, ranges);
+    TH1 * h = hns->Projection(axisIdx, "O");
+    if (h->GetEntries() > 0) {
+
+      std::vector<std::string> labels = cfg["labels"].get<std::vector<std::string>>();
+
+      TH1D * hParams = new TH1D("_params", "Parameters", labels.size(), 0, labels.size());
+      for (size_t i = 0; i < labels.size(); i++) {
+        // NLogInfo("Setting results bin %zu label to '%s'", i + 1, labels[i].c_str());
+        hParams->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
+      }
+      for (int bin = 0; bin <= h->GetNbinsX(); bin++) {
+        hParams->SetBinContent(bin, h->GetBinContent(bin));
+      }
+      outputPoint->Add(hParams);
+      outputPoint->Add(h);
+    }
+  };
+
+  // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
+  ngnt->Process(processFunc, cfg);
+  ngnt->Close(true);
+  // return ngnt;
+  // // TODO: Check if this is needed
+  // fTreeStorage->SetBinning(fBinning);
+  // fBinning->GetPoint()->SetTreeStorage(fTreeStorage);
+  // fNavigator = new NGnNavigator();
+  // fNavigator->SetGnTree(this);
+  // MakeZombie();
+}
 
 NGnTree::~NGnTree()
 {
@@ -1541,99 +1679,6 @@ TList * NGnTree::Projection(const json & cfg, std::string binningName)
   // Close(false);
 }
 
-NGnTree * NGnTree::Import(THnSparse * hns, std::string parameterAxis, const std::string & filename)
-{
-  ///
-  /// Import THnSparse as NGnTree and use given parameter axis as result parameter
-  ///
-
-  std::map<std::string, std::vector<std::vector<int>>> b;
-  TObjArray *                                          axes             = new TObjArray();
-  int                                                  parameterAxisIdx = -1;
-  std::vector<std::string>                             labels;
-  for (int i = 0; i < hns->GetNdimensions(); i++) {
-    TAxis * axisIn = (TAxis *)hns->GetAxis(i);
-    TAxis * axis   = (TAxis *)axisIn->Clone();
-
-    // check if parameterAxis matches axis name
-    if (parameterAxis.compare(axis->GetName()) == 0) {
-      parameterAxisIdx = i;
-      TAxis * axis     = hns->GetAxis(parameterAxisIdx);
-      for (int bin = 1; bin <= axis->GetNbins(); bin++) {
-        // NLogInfo("Axis bin %d label: %s", bin, axis->GetBinLabel(bin));
-        labels.push_back(axis->GetBinLabel(bin));
-      }
-      continue;
-    }
-
-    // set label
-    if (axisIn->IsAlphanumeric()) {
-      NLogInfo("Setting axis '%s' labels from input THnSparse", axis->GetName());
-      for (int bin = 1; bin <= axisIn->GetNbins(); bin++) {
-        std::string label = axisIn->GetBinLabel(bin);
-        if (!labels.empty()) axis->SetBinLabel(bin, axisIn->GetBinLabel(bin));
-      }
-    }
-
-    axes->Add(axis);
-    b[axis->GetName()] = {{1}};
-  }
-
-  json cfg;
-  cfg["parameterAxis"] = parameterAxisIdx;
-  cfg["labels"]        = labels;
-  // return nullptr;
-  NGnTree * ngnt = new NGnTree(axes, filename);
-
-  NGnTree * ngntIn = new NGnTree(axes);
-  ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
-  ngnt->SetInput(ngntIn); // Set input to self
-
-  ngnt->GetBinning()->AddBinningDefinition("default", b);
-
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
-                                                   int threadId) {
-    // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
-    point->Print();
-    json        cfg    = point->GetCfg();
-    NGnTree *   ngntIn = point->GetInput();
-    THnSparse * hns    = (THnSparse *)ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->At(0);
-
-    int                           axisIdx = cfg["parameterAxis"].get<int>();
-    std::vector<std::vector<int>> ranges;
-    // set ranges from point storage coords
-    int iAxis = 0;
-    for (int i = 0; i < hns->GetNdimensions(); i++) {
-      if (i == axisIdx) continue; // skip parameter axis
-      int coord = point->GetStorageCoords()[iAxis++];
-      ranges.push_back({i, coord, coord});
-      // NLogInfo("Setting axis %d range to [%d, %d]", i, coord, coord);
-    }
-    NUtils::SetAxisRanges(hns, ranges);
-    TH1 * h = hns->Projection(axisIdx, "O");
-    if (h->GetEntries() > 0) {
-
-      std::vector<std::string> labels = cfg["labels"].get<std::vector<std::string>>();
-
-      TH1D * hParams = new TH1D("_params", "Parameters", labels.size(), 0, labels.size());
-      for (size_t i = 0; i < labels.size(); i++) {
-        // NLogInfo("Setting results bin %zu label to '%s'", i + 1, labels[i].c_str());
-        hParams->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
-      }
-      for (int bin = 0; bin <= h->GetNbinsX(); bin++) {
-        hParams->SetBinContent(bin, h->GetBinContent(bin));
-      }
-      outputPoint->Add(hParams);
-      outputPoint->Add(h);
-    }
-  };
-
-  // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
-  ngnt->Process(processFunc, cfg);
-  ngnt->Close(true);
-  return ngnt;
-}
 NGnNavigator * NGnTree::Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level,
                                 std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase)
 {
@@ -1665,16 +1710,21 @@ NGnNavigator * NGnTree::GetResourceStatisticsNavigator(std::string binningName, 
     return nullptr;
   }
   hns->Print("all");
+  // return nullptr;
 
-  auto ngnt = Import(hns, "stat", "/tmp/hnst_imported_for_drawing.root");
+  auto ngnt = new NGnTree(hns, "stat", "/tmp/hnst_imported_for_drawing.root");
+  if (ngnt->IsZombie()) {
+    NLogError("NGnTree::GetResourceStatisticsNavigator: Failed to import resource monitor THnSparse !!!");
+    return nullptr;
+  }
   ngnt->Print();
   ngnt->Close();
 
+  // return nullptr;
   auto ngnt2 = NGnTree::Open("/tmp/hnst_imported_for_drawing.root");
   auto nav   = ngnt2->Reshape("default", levels, level, ranges, rangesBase);
-  // nav->Export("/tmp/hnst_imported_for_drawing.json", {}, "ws://localhost:8080/ws/root.websocket");
-  // nav->Draw();
-
+  // // nav->Export("/tmp/hnst_imported_for_drawing.json", {}, "ws://localhost:8080/ws/root.websocket");
+  // // nav->Draw();
   return nav;
 }
 

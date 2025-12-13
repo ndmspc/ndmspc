@@ -45,14 +45,14 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
     NLogInfo("title : %s", point->GetString().c_str());
 
     // Create Gaussian histogram for each point
-    TRandom3 rnd(0);
-    TH1D *   h = new TH1D("h", "Gaussian", 100, -10, 10);
+    // TRandom3 rnd(0);
+    TH1D * h = new TH1D("h", "Gaussian", 100, -10, 10);
 
     int mean  = point->GetMax("mean");
     int sigma = point->GetMax("sigma");
 
-    for (int i = 0; i < 10000; i++) {
-      double x = rnd.Gaus(mean, sigma);
+    for (int i = 0; i < 1e8; i++) {
+      double x = gRandom->Gaus(mean, sigma);
       h->Fill(x);
     }
 

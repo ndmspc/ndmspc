@@ -97,7 +97,7 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
     gROOT->cd();
   }
 
-  NLogTrace("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
+  NLogDebug("Initializing tree '%s' using filename '%s' ...", treename.c_str(), fFileName.c_str());
 
   if (!fFileName.empty()) {
     // Open file
@@ -110,6 +110,7 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
     if (fPostfix.empty()) fPostfix = gSystem->BaseName(fFileName.c_str());
   }
 
+  NLogDebug("NStorageTree::InitTree: Creating tree '%s' ...", treename.c_str());
   fTree = new TTree(treename.c_str(), "ngnt tree");
   if (!fTree) {
     NLogError("Cannot create tree '%s' using file '%s' !!!", treename.c_str(), fFileName.c_str());

@@ -59,6 +59,11 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
     return false;
   }
 
+  // NLogDebug("NGnThreadData::Init: Initializing storage for thread %zu", id);
+  // NGnTree * ngntIn = new NGnTree(ngnt->GetInput(), "");
+  //
+  // fHnSparseBase->SetInput(ngntIn); // Clear input for the thread local NGnTree
+
   NStorageTree * ts = fHnSparseBase->GetStorageTree();
   std::string    fn = ts->GetFileName();
   fHnSparseBase->GetStorageTree()->Clear("F");
@@ -106,6 +111,8 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   }
 
   if (input) {
+    NLogDebug("_____ NGnThreadData::Init: Setting input NGnTree for thread %zu '%s'", id,
+              input->GetStorageTree()->GetFileName().c_str());
     std::string branches = NUtils::Join(input->GetStorageTree()->GetBrancheNames(true), ',');
     fHnSparseBase->SetInput(NGnTree::Open(input->GetStorageTree()->GetFileName(), branches)); // Set the input NGnTree
   }
