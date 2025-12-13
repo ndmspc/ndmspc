@@ -1,6 +1,7 @@
 #ifndef Ndmspc_NGnNavigator_H
 #define Ndmspc_NGnNavigator_H
 #include <TNamed.h>
+#include <Buttons.h>
 #include "NBinningDef.h"
 #include "NGnTree.h"
 namespace Ndmspc {
@@ -371,12 +372,13 @@ class NGnNavigator : public TNamed {
   NGnNavigator *              fParent{nullptr}; ///< Parent object
   std::vector<NGnNavigator *> fChildren{};      ///< Children objects
 
-  TH1 * fProjection{nullptr};  ///< Projection histogram
-  Int_t fNLevels{1};           ///< Number of levels in the hierarchy
-  Int_t fLevel{0};             ///< Level of the object in the hierarchy
-  Int_t fNCells{0};            ///< Number of cells in the projection histogram
-  Int_t fLastHoverBin{0};      ///< To avoid spamming the console on hover
-  Int_t fLastIndexSelected{0}; ///< last selected index in the object
+  TH1 * fProjection{nullptr};   ///< Projection histogram
+  Int_t fNLevels{1};            ///< Number of levels in the hierarchy
+  Int_t fLevel{0};              ///< Level of the object in the hierarchy
+  Int_t fNCells{0};             ///< Number of cells in the projection histogram
+  Int_t fLastHoverBin{0};       ///< To avoid spamming the console on hover
+  Int_t fLastIndexSelected{0};  ///< last selected index in the object
+  Int_t fTrigger{kButton1Down}; ///< last triggered event
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnNavigator, 1);

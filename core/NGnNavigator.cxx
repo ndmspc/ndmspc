@@ -14,6 +14,7 @@
 #include <TGClient.h>
 #include <TPaveText.h>
 
+#include "Buttons.h"
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
 #include "NGnTree.h"
@@ -1016,10 +1017,32 @@ void NGnNavigator::Draw(Option_t * option)
   ///
   ///
 
+  // TODO: Handle if size od levels is greater than 2 (since ROOT cannot hover more than 2D histograms)
+  TH1 * proj = GetProjection();
+  for (int level = 0; level < fNLevels; level++) {
+    NLogDebug("NGnNavigator::Draw: Level %d/%d", level + 1, fNLevels);
+    if (fProjection->GetDimension() > 2) {
+      NLogWarning("NGnNavigator::Draw: Level %d has projection with dimension %d > 2, which is not supported for "
+                  "hover/click !!!",
+                  level + 1, fProjection->GetDimension());
+      return;
+    }
+    // proj = fChildren[0]->GetProjection();
+  }
+
   // if (fGnTree == nullptr) {
   //   NLogError("NGnNavigator::Draw: NGnTree is nullptr !!!");
   //   return;
   // }
+  //
+  TString opt = option;
+  opt.ToUpper();
+  if (opt.Contains("HOVER")) {
+    fTrigger = kMouseMotion;
+  }
+  if (opt.Contains("CLICK")) {
+    fTrigger = kButton1Down;
+  }
 
   // std::string name;
   if (!gPad) {
@@ -1134,30 +1157,21 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 
   Int_t bin = fProjection->FindBin(x_user, y_user);
 
-  // --- MOUSE HOVER LOGIC ---
-  if (event == kMouseMotion) {
-    if (bin != fLastHoverBin) {
-      // Check if the cursor is inside a bin with content
-      if (fProjection->GetBinContent(bin) > 0) {
-        Int_t binx, biny, binz;
-        fProjection->GetBinXYZ(bin, binx, biny, binz);
-        NLogDebug("[%s] Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
-                  x_user, y_user, fLevel, fNLevels);
-      }
-      fLastHoverBin = bin;
-      NLogDebug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
-    }
-  }
-
-  TVirtualPad * originalPad = gPad; // Save the original pad
+  TVirtualPad * originalPad  = gPad; // Save the original pad
+  bool          isBinChanged = (bin != fLastHoverBin);
   // --- MOUSE CLICK LOGIC ---
-  if (event == kButton1Down) {
+  bool isActionTriggered = (event == fTrigger);
+
+  // trigger action only if hover bin changed or event is click
+  isActionTriggered = isActionTriggered && (isBinChanged || event == kButton1Down);
+
+  if (isActionTriggered) {
     Int_t binx, biny, binz;
     fProjection->GetBinXYZ(bin, binx, biny, binz);
     Double_t content = fProjection->GetBinContent(bin);
-    NLogInfo("NGnNavigator::ExecuteEvent: [%s] Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  "
-             "level=%d nLevels=%d",
-             gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
+    NLogDebug("NGnNavigator::ExecuteEvent: [%s] Mouse trigger on bin=[%d, %d] at px=[%f, %f] with content: %f  "
+              "level=%d nLevels=%d",
+              gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
 
     int nDimensions = fGnTree->GetBinning()->GetDefinition()->GetContent()->GetNdimensions();
 
@@ -1167,11 +1181,11 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       // For 1D histograms, we need to find the index correctly
       index = fProjection->GetXaxis()->FindFixBin(fProjection->GetXaxis()->GetBinCenter(binx));
     }
-    NLogDebug("NGnNavigator::ExecuteEvent: Index in histogram: %d level=%d", index, fLevel);
+    NLogTrace("NGnNavigator::ExecuteEvent: Index in histogram: %d level=%d", index, fLevel);
     NGnNavigator * child   = GetChild(index);
     TCanvas *      cObject = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("cObject");
     if (child && child->GetProjection()) {
-      NLogDebug("NGnNavigator::ExecuteEvent: [%s]Child object '%p' found at index %d", gPad->GetName(),
+      NLogTrace("NGnNavigator::ExecuteEvent: [%s]Child object '%p' found at index %d", gPad->GetName(),
                 child->GetProjection(), index);
       // originalPad->Clear();               // Clear the original pad
       gPad              = originalPad->GetMother(); // Get the mother pad to avoid clearing the current pad
@@ -1184,7 +1198,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
       hProj->SetMinimum(0);     // Set minimum to 0 for better visibility
       hProj->Draw("text colz"); // Draw the projection histogram of the child
       child->AppendPad();
-      NLogDebug("NGnNavigator::ExecuteEvent: %d", child->GetLastIndexSelected());
+      NLogTrace("NGnNavigator::ExecuteEvent: %d", child->GetLastIndexSelected());
       if (cObject) {
         cObject->Clear(); // Clear the existing canvas if it exists
         cObject->cd();    // Set the current canvas to cObject
@@ -1202,7 +1216,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 
       // TH1 * projection = child->GetProjection();
       // index            = projection->GetXaxis()->FindFixBin(projection->GetXaxis()->GetBinCenter(binx));
-      NLogWarning("NGnNavigator::ExecuteEvent: No child object found at index %d", index);
+      NLogTrace("NGnNavigator::ExecuteEvent: No child object found at index %d", index);
       std::string objName = fObjectNames.empty() ? "resource_monitor" : fObjectNames[0];
       TH1 *       hProj   = (TH1 *)GetObject(objName, index);
       if (hProj == nullptr) {
@@ -1220,7 +1234,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
         TPaveText * pt = new TPaveText(0.15, 0.15, 0.85, 0.85);
         for (Int_t binx = 1; binx <= hProj->GetNbinsX(); ++binx) {
           std::string name  = hProj->GetXaxis()->GetBinLabel(binx);
-          std::string value = TString::Format("%E", hProj->GetBinContent(binx)).Data();
+          std::string value = TString::Format("%.3f", hProj->GetBinContent(binx)).Data();
           std::string t     = TString::Format("%s: %s", name.c_str(), value.c_str()).Data();
 
           pt->AddText(t.c_str());
@@ -1234,6 +1248,20 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
     // else {
     // }
     gPad->ModifiedUpdate(); // Force pad to redraw
+  }
+  // --- MOUSE HOVER LOGIC ---
+  if (event == kMouseMotion) {
+    if (isBinChanged) {
+      // Check if the cursor is inside a bin with content
+      if (fProjection->GetBinContent(bin) > 0) {
+        Int_t binx, biny, binz;
+        fProjection->GetBinXYZ(bin, binx, biny, binz);
+        NLogTrace("[%s] Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
+                  x_user, y_user, fLevel, fNLevels);
+      }
+      fLastHoverBin = bin;
+      NLogTrace("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
+    }
   }
   gPad = originalPad; // Restore the original pad
 }

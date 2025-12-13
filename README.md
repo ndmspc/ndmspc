@@ -2,6 +2,8 @@
 
 # Running ndmspc via docker/podman
 
+> One can use `next` tag instead of `latest` to get the latest stable development version.
+
 Run ndmspc with host networking
 
 ```bash

@@ -75,6 +75,8 @@ class NGnTree : public TObject {
    */
   NGnTree(NBinning * binning, NStorageTree * treeStorage);
 
+  NGnTree(THnSparse * hns, std::string parameterAxis = "", const std::string & filename = "/tmp/hnst_imported.root");
+
   /**
    * @brief Destructor.
    */
@@ -289,9 +291,6 @@ class NGnTree : public TObject {
    * @return Pointer to opened NGnTree.
    */
   static NGnTree * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
-
-  static NGnTree * Import(THnSparse * hns, std::string parameterAxis = "",
-                          const std::string & filename = "/tmp/hnst_imported.root");
 
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
