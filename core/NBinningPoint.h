@@ -141,21 +141,29 @@ class NBinningPoint : public TObject {
    * @param axis The name of the axis.
    * @return The minimum value for the given axis.
    */
-  Double_t GetMin(std::string axis) const;
+  Double_t GetBinMin(std::string axis) const;
 
   /**
    * @brief Get the maximum value for a specific axis.
    * @param axis The name of the axis.
    * @return The maximum value for the given axis.
    */
-  Double_t GetMax(std::string axis) const;
+  Double_t GetBinMax(std::string axis) const;
+
+  /**
+   * @brief Returns the center value of the bin along the specified axis.
+   *
+   * @param axis The name of the axis for which to get the bin center.
+   * @return Double_t The center value of the bin on the given axis.
+   */
+  Double_t GetBinCenter(std::string axis) const;
 
   /**
    * @brief Get the label for a specific axis.
    * @param axis The name of the axis.
    * @return The label for the given axis.
    */
-  std::string GetLabel(std::string axis) const;
+  std::string GetBinLabel(std::string axis) const;
 
   /**
    * @brief Get pointer to NBinning object.

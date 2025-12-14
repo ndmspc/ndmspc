@@ -5,6 +5,7 @@
 #include "NStorageTree.h"
 #include "NUtils.h"
 #include "NBinning.h"
+#include "RtypesCore.h"
 #include "NBinningPoint.h"
 
 /// \cond CLASSIMP
@@ -266,7 +267,7 @@ bool NBinningPoint::SetPointContentFromLinearIndex(Long64_t linBin, bool checkBi
   return RecalculateStorageCoords(linBin, checkBinningDef);
 }
 
-Double_t NBinningPoint::GetMin(std::string axis) const
+Double_t NBinningPoint::GetBinMin(std::string axis) const
 {
   ///
   /// Get minimum value for specific axis
@@ -288,7 +289,7 @@ Double_t NBinningPoint::GetMin(std::string axis) const
   return -1;
 }
 
-Double_t NBinningPoint::GetMax(std::string axis) const
+Double_t NBinningPoint::GetBinMax(std::string axis) const
 {
   ///
   /// Get maximum value for specific axis
@@ -310,7 +311,29 @@ Double_t NBinningPoint::GetMax(std::string axis) const
   return -1;
 }
 
-std::string NBinningPoint::GetLabel(std::string axis) const
+Double_t NBinningPoint::GetBinCenter(std::string axis) const
+{
+  ///
+  /// Get center value for specific axis
+  ///
+
+  // check if axis exists in fBinning->GetAxes()
+  for (int i = 0; i < fNDimensions; i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogError("NBinningPoint::GetCenter: Axis %d is nullptr !!!", i);
+      continue;
+    }
+    if (axis.compare(a->GetName()) == 0) {
+      return (fMins[i] + fMaxs[i]) / 2.0;
+    }
+  }
+
+  NLogError("NBinningPoint::GetCenter: Axis '%s' not found !!!", axis.c_str());
+  return -1;
+}
+
+std::string NBinningPoint::GetBinLabel(std::string axis) const
 {
   ///
   /// Get label for specific axis

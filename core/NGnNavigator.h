@@ -94,7 +94,25 @@ class NGnNavigator : public TNamed {
    * @param option Draw options.
    * @param projIds Projection IDs.
    */
-  virtual void DrawSpectra(std::string parameterName, Option_t * option = "", std::vector<int> projIds = {}) const;
+  virtual void DrawSpectra(std::string parameterName, std::vector<int> projIds, Option_t * option = "") const;
+
+  /**
+   * @brief Draws spectra for the given parameter and projection axes.
+   *
+   * @param parameterName The name of the parameter to draw spectra for.
+   * @param projAxes A vector of axis names to project onto.
+   * @param option Optional drawing options.
+   */
+  virtual void DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
+                                 Option_t * option = "") const;
+
+  /**
+   * @brief Draws all spectra for the given parameter.
+   *
+   * @param parameterName The name of the parameter to draw all spectra for.
+   * @param option Optional drawing options.
+   */
+  virtual void DrawSpectraAll(std::string parameterName, Option_t * option = "") const;
 
   /**
    * @brief Paint navigator objects.
