@@ -149,7 +149,17 @@ void NBinningDef::Print(Option_t * option) const
 
   NLogInfo("NBinningDef: name='%s' %zu axes with %zu entries : %s", fName.c_str(), fDefinition.size(), fIds.size(),
            NUtils::GetCoordsString(fIds, -1).c_str());
-  NLogInfo("             axes='%s'", NUtils::GetCoordsString(fVariableAxes).c_str());
+
+  std::string axesStr;
+  // loop over variable axes and build string
+  for (size_t i = 0; i < fVariableAxes.size(); i++) {
+    axesStr += fBinning->GetAxes()[fVariableAxes[i]]->GetName();
+    if (i < fVariableAxes.size() - 1) {
+      axesStr += ",";
+    }
+  }
+
+  NLogInfo("             axis ids='%s' names='[%s]'", NUtils::GetCoordsString(fVariableAxes).c_str(), axesStr.c_str());
 
   TString opt = option;
   opt.ToUpper();
