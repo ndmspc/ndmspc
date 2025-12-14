@@ -1,22 +1,29 @@
 #include <TAxis.h>
 #include <TObjArray.h>
+#include <TFitResult.h>
 #include <NGnTree.h>
 #include <NLogger.h>
 #include <NUtils.h>
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>
-#include "TRandom.h"
 
-void NStorage01Gaus(std::string outFile = "NStorage01Gaus.root")
+void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomization01Gaus.root")
 {
+  ///
+  /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash
+  ///   e.g. export ROOT_MAX_THREADS=4
+  ///
+
+  json cfg;
+  cfg["nEntries"] = nEntries;
 
   // Create axes
   TObjArray * axes = new TObjArray();
 
   // Create a linear axis from -2.5 to 2.5 with 5 bins
   TAxis * a1 = new TAxis(5, -2.5, 2.5);
-  // set name and title
+  // Set name and title
   a1->SetNameTitle("mean", "Mean");
   // add axis to the list of axes
   axes->Add(a1);
@@ -36,6 +43,8 @@ void NStorage01Gaus(std::string outFile = "NStorage01Gaus.root")
   // Create the binning definition with name "default" in the NGnTree
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
+  ngnt->InitParameters({"meanFit", "sigmaFit"});
+
   // Define the processing function
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
@@ -43,16 +52,30 @@ void NStorage01Gaus(std::string outFile = "NStorage01Gaus.root")
     NLogInfo("title : %s", point->GetString().c_str());
 
     // Create Gaussian histogram for each point
+    // TRandom3 rnd(0);
     TH1D * h = new TH1D("h", "Gaussian", 100, -10, 10);
 
     // Retrieve mean and sigma from the bin centers of current point
     int mean  = point->GetBinCenter("mean");
     int sigma = point->GetBinCenter("sigma");
 
-    // Fill histogram with Gaussian random numbers 10,000 times
-    for (int i = 0; i < 10000; i++) {
+    // Retrieve configuration
+    json cfg = point->GetCfg();
+
+    // Retrieve number of entries
+    int n = cfg["nEntries"].get<int>();
+
+    for (int i = 0; i < n; i++) {
       double x = gRandom->Gaus(mean, sigma);
       h->Fill(x);
+    }
+
+    // Retrieve fit results and store them in the parameters of the point
+    TFitResultPtr         fitResult   = h->Fit("gaus", "QS");
+    Ndmspc::NParameters * pointParams = point->GetParameters();
+    if (pointParams) {
+      pointParams->SetParameter("meanFit", fitResult->Parameter(1), fitResult->Error(1));
+      pointParams->SetParameter("sigmaFit", fitResult->Parameter(2), fitResult->Error(2));
     }
 
     // Fill output list for the current point
@@ -60,7 +83,7 @@ void NStorage01Gaus(std::string outFile = "NStorage01Gaus.root")
   };
 
   // execute the processing function
-  ngnt->Process(processFunc);
+  ngnt->Process(processFunc, cfg);
 
   // close the NGnTree object
   ngnt->Close(true);
