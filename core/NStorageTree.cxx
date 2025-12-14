@@ -296,7 +296,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
       fFile->cd();
       fTree->Write("", TObject::kOverwrite);
       fFile->Close();
-      NLogDebug("NStorageTree::Close: HnSparseTree was written to file '%s' ...", fFile->GetName());
+      NLogDebug("NStorageTree::Close: NGnTree was written to file '%s' ...", fFile->GetName());
     }
   }
   else {
@@ -332,7 +332,7 @@ bool NStorageTree::AddBranch(const std::string & name, void * address, const std
   }
 
   if (fTree == nullptr) {
-    NLogError("Tree is not initialized !!! Run 'HnSparseTree::InitTree(...)' first !!!");
+    NLogError("Tree is not initialized !!! Run 'NGnTree::InitTree(...)' first !!!");
     return false;
   }
 
@@ -576,7 +576,7 @@ Long64_t NStorageTree::Merge(TCollection * list)
           }
           b->SetAddress(branchObj); // Set the branch address
         }
-        // SetPoint(obj->GetPoint()); // Set the point in the current HnSparseTree
+        // SetPoint(obj->GetPoint()); // Set the point in the current NGnTree
         // SaveEntry();
         // fBinning->SetPoint(obj->GetBinning()->GetPoint());
         Fill(point, obj, true, {}, false);
