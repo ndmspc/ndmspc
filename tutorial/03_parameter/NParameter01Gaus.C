@@ -14,8 +14,8 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
   // Create axes
   TObjArray * axes = new TObjArray();
 
-  // Create a linear axis from 0 to 3 with 3 bins
-  TAxis * a1 = new TAxis(3, -3.5, 3.5);
+  // Create a linear axis from -2.5 to 2.5 with 5 bins
+  TAxis * a1 = new TAxis(5, -2.5, 2.5);
   // set name and title
   a1->SetNameTitle("mean", "Mean");
   // add axis to the list of axes
@@ -48,14 +48,17 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
     // TRandom3 rnd(0);
     TH1D * h = new TH1D("h", "Gaussian", 100, -10, 10);
 
+    // Retrieve mean and sigma from the bin centers of current point
     int mean  = point->GetBinCenter("mean");
     int sigma = point->GetBinCenter("sigma");
 
-    for (int i = 0; i < 1e5; i++) {
+    // Fill histogram with Gaussian random numbers 10,000 times
+    for (int i = 0; i < 10000; i++) {
       double x = gRandom->Gaus(mean, sigma);
       h->Fill(x);
     }
 
+    // Retrieve fit results and store them in the parameters of the point
     TFitResultPtr         fitResult   = h->Fit("gaus", "QS");
     Ndmspc::NParameters * pointParams = point->GetParameters();
     if (pointParams) {
@@ -63,6 +66,7 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
       pointParams->SetParameter("sigmaFit", fitResult->Parameter(2), fitResult->Error(2));
     }
 
+    // Fill output list for the current point
     outputPoint->Add(h);
   };
 
