@@ -1,3 +1,4 @@
+#include <string>
 #include <vector>
 #include "TAxis.h"
 #include "THnSparse.h"
@@ -1417,7 +1418,61 @@ void NGnNavigator::SetParameter(const std::string & name, double value, int inde
   }
 }
 
-void NGnNavigator::DrawSpectra(std::string parameterName, Option_t * option, std::vector<int> projIds) const
+void NGnNavigator::DrawSpectraAll(std::string parameterName, Option_t * option) const
+{
+  ///
+  /// Draws the NGnProjection object for all projection IDs
+  ///
+  std::vector<int> projIds;
+  DrawSpectra(parameterName, projIds, option);
+}
+
+void NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
+                                     Option_t * option) const
+{
+  ///
+  /// Draws the NGnProjection object for all projection IDs
+  ///
+
+  std::vector<int> projIds;
+  // lopp over fProjection axes and find the indices of projAxes then fill projIds and remove from projAxes
+  for (const auto & axisName : projAxes) {
+    TAxis * axis = nullptr;
+    for (int i = 0; i < fProjection->GetDimension(); i++) {
+      if (i == 0)
+        axis = fProjection->GetXaxis();
+      else if (i == 1)
+        axis = fProjection->GetYaxis();
+      else if (i == 2)
+        axis = fProjection->GetZaxis();
+
+      if (axis && axis->GetName() == axisName) {
+        projIds.push_back(i);
+        break;
+      }
+    }
+  }
+  if (projIds.empty()) {
+    NLogError("NGnNavigator::DrawSpectra: No projection axes found for names: %s",
+              NUtils::GetCoordsString(projAxes, -1).c_str());
+    return;
+  }
+
+  if (projIds.size() > 3) {
+    NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", projIds.size());
+    return;
+  }
+
+  if (projIds.size() != projAxes.size()) {
+    NLogError("NGnNavigator::DrawSpectra: Not all projection axes found: %s",
+              NUtils::GetCoordsString(projAxes, -1).c_str());
+    return;
+  }
+
+  DrawSpectra(parameterName, projIds, option);
+}
+
+void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projIds, Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object with the specified projection IDs

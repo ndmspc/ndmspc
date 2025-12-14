@@ -34,8 +34,8 @@ void NExecutor1D(std::string outFile = "NExecutor1D.root")
 
     // print the title of the binning point
     NLogInfo("title : %s", point->GetString().c_str());
-    NLogInfo("  min=%.2f max=%.2f label=%s", point->GetMin("axis1"), point->GetMax("axis1"),
-             point->GetLabel("axis1").c_str());
+    NLogInfo("  min=%.2f max=%.2f label=%s", point->GetBinMin("axis1"), point->GetBinMax("axis1"),
+             point->GetBinLabel("axis1").c_str());
   };
 
   // execute the processing function
