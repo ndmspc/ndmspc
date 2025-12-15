@@ -71,8 +71,8 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
     }
 
     // Retrieve fit results and store them in the parameters of the point
-    // Note: "N" option no drawing
-    TFitResultPtr         fitResult   = h->Fit("gaus", "QSN");
+    // Note: "O" option is    // Note: "O" option is used to suppress drawing, but function is stored in the histogram
+    TFitResultPtr         fitResult   = h->Fit("gaus", "QSO");
     Ndmspc::NParameters * pointParams = point->GetParameters();
     if (pointParams) {
       pointParams->SetParameter("meanFit", fitResult->Parameter(1), fitResult->Error(1));

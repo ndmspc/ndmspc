@@ -987,10 +987,11 @@ void NGnNavigator::Print(Option_t * option) const
     NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection=nullptr", GetName(), GetTitle(), fLevel,
              fNLevels);
   }
-  // for (int i = 0; i < fChildren.size(); i++) {
-  //   NLogInfo("NGnNavigator: Child %d/%d: %s", i + 1, fChildren.size(),
-  //                 fChildren[i] ? fChildren[i]->GetName() : "nullptr");
-  // }
+
+  // Print only list of parameters
+  NLogInfo("NGnNavigator: Parameters : %s", NUtils::GetCoordsString(GetParameterNames()).c_str());
+  NLogInfo("NGnNavigator: Objects    : %s", NUtils::GetCoordsString(GetObjectNames()).c_str());
+
   // print children
   std::vector<int> childIndices;
   for (int i = 0; i < fChildren.size(); i++) {
@@ -1001,8 +1002,8 @@ void NGnNavigator::Print(Option_t * option) const
       // child->Print(option);
     }
   }
-  NLogInfo("NGnNavigator: %zu children with indices: %s", childIndices.size(),
-           NUtils::GetCoordsString(childIndices, -1).c_str());
+  NLogTrace("NGnNavigator: %zu children with indices: %s", childIndices.size(),
+            NUtils::GetCoordsString(childIndices, -1).c_str());
   for (int i = 0; i < fChildren.size(); i++) {
     NGnNavigator * child = fChildren[i];
     if (child && child->GetChildren().empty() == false) {
