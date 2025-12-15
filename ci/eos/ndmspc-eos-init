@@ -1,114 +1,16 @@
 #!/bin/bash
 
-EOS_DATA_DIRS=${EOS_DATA_DIRS-"01"}
-MYUSER=${MYUSER-'executor'}
+PROJECT_DIR="$(dirname $(dirname $(readlink -m $0)))"
+cd /ndmspc/eos-ansible
+mkdir -p /data/00 /data/01
 
-export PATH="/opt/eos/xrootd/bin:$PATH"
+cat >vars.yml <<EOF
+eos_css_scripts:
+  - cat.sh
+  - sort.sh
+  - info.sh
+  - ndmspc.sh
+EOF
 
+ansible-playbook -i inventory/eos-local playbooks/eos.yml --tags install -e eos_css_script_directory=/ndmspc/ci/eos/css_plugin/scripts -e @vars.yml
 
-function init() 
-{
-  useradd -r -M -d / -s /usr/sbin/nologin eosnobody 
-  useradd $MYUSER
-  MYHOSTNAME=$(hostname -f)
-  EOS_DATA_DIRS_COUNT=$(echo $EOS_DATA_DIRS | tr ' ' '\n' | wc -l)
-  EOS_DATA_DIRS_OTHER=$(echo $EOS_DATA_DIRS | cut -d ' ' -f2-)
-  [[ $EOS_DATA_DIRS_COUNT -eq 1 ]] && EOS_DATA_DIRS_OTHER=
-
-  echo "EOS_DATA_DIRS=$EOS_DATA_DIRS"
-  echo "EOS_DATA_DIRS_COUNT=$EOS_DATA_DIRS_COUNT"
-  echo "EOS_DATA_DIRS_OTHER=$EOS_DATA_DIRS_OTHER"
-
-  echo "Doing 'eos daemon sss recreate'"
-  eos daemon sss recreate
-
-  # # start QuarkDB
-  # echo "Doing 'systemctl enable --now eos5-qdb@qdb'"
-  # systemctl enable --now eos5-qdb@qdb
-  # # start MGM
-  # echo "Doing 'systemctl enable --now eos5-mgm@mgm'"
-  # systemctl enable --now eos5-mgm@mgm
-
-  # # start FST on this host
-  # echo "Doing 'systemctl enable --now eos5-fst@fst'"
-  # systemctl enable --now eos5-fst@fst
-
-  # start QuarkDB on this host
-  screen -dmS eos-qdb /bin/bash -c 'eos daemon run qdb; /bin/bash'
-  # start MGM on this host
-  screen -dmS eos-mgm /bin/bash -c 'eos daemon run mgm; /bin/bash'
-  # start FST on this host
-  screen -dmS eos-fst /bin/bash -c 'eos daemon run fst; /bin/bash'
-
-  screen -ls
-  sleep 1
-
-  # eos node set $MYHOSTNAME:1095 on
-
-  eos node set $MYHOSTNAME:1095 on
-
-  eos space define default
-  eos space config default space.token.generation=1
-
-  for name in $EOS_DATA_DIRS; do
-    mkdir -p /data/$name;
-    chown daemon:daemon /data/$name
-  done
-
-  MYHOSTNAME=localhost
-  echo "Doing 'eosfstregister -r $MYHOSTNAME /data/ default:$EOS_DATA_DIRS_COUNT' ..."
-  eosfstregister -r $MYHOSTNAME /data/ default:$EOS_DATA_DIRS_COUNT
-
-  for name in $EOS_DATA_DIRS_OTHER; do echo "Doing 'eos fs mv --force $name default.0' ..." ;eos fs mv --force $name default.0; done  
-
-  eos vid enable unix
-  eos vid add gateway host.containers.internal unix
-  eos vid set membership $MYUSER +sudo
-
-  # enable oauth2 mapping
-  eos vid enable oauth2
-  # allow an oauth2 resource in requests (OIDC infrastructure)
-  eos vid set map -oauth2 key:keycloak.192.168.49.2.nip.io/realms/master/protocol/openid-connect/userinfo vuid:0
-
-  eos space set default on
-}
-
-function start() 
-{
-  echo "Starting ..."
-  # echo "Doing 'systemctl start eos5-qdb@qdb'"
-  # systemctl start eos5-qdb@qdb
-  # echo "Doing 'systemctl start eos5-mgm@mgm'"
-  # systemctl start eos5-mgm@mgm
-  # echo "Doing 'systemctl start eos5-fst@fst'"
-  # systemctl start eos5-fst@fst
-}
-
-function cleanup()
-{
-  echo "EOS init cleanup"
-
-  # echo "Doing 'systemctl stop eos5'"
-  # systemctl stop eos5
-
-  # echo "Doing 'systemctl stop eos5-fst@fst'"
-  # systemctl stop eos5-fst@fst
-  # echo "Doing 'systemctl stop eos5-mgm@mgm'"
-  # systemctl stop eos5-mgm@mgm
-  # echo "Doing 'systemctl stop eos5-qdb@qdb'"
-  # systemctl stop eos5-qdb@qdb
-  exit 0
-}
-
-trap cleanup SIGTERM SIGINT SIGKILL
-
-[ -f /etc/eos.keytab ] && start || init
-
-echo "EOS init done"
-
-pid=
-trap '[[ $pid ]] && kill -0 "$pid" && kill "$pid"' EXIT
-sleep 10000 & pid=$!
-wait
-pid=
-cleanup

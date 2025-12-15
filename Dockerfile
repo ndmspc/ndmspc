@@ -14,10 +14,10 @@ RUN dnf update -y
 RUN dnf install -y eos-server eos-quarkdb jemalloc-devel screen nmap salsa munge python3-jupyroot python3-pip
 RUN pip3 install --no-cache-dir jupyter metakernel
 COPY . /ndmspc/
-RUN /ndmspc/scripts/ndmspc-slurm-init
+RUN /ndmspc/ci/slurm/ndmspc-slurm-init
 RUN systemctl enable munge slurmctld slurmd
+RUN git clone https://gitlab.cern.ch/eos/ansible.git /ndmspc/eos-ansible
 COPY ci/eos/ndmspc-eos-init /usr/local/bin/eos_init
-COPY ci/eos/etc /etc
 COPY ci/eos/custom.target /etc/systemd/system/custom.target
 COPY ci/eos/eos-init.service /etc/systemd/system/eos-init.service
 RUN ln -sf /etc/systemd/system/custom.target /etc/systemd/system/default.target

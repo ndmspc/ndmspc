@@ -822,7 +822,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   gROOT->SetBatch(kTRUE);
   TH1::AddDirectory(kFALSE);
 
-  NUtils::EnableMT();
+  // NUtils::EnableMT();
 
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
   if (nThreads < 1) nThreads = 1;
@@ -880,11 +880,11 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     }
     json jobMon;
     jobMon["jobName"] = name;
-    jobMon["user"]    = gSystem->Getenv("USER");
-    jobMon["host"]    = gSystem->HostName();
-    jobMon["pid"]     = gSystem->GetPid();
-    jobMon["status"]  = "I";
-    jobMon["ntasks"]  = maxs[0] + 1;
+    // jobMon["user"]    = gSystem->Getenv("USER");
+    // jobMon["host"]    = gSystem->HostName();
+    jobMon["pid"]    = gSystem->GetPid();
+    jobMon["status"] = "I";
+    jobMon["ntasks"] = maxs[0] + 1;
     if (fWsClient) {
       NLogInfo("NGnTree::Process: Sending job monitor info to WebSocket server ...");
       fWsClient->Send(jobMon.dump());
