@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <TF1.h>
 #include <TAxis.h>
 #include <THnSparse.h>
 #include <TString.h>
@@ -37,12 +38,16 @@ bool NUtils::EnableMT(Int_t numthreads)
   if (ROOT::IsImplicitMTEnabled()) {
     ROOT::DisableImplicitMT();
   }
-  NLogInfo("Enabling IMT (Implicit Multi-Threading) ...");
+
+  // TH1D * h = new TH1D("h", "Test Histogram", 20, -10, 10);
+  // h->FillRandom("gaus", 1000);
+  // TF1 * f1 = new TF1("f1", "gaus", 0, 10);
+  // h->Fit(f1, "N");
+  // delete h;
 
   if (numthreads == -1) {
     // take numeber of cores from env variable
     const char * nThreadsEnv = gSystem->Getenv("ROOT_MAX_THREADS");
-    NLogInfo("Setting number of threads from ROOT_MAX_THREADS env variable: %s", nThreadsEnv);
     if (nThreadsEnv) {
       try {
         numthreads = std::stoul(nThreadsEnv);
@@ -58,11 +63,13 @@ bool NUtils::EnableMT(Int_t numthreads)
   }
 
   // Enable IMT with default number of threads (usually number of CPU cores)
-  ROOT::EnableImplicitMT(numthreads);
+  if (numthreads > 1) {
+    ROOT::EnableImplicitMT(numthreads);
+  }
 
   // Check if IMT is enabled
   if (ROOT::IsImplicitMTEnabled()) {
-    NLogInfo("IMT is enabled with number of threads: %d", ROOT::GetThreadPoolSize());
+    NLogInfo("ROOT::ImplicitMT is enabled with number of threads: %d", ROOT::GetThreadPoolSize());
   }
 
   return previouslyEnabled;
