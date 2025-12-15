@@ -494,8 +494,9 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   auto binning_task = [&content, &nBinsFilled, &nTotalBins, start_par, def, this](const std::vector<int> & coords) {
     std::vector<int> pointContentVector;
     int              iContentpoint = 0;
-    // NLogDebug("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
+    NLogTrace("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
     for (size_t i = 0; i < coords.size(); i++) {
+      NLogTrace("  Binning %zu: coord=%d content size=%zu", i, coords[i], content[i].size());
       if (content[i][coords[i] - 1].size() == 2) {
         pointContentVector.push_back(content[i][coords[i] - 1][1]);
       }
@@ -508,6 +509,8 @@ Long64_t NBinning::FillAll(NBinningDef * def)
 
     // NUtils::PrintPointSafe(pointContentVector, -1);
     Int_t nContentDims = fContent->GetNdimensions();
+    NLogTrace("NBinning::FillAll: pointContentVector dims=%zu nContentDims=%d", pointContentVector.size(),
+              nContentDims);
     Int_t pointContent[nContentDims];
     NUtils::VectorToArray(pointContentVector, pointContent);
     Long64_t pointContentBin = fContent->GetBin(pointContent);
@@ -521,6 +524,9 @@ Long64_t NBinning::FillAll(NBinningDef * def)
       def->GetContent()->SetBinContent(linBin, pointContentBin);
       def->GetIds().push_back(pointContentBin);
     }
+
+    NLogTrace("NBinning::FillAll: Setting content bin %lld", pointContentBin);
+
     fContent->SetBinContent(pointContentBin, 1);
     nBinsFilled++;
     // NLogDebug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,

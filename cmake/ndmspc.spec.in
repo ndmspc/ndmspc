@@ -18,6 +18,7 @@ BuildRequires: json-devel
 # BuildRequires: parquet-libs-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
 Requires:      root, root-netx, xrootd-client
+Requires:      libwebsockets-devel, json-devel
 
 %description
 @PROJECT_DESCRIPTION@
@@ -90,6 +91,7 @@ make install DESTDIR=%{buildroot}
 
 %files
 %{_libdir}/*
+%{_bindir}/ndmspc-run
 %{_datadir}/%{name}/*
 %{_sysconfdir}/ndmspc/*
 %{_sysconfdir}/profile.d/*

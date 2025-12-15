@@ -1,4 +1,10 @@
 FROM registry.gitlab.com/ndmspc/user/al9:base
-RUN dnf -y install gcc-c++ clang make cmake git doxygen yaml-cpp-devel root root-netx root-geom root-physics rpm-build copr-cli
+RUN dnf -y install gcc-c++ clang make cmake git doxygen \
+  openssl-devel libcurl-devel libuv-devel \
+  libwebsockets-devel protobuf-devel json-devel \
+  root root-net-http root-net-httpsniff \
+  dnf clean all
+# opentelemetry-cpp-devel parquet-libs-devel
+
 RUN dnf clean all
 CMD ["/usr/sbin/init"]
