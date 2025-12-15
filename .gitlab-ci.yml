@@ -1,12 +1,12 @@
 stages:
   - build
   - deploy
-image: docker:stable
-services:
-  - docker:dind
+
+image: quay.io/podman/stable
 variables:
+  STORAGE_DRIVER: vfs
+  BUILDAH_FORMAT: docker
   DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: "" # Required for newer docker:dind versions without TLS
 
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
@@ -51,15 +51,15 @@ prod-image:
   tags:
     - images
   script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - podman pull $CI_REGISTRY_IMAGE:latest || true
     - export MY_PROJECT_VER=${CI_COMMIT_REF_NAME/v/}
     - export MY_VER_RELEASE=$(echo $MY_PROJECT_VER | cut -sd '-' -f2)
-    - docker build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - podman build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
+    - podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
-    - if [ -z "$MY_VER_RELEASE" ];then docker push $CI_REGISTRY_IMAGE:latest; fi
-    - if [ -n "$MY_VER_RELEASE" ];then docker push $CI_REGISTRY_IMAGE:next; fi
+    - if [ -z "$MY_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:latest; fi
+    - if [ -n "$MY_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:next; fi
   allow_failure: true
   # when: manual
   only:

@@ -822,7 +822,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   gROOT->SetBatch(kTRUE);
   TH1::AddDirectory(kFALSE);
 
-  // NUtils::EnableMT();
+  NUtils::EnableMT();
 
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
   if (nThreads < 1) nThreads = 1;
