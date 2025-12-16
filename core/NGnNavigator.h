@@ -277,6 +277,42 @@ class NGnNavigator : public TNamed {
   void SetParameter(const std::string & name, double value, int index = -1);
 
   /**
+   * @brief Returns the map containing parameter error vectors for each parameter name.
+   * @return A map from parameter names to their corresponding error vectors.
+   */
+  std::map<std::string, std::vector<double>> GetParameterErrorContentMap() const { return fParameterErrorContentMap; }
+
+  /**
+   * @brief Resizes the error vector for a given parameter name.
+   * @param name The name of the parameter.
+   * @param n The new size for the error vector.
+   */
+  void ResizeParameterErrorContentMap(const std::string & name, int n) { fParameterErrorContentMap[name].resize(n); };
+
+  /**
+   * @brief Retrieves the error vector for a given parameter name.
+   * @param name The name of the parameter.
+   * @return A vector of error values for the parameter.
+   */
+  std::vector<double> GetParameterErrors(const std::string & name) const;
+
+  /**
+   * @brief Retrieves a specific error value for a parameter.
+   * @param name The name of the parameter.
+   * @param index The index of the error value (default is 0).
+   * @return The error value at the specified index.
+   */
+  double GetParameterError(const std::string & name, int index = 0) const;
+
+  /**
+   * @brief Sets a specific error value for a parameter.
+   * @param name The name of the parameter.
+   * @param value The error value to set.
+   * @param index The index at which to set the error value (default is -1, which may indicate appending or special
+   * handling).
+   */
+  void SetParameterError(const std::string & name, double value, int index = -1);
+  /**
    * @brief Get parameter names managed by navigator.
    * @return Vector of parameter names.
    */
@@ -380,12 +416,13 @@ class NGnNavigator : public TNamed {
   // static NGnNavigator * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
   private:
-  NGnTree *                                     fGnTree{nullptr};       ///<! Pointer to the NGnTree
-  std::vector<std::string>                      fObjectNames{};         ///< Object names
-  std::map<std::string, std::vector<TObject *>> fObjectContentMap{};    ///< Object content map
-  std::vector<std::string>                      fParameterNames{};      ///< Parameter names
-  std::map<std::string, std::vector<double>>    fParameterContentMap{}; ///< Parameter content map
-  std::vector<std::string>                      fObjectTypes{"TH1"};    ///< Object types
+  NGnTree *                                     fGnTree{nullptr};            ///<! Pointer to the NGnTree
+  std::vector<std::string>                      fObjectNames{};              ///< Object names
+  std::map<std::string, std::vector<TObject *>> fObjectContentMap{};         ///< Object content map
+  std::vector<std::string>                      fParameterNames{};           ///< Parameter names
+  std::map<std::string, std::vector<double>>    fParameterContentMap{};      ///< Parameter content map
+  std::map<std::string, std::vector<double>>    fParameterErrorContentMap{}; ///< Parameter error content map
+  std::vector<std::string>                      fObjectTypes{"TH1"};         ///< Object types
 
   NGnNavigator *              fParent{nullptr}; ///< Parent object
   std::vector<NGnNavigator *> fChildren{};      ///< Children objects

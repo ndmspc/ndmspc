@@ -549,6 +549,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
                     std::string binLabel = hParams->GetXaxis()->GetBinLabel(b);
                     double      binValue = hParams->GetBinContent(b);
+                    double      binError = hParams->GetBinError(b);
                     NLogTrace("[L%d]   Bin %d[%s] = %e indexInProj=%d", level, b, binLabel.c_str(), binValue,
                                               indexInProj);
                     // // check if binlabel is "mass"
@@ -562,6 +563,9 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                     // obj->GetParent()->SetParameter(binLabel, binValue, indexInProj);
                     // fParent->SetParameter(binLabel, binValue, indexInProj);
                     current->SetParameter(binLabel, binValue, indexInProj);
+                    current->SetParameterError(binLabel, binError, indexInProj);
+                    NLogTrace("[L%d]   Stored parameter '%s' = %e +/- %e at indexInProj=%d", level, binLabel.c_str(),
+                                              binValue, binError, indexInProj);
                   }
                 }
               }
@@ -1418,6 +1422,56 @@ void NGnNavigator::SetParameter(const std::string & name, double value, int inde
   }
 }
 
+std::vector<double> NGnNavigator::GetParameterErrors(const std::string & name) const
+{
+  /// Returns parameters for given name
+  auto it = fParameterErrorContentMap.find(name);
+  if (it != fParameterErrorContentMap.end()) {
+    return it->second;
+  }
+  return {};
+}
+
+double NGnNavigator::GetParameterError(const std::string & name, int index) const
+{
+  /// Returns parameter for given name and index
+  auto it = fParameterErrorContentMap.find(name);
+  if (it != fParameterErrorContentMap.end() && index < (int)it->second.size()) {
+    return it->second[index];
+  }
+  return NAN;
+}
+
+void NGnNavigator::SetParameterError(const std::string & name, double value, int index)
+{
+  ///
+  /// Set parameter for given name and index
+  ///
+  if (!std::isnan(value)) {
+    if (fParameterErrorContentMap.find(name) == fParameterErrorContentMap.end() ||
+        fParameterErrorContentMap[name].size() < fNCells) {
+      NLogTrace("NGnNavigator::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(), fNCells);
+      ResizeParameterErrorContentMap(name, fNCells);
+    }
+    NLogTrace("NGnNavigator::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
+              fParameterErrorContentMap[name].size());
+
+    // Append parameter name if missing
+    if (std::find(fParameterNames.begin(), fParameterNames.end(), name) == fParameterNames.end()) {
+      fParameterNames.push_back(name);
+    }
+
+    if (index < 0) {
+      fParameterErrorContentMap[name].push_back(value);
+    }
+    else {
+      // if (index >= (int)fParameterContentMap[name].size()) {
+      //   fParameterContentMap[name].resize(index + 1, NAN);
+      // }
+      fParameterErrorContentMap[name][index] = value;
+    }
+  }
+}
 void NGnNavigator::DrawSpectraAll(std::string parameterName, Option_t * option) const
 {
   ///
@@ -1533,7 +1587,11 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
 
     // fill hParameterProjection from fParameterContentMap
     hParameterProjection->SetContent(GetParameters(parameterName).data());
-    // hParameterProjection->SetError(GetParameters(parameterName).data());
+
+    // NLogTrace("NGnNavigator::DrawSpectra: Setting parameter errors for '%s'", parameterName.c_str());
+    // Print all errors
+
+    hParameterProjection->SetError(GetParameterErrors(parameterName).data());
     // hParameterProjection->Draw("colz text");
     // return;
 
@@ -1550,7 +1608,6 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
       else if (i == 2)
         axis = hParameterProjection->GetZaxis();
 
-      ;
       hsParam->GetAxis(i)->SetName(axis->GetName());
       hsParam->GetAxis(i)->SetTitle(axis->GetTitle());
       // Apply all labels from fProjection to hs
@@ -1564,7 +1621,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
         if (!label.empty()) {
           hsParam->GetAxis(i)->SetBinLabel(j, label.c_str());
         }
-        hsParam->SetBinError(j, 1e-10);
+        // hsParam->SetBinError(j, 1e-10);
       }
     }
 
@@ -1685,9 +1742,9 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
         hProj->SetMarkerStyle(20);
         hProj->SetMarkerColor(iStack + 1);
         // set all errors to zero
-        for (int iBin = 1; iBin <= hProj->GetNbinsX(); iBin++) {
-          hProj->SetBinError(iBin, 1e-10);
-        }
+        // for (int iBin = 1; iBin <= hProj->GetNbinsX(); iBin++) {
+        //   hProj->SetBinError(iBin, 1e-10);
+        // }
         hStack->Add((TH1 *)hProj->Clone());
       }
 
