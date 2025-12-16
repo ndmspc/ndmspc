@@ -1,137 +1,230 @@
 #include <iostream>
-#include <sstream>
 #include <iomanip>
 #include <filesystem>
-#ifdef WITH_OPENTELEMETRY
-#include "opentelemetry/sdk/logs/logger_provider_factory.h"
-#include "opentelemetry/sdk/logs/simple_log_record_processor_factory.h"
-#include "opentelemetry/logs/provider.h"
-#include "opentelemetry/sdk/logs/logger_provider.h"
-namespace logs_sdk = opentelemetry::sdk::logs;
-#include "NLogExporter.h"
-#endif
+#include <mutex>
+#include <chrono>
+#include <ctime>
+#include <cstdarg>
 
 #include "NLogger.h"
 
-/// \cond CLASSIMP
-// ClassImp(Ndmspc::NLogger);
-/// \endcond
-
 namespace Ndmspc {
-// Initialize pointer to null
-std::unique_ptr<NLogger> NLogger::fgLogger = std::unique_ptr<NLogger>(new NLogger());
-// std::unique_ptr<NLogger> NLogger::fgLogger = nullptr;
-std::mutex NLogger::fgLoggerMutex;
 
-// NLogger::NLoggerger() : TObject()
+// Singleton instance and mutex
+std::mutex     NLogger::fgLoggerMutex;
+logs::Severity NLogger::fgMinSeverity   = logs::Severity::kInfo;
+std::string    NLogger::fgLogDirectory  = "/tmp/.ndmspc/logs";
+bool           NLogger::fgConsoleOutput = true;
+bool           NLogger::fgFileOutput    = false; // Default: no file logging
+std::string    NLogger::fgProcessName   = "";
+
 NLogger::NLogger()
 {
-  ///
-  /// Constructor
-  ///
-
   // Initialize the logger
   Init();
 }
+
 NLogger::~NLogger()
 {
-  ///
-  /// Destructor
-  ///
-
   Cleanup();
 }
+
 NLogger * NLogger::Instance()
 {
-  ///
-  /// Returns the singleton instance of NLogger
-  ///
-
-  std::lock_guard<std::mutex> lock(fgLoggerMutex);
-  if (fgLogger == nullptr) {
-    fgLogger = std::unique_ptr<NLogger>(new NLogger());
-  }
-  return fgLogger.get();
+  // Meyers' singleton for thread-safe, lazy initialization
+  static NLogger instance;
+  return &instance;
 }
+
 void NLogger::Init()
 {
-  ///
-  /// Init logger
-  ///
-
-  const char * env_severity = getenv("NDMSPC_LOG_LEVEL");
-  if (env_severity) {
-    fMinSeverity = GetSeverityFromString(env_severity);
-    if (fMinSeverity != logs::Severity::kInfo) {
+  // Init logger
+  if (const char * env_severity = getenv("NDMSPC_LOG_LEVEL")) {
+    fgMinSeverity = GetSeverityFromString(env_severity);
+    if (fgMinSeverity != logs::Severity::kInfo) {
       std::cout << "NLogger: Setting log level to '" << env_severity << "' ... " << std::endl;
     }
   }
-#ifdef WITH_OPENTELEMETRY
-  opentelemetry::sdk::resource::ResourceAttributes resource_attributes = {{"service.name", "ndmspc-service"},
-                                                                          {"application", "ndmspc-app"}};
-  auto resource = opentelemetry::sdk::resource::Resource::Create(resource_attributes);
+  if (const char * env_logdir = getenv("NDMSPC_LOG_DIR")) {
+    fgLogDirectory = env_logdir;
+  }
 
-  auto exporter  = std::unique_ptr<logs_sdk::LogRecordExporter>(new NLogExporter(std::cout, min_severity));
-  auto processor = logs_sdk::SimpleLogRecordProcessorFactory::Create(std::move(exporter));
+  // Check if process name is set via environment variable
+  if (const char * env_process_name = getenv("NDMSPC_PROCESS_NAME")) {
+    fgProcessName = env_process_name;
+  }
+  else {
+    // Default to process ID if no process name is set
+    fgProcessName = "ndmspc_" + std::to_string(getpid());
+  }
 
-  std::shared_ptr<opentelemetry::sdk::logs::LoggerProvider> sdk_provider(
-      logs_sdk::LoggerProviderFactory::Create(std::move(processor), resource));
+  // Check if file output is enabled via environment variable
+  if (const char * env_file_output = getenv("NDMSPC_LOG_FILE")) {
+    std::string value(env_file_output);
+    fgFileOutput = (value == "1" || value == "true" || value == "TRUE");
+  } // Check if console output is controlled via environment variable
 
-  // Set the global logger provider
-  const std::shared_ptr<logs_api::LoggerProvider> & api_provider = sdk_provider;
+  if (const char * env_console_output = getenv("NDMSPC_LOG_CONSOLE")) {
+    std::string value(env_console_output);
+    if (value == "0" || value == "false" || value == "FALSE") {
+      fgConsoleOutput = false;
+    }
+    else if (value == "1" || value == "true" || value == "TRUE") {
+      fgConsoleOutput = true;
+    }
+  }
 
-  logs_api::Provider::SetLoggerProvider(api_provider);
-#else
-  // If OpenTelemetry is not enabled, no initialization is needed
-#endif
+  // Set default name for main thread
+  std::thread::id main_tid         = std::this_thread::get_id();
+  std::string     main_thread_name = "main";
+
+  // Check if main thread name is set via environment variable
+  if (const char * env_main_thread = getenv("NDMSPC_MAIN_THREAD_NAME")) {
+    main_thread_name = env_main_thread;
+  }
+
+  fThreadNames[main_tid] = main_thread_name;
+
+  // Only create log directory if file output is enabled
+  if (fgFileOutput) {
+    try {
+      std::filesystem::create_directories(fgLogDirectory);
+    }
+    catch (const std::exception & e) {
+      std::cerr << "NLogger: Failed to create log directory: " << e.what() << std::endl;
+      fgFileOutput = false; // Disable file output on error
+    }
+  }
 }
 
 void NLogger::Cleanup()
 {
-  ///
-  /// Cleanup logger
-  ///
-
-#ifdef WITH_OPENTELEMETRY
-  std::shared_ptr<logs_api::LoggerProvider> noop;
-  logs_api::Provider::SetLoggerProvider(noop);
-#else
-  // If OpenTelemetry is not enabled, no cleanup is needed
-
-#endif
+  // Cleanup logger
+  std::lock_guard<std::mutex> lock(fStreamMapMutex);
+  fThreadStreams.clear();
+  fThreadNames.clear();
 }
 
-#ifdef WITH_OPENTELEMETRY
-
-logs_api::Severity NLogger::GetSeverityFromString(const std::string & severity_str)
+void NLogger::SetLogDirectory(const std::string & dir)
 {
-  ///
-  /// Returns the severity level from a string
-  ///
+  fgLogDirectory = dir;
+  if (fgFileOutput) {
+    try {
+      std::filesystem::create_directories(fgLogDirectory);
+    }
+    catch (const std::exception & e) {
+      std::cerr << "NLogger: Failed to create log directory: " << e.what() << std::endl;
+    }
+  }
+}
 
-  auto it = fgSeverityMap.find(severity_str);
-  if (it != fgSeverityMap.end()) {
+void NLogger::SetProcessName(const std::string & name)
+{
+  std::lock_guard<std::mutex> lock(fgLoggerMutex);
+  fgProcessName = name;
+}
+
+void NLogger::SetThreadName(const std::string & name, std::thread::id thread_id)
+{
+  std::cout << "NLogger: Setting thread name to '" << name << "' ..." << std::endl;
+  std::lock_guard<std::mutex> lock(Instance()->fStreamMapMutex);
+  Instance()->fThreadNames[thread_id] = name;
+}
+
+std::string NLogger::GetThreadName()
+{
+  std::thread::id             tid = std::this_thread::get_id();
+  std::lock_guard<std::mutex> lock(Instance()->fStreamMapMutex);
+
+  auto it = Instance()->fThreadNames.find(tid);
+  if (it != Instance()->fThreadNames.end()) {
     return it->second;
   }
-  // Default to INFO if unknown
-  return logs_api::Severity::kInfo;
-}
-opentelemetry::nostd::shared_ptr<logs_api::Logger> NLogger::GetDefaultLogger()
-{
-  ///
-  /// Returns the default logger
-  ///
 
-  auto provider = logs_api::Provider::GetLoggerProvider();
-  return provider->GetLogger("ndmpsc", "ndmspc");
+  // Return thread ID as string if no custom name
+  std::ostringstream oss;
+  oss << tid;
+  return oss.str();
 }
-#endif
+
+std::string NLogger::GetThreadIdentifier()
+{
+  std::thread::id tid = std::this_thread::get_id();
+
+  // Check if custom name exists (lock already held by caller)
+  auto it = fThreadNames.find(tid);
+  if (it != fThreadNames.end()) {
+    return it->second;
+  }
+
+  // Return thread ID as string
+  std::ostringstream oss;
+  oss << tid;
+  return oss.str();
+}
+
+std::ofstream & NLogger::GetThreadStream()
+{
+  std::thread::id tid = std::this_thread::get_id();
+
+  std::lock_guard<std::mutex> lock(fStreamMapMutex);
+
+  auto it = fThreadStreams.find(tid);
+  if (it != fThreadStreams.end()) {
+    return *(it->second);
+  }
+
+  // Get thread identifier (custom name or ID)
+  std::string thread_id = GetThreadIdentifier();
+
+  // Build filename with process name prefix
+  std::string filename_base;
+  if (!fgProcessName.empty()) {
+    filename_base = fgProcessName + "_" + thread_id;
+  }
+  else {
+    filename_base = thread_id;
+  }
+
+  // Sanitize filename (replace problematic characters)
+  for (char & c : filename_base) {
+    if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+      c = '_';
+    }
+  }
+
+  // Create new log file for this thread
+  std::ostringstream filename;
+  filename << fgLogDirectory << "/" << filename_base << ".log";
+
+  auto stream = std::make_unique<std::ofstream>(filename.str(), std::ios::app);
+
+  if (!stream->is_open()) {
+    std::cerr << "NLogger: Failed to open log file: " << filename.str() << std::endl;
+  }
+  else {
+    // Write header with process and thread info
+    auto        now      = std::chrono::system_clock::now();
+    std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+    *stream << "=== Log started at " << std::ctime(&now_time);
+    *stream << "=== Process: " << fgProcessName << " (PID: " << getpid() << ")" << std::endl;
+    *stream << "=== Thread: " << thread_id << std::endl;
+    stream->flush();
+  }
+
+  auto & ref          = *stream;
+  fThreadStreams[tid] = std::move(stream);
+  return ref;
+}
+void NLogger::CloseThreadStream(std::thread::id thread_id)
+{
+  std::lock_guard<std::mutex> lock(fStreamMapMutex);
+  fThreadStreams.erase(thread_id);
+  fThreadNames.erase(thread_id);
+}
+
 std::string NLogger::SeverityToString(logs::Severity level)
 {
-  ///
-  /// Convert enum Severity to string
-  ///
-
   switch (level) {
   case logs::Severity::kTrace: return "TRACE";
   case logs::Severity::kDebug: return "DEBUG";
@@ -145,10 +238,6 @@ std::string NLogger::SeverityToString(logs::Severity level)
 
 logs::Severity NLogger::GetSeverityFromString(const std::string & severity_str)
 {
-  ///
-  /// Returns the severity level from a string
-  ///
-
   auto it = logs::fgSeverityMap.find(severity_str);
   if (it != logs::fgSeverityMap.end()) {
     return it->second;
@@ -159,27 +248,14 @@ logs::Severity NLogger::GetSeverityFromString(const std::string & severity_str)
 
 void NLogger::Log(const char * file, int line, logs::Severity level, const char * format, ...)
 {
-  ///
-  /// Log the message with the given severity level
-  ///
-
-  if (fgLogger->GetMinSeverity() > level) {
-    return; // Skip logging if below minimum severity
+  if (Instance()->GetMinSeverity() > level) {
+    return;
   }
 
   va_list args;
   va_start(args, format);
 
-  // std::stringstream ss;
-
-  // Format the string using vprintf-like functionality
-  // TODO: Increase size of buffer if needed
-  // char buffer[1024]; // Adjust size as needed
-  // vsnprintf(buffer, sizeof(buffer), format, args);
-  // ss << buffer;
-#ifdef WITH_OPENTELEMETRY
-  GetDefaultLogger()->Log(level, ss.str());
-#else
+  // Format timestamp
   auto        now      = std::chrono::system_clock::now();
   std::time_t now_time = std::chrono::system_clock::to_time_t(now);
   std::tm *   now_tm   = std::localtime(&now_time);
@@ -187,92 +263,36 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
   auto        ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
   std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", now_tm);
 
-  // Print file and line for DEBUG and lower
-  if (level <= logs::Severity::kDebug) {
-    std::filesystem::path abs_path(file);
-    std::filesystem::path rel_path = abs_path.filename();
-    std::cout << "[" << time_buf << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
-              << "[" << SeverityToString(level) << "] "
-              << "[" << rel_path.string() << ":" << line << "] ";
-  }
-  else {
-    std::cout << "[" << time_buf << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
-              << "[" << SeverityToString(level) << "] ";
-  }
-  vprintf(format, args);
+  // Format message
+  char message_buf[4096];
+  vsnprintf(message_buf, sizeof(message_buf), format, args);
   va_end(args);
-  std::cout << std::endl;
-#endif
+
+  // Build log line
+  std::ostringstream log_line;
+  log_line << "[" << time_buf << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
+           << "[" << SeverityToString(level) << "] ";
+
+  if (level <= logs::Severity::kDebug4) {
+    log_line << "[" << std::filesystem::path(file).filename().string() << ":" << line << "] ";
+  }
+
+  log_line << message_buf;
+
+  // Thread-safe file output (only if enabled)
+  if (fgFileOutput) {
+    auto & stream = Instance()->GetThreadStream();
+    if (stream.is_open()) {
+      stream << log_line.str() << std::endl;
+      stream.flush();
+    }
+  }
+
+  // Console output (if enabled)
+  if (fgConsoleOutput) {
+    std::lock_guard<std::mutex> lock(fgLoggerMutex);
+    std::cout << log_line.str() << std::endl;
+  }
 }
-// void NLOG_DEBUG(const char * format, ...)
-// {
-//   ///
-//   /// Debug log
-//   ///
-//
-//   va_list args;
-//   va_start(args, format);
-//   Log(logs::Severity::kDebug, format, args);
-//   va_end(args);
-// }
-//
-// void NLOG_INFO(const char * format, ...)
-// {
-//   ///
-//   /// Info log
-//   ///
-//
-//   va_list args;
-//   va_start(args, format);
-//   Log(logs::Severity::kInfo, format, args);
-//   va_end(args);
-// }
-//
-// void NLOG_WARN(const char * format, ...)
-// {
-//   ///
-//   /// Warning log
-//   ///
-//
-//   va_list args;
-//   va_start(args, format);
-//   Log(logs::Severity::kWarn, format, args);
-//   va_end(args);
-// }
-//
-// void NLOG_ERROR(const char * format, ...)
-// {
-//   ///
-//   /// Error log
-//   ///
-//
-//   va_list args;
-//   va_start(args, format);
-//   Log(logs::Severity::kError, format, args);
-//   va_end(args);
-// }
-// void NLOG_FATAL(const char * format, ...)
-// {
-//   ///
-//   /// Fatal log
-//   ///
-//
-//   va_list args;
-//   va_start(args, format);
-//   Log(logs::Severity::kFatal, format, args);
-//   va_end(args);
-// }
-//
-// void NLOG_TRACE(const char * format, ...)
-// {
-//   ///
-//   /// Trace log
-//   ///
-//
-//   va_list args;
-//   va_start(args, format);
-//   Log(logs::Severity::kTrace, format, args);
-//   va_end(args);
-// }
 
 } // namespace Ndmspc

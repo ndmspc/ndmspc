@@ -3,7 +3,7 @@
 #include <TObject.h>
 #include <nlohmann/json.hpp>
 #include "NParameters.h"
-#include "RtypesCore.h"
+
 using json = nlohmann::json;
 
 namespace Ndmspc {

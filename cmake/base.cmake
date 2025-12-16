@@ -40,28 +40,34 @@ find_package(Threads REQUIRED)
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 
-message("-- Found C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
-if(
-CMAKE_CXX_STANDARD_DEFAULT STREQUAL "14" OR
-CMAKE_CXX_STANDARD_DEFAULT STREQUAL "17" OR
-CMAKE_CXX_STANDARD_DEFAULT STREQUAL "20" OR
-CMAKE_CXX_STANDARD_DEFAULT STREQUAL "23" OR
-CMAKE_CXX_STANDARD_DEFAULT STREQUAL "26"
-)
+# if(
+# CMAKE_CXX_STANDARD_DEFAULT STREQUAL "14" OR
+# CMAKE_CXX_STANDARD_DEFAULT STREQUAL "17" OR
+# CMAKE_CXX_STANDARD_DEFAULT STREQUAL "20" OR
+# CMAKE_CXX_STANDARD_DEFAULT STREQUAL "23" OR
+# CMAKE_CXX_STANDARD_DEFAULT STREQUAL "26"
+# )
+#
+#   message("-- Setting C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
+#   set(CMAKE_CXX_STANDARD ${CMAKE_CXX_STANDARD_DEFAULT})
+#   set(CMAKE_CXX_STANDARD_REQUIRED ON)
+#   # if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+#   #   add_compile_options(-Wno-deprecated)
+#   # elseif(MSVC)
+#   #   add_compile_options(/wd4996)
+#   # endif()
+# else()
+#   message("-- Setting C++ standard: 11")
+#   set(CMAKE_CXX_STANDARD 11)
+# endif()
+#
+# This is the preferred way
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+message("-- Found C++ standard: ${CMAKE_CXX_STANDARD}")
 
-  message("-- Setting C++ standard: ${CMAKE_CXX_STANDARD_DEFAULT}")
-  set(CMAKE_CXX_STANDARD ${CMAKE_CXX_STANDARD_DEFAULT})
-  set(CMAKE_CXX_STANDARD_REQUIRED ON)
-  # if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-  #   add_compile_options(-Wno-deprecated)
-  # elseif(MSVC)
-  #   add_compile_options(/wd4996)
-  # endif()
-else()
-  message("-- Setting C++ standard: 11")
-  set(CMAKE_CXX_STANDARD 11)
-endif()
-
+set(STRICT_WARNING_FLAGS)
 if(ENABLE_STRICT_WARNINGS)
   set(STRICT_WARNING_FLAGS
     -Wall             # Enable all common warnings
@@ -79,12 +85,17 @@ if(ENABLE_STRICT_WARNINGS)
     # -Wmissing-declarations # Warn for global functions/variables without declarations
     # -Wnon-virtual-dtor # Warn when a class with virtual functions has a non-virtual destructor
   )
-  if (WARNINGS_AS_ERRORS)
+
+  if(WARNINGS_AS_ERRORS)
     list(APPEND STRICT_WARNING_FLAGS -Werror)
   endif()
 
-  add_compile_options(${STRICT_WARNING_FLAGS})
 endif()
+
+# disable cpp warnings
+list(APPEND STRICT_WARNING_FLAGS -Wno-cpp)
+
+add_compile_options(${STRICT_WARNING_FLAGS})
 
 # add the binary tree to the search path for include files
 include_directories("${PROJECT_BINARY_DIR}")

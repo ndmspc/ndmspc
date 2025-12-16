@@ -12,7 +12,6 @@ option(USE_LEGACY "Compile with legacy code" OFF)
 option(WITH_TEST "Compile with tests" OFF)
 option(WITH_SERVER "Compile with server part" ON)
 option(WITH_PARQUET "Compile with Parquet support" OFF)
-option(WITH_OPENTELEMETRY "Compile with opentelemetry support" OFF)
 
 # option to use strict warning flags
 option(ENABLE_STRICT_WARNINGS "Enable strict warning flags" OFF)

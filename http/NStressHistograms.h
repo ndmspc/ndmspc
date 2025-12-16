@@ -2,7 +2,7 @@
 #define NdmspcNStressHistograms_H
 #include <TObject.h>
 #include <TRandom3.h>
-#include "RtypesCore.h"
+
 class TCanvas;
 class TObjArray;
 class TH1F;

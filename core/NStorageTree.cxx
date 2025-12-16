@@ -9,7 +9,7 @@
 #include "NBinningPoint.h"
 #include "NLogger.h"
 #include "NUtils.h"
-#include "RtypesCore.h"
+
 #include "NStorageTree.h"
 
 /// \cond CLASSIMP

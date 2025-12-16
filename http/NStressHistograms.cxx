@@ -6,7 +6,7 @@
 #include <TRandom3.h>
 #include <TBufferJSON.h>
 #include <TROOT.h>
-#include "RtypesCore.h"
+
 #include "NWsHandler.h"
 #include "NStressHistograms.h"
 
