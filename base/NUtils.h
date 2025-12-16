@@ -400,7 +400,7 @@ class NUtils : TObject {
    * @param prefix Prefix string.
    * @param suffix Suffix string.
    */
-  static void ProgressBar(int current, int total, int barWidth = 50, std::string prefix = "", std::string suffix = "");
+  static void ProgressBar(int current, int total, std::string prefix = "", std::string suffix = "", int barWidth = 50);
 
   /**
    * @brief Display progress bar with timing.
@@ -412,7 +412,7 @@ class NUtils : TObject {
    * @param suffix Suffix string.
    */
   static void ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime,
-                          int barWidth = 50, std::string prefix = "", std::string suffix = "");
+                          std::string prefix = "", std::string suffix = "", int barWidth = 50);
 
   /**
    * @brief Create THnSparse from Parquet Taxi file.

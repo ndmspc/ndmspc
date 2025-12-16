@@ -83,7 +83,7 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   if (!b) fHnSparseBase->GetStorageTree()->AddBranch("outputPoint", nullptr, "TList");
 
   if (ngnt->GetParameters()) {
-    NLogDebug("NGnThreadData::Init: Setting parameters branch for thread %zu", id);
+    NLogTrace("NGnThreadData::Init: Setting parameters branch for thread %zu", id);
     NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch("_params");
     if (!b) fHnSparseBase->GetStorageTree()->AddBranch("_params", nullptr, "Ndmspc::NParameters");
     fHnSparseBase->GetStorageTree()->GetBranch("_params")->SetAddress(ngnt->GetParameters());
@@ -110,7 +110,7 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   }
 
   if (input) {
-    NLogDebug("_____ NGnThreadData::Init: Setting input NGnTree for thread %zu '%s'", id,
+    NLogTrace("NGnThreadData::Init: Setting input NGnTree for thread %zu '%s'", id,
               input->GetStorageTree()->GetFileName().c_str());
     std::string branches = NUtils::Join(input->GetStorageTree()->GetBrancheNames(true), ',');
     fHnSparseBase->SetInput(NGnTree::Open(input->GetStorageTree()->GetFileName(), branches)); // Set the input NGnTree

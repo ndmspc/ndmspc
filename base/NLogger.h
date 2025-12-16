@@ -530,6 +530,11 @@ class NLogger {
    */
   static std::string GetThreadName();
 
+  static bool         GetConsoleOutput() { return fgConsoleOutput; } ///< Get console output flag
+  static bool         GetFileOutput() { return fgFileOutput; }       ///< Get file output flag
+  static std::string  GetLogDirectory() { return fgLogDirectory; }   ///< Get log directory path
+  static std::mutex & GetLoggerMutex() { return fgLoggerMutex; }     ///< Get logger mutex reference
+
   private:
   static std::mutex               fgLoggerMutex;   ///< Mutex for thread-safe singleton access
   static logs::Severity           fgMinSeverity;   ///< Minimum severity level for logging

@@ -48,7 +48,7 @@ THnSparse * NResourceMonitor::Initialize(THnSparse * hns)
   int                  nThreads = ROOT::GetThreadPoolSize();
   if (nThreads <= 0) nThreads = 1;
 
-  NLogDebug("NResourceMonitor::Initialize: Initializing resource monitor for %d threads", nThreads);
+  NLogTrace("NResourceMonitor::Initialize: Initializing resource monitor for %d threads", nThreads);
 
   TAxis * threadAxis = new TAxis(nThreads, 0, nThreads);
   threadAxis->SetNameTitle("thread", "Thread");
