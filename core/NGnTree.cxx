@@ -218,7 +218,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       return;
     }
 
-    hns->Print("all");
+    // hns->Print("all");
 
     int                           axisIdx = cfg["parameterAxis"].get<int>();
     std::vector<std::vector<int>> ranges;
@@ -270,6 +270,8 @@ NGnTree::~NGnTree()
   SafeDelete(fBinning);
   // SafeDelete(fTreeStorage);
   // SafeDelete(fNavigator);
+  SafeDelete(fWsClient);
+  SafeDelete(fParameters);
 }
 void NGnTree::Print(Option_t * option) const
 {
@@ -625,7 +627,7 @@ bool NGnTree::ProcessOld(NHnSparseProcessFuncPtr func, const std::vector<std::st
         TList * outputPoint = new TList();
 
         // if (coords[0] % refreshRate == 0) {
-        //   NUtils::ProgressBar(coords[0], maxs[0], 50, "Processing entries");
+        // NUtils::ProgressBar(coords[0], maxs[0], "Processing entries");
         // }
 
         point->SetTreeStorage(fTreeStorage); // Set the storage tree to the binning point
@@ -845,7 +847,10 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     }
     threadDataVector[i].SetCfg(cfg); // Set configuration to binning point
   }
-  auto task = [](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
+  int  processedEntries = 0;
+  int  totalEntries     = 0;
+  auto start_par        = std::chrono::high_resolution_clock::now();
+  auto task             = [&](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
     // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
     //                       thread_obj.GetAssignedIndex());
     // thread_obj.Print();
@@ -856,13 +861,15 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     NWsClient * wsClient = thread_obj.GetHnSparseBase()->GetWsClient();
     if (wsClient) wsClient->Send(progress.dump());
     thread_obj.Process(coords);
+    processedEntries++;
     progress["status"] = "D";
     if (wsClient) wsClient->Send(progress.dump());
+
+    if (!NLogger::GetConsoleOutput()) NUtils::ProgressBar(processedEntries, totalEntries, start_par, "Process");
   };
   int iDef   = 0;
   int sumIds = 0;
 
-  auto start_par = std::chrono::high_resolution_clock::now();
   for (auto & name : defNames) {
     auto binningDef = binningIn->GetDefinition(name);
     if (!binningDef) {
@@ -874,6 +881,9 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     maxs.push_back(binningDef->GetIds().size() - 1);
     NLogDebug("NGnTree::Process: Processing with binning definition '%s' with %zu entries", name.c_str(),
               binningDef->GetIds().size());
+
+    totalEntries = maxs[0] + 1;
+    if (!NLogger::GetConsoleOutput()) NUtils::ProgressBar(processedEntries, totalEntries, start_par, "Running");
 
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
@@ -1113,7 +1123,7 @@ void NGnTree::SetNavigator(NGnNavigator * navigator)
   ///
 
   if (fNavigator) {
-    NLogWarning("NGnTree::SetNavigator: Replacing existing navigator ...");
+    NLogTrace("NGnTree::SetNavigator: Replacing existing navigator ...");
     SafeDelete(fNavigator);
   }
 
@@ -1158,6 +1168,10 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   ///
   TString opt = option;
   opt.ToUpper();
+
+  std::string annimationTempDir =
+      TString::Format("%s/.ndmspc/animation/%d", gSystem->Getenv("HOME"), gSystem->GetPid()).Data();
+  gSystem->Exec(TString::Format("mkdir -p %s", annimationTempDir.c_str()));
 
   Ndmspc::NWsClient * client = nullptr;
 
@@ -1226,7 +1240,7 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
     fBinning->GetPoint()->Print();
     TList * l = (TList *)fTreeStorage->GetBranch("outputPoint")->GetObject();
     if (!l || l->IsEmpty()) {
-      NLogInfo("No output for entry %lld", id);
+      NLogWarning("NGnTree::Play: No 'outputPoint' for entry %lld !!!", id);
       continue;
     }
     else {
@@ -1268,7 +1282,7 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
             NLogDebug("Mean value from histogram [%s]: %f", h->GetName(), v);
           }
         }
-        bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), v);
+        bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), 1);
         c1->cd(1);
         TH1 * bdProj = (TH1 *)gROOT->FindObjectAny("bdProj");
         if (bdProj) {
@@ -1297,13 +1311,22 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
         }
       }
     }
-    if (c1) c1->ModifiedUpdate();
+    if (c1) {
+      c1->ModifiedUpdate();
+      c1->SaveAs(TString::Format("%s/ndmspc_play_%06lld.png", annimationTempDir.c_str(), bdContent->GetNbins()).Data());
+    }
     gSystem->ProcessEvents();
     if (timeout > 0) gSystem->Sleep(timeout);
     NLogInfo("%d", id);
   }
-  if (client) client->Disconnect();
 
+  NLogInfo("Creating animation gif from %s/ndmspc_play_*.png ...", annimationTempDir.c_str());
+  gSystem->Exec(
+      TString::Format("magick -delay 20 -loop 0 %s/ndmspc_play_*.png ndmspc_play.gif", annimationTempDir.c_str()));
+  gSystem->Exec(TString::Format("rm -fr %s", annimationTempDir.c_str()));
+  NLogInfo("Animation saved to %s/ndmspc_play.gif", annimationTempDir.c_str());
+
+  if (client) client->Disconnect();
   delete bdContent;
 }
 
@@ -1465,8 +1488,13 @@ bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
   ///
 
   if (fParameters) {
-    NLogWarning("NGnTree::InitParameters: Replacing existing parameters ...");
+    NLogTrace("NGnTree::InitParameters: Replacing existing parameters ...");
     delete fParameters;
+  }
+
+  if (paramNames.empty()) {
+    NLogTrace("NGnTree::InitParameters: No parameter names provided, skipping ...");
+    return false;
   }
 
   fParameters = new NParameters("results", "Results", paramNames);

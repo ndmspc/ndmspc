@@ -58,4 +58,5 @@ compile_commands.json
 test.C
 notes
 .ipynb*
+*.gif
 .ndmspc

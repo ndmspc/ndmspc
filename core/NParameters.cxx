@@ -15,7 +15,7 @@ NParameters::NParameters(const char * name, const char * title, std::vector<std:
   ///
 
   if (parNames.empty()) {
-    NLogWarning("NParameters::NParameters: No parameter names provided, creating empty parameters histogram.");
+    NLogTrace("NParameters::NParameters: No parameter names provided, creating empty parameters histogram.");
     return;
   }
   fHisto = new TH1D("ParametersHisto", "ParametersHisto", parNames.size(), 0, parNames.size());

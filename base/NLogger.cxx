@@ -126,7 +126,6 @@ void NLogger::SetProcessName(const std::string & name)
 
 void NLogger::SetThreadName(const std::string & name, std::thread::id thread_id)
 {
-  std::cout << "NLogger: Setting thread name to '" << name << "' ..." << std::endl;
   std::lock_guard<std::mutex> lock(Instance()->fStreamMapMutex);
   Instance()->fThreadNames[thread_id] = name;
 }

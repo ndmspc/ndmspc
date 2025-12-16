@@ -1413,13 +1413,16 @@ std::string NUtils::FormatTime(long long seconds)
   return ss.str();
 }
 
-void NUtils::ProgressBar(int current, int total, int barWidth, std::string prefix, std::string suffix)
+void NUtils::ProgressBar(int current, int total, std::string prefix, std::string suffix, int barWidth)
 {
 
   ///
   /// Print progress bar
   ///
   if (total == 0) return; // Avoid division by zero
+
+  // Let's do protection against any log to be written during progress bar
+  std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
 
   float percentage = static_cast<float>(current) / total;
   int   numChars   = static_cast<int>(percentage * barWidth);
@@ -1437,16 +1440,18 @@ void NUtils::ProgressBar(int current, int total, int barWidth, std::string prefi
   std::cout << "] " << static_cast<int>(percentage * 100.0) << "%"
             << " (" << current << "/" << total << ")";
   if (!suffix.empty()) std::cout << " [" << suffix << "]";
+  if (current == total) std::cout << std::endl;
   std::cout << std::flush; // Ensure immediate output
 }
 
-void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime, int barWidth,
-                         std::string prefix, std::string suffix)
+void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime,
+                         std::string prefix, std::string suffix, int barWidth)
 {
   ///
   /// Print progress bar
   ///
-  if (total == 0) return;               // Avoid division by zero
+  if (total == 0) return; // Avoid division by zero
+  std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
   if (current > total) current = total; // Cap current to total for safety
 
   float percentage = static_cast<float>(current) / total;
@@ -1454,7 +1459,7 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
 
   // std::cout << "\r[" << prefix << "] ["; // Carriage return
   std::cout << "\r[";
-  if (!prefix.empty()) std::cout << prefix << "] ["; // Carriage return
+  if (!prefix.empty()) std::cout << prefix << "]["; // Carriage return
   for (int i = 0; i < numChars; ++i) {
     std::cout << "=";
   }
@@ -1479,6 +1484,7 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
             << "Elapsed: " << FormatTime(elapsedSeconds) << " "
             << "ETA: " << FormatTime(estimatedRemainingSeconds);
   if (!suffix.empty()) std::cout << " [" << suffix << "]";
+  if (current == total) std::cout << std::endl;
   std::cout << std::flush; // Ensure immediate output
 }
 THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, THnSparse * hns, Int_t nMaxRows)
