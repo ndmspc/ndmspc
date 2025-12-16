@@ -865,7 +865,11 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     progress["status"] = "D";
     if (wsClient) wsClient->Send(progress.dump());
 
-    if (!NLogger::GetConsoleOutput()) NUtils::ProgressBar(processedEntries, totalEntries, start_par, "Process");
+    if (!NLogger::GetConsoleOutput()) {
+      int nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
+                                                                                              : totalEntries - processedEntries;
+      NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4d", nRunning).Data());
+    }
   };
   int iDef   = 0;
   int sumIds = 0;
@@ -882,8 +886,16 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     NLogDebug("NGnTree::Process: Processing with binning definition '%s' with %zu entries", name.c_str(),
               binningDef->GetIds().size());
 
+    if (NLogger::GetConsoleOutput()) {
+      NLogInfo("NGnTree::Process: Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
+    }
+    else {
+      Printf("Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
+    }
     totalEntries = maxs[0] + 1;
-    if (!NLogger::GetConsoleOutput()) NUtils::ProgressBar(processedEntries, totalEntries, start_par, "Running");
+    if (!NLogger::GetConsoleOutput())
+      NUtils::ProgressBar(processedEntries, totalEntries, start_par,
+                          TString::Format("R%4d", (int)threadDataVector.size()).Data());
 
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
@@ -900,6 +912,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
       fWsClient->Send(jobMon.dump());
     }
     /// Main execution
+
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
     executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
 
@@ -992,8 +1005,13 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
     fParameters  = outputData->GetHnSparseBase()->GetParameters();
 
-    NLogInfo("NGnTree::Process: Processing completed successfully. Output was stored in '%s'.",
-             fTreeStorage->GetFileName().c_str());
+    if (NLogger::GetConsoleOutput()) {
+      NLogInfo("NGnTree::Process: Processing completed successfully. Output was stored in '%s'.",
+               fTreeStorage->GetFileName().c_str());
+    }
+    else {
+      Printf("Processing completed successfully. Output was stored in '%s'.", fTreeStorage->GetFileName().c_str());
+    }
 
     jobMon["status"] = "D";
     if (fWsClient) {

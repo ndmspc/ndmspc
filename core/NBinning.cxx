@@ -534,7 +534,7 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     NLogTrace("NBinning::FillAll: Filled bin %lld: %lld", nBinsFilled, nTotalBins);
     int refreshRate = nTotalBins / 100;
     if (refreshRate == 0) refreshRate = nTotalBins;
-    if (nBinsFilled % (refreshRate) == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par, "Init   ");
+    if (nBinsFilled % (refreshRate) == 0) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par, "I    ");
     // NLogDebug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
     //                nBinsFilled);
   };
