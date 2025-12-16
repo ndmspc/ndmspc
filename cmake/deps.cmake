@@ -9,13 +9,13 @@ find_package(OpenSSL REQUIRED)
 find_package(LIBUV REQUIRED)
 find_package(LIBWEBSOCKETS REQUIRED)
 
-if(WITH_OPENTELEMETRY)
-  # TODO: Remove it: Temporary fix for opentelemetry-cpp
-  add_definitions(-Wno-cpp)
-  message(STATUS "Compiling with OpenTelemetry support")
-  find_package(opentelemetry-cpp CONFIG REQUIRED)
-  message(STATUS "Found opentelemetry-cpp: ${opentelemetry-cpp_VERSION}")
-endif()
+# if(WITH_OPENTELEMETRY)
+#   # TODO: Remove it: Temporary fix for opentelemetry-cpp
+#   add_definitions(-Wno-cpp)
+#   message(STATUS "Compiling with OpenTelemetry support")
+#   find_package(opentelemetry-cpp CONFIG REQUIRED)
+#   message(STATUS "Found opentelemetry-cpp: ${opentelemetry-cpp_VERSION}")
+# endif()
 
 
 if(WITH_PARQUET)

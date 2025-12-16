@@ -5,7 +5,7 @@
 #include "NStorageTree.h"
 #include "NUtils.h"
 #include "NBinning.h"
-#include "RtypesCore.h"
+
 #include "NBinningPoint.h"
 
 /// \cond CLASSIMP

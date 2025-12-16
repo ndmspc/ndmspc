@@ -23,8 +23,7 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   ///
   SetAssignedIndex(id);
   SetThreadId(std::this_thread::get_id());
-  // SetIdSet(true);
-  //
+
   TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
 
   // if (!func) {

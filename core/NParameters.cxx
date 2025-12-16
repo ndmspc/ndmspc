@@ -1,6 +1,6 @@
 #include <vector>
 #include "NLogger.h"
-#include "RtypesCore.h"
+
 #include "NParameters.h"
 
 /// \cond CLASSIMP

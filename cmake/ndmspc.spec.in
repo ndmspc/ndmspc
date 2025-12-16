@@ -12,9 +12,9 @@ Source0:    %{name}-%{version}.tar.gz
 BuildRequires: systemd-rpm-macros
 BuildRequires: gcc-c++, cmake
 BuildRequires: doxygen
-BuildRequires: openssl-devel, libcurl-devel, libuv-devel, libwebsockets-devel, protobuf-devel
+BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
+# BuildRequires: protobuf-devel
 BuildRequires: json-devel
-# BuildRequires: opentelemetry-cpp-devel
 # BuildRequires: parquet-libs-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
 Requires:      root, root-netx, xrootd-client
@@ -60,8 +60,7 @@ cmake ../ \
 -DCMAKE_BUILD_TYPE=Release \
 -DBUILD_DOCUMENTATION=on \
 -DWITH_TEST=OFF \
--DWITH_PARQUET=OFF \
--DWITH_OPENTELEMETRY=OFF
+-DWITH_PARQUET=OFF
 
 make %{?_smp_mflags}
 cd ../

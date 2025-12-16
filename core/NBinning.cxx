@@ -8,7 +8,7 @@
 #include "NDimensionalExecutor.h"
 #include "NUtils.h"
 #include "NLogger.h"
-#include "RtypesCore.h"
+
 #include "NBinning.h"
 
 /// \cond CLASSIMP

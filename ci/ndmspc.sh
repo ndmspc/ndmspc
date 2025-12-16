@@ -1,11 +1,10 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v0.20250923.0"
+tag: "v1.0.0"
 requires:
   - ROOT
   - JAliEn-ROOT
   - nlohmann_json
-  # - opentelemetry-cpp
   - libwebsockets
   - curl
   - libuv

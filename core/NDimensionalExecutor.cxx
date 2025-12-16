@@ -1,4 +1,3 @@
-#include <stdexcept>
 #include <string>
 #include <THnSparse.h>
 #include <TAxis.h>

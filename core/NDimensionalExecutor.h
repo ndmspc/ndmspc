@@ -1,6 +1,8 @@
 #ifndef N_DIMENSIONAL_EXECUTOR_H
 #define N_DIMENSIONAL_EXECUTOR_H
 
+#include <iomanip>
+#include <sstream>
 #include <vector>
 #include <functional>
 #include <cstddef>
@@ -13,6 +15,8 @@
 #include <utility>
 #include <exception>
 #include <THnSparse.h>
+#include "NLogger.h"
+#include "NThreadData.h"
 
 namespace Ndmspc {
 
@@ -117,6 +121,12 @@ void NDimensionalExecutor::ExecuteParallel(
 
   // Worker thread logic: fetch and execute tasks, handle exceptions, signal completion.
   auto worker_logic = [&](TObject & my_object) {
+    NThreadData * md = (NThreadData *)&my_object;
+
+    std::ostringstream oss;
+    oss << "wk_" << std::setw(3) << std::setfill('0') << md->GetAssignedIndex();
+
+    NLogger::SetThreadName(oss.str());
     while (true) {
       std::function<void(TObject &)> task_payload;
       bool                           task_acquired = false; // Track if we actually got a task this iteration

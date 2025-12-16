@@ -23,7 +23,6 @@
 #include "NParameters.h"
 #include "NUtils.h"
 #include "NWsClient.h"
-#include "RtypesCore.h"
 
 #include "NGnNavigator.h"
 
