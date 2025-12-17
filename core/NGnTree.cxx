@@ -1,7 +1,6 @@
 #include <cstddef>
 #include <string>
 #include <vector>
-#include <iostream>
 #include <TDirectory.h>
 #include <TObject.h>
 #include <TList.h>
@@ -16,7 +15,6 @@
 #include <TBufferJSON.h>
 #include <sys/poll.h>
 #include "NParameters.h"
-#include "NResourceMonitor.h"
 #include "NStorageTree.h"
 #include "NBinning.h"
 #include "NBinningDef.h"
