@@ -11,6 +11,7 @@ set(MY_INCLUDE_DIRS
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/base
   ${CMAKE_SOURCE_DIR}/core
+  ${CMAKE_SOURCE_DIR}/tutorial
 )
 set(MY_EXTERNAL_LIBS
   ${THREADS_LIBRARIES}
@@ -27,8 +28,15 @@ set(MY_EXTERNAL_LIBS
 file(COPY ${CMAKE_SOURCE_DIR}/macros/root/cernstaff/cernstaff.root
 DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
 )
-add_executable(test_NGnTree test_NGnTree.cxx)
-target_include_directories(test_NGnTree PRIVATE ${MY_INCLUDE_DIRS})
-target_link_directories(test_NGnTree PRIVATE ${ROOT_LIBRARY_DIR})
-target_link_libraries(test_NGnTree gtest_main ${MY_EXTERNAL_LIBS})
-add_test(NAME NGnTreeTest COMMAND test_NGnTree)
+
+file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
+
+foreach(src ${SRCS})
+  string(REPLACE ".C" "" testname ${src})
+  add_executable(${testname} ${src})
+  target_include_directories(${testname} PRIVATE ${MY_INCLUDE_DIRS})
+  target_link_directories(${testname} PRIVATE ${ROOT_LIBRARY_DIR})
+  target_link_libraries(${testname} gtest_main ${MY_EXTERNAL_LIBS})
+  add_test(NAME ${testname} COMMAND ${testname})
+endforeach()
+

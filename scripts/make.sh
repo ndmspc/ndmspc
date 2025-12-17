@@ -9,6 +9,7 @@ BEING_STRICT=false
 
 BUILDING_DOC=false
 WITH_TEST=${WITH_TEST-false}
+TEST_ARGS=${TEST_ARGS-""}
 WITH_SERVER=${WITH_SERVER-true}
 WITH_LEGACY=${WITH_LEGACY-false}
 WITH_PARQUET=${WITH_PARQUET-false}
@@ -90,7 +91,11 @@ for ARG in $@; do
       echo "Building with tests ..."
       WITH_TEST=true
       ;;
-
+    "testv")
+      echo "Building with tests ..."
+      WITH_TEST=true
+      TEST_ARGS="-V"
+      ;;
     *)
       echo "Unknown argument! Exiting..."
       exit 1
@@ -166,5 +171,5 @@ ${MY_BUILDSYS} -j$(nproc) ${MY_MAKE_OPTS}
 
 if [[ $WITH_TEST == true ]]; then
   echo "Running tests ..."
-  ${MY_BUILDSYS} test
+  ARGS=$TEST_ARGS ${MY_BUILDSYS} test
 fi
