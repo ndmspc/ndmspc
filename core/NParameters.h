@@ -1,8 +1,6 @@
 #ifndef Ndmspc_NParameters_H
 #define Ndmspc_NParameters_H
 #include <TH1D.h>
-#include <cstddef>
-#include "Rtypes.h"
 
 namespace Ndmspc {
 
