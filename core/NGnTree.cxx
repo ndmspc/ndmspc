@@ -58,6 +58,13 @@ NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) :
   ///
   /// Constructor
   ///
+
+  if (axes == nullptr) {
+    NLogError("NGnTree::NGnTree: Axes TObjArray is nullptr.");
+    MakeZombie();
+    return;
+  }
+
   if (axes == nullptr && axes->GetEntries() == 0) {
     NLogError("NGnTree::NGnTree: No axes provided, binning is nullptr.");
     MakeZombie();
@@ -194,8 +201,8 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
-                                                   int threadId) {
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
+                                                   TList *                 outputPoint, int /*threadId*/) {
     // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();
@@ -297,7 +304,7 @@ void NGnTree::Print(Option_t * option) const
   }
 }
 
-void NGnTree::Draw(Option_t * option)
+void NGnTree::Draw(Option_t * /*option*/)
 {
   ///
   /// Draw object
@@ -332,483 +339,12 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::strin
 
   fBinning->Reset();
   fBinning->SetCfg(cfg); // Set configuration to binning point
-  // bool rc = ProcessOld(func, defNames, cfg, binningIn);
   bool rc = Process(func, defNames, cfg, binningIn);
   if (!rc) {
     NLogError("NGnTree::Process: Processing failed !!!");
     return false;
   }
   // bool rc = false;
-  return true;
-}
-bool NGnTree::ProcessOld(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg,
-                         NBinning * binningIn)
-{
-  ///
-  /// Process the sparse object with the given function
-  ///
-
-  NLogInfo("NGnTree::Process: Starting processing with %zu definitions ...", defNames.size());
-  bool batch = gROOT->IsBatch();
-  gROOT->SetBatch(kTRUE);
-  int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
-
-  const char * wsUrl = gSystem->Getenv("NDMSPC_WS_URL");
-  if (!fWsClient && wsUrl) {
-    fWsClient = new NWsClient();
-    fWsClient->Connect(wsUrl);
-    NLogInfo("NGnTree::Process: Connected to WebSocket server at '%s'", wsUrl);
-  }
-
-  // Disable TH1 add directory feature
-  TH1::AddDirectory(kFALSE);
-
-  // Initialize output list
-  TList *       output = GetOutput(fBinning->GetCurrentDefinitionName());
-  NTreeBranch * b      = fTreeStorage->GetBranch("outputPoint");
-  if (!b) fTreeStorage->AddBranch("outputPoint", nullptr, "TList");
-
-  if (fParameters) {
-    NTreeBranch * b = fTreeStorage->GetBranch("results");
-    if (!b) fTreeStorage->AddBranch("results", nullptr, "Ndmspc::NParameters");
-  }
-
-  // Original binning
-  NBinning * originalBinning = (NBinning *)binningIn->Clone();
-
-  // check if ImplicitMT is enabled
-  if (ROOT::IsImplicitMTEnabled()) {
-
-    NLogInfo("NGnTree::Process: ImplicitMT is enabled, using %zu threads", nThreads);
-    // 1. Create the vector of NThreadData objects
-    std::vector<Ndmspc::NGnThreadData> threadDataVector(nThreads);
-    std::string                        filePrefix = fTreeStorage->GetPrefix() + "/";
-    for (size_t i = 0; i < threadDataVector.size(); ++i) {
-      std::string filename =
-          filePrefix + std::to_string(gSystem->GetPid()) + "_" + std::to_string(i) + "_" + fTreeStorage->GetPostfix();
-      bool rc =
-          threadDataVector[i].Init(i, func, this, binningIn, fInput, filename, fTreeStorage->GetTree()->GetName());
-      if (!rc) {
-        NLogError("Failed to initialize thread data %zu, exiting ...", i);
-        return false;
-      }
-      threadDataVector[i].SetCfg(cfg); // Set configuration to binning point
-    }
-    auto start_par = std::chrono::high_resolution_clock::now();
-    auto task      = [](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
-      // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
-      //                       thread_obj.GetAssignedIndex());
-      // thread_obj.Print();
-      thread_obj.Process(coords);
-    };
-
-    int iDef   = 0;
-    int sumIds = 0;
-
-    for (auto & name : defNames) {
-      // Get the binning definition
-      // auto binningDef = fBinning->GetDefinition(name);
-      auto binningDef = binningIn->GetDefinition(name);
-      if (!binningDef) {
-        NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-        return false;
-      }
-      // hnsbBinningIn->GetDefinition(name);
-
-      // binningDef->Print();
-
-      // Convert the binning definition to mins and maxs
-      std::vector<int> mins, maxs;
-
-      mins.push_back(0);
-      maxs.push_back(binningDef->GetIds().size() - 1);
-
-      NLogDebug("NGnTree::Process: Processing with binning definition '%s' with %zu entries", name.c_str(),
-                binningDef->GetIds().size());
-
-      for (size_t i = 0; i < threadDataVector.size(); ++i) {
-        threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
-      }
-      /// Main execution
-      Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
-      executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
-
-      // Update hnsbBinningIn with the processed ids
-      NLogTrace("NGnTree::Process: [BEGIN] ------------------------------------------------");
-      sumIds += binningIn->GetDefinition(name)->GetIds().size();
-      binningIn->GetDefinition(name)->GetIds().clear();
-      for (size_t i = 0; i < threadDataVector.size(); ++i) {
-        NLogTrace("NGnTree::Process: -> Thread %zu processed %lld entries", i, threadDataVector[i].GetNProcessed());
-        // threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name)->Print();
-        binningIn->GetDefinition(name)->GetIds().insert(
-            binningIn->GetDefinition(name)->GetIds().end(),
-            threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds().begin(),
-            threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds().end());
-        sort(binningIn->GetDefinition(name)->GetIds().begin(), binningIn->GetDefinition(name)->GetIds().end());
-      }
-      // hnsbBinningIn->GetDefinition(name)->Print();
-      // remove entries present in hnsbBinningIn from other definitions
-      for (size_t i = 0; i < defNames.size(); i++) {
-
-        std::string other_name = defNames[i];
-        auto        otherDef   = binningIn->GetDefinition(other_name);
-        if (i <= iDef) {
-          continue;
-        }
-        if (!otherDef) {
-          NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
-          return false;
-        }
-        // remove entries that has value less then sumIds
-        for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
-          NLogTrace("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
-                    other_name.c_str(), sumIds);
-          if (*it < sumIds) {
-            NLogTrace("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
-            it = otherDef->GetIds().erase(it);
-          }
-          else {
-            ++it;
-          }
-        }
-
-        binningIn->GetDefinition(other_name)->Print();
-      }
-      // hnsbBinningIn->GetDefinition(name)->Print();
-      iDef++;
-
-      NLogTrace("NGnTree::Process: [END] ------------------------------------------------");
-      // return false;
-    }
-    auto                                      end_par      = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
-
-    NLogInfo("NGnTree::Process: Parallel execution completed and it took %s .",
-             NUtils::FormatTime(par_duration.count() / 1000).c_str());
-
-    //
-    // Print number of results
-    NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
-    for (auto & data : threadDataVector) {
-      NLogTrace("NGnTree::Process: Result from thread %zu: ", data.GetAssignedIndex());
-      data.GetHnSparseBase()->GetStorageTree()->Close(true);
-    }
-
-    // NLogInfo("Merging results was skipped !!!");
-    // return false;
-
-    NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
-    TList *                 mergeList  = new TList();
-    Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
-    outputData->Init(0, func, this, binningIn);
-    outputData->SetCfg(cfg);
-    // outputData->Init(0, func, this);
-
-    for (auto & data : threadDataVector) {
-      NLogTrace("NGnTree::Process: Adding thread data %zu to merge list ...", data.GetAssignedIndex());
-      // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
-      mergeList->Add(&data);
-    }
-
-    Long64_t nmerged = outputData->Merge(mergeList);
-    if (nmerged <= 0) {
-      NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
-      delete mergeList;
-      return false;
-    }
-
-    // delete all temporary files
-    for (auto & data : threadDataVector) {
-      std::string filename = data.GetHnSparseBase()->GetStorageTree()->GetFileName();
-      NLogTrace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
-      gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
-    }
-
-    // return false;
-    // TIter next(outputData->GetOutput());
-    // while (auto obj = next()) {
-    //   NLogTrace("Adding object '%s' to binning '%s' ...", obj->GetName(),
-    //                          fBinning->GetCurrentDefinitionName().c_str());
-    //   GetOutput()->Add(obj);
-    // }
-    // NLogInfo("Output list contains %d objects", GetOutput()->GetEntries());
-    // outputData->GetTreeStorage()->Close(true); // Close the output file and write the tree
-    fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
-    fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
-    fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
-    fParameters  = outputData->GetHnSparseBase()->GetParameters();
-    NLogInfo("NGnTree::Process: Merged %lld outputs successfully", nmerged);
-  }
-  else {
-
-    if (fParameters) {
-      fBinning->GetPoint()->SetParameters(fParameters);
-      fTreeStorage->GetBranch("results")->SetAddress(fParameters); // Set the output list as branch address
-    }
-    // int lastIdx = 0;
-    for (auto & name : defNames) {
-      // Get the binning definition
-      auto binningDef = fBinning->GetDefinition(name);
-      if (!binningDef) {
-        NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-        return false;
-      }
-
-      binningIn->GetDefinition(name);
-      // hnsbBinningIn->Print();
-      // binningDef->Print();
-
-      // Convert the binning definition to mins and maxs
-      std::vector<int> mins, maxs;
-
-      mins.push_back(0);
-      maxs.push_back(binningDef->GetIds().size() - 1);
-      // lastIdx += binningDef->GetIds().size();
-      int refreshRate = maxs[0] / 100;
-
-      NLogTrace("NGnTree::Process Processing with binning definition '%s' with %zu entries", name.c_str(),
-                binningDef->GetIds().size());
-
-      // binningDef->Print();
-      binningDef->GetIds().clear();
-      binningDef->GetContent()->Reset(); // Reset the content before processing
-
-      // rc = Process(func, mins, maxs, binningDef, cfg);
-      // Print();
-      // std::vector<Long64_t> entries;
-
-      // Create stat histogram for processed entries
-
-      NResourceMonitor monitor;
-      output->Add(monitor.Initialize(binningDef->GetContent())); // Add stat histogram to output list
-
-      json jobMon;
-      jobMon["jobName"] = name;
-      jobMon["user"]    = gSystem->Getenv("USER");
-      jobMon["host"]    = gSystem->HostName();
-      jobMon["pid"]     = gSystem->GetPid();
-      jobMon["ntasks"]  = maxs[0] + 1;
-      if (fWsClient) {
-        NLogInfo("NGnTree::Process: Sending job monitor info to WebSocket server ...");
-        fWsClient->Send(jobMon.dump());
-      }
-      NLogInfo("NGnTree::Process: Starting processing for binning definition '%s' with %d tasks ...", name.c_str(),
-               maxs[0] + 1);
-
-      auto start_par = std::chrono::high_resolution_clock::now();
-      auto task      = [this, func, binningDef, start_par, &maxs, &refreshRate, binningIn,
-                   &monitor](const std::vector<int> & coords) {
-        NBinningPoint * point = fBinning->GetPoint();
-        Long64_t        entry = binningIn->GetDefinition()->GetId(coords[0]);
-        json            progress;
-        progress["jobName"] = binningDef->GetName();
-        progress["status"]  = "R";
-        progress["task"]    = coords[0];
-        if (fWsClient) {
-          fWsClient->Send(progress.dump());
-          NLogDebug("NGnTree::Process: Sent progress for task %d", coords[0]);
-        }
-
-        if (entry < fBinning->GetContent()->GetNbins()) {
-          // entry = binningDef->GetContent()->GetBinContent(entry);
-          // point->SetEntryNumber(entry);
-          // FIXME: Handle this case properly (this should be done in the end of whole processing)
-          // fBinning->GetDefinition()->GetIds().push_back(entry);
-          NLogTrace("NGnTree::Process: Skipping entry=%lld, because it was already process !!!", entry);
-          return;
-        }
-        // hnsbBinningIn->GetContent()->GetBinContent(coords[0]);
-        //
-        // NLogDebug("coords=[%lld] Binning definition ID: '%s' hnsbBinningIn_entry=%lld", coords[0],
-        //                        hnsbBinningIn->GetCurrentDefinitionName().c_str(), entry);
-        binningIn->GetContent()->GetBinContent(entry, point->GetCoords());
-        point->RecalculateStorageCoords(entry, false);
-
-        TList * outputPoint = new TList();
-
-        // if (coords[0] % refreshRate == 0) {
-        // NUtils::ProgressBar(coords[0], maxs[0], "Processing entries");
-        // }
-
-        point->SetTreeStorage(fTreeStorage); // Set the storage tree to the binning point
-        point->SetInput(fInput);             // Set the input NGnTree to the binning point
-
-        // gather start resource usage
-        monitor.Start();
-
-        // Process the point
-        func(point, this->GetOutput(), outputPoint, 0); // Call the lambda function
-
-        // gather resource usage after processing
-        monitor.End();
-        monitor.Fill(point->GetStorageCoords(), 0);
-        // print resource usage
-        // monitor.Print();
-
-        // accept only non-empty output points
-        if (outputPoint->GetEntries() > 0) {
-          // NLogDebug("NGnTree::Process: Processed entry %lld -> coords=[%lld] Binning definition ID: '%s' "
-          //                "hnsbBinningIn_entry=%lld output=%lld",
-          //                point->GetEntryNumber(), coords[0], hnsbBinningIn->GetCurrentDefinitionName().c_str(),
-          //                entry, outputPoint->GetEntries());
-          fTreeStorage->GetBranch("outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
-          Int_t bytes = fTreeStorage->Fill(point, nullptr, false, {}, false);
-          if (bytes > 0) {
-            if (point->GetEntryNumber() == 0 && fTreeStorage->GetEntries() > 1) {
-              NLogError("NGnTree::Process: [!!!Should not happen!!!] entry number is zero: point=%lld "
-                                  "entries=%lld",
-                             point->GetEntryNumber(), fTreeStorage->GetEntries());
-            }
-            fBinning->GetDefinition()->GetIds().push_back(point->GetEntryNumber());
-            progress["status"] = "D";
-          }
-          else {
-            NLogError("NGnTree::Process: [!!!Should not happen!!!] Failed to fill storage tree for entry %lld", entry);
-            progress["status"] = "F";
-          }
-        }
-        else {
-          progress["status"] = "S";
-          // NLogDebug("NGnTree::Process: No output !!! -> coords=[%lld] Binning definition ID: '%s' "
-          //                        "hnsbBinningIn_entry=%lld output=%lld",
-          //                        coords[0], hnsbBinningIn->GetCurrentDefinitionName().c_str(), entry,
-          //                        outputPoint->GetEntries());
-        }
-
-        NLogTrace("NGnTree::Process: outputPoint contains %d objects", outputPoint->GetEntries());
-
-        if (fWsClient) {
-          fWsClient->Send(progress.dump());
-          NLogDebug("NGnTree::Process: Sent done for task %d", coords[0]);
-        }
-        // for (Int_t i = 0; i < outputPoint->GetEntries(); ++i) {
-        //   TObject * obj = outputPoint->At(i);
-        //   if (obj) {
-        //     // obj->SetDirectory(nullptr); // Detach from any directory to avoid memory leaks
-        //     outputPoint->Remove(obj); // Remove if already exists
-        //     delete obj;               // Delete the object to avoid memory leaks
-        //   }
-        // }
-
-        // Clear the list to avoid memory leaks
-        // for (auto obj : *outputPoint) {
-        //   delete obj;
-        // }
-        outputPoint->SetOwner(kTRUE); // Set owner to true to delete contained objects
-        outputPoint->Clear();
-        delete outputPoint; // Clean up the output list
-      };
-
-      // Main execution
-      Ndmspc::NDimensionalExecutor executor(mins, maxs);
-      executor.Execute(task);
-    }
-
-    std::cout << std::endl;
-    NLogDebug("NGnTree::Process: Executor is finished for all binning definitions ...");
-
-    // Loop over binning definitions and merge their contents
-    fTreeStorage->SetEnabledBranches({}, 0);
-    for (const auto & name : fBinning->GetDefinitionNames()) {
-      NBinningDef * binningDef = fBinning->GetDefinition(name);
-      if (!binningDef) {
-        NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-        continue;
-      }
-      // binningDef->Print();
-
-      // continue;
-      // Recalculate binningDef content based on ids
-      // binningDef->GetContent()->Reset();
-      std::vector<Long64_t> ids;
-      for (auto id : binningDef->GetIds()) {
-        GetEntry(id, false);
-        // fBinning->GetPoint()->Print("");
-        Long64_t bin = binningDef->GetContent()->GetBin(fBinning->GetPoint()->GetStorageCoords(), false);
-        NLogTrace("NGnTree::Process: -> Setting content bin %lld to id %lld", bin, id);
-        if (bin < 0) {
-          NLogError("NGnTree::Process: Failed to get bin for id %lld, skipping ...", id);
-          continue;
-        }
-        ids.push_back(id);
-        // fBinning->GetPoint()->Print("");
-        // binningDef->GetContent()->SetBinContent(bin, id);
-      }
-      binningDef->GetIds() = ids;
-    }
-
-    fBinning->GetPoint()->Reset();
-    fTreeStorage->SetEnabledBranches({}, 1);
-  }
-
-  NLogTrace("NGnTree::Process: Final binning definition update ...");
-  // Fill ids from previous binning to the current one and check also presence in hnsbBinningIn
-  // loop over indexes in hnsbBinningIn and check if they are present in fBinning
-  for (size_t i = 0; i < defNames.size() - 1; ++i) {
-    const auto & name = defNames[i];
-    NLogTrace("NGnTree::Process: Updating entries to definition '%s' from previous definition", name.c_str());
-    for (size_t j = i + 1; j < defNames.size(); ++j) {
-      auto other_name = defNames[j];
-      NLogTrace("NGnTree::Process: Checking entries from definition '%s' -> '%s'", name.c_str(), other_name.c_str());
-      // fBinning->GetDefinition(name)->Print();
-      // originalBinning->GetDefinition(other_name)->Print();
-      // fBinning->GetDefinition(other_name)->Print();
-
-      // Get ids in reverse order to put them in the beginning
-      for (auto it = originalBinning->GetDefinition(other_name)->GetIds().rbegin();
-           it != originalBinning->GetDefinition(other_name)->GetIds().rend(); ++it) {
-        auto id = *it;
-        // check if id is present in fBinning->GetDefinition(name)
-        if (std::find(fBinning->GetDefinition(name)->GetIds().begin(), fBinning->GetDefinition(name)->GetIds().end(),
-                      id) != fBinning->GetDefinition(name)->GetIds().end()) {
-          NLogTrace("NGnTree::Process: -> Adding id %lld to definition '%s'", id, other_name.c_str());
-          // put it to the beginning
-          fBinning->GetDefinition(other_name)
-              ->GetIds()
-              .insert(fBinning->GetDefinition(other_name)->GetIds().begin(), id);
-        }
-      }
-    }
-  }
-
-  // NLogTrace("NGnTree::Process: Finalizing ordering from histogram storage definition ...");
-  // for (const auto & name : fBinning->GetDefinitionNames()) {
-  //   auto binningDef = fBinning->GetDefinition(name);
-  //   if (!binningDef) {
-  //     NLogError("Binning definition '%s' not found in NGnTree !!!", name.c_str());
-  //     continue;
-  //   }
-  //   binningDef->Print();
-  //   // Recalculate binningDef content based on ids
-  //   binningDef->GetContent()->Reset();
-  //   std::vector<Long64_t> ids;
-  //   for (auto id : binningDef->GetIds()) {
-  //     GetEntry(id, false);
-  //     Long64_t bin = binningDef->GetContent()->GetBin(fBinning->GetPoint()->GetStorageCoords(), false);
-  //     if (bin < 0) {
-  //       NLogError("Failed to get bin for id %lld, skipping ...", id);
-  //       continue;
-  //     }
-  //     ids.push_back(id);
-  //     binningDef->GetContent()->SetBinContent(bin, id);
-  //     NLogDebug("-> Setting content bin %lld to id %lld", bin, id);
-  //   }
-  //   binningDef->GetIds() = ids;
-  // }
-
-  NLogInfo("NGnTree::Process: Printing final binning definitions:");
-  for (const auto & name : fBinning->GetDefinitionNames()) {
-    fBinning->GetDefinition(name)->RefreshContentFromIds();
-    fBinning->GetDefinition(name)->Print();
-  }
-
-  if (fWsClient) {
-    // gSystem->Sleep(1000); // wait for messages to be sent
-    fWsClient->Disconnect();
-    SafeDelete(fWsClient);
-  }
-
-  gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
 }
 
@@ -847,10 +383,10 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     }
     threadDataVector[i].SetCfg(cfg); // Set configuration to binning point
   }
-  int  processedEntries = 0;
-  int  totalEntries     = 0;
-  auto start_par        = std::chrono::high_resolution_clock::now();
-  auto task             = [&](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
+  size_t processedEntries = 0;
+  size_t totalEntries     = 0;
+  auto   start_par        = std::chrono::high_resolution_clock::now();
+  auto   task             = [&](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
     // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
     //                       thread_obj.GetAssignedIndex());
     // thread_obj.Print();
@@ -866,13 +402,13 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     if (wsClient) wsClient->Send(progress.dump());
 
     if (!NLogger::GetConsoleOutput()) {
-      int nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
-                                                                                              : totalEntries - processedEntries;
-      NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4d", nRunning).Data());
+      size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
+                                                                                                   : totalEntries - processedEntries;
+      NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
     }
   };
-  int iDef   = 0;
-  int sumIds = 0;
+  size_t iDef   = 0;
+  int    sumIds = 0;
 
   for (auto & name : defNames) {
     auto binningDef = binningIn->GetDefinition(name);
@@ -1107,7 +643,7 @@ NGnTree * NGnTree::Open(TTree * tree, const std::string & branches, TFile * file
 
   NGnTree * ngnt = new NGnTree(hnstBinning, hnstStorageTree);
 
-  if (!hnstStorageTree->SetFileTree(file, tree, true)) return nullptr;
+  if (!hnstStorageTree->SetFileTree(file, tree)) return nullptr;
   // if (!ngnt->InitBinnings({})) return nullptr;
   // ngnt->Print();
   // Get list of branches
@@ -1356,8 +892,8 @@ TList * NGnTree::Projection(const json & cfg, std::string binningName)
 
   // SetInput(); // Set input to selfp
   SetInput(Ndmspc::NGnTree::Open(fTreeStorage->GetFileName()));
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
-                                                   int threadId) {
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output,
+                                                   TList * /*outputPoint*/, int /*threadId*/) {
     // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();

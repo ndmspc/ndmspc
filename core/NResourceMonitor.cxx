@@ -11,7 +11,7 @@ ClassImp(Ndmspc::NResourceMonitor);
 namespace Ndmspc {
 NResourceMonitor::NResourceMonitor() : TObject() {}
 NResourceMonitor::~NResourceMonitor() {}
-void NResourceMonitor::Print(Option_t * option) const
+void NResourceMonitor::Print(Option_t * /*option*/) const
 {
   ///
   /// Print resource usage
@@ -77,7 +77,8 @@ void NResourceMonitor::Fill(Int_t * coords, int threadId)
   /// Fill resource monitor with THnSparse object and coordinates
   ///
   ///
-  Int_t statBinCoords[fHnSparse->GetNdimensions()];
+  auto statBinCoords = std::make_unique<Int_t[]>(fHnSparse->GetNdimensions());
+  // Int_t statBinCoords[fHnSparse->GetNdimensions()];
   // set statBinCoords from statHnSparse
   for (Int_t i = 0; i < fHnSparse->GetNdimensions() - 2; ++i) {
     statBinCoords[i] = coords[i];
@@ -88,17 +89,17 @@ void NResourceMonitor::Fill(Int_t * coords, int threadId)
   statBinCoords[fHnSparse->GetNdimensions() - 2] = threadId + 1;
 
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 1;
-  statBin                                        = fHnSparse->GetBin(statBinCoords);
+  statBin                                        = fHnSparse->GetBin(statBinCoords.get());
   fHnSparse->SetBinContent(statBin, GetTimeDiffInSeconds());
 
   // Set CPU usage
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 2;
-  statBin                                        = fHnSparse->GetBin(statBinCoords);
+  statBin                                        = fHnSparse->GetBin(statBinCoords.get());
   fHnSparse->SetBinContent(statBin, GetCpuUsage());
 
   // Set Memory usage
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 3;
-  statBin                                        = fHnSparse->GetBin(statBinCoords);
+  statBin                                        = fHnSparse->GetBin(statBinCoords.get());
   fHnSparse->SetBinContent(statBin, GetMemoryUsageDiff());
 }
 

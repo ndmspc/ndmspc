@@ -29,8 +29,8 @@ void NExecutor1D(std::string outFile = "NExecutor1D.root")
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   // Define the processing function
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
-                                                   int threadId) {
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
+                                                   TList * /*outputPoint*/, int /*threadId*/) {
     // print info about the binning point
     NLogInfo("title: %s", point->GetString().c_str());
     NLogInfo("  min=%.2f max=%.2f", point->GetBinMin("axis1"), point->GetBinMax("axis1"));

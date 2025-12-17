@@ -11,9 +11,10 @@
 std::string app_description()
 {
   size_t size = 64;
-  char   buf[size];
-  size = std::snprintf(buf, size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
-  return std::string(buf, size);
+  auto   buf  = std::make_unique<char[]>(size);
+  // char   buf[size];
+  size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
+  return std::string(buf.get(), size);
 }
 
 int main(int argc, char ** argv)

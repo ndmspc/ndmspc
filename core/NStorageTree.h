@@ -50,10 +50,9 @@ class NStorageTree : public TObject {
    * @brief Set file and tree for storage.
    * @param file Pointer to TFile.
    * @param tree Pointer to TTree.
-   * @param force If true, force setting even if already set.
    * @return True if set successfully.
    */
-  bool SetFileTree(TFile * file, TTree * tree, bool force);
+  bool SetFileTree(TFile * file, TTree * tree);
 
   /**
    * @brief Initialize tree from file and tree name.

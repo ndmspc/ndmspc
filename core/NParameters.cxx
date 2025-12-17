@@ -34,7 +34,7 @@ NParameters::~NParameters()
   delete fHisto;
 }
 
-void NParameters::Print(Option_t * option) const
+void NParameters::Print(Option_t * /*option*/) const
 {
   ///
   /// Print parameters

@@ -39,8 +39,8 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
   ngnt->InitParameters({"meanFit", "sigmaFit"});
 
   // Define the processing function
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
-                                                   int threadId) {
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
+                                                   TList *                 outputPoint, int /*threadId*/) {
     // print the title of the binning point
     NLogInfo("title : %s", point->GetString().c_str());
 

@@ -68,7 +68,7 @@ std::string NCloudEvent::GetInfo() const
                          fSource.c_str(), fSpecVersion.c_str(), fType.c_str(), fDataContentType.c_str(), fData.c_str())
       .Data();
 }
-void NCloudEvent::Clear(Option_t * opt)
+void NCloudEvent::Clear(Option_t * /*opt*/)
 {
   fId.clear();
   fSource.clear();
@@ -78,7 +78,7 @@ void NCloudEvent::Clear(Option_t * opt)
   fDataContentType.clear();
   fIsValid = false;
 }
-void NCloudEvent::Print(Option_t * opt) const
+void NCloudEvent::Print(Option_t * /*opt*/) const
 {
   Printf("%s", GetInfo().c_str());
 }

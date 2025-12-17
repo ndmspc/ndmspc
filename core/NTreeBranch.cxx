@@ -97,7 +97,7 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
   }
 
   NLogTrace("Getting entry for branch '%s' %lld status=%d ...", fBranch->GetName(), entry,
-                 tree->GetBranchStatus(fBranch->GetName()));
+            tree->GetBranchStatus(fBranch->GetName()));
 
   Long64_t bytes = 0;
   if (fBranch && tree->GetBranchStatus(fBranch->GetName()) == 1) {
@@ -126,11 +126,12 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
       if (in->GetNdimensions() > 0) {
         if (useProjection) {
           // in->Print();
-          Int_t dims[in->GetNdimensions()];
+          auto dims = std::make_unique<Int_t[]>(in->GetNdimensions());
+          // Int_t dims[in->GetNdimensions()];
           for (Int_t iDim = 0; iDim < in->GetNdimensions(); iDim++) {
             dims[iDim] = iDim;
           }
-          THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims, projOpt.c_str());
+          THnSparse * out = (THnSparse *)in->ProjectionND(in->GetNdimensions(), dims.get(), projOpt.c_str());
           // Loop over all bins
           double sum = 0;
           NLogTrace("Projection of %s with filled bins %lld ...", in->GetName(), out->GetNbins());
@@ -159,13 +160,13 @@ void NTreeBranch::SaveEntry(NTreeBranch * hnstBranchIn, bool useProjection, cons
   }
 }
 
-void NTreeBranch::Print(Option_t * option) const
+void NTreeBranch::Print(Option_t * /*option*/) const
 {
   ///
   /// Print
   ///
-  NLogInfo("Branch name='%s' objClassName='%s' address=%p branch=%p status=%d", fName.c_str(),
-                fObjectClassName.c_str(), fObject, fBranch, fBranchStatus);
+  NLogInfo("Branch name='%s' objClassName='%s' address=%p branch=%p status=%d", fName.c_str(), fObjectClassName.c_str(),
+           fObject, fBranch, fBranchStatus);
 }
 
 } // namespace Ndmspc

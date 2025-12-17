@@ -2,6 +2,7 @@
 #define Ndmspc_NGnNavigator_H
 #include <TNamed.h>
 #include <Buttons.h>
+#include <cstddef>
 #include "NBinningDef.h"
 #include "NGnTree.h"
 namespace Ndmspc {
@@ -41,7 +42,7 @@ class NGnNavigator : public TNamed {
    * @param rangesBase Map of base ranges for axes.
    * @return Pointer to reshaped NGnNavigator.
    */
-  NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level = 0,
+  NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, size_t level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {});
 
   /**
@@ -54,7 +55,7 @@ class NGnNavigator : public TNamed {
    * @param parent Pointer to parent NGnNavigator.
    * @return Pointer to reshaped NGnNavigator.
    */
-  NGnNavigator * Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, int level = 0,
+  NGnNavigator * Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {},
                          NGnNavigator * parent = nullptr);
 
@@ -158,14 +159,14 @@ class NGnNavigator : public TNamed {
    * @brief Set number of children.
    * @param n Number of children.
    */
-  void SetChildrenSize(int n) { fChildren.resize(n); }
+  void SetChildrenSize(size_t n) { fChildren.resize(n); }
 
   /**
    * @brief Get child navigator at index.
    * @param index Child index.
    * @return Pointer to child NGnNavigator.
    */
-  NGnNavigator * GetChild(int index) const;
+  NGnNavigator * GetChild(size_t index) const;
 
   /**
    * @brief Set child navigator at index.
@@ -197,7 +198,7 @@ class NGnNavigator : public TNamed {
    * @param name Object name.
    * @param n New size.
    */
-  void ResizeObjectContentMap(const std::string & name, int n) { fObjectContentMap[name].resize(n); };
+  void ResizeObjectContentMap(const std::string & name, size_t n) { fObjectContentMap[name].resize(n); };
 
   /**
    * @brief Get objects by name.
@@ -340,61 +341,61 @@ class NGnNavigator : public TNamed {
    * @brief Get number of levels in hierarchy.
    * @return Number of levels.
    */
-  Int_t GetNLevels() const { return fNLevels; }
+  size_t GetNLevels() const { return fNLevels; }
 
   /**
    * @brief Set number of levels in hierarchy.
    * @param n Number of levels.
    */
-  void SetNLevels(Int_t n) { fNLevels = n; }
+  void SetNLevels(size_t n) { fNLevels = n; }
 
   /**
    * @brief Get current level in hierarchy.
    * @return Current level.
    */
-  Int_t GetLevel() const { return fLevel; }
+  size_t GetLevel() const { return fLevel; }
 
   /**
    * @brief Set current level in hierarchy.
    * @param l Level to set.
    */
-  void SetLevel(Int_t l) { fLevel = l; }
+  void SetLevel(size_t l) { fLevel = l; }
 
   /**
    * @brief Get number of cells in projection histogram.
    * @return Number of cells.
    */
-  Int_t GetNCells() const { return fNCells; }
+  size_t GetNCells() const { return fNCells; }
 
   /**
    * @brief Set number of cells in projection histogram.
    * @param n Number of cells.
    */
-  void SetNCells(Int_t n) { fNCells = n; }
+  void SetNCells(size_t n) { fNCells = n; }
 
   /**
    * @brief Get last selected index.
    * @return Last selected index.
    */
-  Int_t GetLastIndexSelected() const { return fLastIndexSelected; }
+  size_t GetLastIndexSelected() const { return fLastIndexSelected; }
 
   /**
    * @brief Set last selected index.
    * @param idx Index to set.
    */
-  void SetLastIndexSelected(Int_t idx) { fLastIndexSelected = idx; }
+  void SetLastIndexSelected(size_t idx) { fLastIndexSelected = idx; }
 
   /**
    * @brief Get last hovered bin index.
    * @return Last hovered bin index.
    */
-  Int_t GetLastHoverBin() const { return fLastHoverBin; }
+  size_t GetLastHoverBin() const { return fLastHoverBin; }
 
   /**
    * @brief Set last hovered bin index.
    * @param b Bin index to set.
    */
-  void SetLastHoverBin(Int_t b) { fLastHoverBin = b; }
+  void SetLastHoverBin(size_t b) { fLastHoverBin = b; }
 
   // /**
   //  * @brief Open navigator from file.
@@ -427,13 +428,13 @@ class NGnNavigator : public TNamed {
   NGnNavigator *              fParent{nullptr}; ///< Parent object
   std::vector<NGnNavigator *> fChildren{};      ///< Children objects
 
-  TH1 * fProjection{nullptr};   ///< Projection histogram
-  Int_t fNLevels{1};            ///< Number of levels in the hierarchy
-  Int_t fLevel{0};              ///< Level of the object in the hierarchy
-  Int_t fNCells{0};             ///< Number of cells in the projection histogram
-  Int_t fLastHoverBin{0};       ///< To avoid spamming the console on hover
-  Int_t fLastIndexSelected{0};  ///< last selected index in the object
-  Int_t fTrigger{kButton1Down}; ///< last triggered event
+  TH1 *  fProjection{nullptr};   ///< Projection histogram
+  size_t fNLevels{1};            ///< Number of levels in the hierarchy
+  size_t fLevel{0};              ///< Level of the object in the hierarchy
+  size_t fNCells{0};             ///< Number of cells in the projection histogram
+  size_t fLastHoverBin{0};       ///< To avoid spamming the console on hover
+  size_t fLastIndexSelected{0};  ///< last selected index in the object
+  Int_t  fTrigger{kButton1Down}; ///< last triggered event
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnNavigator, 1);

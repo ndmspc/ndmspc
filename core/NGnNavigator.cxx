@@ -37,7 +37,7 @@ NGnNavigator::NGnNavigator(const char * name, const char * title, std::vector<st
 }
 NGnNavigator::~NGnNavigator() {}
 
-NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level,
+NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::vector<int>> levels, size_t level,
                                      std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase)
 {
   ///
@@ -49,7 +49,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
     return nullptr;
   }
   std::vector<int> axes;
-  int              nAxes = 0;
+  size_t           nAxes = 0;
   if (levels.empty()) {
 
     size_t nVarAxes = binningDef->GetVariableAxes().size();
@@ -122,7 +122,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
            binningName.c_str());
   return Reshape(binningDef, levels, level, ranges, rangesBase);
 }
-NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, int level,
+NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level,
                                      std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase,
                                      NGnNavigator * parent)
 {
@@ -140,8 +140,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   NGnNavigator * current = parent;
   if (current == nullptr) {
     NLogDebug("NGnNavigator::Reshape: Creating root navigator %d/%zu...", level, levels.size());
-    current = new NGnNavigator(TString::Format("%s_L%d", GetName(), level).Data(),
-                               TString::Format("%s_L%d", GetTitle(), level).Data());
+    current = new NGnNavigator(TString::Format("%s_L%zu", GetName(), level).Data(),
+                               TString::Format("%s_L%zu", GetTitle(), level).Data());
     // current->SetParent(this);
     current->SetLevel(fLevel);
     current->SetNLevels(fNLevels);
@@ -183,14 +183,15 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       ///////// Make projection histogram /////////
       THnSparse * hns   = nullptr;
       Int_t       nDims = axesIds.size();
-      Int_t       dims[nDims];
+      auto        dims  = std::make_unique<Int_t[]>(nDims);
+      // Int_t       dims[nDims];
       for (int i = 0; i < nDims; i++) {
         dims[i] = axesIds[i];
       }
       THnSparse * hnsIn = binningDef->GetContent();
 
       NUtils::SetAxisRanges(hnsIn, ranges); // Set the ranges for the axes
-      hns = static_cast<THnSparse *>(hnsIn->ProjectionND(axesIds.size(), dims, "O"));
+      hns = static_cast<THnSparse *>(hnsIn->ProjectionND(axesIds.size(), dims.get(), "O"));
       if (!hns) {
         NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
         return;
@@ -345,15 +346,15 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         return;
       }
 
-      int nCells = hProj->GetNcells();
+      size_t nCells = hProj->GetNcells();
 
       // NGnNavigator * o = fParent->GetChild(indexInProj);
       NGnNavigator * currentChild = current->GetChild(indexInProj);
       if (currentChild == nullptr) {
         NLogTrace("NGnNavigator::Reshape: [L%d] Creating new child for index %d nCells=%d ...", level, indexInProj,
                                   nCells);
-        std::string childName = TString::Format("%s_L%d_C%d", GetName(), level + 1, indexInProj).Data();
-        currentChild          = new NGnNavigator(childName.c_str(), childName.c_str());
+        std::string childName = TString::Format("%s_L%zu_C%d", GetName(), level + 1, indexInProj).Data();
+        currentChild = new NGnNavigator(childName.c_str(), childName.c_str());
         currentChild->SetLevel(level + 1);
         currentChild->SetNLevels(levels.size());
         currentChild->SetParent(current);
@@ -386,8 +387,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         }
         // Get projectiosn histograms from all branches
 
-        Int_t *  cCoords = new Int_t[hns->GetNdimensions()];
-        Long64_t linBin  = 0;
+        // Int_t *  cCoords = new Int_t[hns->GetNdimensions()];
+        Long64_t linBin = 0;
 
         // hns->Print("all");
         NUtils::SetAxisRanges(hnsIn, rangesTmp); // Set the ranges for the axes
@@ -919,7 +920,8 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         min     = 0;
         max     = TMath::Max(max, objMax);
         entries = childProjection->GetEntries();
-        NLogTrace("NGnNavigator::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin, objMax);
+        NLogTrace("NGnNavigator::ExportJson: Child %s has min=%f, max=%f entries=%f", childProjection->GetName(),
+                  objMin, objMax, entries);
       }
     }
     j["children"]["content"].push_back(childJson);
@@ -956,13 +958,13 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         continue;
       }
       // std::cout << child["fTitle"].dump() << std::endl;
-      double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+      // double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
       double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
       // loop over all keys in "ndmspc"
       for (auto & [key, value] : child["ndmspc"].items()) {
         if (value.is_object()) {
           // min = TMath::Min(min, value["fMinimum"].get<double>());
-          min = 0;
+          // min = 0;
           max = TMath::Max(max, value["fMaximum"].get<double>());
         }
       }
@@ -997,7 +999,7 @@ void NGnNavigator::Print(Option_t * option) const
 
   // print children
   std::vector<int> childIndices;
-  for (int i = 0; i < fChildren.size(); i++) {
+  for (size_t i = 0; i < fChildren.size(); i++) {
     NGnNavigator * child = fChildren[i];
     if (child) {
       childIndices.push_back(i);
@@ -1007,7 +1009,7 @@ void NGnNavigator::Print(Option_t * option) const
   }
   NLogTrace("NGnNavigator: %zu children with indices: %s", childIndices.size(),
             NUtils::GetCoordsString(childIndices, -1).c_str());
-  for (int i = 0; i < fChildren.size(); i++) {
+  for (size_t i = 0; i < fChildren.size(); i++) {
     NGnNavigator * child = fChildren[i];
     if (child && child->GetChildren().empty() == false) {
       child->Print(option);
@@ -1023,8 +1025,8 @@ void NGnNavigator::Draw(Option_t * option)
   ///
 
   // TODO: Handle if size od levels is greater than 2 (since ROOT cannot hover more than 2D histograms)
-  TH1 * proj = GetProjection();
-  for (int level = 0; level < fNLevels; level++) {
+  // TH1 * proj = GetProjection();
+  for (size_t level = 0; level < fNLevels; level++) {
     NLogDebug("NGnNavigator::Draw: Level %d/%d", level + 1, fNLevels);
     if (fProjection->GetDimension() > 2) {
       NLogWarning("NGnNavigator::Draw: Level %d has projection with dimension %d > 2, which is not supported for "
@@ -1062,7 +1064,7 @@ void NGnNavigator::Draw(Option_t * option)
   }
   TVirtualPad *  originalPad = gPad; // Save the original pad
   NGnNavigator * obj         = nullptr;
-  for (int level = 0; level < fNLevels; level++) {
+  for (size_t level = 0; level < fNLevels; level++) {
     NLogDebug("NGnNavigator::Draw: Drawing level %d", level);
     TVirtualPad * pad = originalPad->cd(level + 1);
     if (pad) {
@@ -1076,7 +1078,7 @@ void NGnNavigator::Draw(Option_t * option)
       else {
 
         // obj = nullptr; // Reset the object for the next level
-        for (int i = 0; i < obj->GetChildren().size(); i++) {
+        for (size_t i = 0; i < obj->GetChildren().size(); i++) {
           NGnNavigator * child = obj->GetChild(i);
           if (child) {
             NLogDebug("NGnNavigator::Draw: Found child at level %d: %s", level, child->GetProjection()->GetTitle());
@@ -1111,7 +1113,7 @@ void NGnNavigator::Draw(Option_t * option)
   gPad = originalPad; // Restore the original pad
 }
 
-void NGnNavigator::Paint(Option_t * option)
+void NGnNavigator::Paint(Option_t * /*option*/)
 {
   ///
   /// Paint object
@@ -1160,7 +1162,7 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
   Double_t x_user = gPad->PadtoX(x_pad);
   Double_t y_user = gPad->PadtoY(y_pad);
 
-  Int_t bin = fProjection->FindBin(x_user, y_user);
+  size_t bin = fProjection->FindBin(x_user, y_user);
 
   TVirtualPad * originalPad  = gPad; // Save the original pad
   bool          isBinChanged = (bin != fLastHoverBin);
@@ -1271,13 +1273,13 @@ void NGnNavigator::ExecuteEvent(Int_t event, Int_t px, Int_t py)
   gPad = originalPad; // Restore the original pad
 }
 
-NGnNavigator * NGnNavigator::GetChild(int index) const
+NGnNavigator * NGnNavigator::GetChild(size_t index) const
 {
   ///
   /// Returns child object at given index
   ///
   // NLogDebug("NGnNavigator::GetChild: index=%d, size=%zu", index, fChildren.size());
-  return (index >= 0 && index < fChildren.size()) ? fChildren[index] : nullptr;
+  return (index < fChildren.size()) ? fChildren[index] : nullptr;
 }
 void NGnNavigator::SetChild(NGnNavigator * child, int index)
 {
@@ -1546,8 +1548,8 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
   Int_t screenWidth  = gClient->GetDisplayWidth();
   Int_t screenHeight = gClient->GetDisplayHeight();
 
-  int       padCounter = 0;
-  TCanvas * c          = nullptr;
+  // int       padCounter = 0;
+  TCanvas * c = nullptr;
   // Create a canvas that is, for example, 40% of the screen width and height
   constexpr double canvasScale  = 0.4;
   Int_t            canvasWidth  = static_cast<Int_t>(screenWidth * canvasScale);
@@ -1649,7 +1651,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
       Double_t    v         = hnsObjContent->GetBinContent(linBin, p);
       Long64_t    idx       = hnsObjContent->GetBin(p);
       std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(p, hnsObjContent->GetNdimensions()), -1);
-      // NLogInfo("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
+      NLogTrace("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
       dimsResults[0].insert(p[dims[0]]);
       if (dims.size() > 1) dimsResults[1].insert(p[dims[1]]);
       if (dims.size() > 2) dimsResults[2].insert(p[dims[2]]);

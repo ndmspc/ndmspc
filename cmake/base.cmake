@@ -62,38 +62,27 @@ find_package(Threads REQUIRED)
 # endif()
 #
 # This is the preferred way
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 message("-- Found C++ standard: ${CMAKE_CXX_STANDARD}")
 
-set(STRICT_WARNING_FLAGS)
+set(STRICT_WARNING_FLAGS
+    -Wall
+    -Wextra
+    -Wno-cpp           # Suppress warnings about C++ style comments in C code
+    -Wpedantic
+)
+
+
 if(ENABLE_STRICT_WARNINGS)
-  set(STRICT_WARNING_FLAGS
-    -Wall             # Enable all common warnings
-    # -Wextra           # Enable extra warnings not covered by -Wall
-    # -Wpedantic        # Issue all the warnings demanded by strict ISO C and ISO C++
-    # -Wno-unused-parameter # Often suppressed for interface functions
-    # -Wshadow          # Warn whenever a local variable shadows another variable
-    # -Wformat=2        # More strict format string checks
-    # -Wundef           # Warn if an undefined identifier is used in an #if directive
-    # -Wconversion      # Warn for implicit conversions that may alter a value
-    # -Wsign-conversion # Warn for conversions between signed and unsigned that change value
-    # -Wold-style-cast  # Warn if a C-style cast is used in C++ code
-    # -Wnull-dereference # Warn for potential null dereferences
-    # -Wdouble-promotion # Warn about implicit promotions of float to double
-    # -Wmissing-declarations # Warn for global functions/variables without declarations
-    # -Wnon-virtual-dtor # Warn when a class with virtual functions has a non-virtual destructor
-  )
+  list(APPEND STRICT_WARNING_FLAGS -Wpedantic)
 
   if(WARNINGS_AS_ERRORS)
     list(APPEND STRICT_WARNING_FLAGS -Werror)
   endif()
 
 endif()
-
-# disable cpp warnings
-list(APPEND STRICT_WARNING_FLAGS -Wno-cpp)
 
 add_compile_options(${STRICT_WARNING_FLAGS})
 

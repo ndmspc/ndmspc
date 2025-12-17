@@ -6,7 +6,7 @@
 #include "NLogger.h"
 
 // The global LWS callback function.
-static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * user, void * in,
+static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * /*user*/, void * in,
                                     size_t len)
 {
   NLogTrace("LWS Callback Reason: %d", reason);
@@ -127,7 +127,7 @@ namespace Ndmspc {
 // lws_protocols NWsClient::fProtocols[] = {
 //     {NWsClient::fgProtocolName, lws_callback_client_impl, sizeof(Ndmspc::NWsClient *), 0}, {NULL, NULL, 0, 0}};
 lws_protocols Ndmspc::NWsClient::fProtocols[] = {
-    {Ndmspc::NWsClient::fgProtocolName, lws_callback_client_impl, sizeof(Ndmspc::NWsClient *), 4096},
+    {Ndmspc::NWsClient::fgProtocolName, lws_callback_client_impl, sizeof(Ndmspc::NWsClient *), 4096, 0, nullptr, 0},
     LWS_PROTOCOL_LIST_TERM /* terminator */
 };
 NWsClient::NWsClient(int maxRetries, int retryDelayMs)

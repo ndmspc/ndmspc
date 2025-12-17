@@ -46,8 +46,8 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
   ngnt->InitParameters({"meanFit", "sigmaFit"});
 
   // Define the processing function
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
-                                                   int threadId) {
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
+                                                   TList *                 outputPoint, int /*threadId*/) {
     // print the title of the binning point
     NLogInfo("title : %s", point->GetString().c_str());
 
