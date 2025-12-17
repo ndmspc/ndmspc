@@ -212,8 +212,6 @@ class NGnTree : public TObject {
   bool Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
                const json & cfg = json::object(), NBinning * binningIn = nullptr);
 
-  bool ProcessOld(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
-                  const json & cfg = json::object(), NBinning * binningIn = nullptr);
   /**
    * @brief Project tree data using configuration and binning name.
    * @param cfg JSON configuration object.

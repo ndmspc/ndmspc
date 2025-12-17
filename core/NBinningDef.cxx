@@ -54,15 +54,16 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
   TObjArray * cAxes = new TObjArray();
 
   // loop over all axes and create TObjArray
-  for (int i = 0; i < axes.size(); i++) {
+  for (int i = 0; i < dims; i++) {
     TAxis * axis    = (TAxis *)axes[i];
     TAxis * axisNew = (TAxis *)axis->Clone();
 
     std::string name = axis->GetName();
     NLogTrace("NBinningDef: Binning '%s': %d", name.c_str(), axis->GetNbins());
 
-    double bins[axis->GetNbins() + 1];
-    int    count  = 0;
+    auto bins = std::make_unique<double[]>(axis->GetNbins() + 1);
+    // double bins[axis->GetNbins() + 1];
+    int count     = 0;
     bins[count++] = axis->GetBinLowEdge(1);
 
     int                                                  iBin       = 0;
@@ -83,7 +84,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     // for (int i = 0; i < count; i++) {
     //   NLogDebug("  %s: %d %f", axis->GetName(), i + 1, bins[i]);
     // }
-    axisNew->Set(count - 1, bins);
+    axisNew->Set(count - 1, bins.get());
     cAxes->Add(axisNew);
   }
 
@@ -117,7 +118,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     }
   }
 
-  for (int i = 0; i < fBinning->GetAxes().size(); i++) {
+  for (size_t i = 0; i < fBinning->GetAxes().size(); i++) {
     TAxis * a = fBinning->GetAxes()[i];
     if (a == nullptr) {
       NLogError("NBinningPoint::GetTitle: Axis %d is nullptr !!!", i);
@@ -175,13 +176,13 @@ void NBinningDef::Print(Option_t * option) const
   }
 }
 
-Long64_t NBinningDef::GetId(int index) const
+Long64_t NBinningDef::GetId(size_t index) const
 {
   ///
   /// Returns ID for given index
   ///
 
-  if (index < 0 || index >= static_cast<int>(fIds.size())) {
+  if (index >= fIds.size()) {
     NLogError("NBinningDef::GetId: Index %d is out of range [0, %zu)", index, fIds.size());
     return -1;
   }

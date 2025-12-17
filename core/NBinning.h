@@ -3,12 +3,12 @@
 #include <TObject.h>
 #include <THnSparse.h>
 #include <TAxis.h>
+#include <cstddef>
 #include <vector>
 #include <map>
 #include "TObjArray.h"
 #include "NBinningDef.h"
 #include "NBinningPoint.h"
-
 
 namespace Ndmspc {
 
@@ -117,7 +117,7 @@ class NBinning : public TObject {
    * @param c Vector of coordinates.
    * @return True if range found.
    */
-  bool GetAxisRange(int axisId, double & min, double & max, std::vector<int> c) const;
+  bool GetAxisRange(size_t axisId, double & min, double & max, std::vector<int> c) const;
 
   /**
    * @brief Get axis range in base for a specific axis and coordinates.
@@ -127,7 +127,7 @@ class NBinning : public TObject {
    * @param c Vector of coordinates.
    * @return True if range found.
    */
-  bool GetAxisRangeInBase(int axisId, int & min, int & max, std::vector<int> c) const;
+  bool GetAxisRangeInBase(size_t axisId, int & min, int & max, std::vector<int> c) const;
 
   /**
    * @brief Generate a list of axes as TObjArray.
@@ -141,7 +141,7 @@ class NBinning : public TObject {
    * @param c Vector of coordinates.
    * @return Vector of binning values.
    */
-  std::vector<int> GetAxisBinning(int axisId, const std::vector<int> & c) const;
+  std::vector<int> GetAxisBinning(size_t axisId, const std::vector<int> & c) const;
 
   /**
    * @brief Get indexes of axes by type.
@@ -178,7 +178,7 @@ class NBinning : public TObject {
    * @param n Optional number of bins.
    * @return True if added successfully.
    */
-  bool AddBinning(int id, std::vector<int> binning, int n = 1);
+  bool AddBinning(size_t id, std::vector<int> binning, size_t n = 1);
 
   /**
    * @brief Add variable binning for a specific axis.
@@ -186,7 +186,7 @@ class NBinning : public TObject {
    * @param mins Vector of minimum values.
    * @return True if added successfully.
    */
-  bool AddBinningVariable(int id, std::vector<int> mins);
+  bool AddBinningVariable(size_t id, std::vector<int> mins);
 
   /**
    * @brief Add binning via bin widths for a specific axis.
@@ -194,7 +194,7 @@ class NBinning : public TObject {
    * @param widths Vector of bin widths.
    * @return True if added successfully.
    */
-  bool AddBinningViaBinWidths(int id, std::vector<std::vector<int>> widths);
+  bool AddBinningViaBinWidths(size_t id, std::vector<std::vector<int>> widths);
 
   /**
    * @brief Set axis type for a specific axis.
@@ -202,7 +202,7 @@ class NBinning : public TObject {
    * @param type AxisType to set.
    * @return True if set successfully.
    */
-  bool SetAxisType(int id, AxisType type);
+  bool SetAxisType(size_t id, AxisType type);
 
   /**
    * @brief Get the mapping histogram.
@@ -234,21 +234,21 @@ class NBinning : public TObject {
    * @param i Axis index.
    * @return Binning type.
    */
-  Binning GetBinningType(int i) const;
+  Binning GetBinningType(size_t i) const;
 
   /**
    * @brief Get axis type for a specific axis.
    * @param i Axis index.
    * @return AxisType.
    */
-  AxisType GetAxisType(int i) const;
+  AxisType GetAxisType(size_t i) const;
 
   /**
    * @brief Get axis type as character for a specific axis.
    * @param i Axis index.
    * @return Character representing axis type.
    */
-  char GetAxisTypeChar(int i) const;
+  char GetAxisTypeChar(size_t i) const;
 
   /**
    * @brief Get binning definition by name.
@@ -302,7 +302,7 @@ class NBinning : public TObject {
    * @param binning Binning name.
    * @return Pointer to NBinningPoint.
    */
-  NBinningPoint * GetPoint(int id, const std::string binning = "");
+  NBinningPoint * GetPoint(size_t id, const std::string binning = "");
 
   /**
    * @brief Set the current binning point.

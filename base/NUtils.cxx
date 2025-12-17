@@ -10,6 +10,7 @@
 #include <TString.h>
 #include "NLogger.h"
 #include "NHttpRequest.h"
+#include "RtypesCore.h"
 #include "ndmspc.h"
 #ifdef WITH_PARQUET
 #include <arrow/api.h>
@@ -212,17 +213,20 @@ THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vecto
 
   NLogInfo("Converting TH1 '%s' to THnSparse ...", h1->GetName());
 
-  int      nDims = 1;
-  Int_t    bins[nDims];
-  Double_t xmin[nDims];
-  Double_t xmax[nDims];
+  int nDims = 1;
+  // Int_t    bins[nDims];
+  // Double_t xmin[nDims];
+  // Double_t xmax[nDims];
+  auto bins = std::make_unique<Int_t[]>(nDims);
+  auto xmin = std::make_unique<Double_t[]>(nDims);
+  auto xmax = std::make_unique<Double_t[]>(nDims);
 
   TAxis * aIn = h1->GetXaxis();
   bins[0]     = aIn->GetNbins();
   xmin[0]     = aIn->GetXmin();
   xmax[0]     = aIn->GetXmax();
 
-  THnSparse * hns = new THnSparseD(h1->GetName(), h1->GetTitle(), nDims, bins, xmin, xmax);
+  THnSparse * hns = new THnSparseD(h1->GetName(), h1->GetTitle(), nDims, bins.get(), xmin.get(), xmax.get());
 
   // loop over all axes
   for (int i = 0; i < nDims; i++) {
@@ -231,12 +235,13 @@ THnSparse * NUtils::Convert(TH1 * h1, std::vector<std::string> names, std::vecto
     a->SetName(aIn->GetName());
     a->SetTitle(aIn->GetTitle());
     if (aIn->GetXbins()->GetSize() > 0) {
-      Double_t arr[aIn->GetNbins() + 1];
-      arr[0] = aIn->GetBinLowEdge(1);
+      // Double_t arr[aIn->GetNbins() + 1];
+      auto arr = std::make_unique<Double_t[]>(aIn->GetNbins() + 1);
+      arr[0]   = aIn->GetBinLowEdge(1);
       for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
         arr[iBin] = aIn->GetBinUpEdge(iBin);
       }
-      a->Set(a->GetNbins(), arr);
+      a->Set(a->GetNbins(), arr.get());
     }
   }
 
@@ -270,10 +275,10 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
     return nullptr;
   }
   NLogInfo("Converting TH2 '%s' to THnSparse ...", h2->GetName());
-  int      nDims = 2;
-  Int_t    bins[nDims];
-  Double_t xmin[nDims];
-  Double_t xmax[nDims];
+  int  nDims = 2;
+  auto bins  = std::make_unique<Int_t[]>(nDims);
+  auto xmin  = std::make_unique<Double_t[]>(nDims);
+  auto xmax  = std::make_unique<Double_t[]>(nDims);
 
   for (int i = 0; i < nDims; i++) {
     TAxis * aIn = nullptr;
@@ -290,7 +295,7 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
     xmax[i] = aIn->GetXmax();
   }
 
-  THnSparse * hns = new THnSparseD(h2->GetName(), h2->GetTitle(), nDims, bins, xmin, xmax);
+  THnSparse * hns = new THnSparseD(h2->GetName(), h2->GetTitle(), nDims, bins.get(), xmin.get(), xmax.get());
 
   for (Int_t i = 0; i < nDims; i++) {
     TAxis * a   = hns->GetAxis(i);
@@ -307,12 +312,12 @@ THnSparse * NUtils::Convert(TH2 * h2, std::vector<std::string> names, std::vecto
     a->SetName(aIn->GetName());
     a->SetTitle(aIn->GetTitle());
     if (aIn->GetXbins()->GetSize() > 0) {
-      Double_t arr[aIn->GetNbins() + 1];
-      arr[0] = aIn->GetBinLowEdge(1);
+      auto arr = std::make_unique<Double_t[]>(aIn->GetNbins() + 1);
+      arr[0]   = aIn->GetBinLowEdge(1);
       for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
         arr[iBin] = aIn->GetBinUpEdge(iBin);
       }
-      a->Set(a->GetNbins(), arr);
+      a->Set(a->GetNbins(), arr.get());
     }
   }
 
@@ -351,10 +356,10 @@ THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vecto
 
   NLogInfo("Converting TH3 '%s' to THnSparse ...", h3->GetName());
 
-  int      nDims = 3;
-  Int_t    bins[nDims];
-  Double_t xmin[nDims];
-  Double_t xmax[nDims];
+  int  nDims = 3;
+  auto bins  = std::make_unique<Int_t[]>(nDims);
+  auto xmin  = std::make_unique<Double_t[]>(nDims);
+  auto xmax  = std::make_unique<Double_t[]>(nDims);
 
   for (int i = 0; i < nDims; i++) {
     TAxis * aIn = nullptr;
@@ -373,7 +378,7 @@ THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vecto
     xmax[i] = aIn->GetXmax();
   }
 
-  THnSparse * hns = new THnSparseD(h3->GetName(), h3->GetTitle(), nDims, bins, xmin, xmax);
+  THnSparse * hns = new THnSparseD(h3->GetName(), h3->GetTitle(), nDims, bins.get(), xmin.get(), xmax.get());
 
   // loop over all axes
   for (int i = 0; i < nDims; i++) {
@@ -393,12 +398,12 @@ THnSparse * NUtils::Convert(TH3 * h3, std::vector<std::string> names, std::vecto
     a->SetName(aIn->GetName());
     a->SetTitle(aIn->GetTitle());
     if (aIn->GetXbins()->GetSize() > 0) {
-      Double_t arr[aIn->GetNbins() + 1];
-      arr[0] = aIn->GetBinLowEdge(1);
+      auto arr = std::make_unique<Double_t[]>(aIn->GetNbins() + 1);
+      arr[0]   = aIn->GetBinLowEdge(1);
       for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
         arr[iBin] = aIn->GetBinUpEdge(iBin);
       }
-      a->Set(a->GetNbins(), arr);
+      a->Set(a->GetNbins(), arr.get());
     }
   }
 
@@ -490,10 +495,10 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
 
   NLogTrace("NUtils::ReshapeSparseAxes: Reshaping sparse axes ...");
 
-  int      nDims = hns->GetNdimensions() + newAxes.size();
-  Int_t    bins[nDims];
-  Double_t xmin[nDims];
-  Double_t xmax[nDims];
+  int  nDims = hns->GetNdimensions() + newAxes.size();
+  auto bins  = std::make_unique<Int_t[]>(nDims);
+  auto xmin  = std::make_unique<Double_t[]>(nDims);
+  auto xmax  = std::make_unique<Double_t[]>(nDims);
   /// loop over all axes
   int newAxesIndex = 0;
   for (int i = 0; i < nDims; i++) {
@@ -515,7 +520,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     xmax[i] = a->GetXmax();
   }
 
-  THnSparse * hnsNew = new THnSparseD(hns->GetName(), hns->GetTitle(), nDims, bins, xmin, xmax);
+  THnSparse * hnsNew = new THnSparseD(hns->GetName(), hns->GetTitle(), nDims, bins.get(), xmin.get(), xmax.get());
 
   // loop over all axes
   for (int i = 0; i < hnsNew->GetNdimensions(); i++) {
@@ -532,12 +537,12 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     a->SetName(aIn->GetName());
     a->SetTitle(aIn->GetTitle());
     if (aIn->GetXbins()->GetSize() > 0) {
-      Double_t arr[aIn->GetNbins() + 1];
-      arr[0] = aIn->GetBinLowEdge(1);
+      auto arr = std::make_unique<Double_t[]>(aIn->GetNbins() + 1);
+      arr[0]   = aIn->GetBinLowEdge(1);
       for (int iBin = 1; iBin <= aIn->GetNbins(); iBin++) {
         arr[iBin] = aIn->GetBinUpEdge(iBin);
       }
-      a->Set(a->GetNbins(), arr);
+      a->Set(a->GetNbins(), arr.get());
     }
 
     // copy bin labels
@@ -560,9 +565,9 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
     // loop over all bins
     NLogTrace("NUtils::ReshapeSparseAxes: Filling all bins ...");
     for (Long64_t i = 0; i < hns->GetNbins(); i++) {
-      Int_t p[nDims];
-      Int_t pNew[nDims];
-      hns->GetBinContent(i, p);
+      auto p    = std::make_unique<Int_t[]>(nDims);
+      auto pNew = std::make_unique<Int_t[]>(nDims);
+      hns->GetBinContent(i, p.get());
       Double_t v = hns->GetBinContent(i);
       // remap p to pNew
       for (int j = 0; j < nDims; j++) {
@@ -575,7 +580,7 @@ THnSparse * NUtils::ReshapeSparseAxes(THnSparse * hns, std::vector<int> order, s
           pNew[j]      = newPoint[newAxesIndex];
         }
       }
-      hnsNew->SetBinContent(pNew, v);
+      hnsNew->SetBinContent(pNew.get(), v);
     }
     hnsNew->SetEntries(hns->GetEntries());
   }
@@ -713,17 +718,19 @@ std::string NUtils::OpenRawFile(std::string filename)
 
   // Printf("%lld", f->GetSize());
 
-  int  buffsize = 4096;
-  char buff[buffsize + 1];
+  int buffsize = 4096;
+  // FIXME: use smart pointer to avoid large stack allocation (check if working)
+  auto buff = std::make_unique<char[]>(buffsize + 1);
+  // char buff[buffsize + 1];
 
   Long64_t buffread = 0;
   while (buffread < f->GetSize()) {
     if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
 
     // Printf("Buff %lld %d", buffread, buffsize);
-    f->ReadBuffer(buff, buffread, buffsize);
+    f->ReadBuffer(buff.get(), buffread, buffsize);
     buff[buffsize] = '\0';
-    content += buff;
+    content += buff.get();
     buffread += buffsize;
   }
   f->Close();
@@ -862,8 +869,10 @@ std::vector<std::string> NUtils::FindEos(std::string path, std::string filename)
 
   // Printf("%lld", f->GetSize());
 
-  int  buffsize = 4096;
-  char buff[buffsize + 1];
+  int buffsize = 4096;
+  // FIXME: use smart pointer to avoid large stack allocation (check if working)
+  auto buff = std::make_unique<char[]>(buffsize + 1);
+  // char buff[buffsize + 1];
 
   Long64_t    buffread = 0;
   std::string content;
@@ -872,9 +881,9 @@ std::vector<std::string> NUtils::FindEos(std::string path, std::string filename)
     if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
 
     // Printf("Buff %lld %d", buffread, buffsize);
-    f->ReadBuffer(buff, buffread, buffsize);
+    f->ReadBuffer(buff.get(), buffread, buffsize);
     buff[buffsize] = '\0';
-    content += buff;
+    content += buff.get();
     buffread += buffsize;
   }
 
@@ -1487,13 +1496,13 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   if (current == total) std::cout << std::endl;
   std::cout << std::flush; // Ensure immediate output
 }
+#ifdef WITH_PARQUET
 THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, THnSparse * hns, Int_t nMaxRows)
 {
   ///
   /// Create THnSparse from Parquet file
   ///
   // Open the Parquet file
-#ifdef WITH_PARQUET
 
   if (hns == nullptr) {
     NLogError("NUtils::CreateSparseFromParquetTaxi: THnSparse 'hns' is nullptr ...");
@@ -1570,7 +1579,8 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   // auto                                table_batch_reader = std::make_shared<arrow::TableBatchReader>(*table);
   auto                                table_batch_reader = batch_reader;
   std::shared_ptr<arrow::RecordBatch> batch;
-  Double_t                            point[nDims];
+  auto                                point = std::make_unique<Double_t[]>(nDims);
+  // Double_t                            point[nDims];
 
   if (print_rows > 0) {
     NLogTrace("Printing first %d rows of Parquet file '%s' ...", print_rows, filename.c_str());
@@ -1657,7 +1667,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
         // for (int d = 0; d < nDims; ++d) {
         //   NLogDebug("Point[%d=%s]=%f", d, hns->GetAxis(d)->GetName(), point[d]);
         // }
-        hns->Fill(point);
+        hns->Fill(point.get());
       }
       else {
         NLogWarning("Skipping row %d due to invalid data.", i);
@@ -1665,10 +1675,13 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
     }
   }
   return hns;
-
+}
 #else
+THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & /*filename*/, THnSparse * /*hns*/,
+                                                Int_t /*nMaxRows*/)
+{
   NLogError("Parquet support is not enabled. Please compile with Parquet support.");
   return nullptr;
-#endif
 }
+#endif
 } // namespace Ndmspc

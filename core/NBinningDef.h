@@ -74,7 +74,7 @@ class NBinningDef : public TObject {
    * @brief Add a variable axis index.
    * @param axis Axis index to add.
    */
-  void AddVariableAxis(int axis) { fVariableAxes.push_back(axis); }
+  void AddVariableAxis(size_t axis) { fVariableAxes.push_back(axis); }
 
   /**
    * @brief Refresh content histogram from bin IDs.
@@ -103,7 +103,7 @@ class NBinningDef : public TObject {
    * @param index Index of bin.
    * @return Bin ID.
    */
-  Long64_t GetId(int index) const;
+  Long64_t GetId(size_t index) const;
 
   /**
    * @brief Get list of axes from content histogram.

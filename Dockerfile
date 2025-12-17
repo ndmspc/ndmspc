@@ -10,8 +10,7 @@ RUN scripts/make.sh clean rpm
 FROM registry.gitlab.com/ndmspc/user/al9:base
 #RUN dnf install epel-release 'dnf-command(config-manager)' 'dnf-command(copr)' -y
 #RUN dnf copr enable ndmspc/stable -y
-RUN dnf update -y
-RUN dnf install -y eos-server eos-quarkdb jemalloc-devel screen nmap salsa munge python3-jupyroot python3-pip
+RUN dnf update -y && dnf install -y screen nmap salsa munge python3-jupyroot python3-pip
 RUN pip3 install --no-cache-dir jupyter metakernel
 COPY . /ndmspc/
 RUN /ndmspc/ci/slurm/ndmspc-slurm-init

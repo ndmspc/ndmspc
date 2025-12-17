@@ -277,7 +277,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   NStorageTree *                 ts = nullptr;
   std::map<std::string, TList *> listOutputs;
 
-  TList * listOut         = new TList();
+  // TList * listOut         = new TList();
   TList * listTreeStorage = new TList();
 
   for (auto obj : *list) {

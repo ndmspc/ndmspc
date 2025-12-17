@@ -119,7 +119,7 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
 
   return true;
 }
-bool NStorageTree::SetFileTree(TFile * file, TTree * tree, bool force)
+bool NStorageTree::SetFileTree(TFile * file, TTree * tree)
 {
   ///
   /// Set File and tree
@@ -465,7 +465,7 @@ Long64_t NStorageTree::Merge(TCollection * list)
     Long64_t         idx           = cSparse->GetBin(cCoords);
     std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
     std::string      binCoordsStr  = NUtils::GetCoordsString(cCoordsVector, -1);
-    NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s", linBin, idx, binCoordsStr.c_str());
+    NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s content=%f", linBin, idx, binCoordsStr.c_str(), v);
 
     // if (linBin >= cSparse->GetNbins()) break;
     // continue;

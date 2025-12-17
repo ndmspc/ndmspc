@@ -51,8 +51,8 @@ void NExecutor5D(std::string outFile = "NExecutor5D.root")
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   // Define the processing function
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
-                                                   int threadId) {
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
+                                                   TList * /*outputPoint*/, int /*threadId*/) {
     // print the title of the binning point
     NLogInfo("title : %s", point->GetString().c_str());
     // print the binning point information
