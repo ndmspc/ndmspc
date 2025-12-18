@@ -6,6 +6,7 @@
 #include <TH2.h>
 #include <TH3.h>
 #include <TObject.h>
+#include <vector>
 #include "NBinning.h"
 #include "NParameters.h"
 #include "NStorageTree.h"
@@ -74,7 +75,13 @@ class NGnTree : public TObject {
    * @param treeStorage Pointer to NStorageTree object.
    */
   NGnTree(NBinning * binning, NStorageTree * treeStorage);
-
+  /**
+   * @brief Constructs an NGnTree object from a THnSparse histogram.
+   *
+   * @param hns Pointer to the input THnSparse histogram.
+   * @param parameterAxis Optional name of the parameter axis to use. Defaults to an empty string.
+   * @param filename Optional filename for the imported ROOT file. Defaults to "/tmp/hnst_imported.root".
+   */
   NGnTree(THnSparse * hns, std::string parameterAxis = "", const std::string & filename = "/tmp/hnst_imported.root");
 
   /**
@@ -184,6 +191,8 @@ class NGnTree : public TObject {
    * @return Status code.
    */
   Int_t GetEntry(Long64_t entry, bool checkBinningDef = true);
+
+  Int_t GetEntry(std::vector<std::vector<int>> range, bool checkBinningDef = true);
 
   /**
    * @brief Close the tree, optionally writing data.

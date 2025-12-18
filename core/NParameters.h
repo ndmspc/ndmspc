@@ -65,7 +65,7 @@ class NParameters : public TNamed {
    * @param bin Index of the parameter/bin.
    * @return Error of the parameter.
    */
-  Double_t GetParError(int bin) const;
+  Double_t GetParameterError(int bin) const;
 
   /**
    * @brief Get the error of a parameter by name.
@@ -73,7 +73,7 @@ class NParameters : public TNamed {
    * @param parName Name of the parameter.
    * @return Error of the parameter.
    */
-  Double_t GetParError(const char * parName) const;
+  Double_t GetParameterError(const char * parName) const;
 
   /**
    * @brief Returns the associated histogram.

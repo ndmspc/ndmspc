@@ -593,6 +593,9 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   }
   else {
     NLogTrace("NGnNavigator::Reshape: Reached the end of levels, level=%d", level);
+    std::vector<std::vector<int>> rangesEmpty;
+    NUtils::SetAxisRanges(binningDef->GetContent(), rangesEmpty); // Set the ranges for the axes
+
     return current;
   }
 

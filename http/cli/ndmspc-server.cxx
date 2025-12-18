@@ -1,4 +1,5 @@
 #include <CLI11.hpp>
+#include <NLogger.h>
 #include <TSystem.h>
 #include <TFile.h>
 #include <TApplication.h>
@@ -36,7 +37,7 @@ int main(int argc, char ** argv)
   app.set_help_all_flag("--help-all", "Expand all help");
 
   CLI::App * server = app.add_subcommand("start", "Http Server");
-  server->fallthrough();
+  // server->fallthrough();
   // server->require_subcommand(1); // 1 or more
   CLI::App * server_default = server->add_subcommand("default", "Default http server");
   if (server_default == nullptr) {
@@ -70,7 +71,7 @@ int main(int argc, char ** argv)
   // server_default->enabled_by_default();
   CLI::App * server_stress = server->add_subcommand("stress", "Stress http server");
   if (server_stress == nullptr) {
-    Printf("Problem creating serve stress subcommand");
+    NLogError("Problem creating serve stress subcommand");
     return 1;
   }
   int fill = 1;
@@ -85,7 +86,8 @@ int main(int argc, char ** argv)
   server_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
 
   server_stress->callback([&rootApp, &fill, &timeout, &reset, &seed, &batch]() {
-    std::cout << "Using default processing method." << std::endl;
+    NLogInfo("Using stress processing method.");
+    NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
     int port = 8080;
 
     if (gSystem->Getenv("PORT")) {
