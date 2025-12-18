@@ -94,7 +94,7 @@ Double_t NParameters::GetParameter(const char * parName) const
   }
   return fHisto->GetBinContent(bin);
 }
-Double_t NParameters::GetParError(int bin) const
+Double_t NParameters::GetParameterError(int bin) const
 {
   ///
   /// Get parameter error by index
@@ -105,7 +105,7 @@ Double_t NParameters::GetParError(int bin) const
   }
   return fHisto->GetBinError(bin);
 }
-Double_t NParameters::GetParError(const char * parName) const
+Double_t NParameters::GetParameterError(const char * parName) const
 {
   ///
   /// Get parameter error by name

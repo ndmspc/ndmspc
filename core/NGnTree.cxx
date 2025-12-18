@@ -198,6 +198,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   ngnt->GetInput()->Print();
 
   ngnt->GetBinning()->AddBinningDefinition("default", b);
+  ngnt->InitParameters(cfg["labels"].get<std::vector<std::string>>());
 
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
                                                    TList *                 outputPoint, int /*threadId*/) {
@@ -214,16 +215,10 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     // ngntIn->Print();
 
     THnSparse * hns = (THnSparse *)ngntIn->GetOutput("default")->At(0);
-
-    // return;
-    // THnSparse * hns    = hnsIn;
-    // THnSparse * hns = (THnSparse *)ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->At(0);
     if (hns == nullptr) {
       NLogError("NGnTree::Import: THnSparse 'hns' not found in storage tree !!!");
       return;
     }
-
-    // hns->Print("all");
 
     int                           axisIdx = cfg["parameterAxis"].get<int>();
     std::vector<std::vector<int>> ranges;
@@ -238,18 +233,14 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     NUtils::SetAxisRanges(hns, ranges);
     TH1 * h = hns->Projection(axisIdx, "O");
     if (h->GetEntries() > 0) {
-
-      std::vector<std::string> labels = cfg["labels"].get<std::vector<std::string>>();
-
-      TH1D * hParams = new TH1D("_params", "Parameters", labels.size(), 0, labels.size());
-      for (size_t i = 0; i < labels.size(); i++) {
-        // NLogInfo("Setting results bin %zu label to '%s'", i + 1, labels[i].c_str());
-        hParams->GetXaxis()->SetBinLabel(i + 1, labels[i].c_str());
+      NParameters * params = point->GetParameters();
+      if (params) {
+        for (int bin = 1; bin <= h->GetNbinsX(); bin++) {
+          params->SetParameter(bin - 1, h->GetBinContent(bin), h->GetBinError(bin));
+        }
       }
-      for (int bin = 0; bin <= h->GetNbinsX(); bin++) {
-        hParams->SetBinContent(bin, h->GetBinContent(bin));
-      }
-      outputPoint->Add(hParams);
+      // outputPoint->Add(hParams);
+
       outputPoint->Add(h);
     }
   };
@@ -257,13 +248,6 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
   ngnt->Process(processFunc, cfg);
   ngnt->Close(true);
-  // return ngnt;
-  // // TODO: Check if this is needed
-  // fTreeStorage->SetBinning(fBinning);
-  // fBinning->GetPoint()->SetTreeStorage(fTreeStorage);
-  // fNavigator = new NGnNavigator();
-  // fNavigator->SetGnTree(this);
-  // MakeZombie();
 }
 
 NGnTree::~NGnTree()
@@ -710,6 +694,14 @@ Int_t NGnTree::GetEntry(Long64_t entry, bool checkBinningDef)
       fTreeStorage->GetEntry(entry, fBinning->GetPoint(0, fBinning->GetCurrentDefinitionName()), checkBinningDef);
   if (fTreeStorage->GetBranch("_params")) fParameters = (NParameters *)fTreeStorage->GetBranch("_params")->GetObject();
   return bytes;
+}
+Int_t NGnTree::GetEntry(std::vector<std::vector<int>> /*range*/, bool checkBinningDef)
+{
+  ///
+  /// Get entry by range
+  ///
+
+  return GetEntry(0, checkBinningDef);
 }
 
 void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPointIds,
