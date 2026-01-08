@@ -1394,7 +1394,7 @@ double NGnNavigator::GetParameter(const std::string & name, int index) const
   if (it != fParameterContentMap.end() && index < (int)it->second.size()) {
     return it->second[index];
   }
-  return NAN;
+  return TMath::QuietNaN();
 }
 
 void NGnNavigator::SetParameter(const std::string & name, double value, int index)
@@ -1419,9 +1419,6 @@ void NGnNavigator::SetParameter(const std::string & name, double value, int inde
       fParameterContentMap[name].push_back(value);
     }
     else {
-      // if (index >= (int)fParameterContentMap[name].size()) {
-      //   fParameterContentMap[name].resize(index + 1, NAN);
-      // }
       fParameterContentMap[name][index] = value;
     }
   }
@@ -1444,7 +1441,7 @@ double NGnNavigator::GetParameterError(const std::string & name, int index) cons
   if (it != fParameterErrorContentMap.end() && index < (int)it->second.size()) {
     return it->second[index];
   }
-  return NAN;
+  return TMath::QuietNaN();
 }
 
 void NGnNavigator::SetParameterError(const std::string & name, double value, int index)
@@ -1470,9 +1467,6 @@ void NGnNavigator::SetParameterError(const std::string & name, double value, int
       fParameterErrorContentMap[name].push_back(value);
     }
     else {
-      // if (index >= (int)fParameterContentMap[name].size()) {
-      //   fParameterContentMap[name].resize(index + 1, NAN);
-      // }
       fParameterErrorContentMap[name][index] = value;
     }
   }
