@@ -194,8 +194,8 @@ int NHnSparseObject::Fill(TH1 * h, NHnSparseTreePoint * p)
       hist->SetBinError(currentFillIndex, h->GetBinError(i + 1));
       if (i == 0)
         NLogDebug("2 Setting bin content for coords %s: index=%d, value=%e error=%e",
-                       NUtils::GetCoordsString(currentCoords, -1).c_str(), indexInVector,
-                       hist->GetBinContent(currentFillIndex), hist->GetBinError(currentFillIndex));
+                  NUtils::GetCoordsString(currentCoords, -1).c_str(), indexInVector,
+                  hist->GetBinContent(currentFillIndex), hist->GetBinError(currentFillIndex));
     }
   }
 
@@ -260,7 +260,7 @@ double NHnSparseObject::GetParameter(const std::string & name, int index) const
   if (it != fParameterContentMap.end() && index < (int)it->second.size()) {
     return it->second[index];
   }
-  return NAN;
+  return TMath::QuietNaN();
 }
 
 void NHnSparseObject::SetParameter(const std::string & name, double value, int index)
@@ -270,19 +270,15 @@ void NHnSparseObject::SetParameter(const std::string & name, double value, int i
   ///
   if (!std::isnan(value)) {
     if (fParameterContentMap.find(name) == fParameterContentMap.end() || fParameterContentMap[name].size() < fNCells) {
-      NLogTrace("NHnSparseObject::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(),
-                     fNCells);
+      NLogTrace("NHnSparseObject::SetParameter: Resizing parameter content map for '%s' to %d", name.c_str(), fNCells);
       ResizeParameterContentMap(name, fNCells);
     }
     NLogTrace("NHnSparseObject::SetParameter: name=%s, value=%f, index=%d", name.c_str(), value, index,
-                   fParameterContentMap[name].size());
+              fParameterContentMap[name].size());
     if (index < 0) {
       fParameterContentMap[name].push_back(value);
     }
     else {
-      // if (index >= (int)fParameterContentMap[name].size()) {
-      //   fParameterContentMap[name].resize(index + 1, NAN);
-      // }
       fParameterContentMap[name][index] = value;
     }
   }
@@ -529,7 +525,7 @@ void NHnSparseObject::ExportJson(json & j, NHnSparseObject * obj)
         max     = TMath::Max(max, objMax);
         entries = childProjection->GetEntries();
         NLogDebug("NHnSparseObject::ExportJson: Child %s has min=%f, max=%f", childProjection->GetName(), objMin,
-                       objMax);
+                  objMax);
       }
     }
     j["children"]["content"].push_back(childJson);
@@ -624,14 +620,12 @@ void NHnSparseObject::Draw(Option_t * option)
         for (int i = 0; i < obj->GetChildren().size(); i++) {
           NHnSparseObject * child = obj->GetChild(i);
           if (child) {
-            NLogDebug("NHnSparseObject::Draw: Found child at level %d: %s", level,
-                           child->GetProjection()->GetTitle());
+            NLogDebug("NHnSparseObject::Draw: Found child at level %d: %s", level, child->GetProjection()->GetTitle());
             obj = child; // Get the child object at the current level
             break;
           }
         }
-        NLogDebug("NHnSparseObject::Draw: Using child object at level %d: %s", level,
-                       obj ? obj->GetName() : "nullptr");
+        NLogDebug("NHnSparseObject::Draw: Using child object at level %d: %s", level, obj ? obj->GetName() : "nullptr");
       }
       if (obj == nullptr) {
         NLogError("NHnSparseObject::Draw: Child object at level %d is nullptr !!!", level);
@@ -657,7 +651,7 @@ void NHnSparseObject::Paint(Option_t * option)
   // NLogInfo("NHnSparseObject::Paint: Painting object ...");
   if (fProjection) {
     NLogDebug("NHnSparseObject::Paint: Painting to pad=%d projection name=%s title=%s ...", fLevel + 1,
-                   fProjection->GetName(), fProjection->GetTitle());
+              fProjection->GetName(), fProjection->GetTitle());
     // fProjection->Paint(option);
     fProjection->Paint("colz text");
   }
@@ -708,7 +702,7 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
         Int_t binx, biny, binz;
         fProjection->GetBinXYZ(bin, binx, biny, binz);
         NLogDebug("[%s]Mouse hover on bin[%d, %d] at px[%f, %f] level=%d nLevels=%d", gPad->GetName(), binx, biny,
-                       x_user, y_user, fLevel, fNLevels);
+                  x_user, y_user, fLevel, fNLevels);
       }
       fLastHoverBin = bin;
       NLogDebug("[%s] Setting point for level %d %s", gPad->GetName(), fLevel, fProjection->GetTitle());
@@ -721,8 +715,8 @@ void NHnSparseObject::ExecuteEvent(Int_t event, Int_t px, Int_t py)
     Int_t binx, biny, binz;
     fProjection->GetBinXYZ(bin, binx, biny, binz);
     Double_t content = fProjection->GetBinContent(bin);
-    NLogInfo("[%s]Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  level=%d nLevels=%d",
-                  gPad->GetName(), binx, biny, x_user, y_user, content, fLevel, fNLevels);
+    NLogInfo("[%s]Mouse click on bin=[%d, %d] at px=[%f, %f] with content: %f  level=%d nLevels=%d", gPad->GetName(),
+             binx, biny, x_user, y_user, content, fLevel, fNLevels);
 
     int nDimensions = fHnSparse->GetNdimensions();
 
