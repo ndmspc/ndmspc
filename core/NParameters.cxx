@@ -1,4 +1,5 @@
 #include <vector>
+#include <TMath.h>
 #include "NLogger.h"
 
 #include "NParameters.h"
@@ -77,7 +78,7 @@ Double_t NParameters::GetParameter(int bin) const
   ///
   if (bin < 1 || bin > fHisto->GetNbinsX()) {
     NLogError("NParameters::GetParameter: Parameter index '%d' out of range !!!", bin);
-    return NAN;
+    return TMath::QuietNaN();
   }
   return fHisto->GetBinContent(bin);
 }
@@ -90,7 +91,7 @@ Double_t NParameters::GetParameter(const char * parName) const
   int bin = fHisto->GetXaxis()->FindBin(parName);
   if (bin < 1 || bin > fHisto->GetNbinsX()) {
     NLogError("NParameters::GetParameter: Parameter name '%s' not found !!!", parName);
-    return NAN;
+    return TMath::QuietNaN();
   }
   return fHisto->GetBinContent(bin);
 }
@@ -101,7 +102,7 @@ Double_t NParameters::GetParameterError(int bin) const
   ///
   if (bin < 1 || bin > fHisto->GetNbinsX()) {
     NLogError("NParameters::GetParError: Parameter index '%d' out of range !!!", bin);
-    return NAN;
+    return TMath::QuietNaN();
   }
   return fHisto->GetBinError(bin);
 }
@@ -113,7 +114,7 @@ Double_t NParameters::GetParameterError(const char * parName) const
   int bin = fHisto->GetXaxis()->FindBin(parName);
   if (bin < 1 || bin > fHisto->GetNbinsX()) {
     NLogError("NParameters::GetParError: Parameter name '%s' not found !!!", parName);
-    return NAN;
+    return TMath::QuietNaN();
   }
   return fHisto->GetBinError(bin);
 }
