@@ -236,7 +236,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       NParameters * params = point->GetParameters();
       if (params) {
         for (int bin = 1; bin <= h->GetNbinsX(); bin++) {
-          params->SetParameter(bin - 1, h->GetBinContent(bin), h->GetBinError(bin));
+          params->SetParameter(bin, h->GetBinContent(bin), h->GetBinError(bin));
         }
       }
       // outputPoint->Add(hParams);
