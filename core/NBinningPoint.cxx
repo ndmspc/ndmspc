@@ -355,4 +355,25 @@ std::string NBinningPoint::GetBinLabel(std::string axis) const
   return "";
 }
 
+int NBinningPoint::GetBin(std::string axis) const
+{
+  ///
+  /// Get bin for specific axis
+  ///
+
+  // check if axis exists in fBinning->GetAxes()
+  for (int i = 0; i < fNDimensions; i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogError("NBinningPoint::GetBin: Axis %d is nullptr !!!", i);
+      continue;
+    }
+    if (axis.compare(a->GetName()) == 0) {
+      return fStorageCoords[i];
+    }
+  }
+
+  NLogError("NBinningPoint::GetLabel: Axis '%s' not found !!!", axis.c_str());
+  return -1;
+}
 } // namespace Ndmspc

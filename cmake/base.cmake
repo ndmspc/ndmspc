@@ -45,6 +45,7 @@ set(STRICT_WARNING_FLAGS
     -Wextra
     -Wno-cpp
     -Wpedantic
+    -Wno-gnu-zero-variadic-macro-arguments
 )
 
 if(ENABLE_STRICT_WARNINGS)
