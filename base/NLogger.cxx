@@ -5,6 +5,7 @@
 #include <chrono>
 #include <ctime>
 #include <cstdarg>
+#include <unistd.h>
 
 #include "NLogger.h"
 

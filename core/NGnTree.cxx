@@ -127,7 +127,8 @@ NGnTree::NGnTree(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTree
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
 }
-NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string & filename)
+NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string & outFileName, json cfg)
+    : TObject(), fInput(nullptr)
 {
   ///
   /// Import THnSparse as NGnTree and use given parameter axis as result parameter
@@ -154,7 +155,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
     // set label
     if (axisIn->IsAlphanumeric()) {
-      NLogInfo("Setting axis '%s' labels from input THnSparse", axis->GetName());
+      NLogTrace("Setting axis '%s' labels from input THnSparse", axis->GetName());
       for (int bin = 1; bin <= axisIn->GetNbins(); bin++) {
         std::string label = axisIn->GetBinLabel(bin);
         if (!labels.empty()) axis->SetBinLabel(bin, axisIn->GetBinLabel(bin));
@@ -165,13 +166,14 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     b[axis->GetName()] = {{1}};
   }
 
-  json cfg;
-  cfg["parameterAxis"] = parameterAxisIdx;
-  cfg["labels"]        = labels;
+  // json cfg;
+  cfg["_parameterAxis"] = parameterAxisIdx;
+  cfg["_labels"]        = labels;
+
   // return nullptr;
   NLogDebug("Importing THnSparse as NGnTree with parameter axis '%s' (index %d) ...", parameterAxis.c_str(),
             parameterAxisIdx);
-  NGnTree * ngnt = new NGnTree(axes, filename);
+  NGnTree * ngnt = new NGnTree(axes, outFileName);
   NLogDebug("Created NGnTree for THnSparse import ...");
   if (ngnt->IsZombie()) {
     NLogError("NGnTree::Import: Failed to create NGnTree !!!");
@@ -179,7 +181,8 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     return;
   }
   // ngnt->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
-  NGnTree * ngntIn = new NGnTree(axes, "/tmp/hnst_imported_input.root");
+  std::string tmpFilename = "/tmp/ngnt_imported_input" + std::to_string(gSystem->GetPid()) + ".root";
+  NGnTree *   ngntIn      = new NGnTree(axes, tmpFilename);
   if (ngntIn->IsZombie()) {
     NLogError("NGnTree::Import: Failed to create NGnTree for input !!!");
     SafeDelete(ngnt);
@@ -193,12 +196,12 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   // return;
   // delete ngntIn;
 
-  ngnt->SetInput(NGnTree::Open("/tmp/hnst_imported_input.root")); // Set input to self
+  ngnt->SetInput(NGnTree::Open(tmpFilename)); // Set input to self
 
   ngnt->GetInput()->Print();
 
   ngnt->GetBinning()->AddBinningDefinition("default", b);
-  ngnt->InitParameters(cfg["labels"].get<std::vector<std::string>>());
+  ngnt->InitParameters(cfg["_labels"].get<std::vector<std::string>>());
 
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
                                                    TList *                 outputPoint, int /*threadId*/) {
@@ -220,7 +223,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       return;
     }
 
-    int                           axisIdx = cfg["parameterAxis"].get<int>();
+    int                           axisIdx = cfg["_parameterAxis"].get<int>();
     std::vector<std::vector<int>> ranges;
     // set ranges from point storage coords
     int iAxis = 0;
@@ -240,14 +243,66 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
         }
       }
       // outputPoint->Add(hParams);
-
       outputPoint->Add(h);
+
+      // Get all objects
+      TFile * f = TFile::Open(cfg["filename"].get<std::string>().c_str());
+      if (f->IsZombie()) {
+        NLogError("NGnTree::Import: Cannot open file '%s' !!!", cfg["filename"].get<std::string>().c_str());
+        return;
+      }
+
+      std::string objFormatMinMax =
+          cfg["objectFormatMinMax"].is_string() ? cfg["objectFormatMinMax"].get<std::string>() : "";
+      std::string objFormatAxis =
+          cfg["objectFormatAxis"].is_string() ? cfg["objectFormatAxis"].get<std::string>() : "_";
+      // loop over all object in cfg["objects"]
+      for (auto & [objName, objCfg] : cfg["objects"].items()) {
+        std::string objPath = objCfg["prefix"].get<std::string>();
+
+        for (auto & axisName : cfg["axes"]) {
+          if (objFormatMinMax.empty()) {
+            objPath += std::to_string(point->GetBin(axisName.get<std::string>()));
+          }
+          else {
+            double min = point->GetBinMin(axisName.get<std::string>());
+            double max = point->GetBinMax(axisName.get<std::string>());
+            objPath += TString::Format(objFormatMinMax.c_str(), min, max).Data();
+          }
+          objPath += objFormatAxis;
+        }
+
+        // remove trailing underscore
+        objPath = objPath.substr(0, objPath.size() - objFormatAxis.size());
+
+        TObject * obj = f->Get(objPath.c_str());
+        if (!obj) {
+          NLogError("NGnTree::Import: Cannot get object '%s' from file '%s' !!!", objPath.c_str(),
+                    cfg["filename"].get<std::string>().c_str());
+          continue;
+        }
+        NLogInfo("NGnTree::Import: Retrieved object '%s' storting to '%s' ...", objPath.c_str(), objName.c_str());
+        // outputPoint->Add(obj->Clone(objName.c_str()));
+        if (obj->InheritsFrom(TCanvas::Class())) {
+          TCanvas * cObj = (TCanvas *)obj;
+          cObj->SetName(objName.c_str());
+          if (cObj->GetWw() == 0.0 || cObj->GetWh() == 0.0) {
+            NLogWarning("gPad has at least one zero dimension.");
+            return;
+          }
+          obj = cObj->Clone();
+        }
+        outputPoint->Add(obj);
+      }
+      f->Close();
     }
   };
 
   // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
   ngnt->Process(processFunc, cfg);
   ngnt->Close(true);
+  // Remove tmp file
+  gSystem->Exec(TString::Format("rm -f %s", tmpFilename.c_str()));
 }
 
 NGnTree::~NGnTree()

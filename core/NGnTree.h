@@ -75,14 +75,17 @@ class NGnTree : public TObject {
    * @param treeStorage Pointer to NStorageTree object.
    */
   NGnTree(NBinning * binning, NStorageTree * treeStorage);
+
   /**
    * @brief Constructs an NGnTree object from a THnSparse histogram.
    *
    * @param hns Pointer to the input THnSparse histogram.
-   * @param parameterAxis Optional name of the parameter axis to use. Defaults to an empty string.
-   * @param filename Optional filename for the imported ROOT file. Defaults to "/tmp/hnst_imported.root".
+   * @param parameterAxis Optional name of the parameter axis (default: empty string).
+   * @param outFileName Name of the output file to store the imported tree (default: "/tmp/ngnt_imported.root").
+   * @param cfg Optional JSON configuration object (default: empty object).
    */
-  NGnTree(THnSparse * hns, std::string parameterAxis = "", const std::string & filename = "/tmp/hnst_imported.root");
+  NGnTree(THnSparse * hns, std::string parameterAxis = "", const std::string & outFileName = "/tmp/ngnt_imported.root",
+          json cfg = json::object());
 
   /**
    * @brief Destructor.
@@ -192,6 +195,13 @@ class NGnTree : public TObject {
    */
   Int_t GetEntry(Long64_t entry, bool checkBinningDef = true);
 
+  /**
+   * @brief Retrieves the entry corresponding to the specified range.
+   *
+   * @param range A vector of vectors of integers specifying the range for each dimension.
+   * @param checkBinningDef If true, checks the binning definition before retrieving the entry (default: true).
+   * @return Int_t The index of the entry corresponding to the given range.
+   */
   Int_t GetEntry(std::vector<std::vector<int>> range, bool checkBinningDef = true);
 
   /**

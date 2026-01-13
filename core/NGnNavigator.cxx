@@ -504,8 +504,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
               for (auto & name : objNames) {
                 TH1 * hProjTmp = dynamic_cast<TH1 *>(list->FindObject(name.c_str()));
                 if (hProjTmp == nullptr) {
-                  NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain '%s' !!!", key.c_str(),
-                                              name.c_str());
+                  NLogTrace("NGnNavigator::Reshape::Warning Branch '%s' TList does not contain '%s' as TH1 !!!",
+                                            key.c_str(), name.c_str());
                   isValid = false;
 
                   continue;
@@ -531,8 +531,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                 current->SetObject(name, hProjTmp, indexInProj);
               }
               if (isValid == false) {
-                NLogWarning("NGnNavigator::Reshape: Branch '%s' TList does not contain any valid histograms !!!",
-                                            key.c_str());
+                NLogTrace("NGnNavigator::Reshape::Warning: Branch '%s' TList does not contain any valid histograms !!!",
+                                          key.c_str());
                 continue;
               }
             }
@@ -1055,6 +1055,7 @@ void NGnNavigator::Draw(Option_t * option)
   }
 
   // std::string name;
+  if (gPad) SafeDelete(gPad);
   if (!gPad) {
     // NLogInfo("NGnNavigator::Draw: Making default canvas ...");
     gROOT->MakeDefCanvas();
@@ -1596,6 +1597,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
 
     // Create parameter THnSparse
     THnSparse * hsParam = THnSparse::CreateSparse(parameterName.c_str(), parameterName.c_str(), hParameterProjection);
+
     // append all labels from from fProjection to hs
     int nDimensions = hParameterProjection->GetDimension();
     for (int i = 0; i < nDimensions; i++) {
@@ -1621,6 +1623,9 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
           hsParam->GetAxis(i)->SetBinLabel(j, label.c_str());
         }
         // hsParam->SetBinError(j, 1e-10);
+      }
+      if (axis->IsVariableBinSize()) {
+        hsParam->GetAxis(i)->Set(axis->GetNbins(), axis->GetXbins()->GetArray());
       }
     }
 

@@ -166,6 +166,14 @@ class NBinningPoint : public TObject {
   std::string GetBinLabel(std::string axis) const;
 
   /**
+   * @brief Returns the bin index for the specified axis.
+   *
+   * @param axis The name of the axis for which to retrieve the bin index.
+   * @return int The bin index corresponding to the given axis.
+   */
+  Int_t GetBin(std::string axis) const;
+
+  /**
    * @brief Get pointer to NBinning object.
    * @return Pointer to NBinning.
    */
