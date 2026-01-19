@@ -173,7 +173,7 @@ TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string
   a->SetName(name.c_str());
   a->SetTitle(title.c_str());
   for (int i = 0; i < nBins; i++) {
-    NLogDebug("NUtils::CreateAxisFromLabels: Adding label: %s", labels[i].c_str());
+    NLogTrace("NUtils::CreateAxisFromLabels: Adding label: %s", labels[i].c_str());
     a->SetBinLabel(i + 1, labels[i].c_str());
   }
   return a;
@@ -191,7 +191,7 @@ TAxis * NUtils::CreateAxisFromLabelsSet(const std::string & name, const std::str
   a->SetTitle(title.c_str());
   int i = 1;
   for (const auto & label : labels) {
-    NLogDebug("NUtils::CreateAxisFromLabels: Adding label: %s", label.c_str());
+    NLogTrace("NUtils::CreateAxisFromLabels: Adding label: %s", label.c_str());
     a->SetBinLabel(i, label.c_str());
     i++;
   }

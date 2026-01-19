@@ -28,6 +28,41 @@ namespace Ndmspc {
 using NHnSparseProcessFuncPtr = void (*)(Ndmspc::NBinningPoint *, TList *, TList *, int);
 
 /**
+ * @brief Function pointer type for processing binning points and lists.
+ *
+ * This type defines a pointer to a function that processes a binning point and two lists,
+ * along with an integer parameter.
+ *
+ * @param Ndmspc::NBinningPoint* Pointer to a binning point object.
+ * @param TList*                 Pointer to the first list.
+ * @param TList*                 Pointer to the second list.
+ * @param int                    An integer parameter for processing.
+ */
+using NGnProcessFuncPtr = void (*)(Ndmspc::NBinningPoint *, TList *, TList *, int);
+
+/**
+ * @brief Function pointer type for the beginning of a tree operation.
+ *
+ * This function pointer is used to define a callback that operates on a binning point,
+ * a list, and an integer parameter. It is typically called at the start of a tree-related
+ * process or iteration.
+ *
+ * @param Ndmspc::NBinningPoint* Pointer to a binning point structure.
+ * @param int An integer parameter, typically used for indexing or counting.
+ */
+using NGnBeginFuncPtr = void (*)(Ndmspc::NBinningPoint *, int);
+
+/**
+ * @brief Function pointer type for termination functions used in NGnTree.
+ *
+ * This function is called to perform termination operations on a binning point.
+ *
+ * @param binningPoint Pointer to the Ndmspc::NBinningPoint object.
+ * @param flag An integer flag for custom behavior.
+ */
+using NGnEndFuncPtr = void (*)(Ndmspc::NBinningPoint *, int);
+
+/**
  * @class NGnTree
  * @brief NDMSPC tree object for managing multi-dimensional data storage and processing.
  *
@@ -232,7 +267,8 @@ class NGnTree : public TObject {
    * @param binningName Binning name.
    * @return True if processed successfully.
    */
-  bool Process(NHnSparseProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "");
+  bool Process(NGnProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "",
+               NGnBeginFuncPtr beginFunc = nullptr, NGnEndFuncPtr endFunc = nullptr);
 
   /**
    * @brief Process tree data using a function pointer and definition names.
@@ -242,8 +278,8 @@ class NGnTree : public TObject {
    * @param binningIn Pointer to NBinning object.
    * @return True if processed successfully.
    */
-  bool Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames,
-               const json & cfg = json::object(), NBinning * binningIn = nullptr);
+  bool Process(NGnProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg = json::object(),
+               NBinning * binningIn = nullptr, NGnBeginFuncPtr beginFunc = nullptr, NGnEndFuncPtr endFunc = nullptr);
 
   /**
    * @brief Project tree data using configuration and binning name.

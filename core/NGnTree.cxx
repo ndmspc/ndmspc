@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <numbers>
 #include <string>
 #include <vector>
 #include "TAxis.h"
@@ -204,8 +205,8 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   ngnt->GetBinning()->AddBinningDefinition("default", b);
   ngnt->InitParameters(cfg["_labels"].get<std::vector<std::string>>());
 
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
-                                                   TList *                 outputPoint, int /*threadId*/) {
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
     // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();
@@ -351,7 +352,8 @@ void NGnTree::Draw(Option_t * /*option*/)
   NLogInfo("NGnTree::Draw: Drawing NGnTree object [not implemented yet]...");
 }
 
-bool NGnTree::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::string binningName)
+bool NGnTree::Process(NGnProcessFuncPtr func, const json & cfg, std::string binningName, NGnBeginFuncPtr beginFunc,
+                      NGnEndFuncPtr endFunc)
 {
   ///
   /// Process the sparse object with the given function
@@ -377,7 +379,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::strin
 
   fBinning->Reset();
   fBinning->SetCfg(cfg); // Set configuration to binning point
-  bool rc = Process(func, defNames, cfg, binningIn);
+  bool rc = Process(func, defNames, cfg, binningIn, beginFunc, endFunc);
   if (!rc) {
     NLogError("NGnTree::Process: Processing failed !!!");
     return false;
@@ -386,8 +388,8 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const json & cfg, std::strin
   return true;
 }
 
-bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg,
-                      NBinning * binningIn)
+bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg,
+                      NBinning * binningIn, NGnBeginFuncPtr beginFunc, NGnEndFuncPtr endFunc)
 {
   ///
   /// Process the sparse object with the given function
@@ -414,7 +416,8 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
   std::string filePrefix = jobDir;
   for (size_t i = 0; i < threadDataVector.size(); ++i) {
     std::string filename = filePrefix + "/" + std::to_string(i) + "/" + fTreeStorage->GetPostfix();
-    bool rc = threadDataVector[i].Init(i, func, this, binningIn, fInput, filename, fTreeStorage->GetTree()->GetName());
+    bool        rc       = threadDataVector[i].Init(i, func, beginFunc, endFunc, this, binningIn, fInput, filename,
+                                                    fTreeStorage->GetTree()->GetName());
     if (!rc) {
       NLogError("Failed to initialize thread data %zu, exiting ...", i);
       return false;
@@ -490,6 +493,9 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
     executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
 
+    for (size_t i = 0; i < threadDataVector.size(); ++i) {
+      threadDataVector[i].ExecuteEndFunction();
+    }
     // Update hnsbBinningIn with the processed ids
     NLogDebug("NGnTree::Process: [BEGIN] ------------------------------------------------");
     sumIds += binningIn->GetDefinition(name)->GetIds().size();
@@ -550,7 +556,7 @@ bool NGnTree::Process(NHnSparseProcessFuncPtr func, const std::vector<std::strin
     NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
     TList *                 mergeList  = new TList();
     Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
-    outputData->Init(0, func, this, binningIn);
+    outputData->Init(0, func, nullptr, nullptr, this, binningIn);
     outputData->SetCfg(cfg);
     // outputData->Init(0, func, this);
 
@@ -938,8 +944,8 @@ TList * NGnTree::Projection(const json & cfg, std::string binningName)
 
   // SetInput(); // Set input to selfp
   SetInput(Ndmspc::NGnTree::Open(fTreeStorage->GetFileName()));
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output,
-                                                   TList * /*outputPoint*/, int /*threadId*/) {
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * /*outputPoint*/,
+                                             int /*threadId*/) {
     // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();
@@ -1140,8 +1146,8 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   cfg["filename"] = fileName;
   cfg["nDirAxes"] = nDirAxes;
   // cfg["ndmspc"]["shared"]["currentFileName"]  = "";
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
-                                                   TList *                 outputPoint, int /*threadId*/) {
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
     // point->Print();
 
     json        cfg      = point->GetCfg();
@@ -1155,6 +1161,12 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
     NGnTree * ngnt = (NGnTree *)point->GetTempObject("file");
     if (!ngnt || filename.compare(ngnt->GetStorageTree()->GetFileName()) != 0) {
       NLogInfo("NGnTree::Import: Opening file '%s' ...", filename.c_str());
+      if (ngnt) {
+        NLogDebug("NGnTree::Import: Closing previously opened file '%s' ...",
+                  ngnt->GetStorageTree()->GetFileName().c_str());
+        ngnt->Close(false);
+        delete ngnt;
+      }
       ngnt = NGnTree::Open(filename.c_str());
       if (!ngnt || ngnt->IsZombie()) {
         NLogError("NGnTree::Import: Cannot open file '%s'", filename.c_str());
@@ -1205,8 +1217,21 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
 
     // f->ls();
   };
+  Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
+  };
 
-  ngnt->Process(processFunc, cfg);
+  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * point, int /*threadId*/) {
+    NGnTree * ngnt = (NGnTree *)point->GetTempObject("file");
+    if (ngnt) {
+      NLogDebug("NGnTree::Import: Closing last file '%s' ...", ngnt->GetStorageTree()->GetFileName().c_str());
+      ngnt->Close(false);
+      delete ngnt;
+      point->SetTempObject("file", nullptr);
+    }
+  };
+
+  ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
   return ngnt;
 }
 

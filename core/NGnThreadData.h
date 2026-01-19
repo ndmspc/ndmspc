@@ -39,14 +39,15 @@ class NGnThreadData : public NThreadData {
    * @param treename Optional tree name (default: "ngnt").
    * @return True if initialization successful.
    */
-  bool Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt, NBinning * binningIn, NGnTree * input = nullptr,
-            const std::string & filename = "", const std::string & treename = "ngnt");
+  bool Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr beginFunc, NGnEndFuncPtr endFunc, NGnTree * ngnt,
+            NBinning * binningIn, NGnTree * input = nullptr, const std::string & filename = "",
+            const std::string & treename = "ngnt");
 
   /**
    * @brief Set the processing function pointer.
    * @param func Function pointer to set.
    */
-  void SetProcessFunc(NHnSparseProcessFuncPtr func) { fProcessFunc = func; }
+  void SetProcessFunc(NGnProcessFuncPtr func) { fProcessFunc = func; }
 
   /**
    * @brief Initialize storage tree for thread data.
@@ -99,6 +100,9 @@ class NGnThreadData : public NThreadData {
    */
   virtual void Process(const std::vector<int> & coords);
 
+  void ExecuteBeginFunction();
+  void ExecuteEndFunction();
+
   /**
    * @brief Merge thread data from a collection (virtual).
    * @param list Pointer to TCollection.
@@ -107,12 +111,14 @@ class NGnThreadData : public NThreadData {
   virtual Long64_t Merge(TCollection * list);
 
   private:
-  NHnSparseProcessFuncPtr fProcessFunc{nullptr};  ///< Function pointer to the processing function
-  NGnTree *               fHnSparseBase{nullptr}; ///< Pointer to the base class
-  Long64_t                fNProcessed{0};         ///< Number of processed entries
-  NBinning *              fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
-  json                    fCfg{};                 ///< Configuration object
-  bool                    fIsPureCopy{false};     ///< Flag indicating pure copy mode
+  NGnProcessFuncPtr fProcessFunc{nullptr};  ///< Function pointer to the processing function
+  NGnBeginFuncPtr   fBeginFunc{nullptr};    ///< Function pointer to the begin function
+  NGnEndFuncPtr     fEndFunc{nullptr};      ///< Function pointer to the end function
+  NGnTree *         fHnSparseBase{nullptr}; ///< Pointer to the base class
+  Long64_t          fNProcessed{0};         ///< Number of processed entries
+  NBinning *        fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
+  json              fCfg{};                 ///< Configuration object
+  bool              fIsPureCopy{false};     ///< Flag indicating pure copy mode
 
   /// \cond CLASSIMP
   ClassDef(NGnThreadData, 1);
