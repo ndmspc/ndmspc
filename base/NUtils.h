@@ -221,6 +221,21 @@ class NUtils : TObject {
                                      bool include_overflow_underflow = false);
 
   /**
+   * @brief Creates an array of axes objects from files in specified directories.
+   *
+   * Searches the given directories for files matching the specified file name and headers,
+   * and constructs a TObjArray of axes objects found in those files.
+   *
+   * @param paths A vector of directory paths to search.
+   * @param findPath The subdirectory path to look for within each directory.
+   * @param fileName The name of the file to search for in each directory.
+   * @param axesNames A vector of axis names
+   * @return A pointer to a TObjArray containing the axes objects, or nullptr if none found.
+   */
+  static TObjArray * AxesFromDirectory(const std::vector<std::string> paths, const std::string & findPath,
+                                       const std::string & fileName, const std::vector<std::string> & axesNames);
+
+  /**
    * @brief Tokenize a string by delimiter.
    * @param input Input string.
    * @param delim Delimiter character.

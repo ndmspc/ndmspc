@@ -376,4 +376,14 @@ int NBinningPoint::GetBin(std::string axis) const
   NLogError("NBinningPoint::GetLabel: Axis '%s' not found !!!", axis.c_str());
   return -1;
 }
+
+TObject * NBinningPoint::GetTempObject(const std::string & name) const
+{
+  auto it = fTempObjects.find(name);
+  if (it != fTempObjects.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
 } // namespace Ndmspc

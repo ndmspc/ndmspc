@@ -3,17 +3,17 @@
 #include <NGnTree.h>
 void NParamsImport(
     const std::string & filename = "root://eos.ndmspc.io//eos/ndmspc/scratch/veronika/PWGLF-376/pp/2024/FCPAR.root",
-    const std::string & hnsName = "sResults", const std::string & paramAxis = "Results")
+    std::string filenameOut = "", const std::string & hnsName = "sResults", const std::string & paramAxis = "Results")
 {
   ///
   /// Macro to import parameters in THnSparse object to NGnTree
   ///
 
   json cfg;
-  cfg["filename"]           = "root://eos.ndmspc.io//eos/ndmspc/scratch/veronika/PWGLF-376/pp/2024/FCPAR.root";
-  cfg["axes"]               = {"axis1-pt", "axis2-ce"};
-  cfg["objectFormatMinMax"] = "%.2f_%.2f";
-  cfg["objectFormatAxis"]   = "__";
+  cfg["filename"]                              = filename;
+  cfg["axes"]                                  = {"axis1-pt", "axis2-ce"};
+  cfg["objectFormatMinMax"]                    = "%.2f_%.2f";
+  cfg["objectFormatAxis"]                      = "__";
   cfg["objects"]["DataOverview"]["prefix"]     = "Data/Overview/cResults_";
   cfg["objects"]["DataFitResults"]["prefix"]   = "Data/FitResults/cFit_";
   cfg["objects"]["DataNormPlots"]["prefix"]    = "Data/NormPlots/cNorm_";
@@ -37,7 +37,14 @@ void NParamsImport(
   }
 
   fIn->Close();
-  auto ngnt = new Ndmspc::NGnTree(hns, paramAxis, "/tmp/ngnt_params_imported.root", cfg);
+
+  if (filenameOut.empty()) {
+    filenameOut = filename;
+    // replace extension with _ngnt.root
+    filenameOut = filenameOut.substr(0, filenameOut.find_last_of('.')) + "_ngnt.root";
+  }
+
+  auto ngnt = new Ndmspc::NGnTree(hns, paramAxis, filenameOut, cfg);
   if (ngnt->IsZombie()) {
     NLogError("NParamsImport: Failed to create NGnTree for THnSparse import !!!");
     return;

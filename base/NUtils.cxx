@@ -1203,6 +1203,52 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int &
   return true;
 }
 
+TObjArray * NUtils::AxesFromDirectory(const std::vector<std::string> paths, const std::string & findPath,
+                                      const std::string & fileName, const std::vector<std::string> & axesNames)
+{
+  if (paths.empty()) {
+    NLogError("Error: No paths provided ...");
+    return nullptr;
+  }
+
+  std::map<std::string, std::set<std::string>> axes;
+  for (const auto & path : paths) {
+    NLogInfo("Found file: %s", path.c_str());
+    // remove prefix basePath from path
+    TString relativePath = path;
+    relativePath.ReplaceAll(findPath.c_str(), "");
+    relativePath.ReplaceAll(fileName.c_str(), "");
+    // relativePath.ReplaceAll("years", "");
+    // relativePath.ReplaceAll("data", "");
+    relativePath.ReplaceAll("//", "/");
+    // remove leading slash
+    relativePath.Remove(0, relativePath.BeginsWith("/") ? 1 : 0);
+    // remove trailing slash
+    relativePath.Remove(relativePath.EndsWith("/") ? relativePath.Length() - 1 : relativePath.Length(), 1);
+
+    std::vector<std::string> tokens = Ndmspc::NUtils::Tokenize(relativePath.Data(), '/');
+
+    // if (tokens.size() < axesNames.size()) {
+    //   tokens.push_back("mb");
+    // }
+    //
+    if (tokens.size() != axesNames.size()) {
+      continue;
+    }
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+      axes[axesNames[i]].insert(tokens[i]);
+    }
+  }
+
+  TObjArray * axesArr = new TObjArray();
+  for (const auto & axisName : axesNames) {
+    TAxis * axis = Ndmspc::NUtils::CreateAxisFromLabelsSet(axisName, axisName, axes[axisName]); // Convert set to vector
+    axesArr->Add(axis);
+  }
+
+  return axesArr;
+}
 std::string NUtils::GetJsonString(json j)
 {
   ///
@@ -1682,4 +1728,5 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & /*filename*/
   return nullptr;
 }
 #endif
+
 } // namespace Ndmspc
