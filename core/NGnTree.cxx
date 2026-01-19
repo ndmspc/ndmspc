@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include "TAxis.h"
 #include <TDirectory.h>
 #include <TObject.h>
 #include <TList.h>
@@ -1099,6 +1100,114 @@ bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
   fParameters = new NParameters("results", "Results", paramNames);
 
   return true;
+}
+
+NGnTree * NGnTree::Import(const std::string & findPath, const std::string & fileName,
+                          const std::vector<std::string> & headers, const std::string & outputFile)
+{
+  ///
+  /// Import NGnTree from mutiple files in the given path
+  ///
+
+  std::vector<std::string> paths = NUtils::Find(findPath, fileName);
+  NLogInfo("NGnTree::Import: Found %zu files to import ...", paths.size());
+
+  TObjArray * ngntArray = NUtils::AxesFromDirectory(paths, findPath, fileName, headers);
+  int         nDirAxes  = ngntArray->GetEntries();
+
+  NGnTree * ngntFirst = NGnTree::Open(paths[0]);
+  // Add all axes from ngntFirst to ngntArray
+  for (const auto & axis : ngntFirst->GetBinning()->GetAxes()) {
+    ngntArray->Add(axis->Clone());
+  }
+  ngntFirst->Close(false);
+
+  std::map<std::string, std::vector<std::vector<int>>> b;
+
+  for (int i = 0; i < ngntArray->GetEntries(); i++) {
+    TAxis * axis = (TAxis *)ngntArray->At(i);
+    b[axis->GetName()].push_back({1});
+  }
+
+  NGnTree * ngnt = new NGnTree(ngntArray, outputFile);
+  ngnt->SetIsPureCopy(true);
+
+  // return nullptr;
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
+
+  json cfg;
+  cfg["basedir"]  = findPath;
+  cfg["filename"] = fileName;
+  cfg["nDirAxes"] = nDirAxes;
+  // cfg["ndmspc"]["shared"]["currentFileName"]  = "";
+  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
+                                                   TList *                 outputPoint, int /*threadId*/) {
+    // point->Print();
+
+    json        cfg      = point->GetCfg();
+    std::string filename = cfg["basedir"].get<std::string>();
+    // filename += "/";
+    // filename += point->GetBinLabel("c");
+    filename += "/";
+    filename += point->GetBinLabel("year");
+    filename += "/";
+    filename += cfg["filename"].get<std::string>();
+    NGnTree * ngnt = (NGnTree *)point->GetTempObject("file");
+    if (!ngnt || filename.compare(ngnt->GetStorageTree()->GetFileName()) != 0) {
+      NLogInfo("NGnTree::Import: Opening file '%s' ...", filename.c_str());
+      ngnt = NGnTree::Open(filename.c_str());
+      if (!ngnt || ngnt->IsZombie()) {
+        NLogError("NGnTree::Import: Cannot open file '%s'", filename.c_str());
+        return;
+      }
+      point->SetTempObject("file", ngnt);
+    }
+
+    int         nDirAxes  = cfg["nDirAxes"].get<int>();
+    Int_t *     coords    = point->GetCoords();
+    std::string coordsStr = NUtils::GetCoordsString(NUtils::ArrayToVector(coords, point->GetNDimensionsContent()));
+    NLogInfo("NGnTree::Import: Processing point with coords %s ...", coordsStr.c_str());
+
+    Long64_t entryNumber =
+        ngnt->GetBinning()->GetContent()->GetBin(&coords[3 * nDirAxes], kFALSE); // skip first 3 dir axes
+    NLogInfo("NGnTree::Import: Corresponding entry number in file '%s' is %lld", filename.c_str(), entryNumber);
+
+    ngnt->GetEntry(entryNumber);
+
+    // // add outputPoint content to outputPoint list
+    // TList * inputOutputPoint = (TList *)ngnt->GetStorageTree()->GetBranch("outputPoint")->GetObject();
+    // for (int i = 0; i < inputOutputPoint->GetEntries(); i++) {
+    //   outputPoint->Add(inputOutputPoint->At(i));
+    // }
+
+    // set all branches from ngnt to branch addresses in current object
+    for (const auto & kv : ngnt->GetStorageTree()->GetBranchesMap()) {
+      // check if branch exists in current storage tree
+      if (point->GetStorageTree()->GetBranch(kv.first) == nullptr) {
+        NLogInfo("NGnTree::Import: Adding branch '%s' to storage tree ...", kv.first.c_str());
+        point->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
+      }
+      NLogDebug("NGnTree::Import: Setting branch address for branch '%s' ...", kv.first.c_str());
+      point->GetTreeStorage()->GetBranch(kv.first)->SetAddress(kv.second.GetObject());
+    }
+    outputPoint->Add(new TNamed("source_file", filename));
+
+    // ngnt->Print();
+
+    // NLogInfo("NGnTree::Import: nDirAxes=%d ...", cfg["nDirAxes"].get<int>());
+
+    // json & tempCfg = point->GetTempCfg();
+    // if (tempCfg["test"].is_null()) {
+    //   NLogInfo("Setting temp cfg test value to 42");
+    //   tempCfg["test"] = 42;
+    // }
+    // NLogInfo("Temp cfg test value: %d", tempCfg["test"].get<int>());
+
+    // f->ls();
+  };
+
+  ngnt->Process(processFunc, cfg);
+  return ngnt;
 }
 
 } // namespace Ndmspc

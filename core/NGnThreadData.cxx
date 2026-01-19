@@ -36,6 +36,9 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
     NLogError("NGnThreadData::Init: NGnTree is nullptr !!!");
     return false;
   }
+
+  fIsPureCopy = ngnt->IsPureCopy();
+
   fBiningSource = binningIn;
 
   if (fBiningSource == nullptr) {
@@ -204,6 +207,10 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   fResourceMonitor->End();
   fResourceMonitor->Fill(point->GetStorageCoords(), GetAssignedIndex());
 
+  if (!point->GetCfg()["_ndmspc"].is_null()) {
+    fCfg["_ndmspc"] = point->GetCfg()["_ndmspc"]; // Get configuration from the point
+  }
+
   // NLogTrace(
   //     "NGnThreadData::Process: [%zu] entry=%lld coords=%s outputPoint=%d", GetAssignedIndex(), entry,
   //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str(),
@@ -213,7 +220,10 @@ void NGnThreadData::Process(const std::vector<int> & coords)
         "NGnThreadData::Process: [%zu] Entry '%lld' was accepted. %s", GetAssignedIndex(), entry,
         NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
 
-    ts->GetBranch("outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
+    if (!fIsPureCopy) {
+      ts->GetBranch("outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
+    }
+    //
     // ts->Fill(point, nullptr, false, {}, false);
     Int_t bytes = ts->Fill(point, nullptr, false, {}, false);
     if (bytes > 0) {
@@ -429,4 +439,5 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   /// \endcond;
   return nmerged;
 }
+
 } // namespace Ndmspc

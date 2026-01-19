@@ -303,6 +303,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
       NLogDebug("File '%s' was closed", fFile->GetName());
     }
   }
+  SafeDelete(fFile);
   fFile = nullptr;
   fTree = nullptr;
   return true;

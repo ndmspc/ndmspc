@@ -1,6 +1,12 @@
-# ndmspc
+# NDMSPC - N-Dimensional Space Analysis Framework
 
-# Running ndmspc via docker/podman
+## Overview
+
+**NDMSPC** (n-dimensional space) is a sophisticated C++ framework designed for multi-dimensional data analysis, built on top of CERN's ROOT data analysis toolkit. The project is particularly focused on High-Energy Physics (HEP) applications, providing tools for parallel execution, web-based visualization, and n-dimensional histogram operations.
+
+Read more about codebase [here](https://gitlab.com/ndmspc/ndmspc/-/blob/develop/CODEBASE.md).
+
+## Running ndmspc via docker/podman
 
 > One can use `next` tag instead of `latest` to get the latest stable development version.
 

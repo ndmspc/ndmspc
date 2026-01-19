@@ -80,11 +80,11 @@ class NGnTree : public TObject {
    * @brief Constructs an NGnTree object from a THnSparse histogram.
    *
    * @param hns Pointer to the input THnSparse histogram.
-   * @param parameterAxis Optional name of the parameter axis (default: empty string).
+   * @param parameterAxis Optional name of the parameter axis
    * @param outFileName Name of the output file to store the imported tree (default: "/tmp/ngnt_imported.root").
    * @param cfg Optional JSON configuration object (default: empty object).
    */
-  NGnTree(THnSparse * hns, std::string parameterAxis = "", const std::string & outFileName = "/tmp/ngnt_imported.root",
+  NGnTree(THnSparse * hns, std::string parameterAxis, const std::string & outFileName = "/tmp/ngnt_imported.root",
           json cfg = json::object());
 
   /**
@@ -180,6 +180,20 @@ class NGnTree : public TObject {
    * @param navigator Pointer to the NGnNavigator instance to associate.
    */
   void SetNavigator(NGnNavigator * navigator);
+
+  /**
+   * @brief Checks if the tree is a pure copy.
+   *
+   * @return true if the tree is a pure copy, false otherwise.
+   */
+  bool IsPureCopy() const { return fIsPureCopy; }
+
+  /**
+   * @brief Sets the pure copy status of the tree.
+   *
+   * @param val Boolean value to set the pure copy status.
+   */
+  void SetIsPureCopy(bool val) { fIsPureCopy = val; }
 
   /**
    * @brief Get number of entries in storage tree.
@@ -309,6 +323,22 @@ class NGnTree : public TObject {
    */
   static NGnTree * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
+  /**
+   * @brief Imports an NGnTree from a specified file.
+   *
+   * Searches for the file in the given path, using the provided headers, and imports the NGnTree.
+   * Optionally, the imported tree can be saved to a specified output file.
+   *
+   * @param findPath The directory path to search for the file.
+   * @param fileName The name of the file to import.
+   * @param headers A vector of header strings to use during import.
+   * @param outFileName The output file name to save the imported tree (default: "/tmp/ngnt_imported.root").
+   * @return A pointer to the imported NGnTree object, or nullptr on failure.
+   */
+  static NGnTree * Import(const std::string & findPath, const std::string & fileName,
+                          const std::vector<std::string> & headers,
+                          const std::string &              outFileName = "/tmp/ngnt_imported.root");
+
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage
@@ -317,6 +347,7 @@ class NGnTree : public TObject {
   NGnNavigator *                 fNavigator{nullptr};   ///<! Navigator object
   NParameters *                  fParameters{nullptr};  ///< Parameters object
   NWsClient *                    fWsClient{nullptr};    ///<! WebSocket client for communication
+  bool                           fIsPureCopy{false};    ///< Flag indicating pure copy mode
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);

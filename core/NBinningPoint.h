@@ -85,6 +85,13 @@ class NBinningPoint : public TObject {
   bool SetPointContentFromLinearIndex(Long64_t linBin, bool checkBinningDef = false);
 
   /**
+   * @brief Returns a pointer to the associated storage tree.
+   *
+   * @return NStorageTree* Pointer to the storage tree object.
+   */
+  NStorageTree * GetStorageTree() const { return fTreeStorage; }
+
+  /**
    * @brief Fill the binning point content.
    * @param ignoreFilledCheck Ignore filled check.
    * @return Number of filled bins.
@@ -101,7 +108,7 @@ class NBinningPoint : public TObject {
    * @brief Set configuration JSON object.
    * @param cfg JSON configuration.
    */
-  void SetCfg(const json & cfg) { fCfg = cfg; }
+  void SetCfg(json cfg) { fCfg = cfg; }
 
   /**
    * @brief Get base axis ranges for the point.
@@ -239,22 +246,46 @@ class NBinningPoint : public TObject {
    */
   NParameters * GetParameters() const { return fParameters; }
 
+  /**
+   * @brief Retrieve a temporary object by name.
+   *
+   * @param name The name of the temporary object.
+   * @return TObject* Pointer to the temporary object, or nullptr if not found.
+   */
+  TObject * GetTempObject(const std::string & name) const;
+
+  /**
+   * @brief Set a temporary object with the given name.
+   *
+   * @param name The name to associate with the object.
+   * @param obj Pointer to the object to store.
+   */
+  void SetTempObject(const std::string & name, TObject * obj) { fTempObjects[name] = obj; }
+
+  /**
+   * @brief Get reference to temporary configuration JSON object.
+   * @return Reference to temporary JSON configuration.
+   */
+  json & GetTempCfg() { return fTempCfg; }
+
   private:
-  json                     fCfg{};                  ///< Configuration object
-  NGnTree *                fInput{nullptr};         ///< Input NGnTree object
-  NBinning *               fBinning{nullptr};       ///< Binning object
-  NStorageTree *           fTreeStorage{nullptr};   ///< Storage tree object
-  Int_t                    fContentNDimensions{1};  ///< Number of dimensions in content histogram
-  Int_t *                  fContentCoords{nullptr}; ///< Coordinates of the point
-  Int_t                    fNDimensions{1};         ///< Number of dimensions
-  Int_t *                  fStorageCoords{nullptr}; ///< Storage coordinates of the point
-  Double_t *               fMins{nullptr};          ///< Minimum values for each axis
-  Double_t *               fMaxs{nullptr};          ///< Maximum values for each axis
-  Int_t *                  fBaseBinMin{nullptr};    ///< Base bin minimum (for variable binning)
-  Int_t *                  fBaseBinMax{nullptr};    ///< Base bin maximum (for variable binning)
-  std::vector<std::string> fLabels{};               ///< Labels for each axis
-  Long64_t                 fEntryNumber{-1};        ///< Entry in the storage tree
-  NParameters *            fParameters{nullptr};    ///< Parameter axis (if any)
+  json                             fCfg{};                  ///< Configuration object
+  NGnTree *                        fInput{nullptr};         ///< Input NGnTree object
+  NBinning *                       fBinning{nullptr};       ///< Binning object
+  NStorageTree *                   fTreeStorage{nullptr};   ///< Storage tree object
+  Int_t                            fContentNDimensions{1};  ///< Number of dimensions in content histogram
+  Int_t *                          fContentCoords{nullptr}; ///< Coordinates of the point
+  Int_t                            fNDimensions{1};         ///< Number of dimensions
+  Int_t *                          fStorageCoords{nullptr}; ///< Storage coordinates of the point
+  Double_t *                       fMins{nullptr};          ///< Minimum values for each axis
+  Double_t *                       fMaxs{nullptr};          ///< Maximum values for each axis
+  Int_t *                          fBaseBinMin{nullptr};    ///< Base bin minimum (for variable binning)
+  Int_t *                          fBaseBinMax{nullptr};    ///< Base bin maximum (for variable binning)
+  std::vector<std::string>         fLabels{};               ///< Labels for each axis
+  Long64_t                         fEntryNumber{-1};        ///< Entry in the storage tree
+  NParameters *                    fParameters{nullptr};    ///< Parameter axis (if any)
+  std::map<std::string, TObject *> fTempObjects;            ///<! Outputs map
+  json                             fTempCfg{};              ///< Temporary configuration object
 
   /// \cond CLASSIMP
   ClassDef(NBinningPoint, 1);

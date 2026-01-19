@@ -82,6 +82,18 @@ class NGnThreadData : public NThreadData {
   json GetCfg() const { return fCfg; }
 
   /**
+   * @brief Checks if the object is a pure copy.
+   * @return True if the object is a pure copy, false otherwise.
+   */
+  bool IsPureCopy() const { return fIsPureCopy; }
+
+  /**
+   * @brief Sets the pure copy status of the object.
+   * @param val Boolean value to set the pure copy status.
+   */
+  void SetIsPureCopy(bool val) { fIsPureCopy = val; }
+
+  /**
    * @brief Process coordinates (virtual).
    * @param coords Vector of coordinates.
    */
@@ -100,6 +112,7 @@ class NGnThreadData : public NThreadData {
   Long64_t                fNProcessed{0};         ///< Number of processed entries
   NBinning *              fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
   json                    fCfg{};                 ///< Configuration object
+  bool                    fIsPureCopy{false};     ///< Flag indicating pure copy mode
 
   /// \cond CLASSIMP
   ClassDef(NGnThreadData, 1);
