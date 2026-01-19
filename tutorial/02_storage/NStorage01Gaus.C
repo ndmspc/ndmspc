@@ -37,7 +37,7 @@ void NStorage01Gaus(std::string outFile = "NStorage01Gaus.root")
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   // Define the processing function
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
                                                    TList *                 outputPoint, int /*threadId*/) {
     // print the title of the binning point
     NLogInfo("title : %s", point->GetString().c_str());

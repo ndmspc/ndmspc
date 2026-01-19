@@ -15,8 +15,9 @@ ClassImp(Ndmspc::NGnThreadData);
 namespace Ndmspc {
 NGnThreadData::NGnThreadData() : NThreadData() {}
 NGnThreadData::~NGnThreadData() {}
-bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt, NBinning * binningIn, NGnTree * input,
-                         const std::string & filename, const std::string & treename)
+bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr funcBegin, NGnEndFuncPtr endFunc,
+                         NGnTree * ngnt, NBinning * binningIn, NGnTree * input, const std::string & filename,
+                         const std::string & treename)
 {
   ///
   /// Initialize thread data
@@ -30,7 +31,9 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
   //   NLogError("NGnThreadData::Init: Process function is not set !!!");
   //   return false;
   // }
+  fBeginFunc   = funcBegin;
   fProcessFunc = func;
+  fEndFunc     = endFunc;
 
   if (ngnt == nullptr) {
     NLogError("NGnThreadData::Init: NGnTree is nullptr !!!");
@@ -125,6 +128,8 @@ bool NGnThreadData::Init(size_t id, NHnSparseProcessFuncPtr func, NGnTree * ngnt
 
   // fHnSparseBase->GetBinning()->GetDefinition()->GetContent()->Reset();
   // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().clear();
+
+  ExecuteBeginFunction();
 
   return true;
 }
@@ -251,7 +256,8 @@ void NGnThreadData::Process(const std::vector<int> & coords)
         NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
     // NLogTrace(
     //     "No output for coordinates %s",
-    //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
+    //     NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(),
+    //     point->GetNDimensionsContent())).c_str());
   }
 
   // protect this section with mutex if needed
@@ -438,6 +444,20 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   // NLogError("NGnThreadData::Merge: Not implemented !!!");
   /// \endcond;
   return nmerged;
+}
+
+void NGnThreadData::ExecuteBeginFunction()
+{
+  if (fBeginFunc) {
+    fBeginFunc(fHnSparseBase->GetBinning()->GetPoint(), GetAssignedIndex());
+  }
+}
+
+void NGnThreadData::ExecuteEndFunction()
+{
+  if (fEndFunc) {
+    fEndFunc(fHnSparseBase->GetBinning()->GetPoint(), GetAssignedIndex());
+  }
 }
 
 } // namespace Ndmspc

@@ -77,7 +77,7 @@ void NAliRsnResults(int nThreads = 1, std::string outFile = "/tmp/NAliRsnResults
   ngnt->GetBinning()->AddBinningDefinition("default", b);
   ngnt->Print();
 
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory

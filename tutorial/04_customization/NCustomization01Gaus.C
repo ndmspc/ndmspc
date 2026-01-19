@@ -46,8 +46,8 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
   ngnt->InitParameters({"meanFit", "sigmaFit"});
 
   // Define the processing function
-  Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
-                                                   TList *                 outputPoint, int /*threadId*/) {
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
     // print the title of the binning point
     NLogInfo("title : %s", point->GetString().c_str());
 
@@ -83,8 +83,17 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
     outputPoint->Add(h);
   };
 
+  Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    NLogInfo("Starting processing ...");
+    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
+  };
+
+  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    NLogInfo("Finished processing ...");
+  };
+
   // execute the processing function
-  ngnt->Process(processFunc, cfg);
+  ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
 
   // close the NGnTree object
   ngnt->Close(true);
