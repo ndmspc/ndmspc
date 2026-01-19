@@ -808,6 +808,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
   for (const auto & [key, val] : obj->GetObjectContentMap()) {
 
+    NLogTrace("NGnNavigator::ExportJson: Processing object '%s' with %zu entries ...", key.c_str(), val.size());
     // Filter by objectNames
     if (std::find(objectNames.begin(), objectNames.end(), key) == objectNames.end()) {
       NLogDebug("NGnNavigator::ExportJson: Skipping object '%s' ...", key.c_str());
@@ -820,51 +821,30 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
     for (size_t i = 0; i < val.size(); i++) {
       TObject * objContent = val[i];
-      // if (objContent) objContent->Print();
-
-      json objJson = json::parse(TBufferJSON::ConvertToJSON(objContent).Data());
 
       if (objContent) {
+        json   objJson = json::parse(TBufferJSON::ConvertToJSON(objContent).Data());
         double objMin, objMax;
         NUtils::GetTrueHistogramMinMax((TH1 *)objContent, objMin, objMax, false);
         // NLogDebug("NGnNavigator::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
         //                objMax);
 
-        min     = TMath::Min(min, objMin);
-        max     = TMath::Max(max, objMax);
-        entries = ((TH1 *)objContent)->GetEntries();
-        // NLogDebug("NGnNavigator::ExportJson: Adding object %s with min=%f, max=%f", objContent->GetName(),
-        // min,
-        //                max);
-        // j["fArray"][i] = entries / val.size(); // Store the average entries for this object
+        min            = TMath::Min(min, objMin);
+        max            = TMath::Max(max, objMax);
+        entries        = ((TH1 *)objContent)->GetEntries();
         j["fArray"][i] = entries;
-        // j["fArrays"]["mean"]["values"][i]   = (double)((TH1 *)objContent)->GetMean();
-        // j["fArrays"]["stddev"]["values"][i] = (double)((TH1 *)objContent)->GetStdDev();
+        if (entries > 0) {
+          j["children"][key].push_back(objJson);
+        }
+        else {
+          j["children"][key].push_back(nullptr);
+        }
       }
       else {
         entries = 0.0;
-        // j["fArrays"]["mean"]["values"][i]   = 0.0;
-        // j["fArrays"]["stddev"]["values"][i] = 0.0;
-      }
-      // j["fArrays"]["mean"]["min"]       = 1.00;
-      // j["fArrays"]["mean"]["max"]       = 2.00;
-      // j["fArrays"]["mean"]["outside"]   = false;
-      // j["fArrays"]["stddev"]["min"]     = 0.030;
-      // j["fArrays"]["stddev"]["max"]     = 0.032;
-      // j["fArrays"]["stddev"]["outside"] = true;
-
-      if (entries > 0) {
-        j["children"][key].push_back(objJson);
-      }
-      else {
         j["children"][key].push_back(nullptr);
       }
     }
-    j["ndmspc"][key]["fMinimum"] = min;
-    j["ndmspc"][key]["fMaximum"] = max;
-    // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
-    // idx++;
   }
 
   for (auto & [key, val] : obj->GetParameterContentMap()) {
