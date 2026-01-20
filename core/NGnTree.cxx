@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <ctime>
 #include <numbers>
 #include <string>
 #include <vector>
@@ -183,7 +184,12 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     return;
   }
   // ngnt->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
-  std::string tmpFilename = "/tmp/ngnt_imported_input" + std::to_string(gSystem->GetPid()) + ".root";
+  // Get env variable for tmp dir $NDMSPC_TMP_DIR
+  std::string tmpDir = gSystem->Getenv("NDMSPC_TMP_DIR");
+  if (tmpDir.empty()) {
+    tmpDir = "/tmp";
+  }
+  std::string tmpFilename = tmpDir + "/ngnt_imported_input" + std::to_string(gSystem->GetPid()) + ".root";
   NGnTree *   ngntIn      = new NGnTree(axes, tmpFilename);
   if (ngntIn->IsZombie()) {
     NLogError("NGnTree::Import: Failed to create NGnTree for input !!!");
@@ -412,7 +418,16 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
 
   std::vector<Ndmspc::NGnThreadData> threadDataVector(nThreads);
-  std::string jobDir     = fTreeStorage->GetPrefix() + "/.ndmspc/tmp/" + std::to_string(gSystem->GetPid());
+
+  const char * tmpDirEnv = gSystem->Getenv("NDMSPC_TMP_DIR");
+  std::string  tmpDir    = tmpDirEnv ? tmpDirEnv : "/tmp";
+  TString      tmpDirStr = fTreeStorage->GetPrefix();
+  // check if tmpDir starts with root:// or http:// or https://
+  if (!(tmpDirStr.BeginsWith("root://") || tmpDirStr.BeginsWith("http://") || tmpDirStr.BeginsWith("https://"))) {
+    tmpDir = tmpDirStr.Data();
+  }
+
+  std::string jobDir     = tmpDir + "/.ndmspc/tmp/" + std::to_string(gSystem->GetPid());
   std::string filePrefix = jobDir;
   for (size_t i = 0; i < threadDataVector.size(); ++i) {
     std::string filename = filePrefix + "/" + std::to_string(i) + "/" + fTreeStorage->GetPostfix();
@@ -579,7 +594,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     //   NLogTrace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
     //   gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
     // }
-    gSystem->Exec(TString::Format("rm -fr %s", jobDir.c_str()));
+    //
+
     fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
     fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
     fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
@@ -605,6 +621,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     SafeDelete(fWsClient);
   }
 
+  gSystem->Exec(TString::Format("rm -fr %s", jobDir.c_str()));
   gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
 }
@@ -1164,8 +1181,9 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
       if (ngnt) {
         NLogDebug("NGnTree::Import: Closing previously opened file '%s' ...",
                   ngnt->GetStorageTree()->GetFileName().c_str());
-        ngnt->Close(false);
-        delete ngnt;
+        // ngnt->Close(false);
+        // delete ngnt;
+        point->SetTempObject("file", nullptr);
       }
       ngnt = NGnTree::Open(filename.c_str());
       if (!ngnt || ngnt->IsZombie()) {
@@ -1196,10 +1214,10 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
     for (const auto & kv : ngnt->GetStorageTree()->GetBranchesMap()) {
       // check if branch exists in current storage tree
       if (point->GetStorageTree()->GetBranch(kv.first) == nullptr) {
-        NLogInfo("NGnTree::Import: Adding branch '%s' to storage tree ...", kv.first.c_str());
+        NLogTrace("NGnTree::Import: Adding branch '%s' to storage tree ...", kv.first.c_str());
         point->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
       }
-      NLogDebug("NGnTree::Import: Setting branch address for branch '%s' ...", kv.first.c_str());
+      NLogTrace("NGnTree::Import: Setting branch address for branch '%s' ...", kv.first.c_str());
       point->GetTreeStorage()->GetBranch(kv.first)->SetAddress(kv.second.GetObject());
     }
     outputPoint->Add(new TNamed("source_file", filename));
@@ -1225,8 +1243,8 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
     NGnTree * ngnt = (NGnTree *)point->GetTempObject("file");
     if (ngnt) {
       NLogDebug("NGnTree::Import: Closing last file '%s' ...", ngnt->GetStorageTree()->GetFileName().c_str());
-      ngnt->Close(false);
-      delete ngnt;
+      // ngnt->Close(false);
+      // delete ngnt;
       point->SetTempObject("file", nullptr);
     }
   };

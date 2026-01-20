@@ -100,6 +100,13 @@ class NStorageTree : public TObject {
   bool Close(bool write = false, std::map<std::string, TList *> outputs = {});
 
   /**
+   * @brief Returns the associated TFile object.
+   *
+   * @return Pointer to the TFile associated with this storage tree.
+   */
+  TFile * GetFile() const { return fFile; }
+
+  /**
    * @brief Merge storage trees from a collection.
    * @param list Pointer to TCollection.
    * @return Number of merged entries.

@@ -280,6 +280,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
 
     if (fFile) {
       fFile->cd();
+      // fFile->Print();
 
       fFile->mkdir("outputs");
       fFile->cd("outputs");
@@ -287,23 +288,25 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
         if (kv.second && !kv.second->IsEmpty()) {
 
           kv.second->Write(kv.first.c_str(), TObject::kSingleKey);
-          NLogDebug("NStorageTree::Close: Output list '%s' with %d objects was written", kv.first.c_str(),
+          NLogTrace("NStorageTree::Close: Output list '%s' with %d objects was written", kv.first.c_str(),
                     kv.second->GetEntries());
         }
       }
       fFile->cd();
       fTree->Write("", TObject::kOverwrite);
       fFile->Close();
-      NLogDebug("NStorageTree::Close: NGnTree was written to file '%s' ...", fFile->GetName());
+      NLogTrace("NStorageTree::Close: NGnTree was written to file '%s' ...", fFile->GetName());
     }
   }
   else {
     if (fFile) {
       fFile->Close();
-      NLogDebug("File '%s' was closed", fFile->GetName());
+      NLogTrace("File '%s' was closed without saving ...", fFile->GetName());
     }
   }
+
   SafeDelete(fFile);
+  // gROOT->GetListOfFiles()->Remove(fFile); // Remove file from ROOT file list to prevent it from being closed
   fFile = nullptr;
   fTree = nullptr;
   return true;
@@ -586,7 +589,11 @@ Long64_t NStorageTree::Merge(TCollection * list)
     NLogTrace("NHnSparseTree::Merge: END linBin=%lld ===================================", linBin);
     next.Reset(); // Reset the iterator to start from the beginning again
   }
-
+  // closing all merged files
+  while ((obj = dynamic_cast<NStorageTree *>(next()))) {
+    NLogTrace("NStorageTree::Merge: Closing file '%s' ...", obj->GetFileName().c_str());
+    obj->Close(false);
+  }
   // Print all definition ids after merging
   for (auto & kv : fBinning->GetDefinitions()) {
     NLogTrace("NHnSparseTree::Merge: IDs in definition '%s': %s", kv.first.c_str(),
