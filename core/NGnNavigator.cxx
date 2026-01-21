@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <iostream>
 #include "TAxis.h"
 #include "THnSparse.h"
 #include <TSystem.h>
@@ -935,23 +936,29 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     int i = -1;
     for (const auto & child : j["children"]["content"]) {
       i++;
-      if (child == nullptr) {
+      if (child == nullptr || child.is_null()) {
         // NLogError("NGnNavigator::ExportJson: Child is nullptr !!!");
         j["fArray"][i] = 0; // Store the maximum value for the content
         continue;
       }
-      // std::cout << child["fTitle"].dump() << std::endl;
-      // double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
-      double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
-      // loop over all keys in "ndmspc"
-      for (auto & [key, value] : child["ndmspc"].items()) {
-        if (value.is_object()) {
-          // min = TMath::Min(min, value["fMinimum"].get<double>());
-          // min = 0;
-          max = TMath::Max(max, value["fMaximum"].get<double>());
+
+      if (child.contains("ndmspc")) {
+        // std::cout << child["fTitle"].dump() << std::endl;
+        // double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+        double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+        // loop over all keys in "ndmspc"
+        for (auto & [key, value] : child["ndmspc"].items()) {
+          if (value.is_object()) {
+            // min = TMath::Min(min, value["fMinimum"].get<double>());
+            // min = 0;
+            max = TMath::Max(max, value["fMaximum"].get<double>());
+          }
         }
+        j["fArray"][i] = max; // Store the maximum value for the content
       }
-      j["fArray"][i] = max; // Store the maximum value for the content
+      else {
+        j["fArray"][i] = 1; // Store the maximum value for the content
+      }
     }
     if (j["children"]["content"].is_null()) j["children"].erase("content");
   }
