@@ -861,16 +861,20 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     entries    = 0.0;                                 // Reset entries for each key
 
     for (size_t i = 0; i < val.size(); i++) {
-      double param = val[i];
+      double param      = val[i];
+      double paramError = obj->GetParameterError(key, i);
       if (!std::isnan(param) && std::fabs(param) > 1e-12) {
         min                            = TMath::Min(min, param);
         max                            = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
+        j["fArrays"][key]["errors"][i] = paramError;
+
         // NLogDebug("NGnNavigator::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
         // entries += 1.0;
       }
       else {
         j["fArrays"][key]["values"][i] = 0.0;
+        j["fArrays"][key]["errors"][i] = 0.0;
       }
     }
 
