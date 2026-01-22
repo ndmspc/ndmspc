@@ -111,10 +111,11 @@ class NUtils : TObject {
    * @param ranges Vector of axis ranges.
    * @param withOverflow Include overflow bins.
    * @param modifyTitle Modify histogram title.
+   * @param reset Reset axis ranges before setting new ones.
    * @return True if successful.
    */
   static bool SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges = {}, bool withOverflow = false,
-                            bool modifyTitle = false);
+                            bool modifyTitle = false, bool reset = true);
 
   /**
    * @brief Set axis ranges for THnSparse using map of ranges.
@@ -122,10 +123,11 @@ class NUtils : TObject {
    * @param ranges Map of axis ranges.
    * @param withOverflow Include overflow bins.
    * @param modifyTitle Modify histogram title.
+   * @param reset Reset axis ranges before setting new ones.
    * @return True if successful.
    */
   static bool SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow = false,
-                            bool modifyTitle = false);
+                            bool modifyTitle = false, bool reset = true);
 
   /**
    * @brief Get axis range in base for rebinned axis.
@@ -332,6 +334,15 @@ class NUtils : TObject {
    * @return String representation.
    */
   static std::string GetCoordsString(const std::vector<int> & coords, int index = -1, int width = 0);
+
+  /**
+   * @brief Get string representation of coordinates.
+   * @param coords Vector of coordinates.
+   * @param index Index to highlight (-1 for none).
+   * @param width Width for formatting.
+   * @return String representation.
+   */
+  static std::string GetCoordsString(const std::vector<size_t> & coords, int index = -1, int width = 0);
 
   /**
    * @brief Get string representation of coordinates (Long64_t).

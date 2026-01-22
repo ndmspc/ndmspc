@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <iostream>
 #include <TSystem.h>
 #include <TROOT.h>
@@ -1028,11 +1029,31 @@ TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes
 
   h->SetName(TString::Format("%s_proj", sparse->GetName()).Data());
   h->SetTitle(TString::Format("%s Projection", sparse->GetTitle()).Data());
+
+  // Set labels for axis
+  for (size_t i = 0; i < axes.size(); i++) {
+    TAxis * axisSparse = sparse->GetAxis(axes[i]);
+    TAxis * axisHist   = h->GetXaxis();
+    if (i == 1) axisHist = h->GetYaxis();
+    if (i == 2) axisHist = h->GetZaxis();
+
+    axisHist->SetName(axisSparse->GetName());
+    axisHist->SetTitle(axisSparse->GetTitle());
+
+    // Copy bin labels if alphanumeric
+    if (axisSparse->IsAlphanumeric()) {
+      for (int j = 1; j <= axisSparse->GetNbins(); j++) {
+        const char * label = axisSparse->GetBinLabel(j);
+        axisHist->SetBinLabel(j, label);
+      }
+    }
+  }
+
   return h;
 }
 
 bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow,
-                           bool modifyTitle)
+                           bool modifyTitle, bool reset)
 {
   ///
   /// Set axis ranges
@@ -1045,16 +1066,18 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
   }
   if (sparse->GetNdimensions() == 0) return true;
 
-  NLogTrace("Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
-  /// Reset all axis ranges
-  for (int i = 0; i < sparse->GetNdimensions(); i++) {
-    if (withOverflow) {
-      NLogTrace("Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
-      sparse->GetAxis(i)->SetRange(0, 0);
-    }
-    else {
-      NLogTrace("Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1, sparse->GetAxis(i)->GetNbins());
-      sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
+  if (reset) {
+    NLogTrace("Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
+    /// Reset all axis ranges
+    for (int i = 0; i < sparse->GetNdimensions(); i++) {
+      if (withOverflow) {
+        NLogTrace("Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
+        sparse->GetAxis(i)->SetRange(0, 0);
+      }
+      else {
+        NLogTrace("Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1, sparse->GetAxis(i)->GetNbins());
+        sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
+      }
     }
   }
 
@@ -1088,7 +1111,7 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ran
 }
 
 bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> ranges, bool withOverflow,
-                           bool modifyTitle)
+                           bool modifyTitle, bool reset)
 {
   ///
   /// Set axis ranges
@@ -1102,16 +1125,18 @@ bool NUtils::SetAxisRanges(THnSparse * sparse, std::map<int, std::vector<int>> r
   if (sparse->GetNdimensions() == 0) return true;
 
   NLogTrace("NUtils::SetAxisRanges: Setting axis ranges on '%s' THnSparse ...", sparse->GetName());
-  /// Reset all axis ranges
-  for (int i = 0; i < sparse->GetNdimensions(); i++) {
-    if (withOverflow) {
-      NLogTrace("NUtils::SetAxisRanges: Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
-      sparse->GetAxis(i)->SetRange(0, 0);
-    }
-    else {
-      NLogTrace("NUtils::SetAxisRanges: Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1,
-                sparse->GetAxis(i)->GetNbins());
-      sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
+  if (reset) {
+    /// Reset all axis ranges
+    for (int i = 0; i < sparse->GetNdimensions(); i++) {
+      if (withOverflow) {
+        NLogTrace("NUtils::SetAxisRanges: Resetting '%s' axis ...", sparse->GetAxis(i)->GetName());
+        sparse->GetAxis(i)->SetRange(0, 0);
+      }
+      else {
+        NLogTrace("NUtils::SetAxisRanges: Resetting '%s' axis [%d,%d] ...", sparse->GetAxis(i)->GetName(), 1,
+                  sparse->GetAxis(i)->GetNbins());
+        sparse->GetAxis(i)->SetRange(1, sparse->GetAxis(i)->GetNbins());
+      }
     }
   }
 
@@ -1396,6 +1421,20 @@ std::string NUtils::GetCoordsString(const std::vector<Long64_t> & coords, int in
   return msg.str();
 }
 std::string NUtils::GetCoordsString(const std::vector<int> & coords, int index, int width)
+{
+  ///
+  /// Get coordinates string
+  ///
+  std::stringstream msg;
+  if (index >= 0) msg << "[" << std::setw(3) << std::setfill('0') << index << "] ";
+  msg << "[";
+  for (size_t i = 0; i < coords.size(); ++i) {
+    msg << std::setw(width) << std::setfill(' ') << coords[i] << (i == coords.size() - 1 ? "" : ",");
+  }
+  msg << "]";
+  return msg.str();
+}
+std::string NUtils::GetCoordsString(const std::vector<size_t> & coords, int index, int width)
 {
   ///
   /// Get coordinates string
