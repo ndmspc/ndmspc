@@ -14,14 +14,14 @@ void NParamsImport(
   cfg["axes"]                                  = {"axis1-pt", "axis2-ce"};
   cfg["objectFormatMinMax"]                    = "%.2f_%.2f";
   cfg["objectFormatAxis"]                      = "__";
-  cfg["objects"]["DataOverview"]["prefix"]     = "Data/Overview/cResults_";
-  cfg["objects"]["DataFitResults"]["prefix"]   = "Data/FitResults/cFit_";
-  cfg["objects"]["DataNormPlots"]["prefix"]    = "Data/NormPlots/cNorm_";
-  cfg["objects"]["McDataOverview"]["prefix"]   = "MC/Data/Overview/cResults_";
-  cfg["objects"]["McDataFitResults"]["prefix"] = "MC/Data/FitResults/cFit_";
-  cfg["objects"]["McDataNormPlots"]["prefix"]  = "MC/Data/NormPlots/cNorm_";
-  cfg["objects"]["MCTrue"]["prefix"]           = "MC/MC/True/cMcTrue_";
-  cfg["objects"]["MCGen"]["prefix"]            = "MC/MC/Gen/cMcGen_";
+  cfg["objects"]["DataOverview"]["prefix"]     = "Data/Overview/cOverview_";
+  cfg["objects"]["DataFitResults"]["prefix"]   = "Data/Fit/cFit_";
+  cfg["objects"]["DataNormPlots"]["prefix"]    = "Data/Norm/cNorm_";
+  cfg["objects"]["McDataOverview"]["prefix"]   = "MC/Data/Overview/cOverview_";
+  cfg["objects"]["McDataFitResults"]["prefix"] = "MC/Data/Fit/cFit_";
+  cfg["objects"]["McDataNormPlots"]["prefix"]  = "MC/Data/Norm/cNorm_";
+  cfg["objects"]["MCTrue"]["prefix"]           = "MC/Data/True/cTrue_";
+  cfg["objects"]["MCGen"]["prefix"]            = "MC/Data/Gen/cGen_";
 
   TFile * fIn = TFile::Open(filename.c_str());
 

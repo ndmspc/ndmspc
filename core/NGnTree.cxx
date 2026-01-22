@@ -185,8 +185,11 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   }
   // ngnt->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
   // Get env variable for tmp dir $NDMSPC_TMP_DIR
-  std::string tmpDir = gSystem->Getenv("NDMSPC_TMP_DIR");
-  if (tmpDir.empty()) {
+  const char * tmpDirStr = gSystem->Getenv("NDMSPC_TMP_DIR");
+
+  std::string tmpDir;
+
+  if (!tmpDirStr || tmpDir.empty()) {
     tmpDir = "/tmp";
   }
   std::string tmpFilename = tmpDir + "/ngnt_imported_input" + std::to_string(gSystem->GetPid()) + ".root";
@@ -215,7 +218,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
                                              int /*threadId*/) {
     // NLogInfo("Thread ID: %d", threadId);
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
-    point->Print();
+    // point->Print();
     json cfg = point->GetCfg();
 
     NGnTree * ngntIn = point->GetInput();
@@ -289,7 +292,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
                     cfg["filename"].get<std::string>().c_str());
           continue;
         }
-        NLogInfo("NGnTree::Import: Retrieved object '%s' storting to '%s' ...", objPath.c_str(), objName.c_str());
+        NLogTrace("NGnTree::Import: Retrieved object '%s' storting to '%s' ...", objPath.c_str(), objName.c_str());
         // outputPoint->Add(obj->Clone(objName.c_str()));
         if (obj->InheritsFrom(TCanvas::Class())) {
           TCanvas * cObj = (TCanvas *)obj;
@@ -1162,6 +1165,7 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   cfg["basedir"]  = findPath;
   cfg["filename"] = fileName;
   cfg["nDirAxes"] = nDirAxes;
+  cfg["headers"]  = headers;
   // cfg["ndmspc"]["shared"]["currentFileName"]  = "";
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
                                              int /*threadId*/) {
@@ -1169,11 +1173,15 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
 
     json        cfg      = point->GetCfg();
     std::string filename = cfg["basedir"].get<std::string>();
+    filename += "/";
+    for (auto & header : cfg["headers"]) {
+      filename += point->GetBinLabel(header.get<std::string>());
+      filename += "/";
+    }
     // filename += "/";
     // filename += point->GetBinLabel("c");
-    filename += "/";
-    filename += point->GetBinLabel("year");
-    filename += "/";
+    // filename += point->GetBinLabel("year");
+    // filename += "/";
     filename += cfg["filename"].get<std::string>();
     NGnTree * ngnt = (NGnTree *)point->GetTempObject("file");
     if (!ngnt || filename.compare(ngnt->GetStorageTree()->GetFileName()) != 0) {

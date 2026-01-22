@@ -146,6 +146,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
     // current->SetParent(this);
     current->SetLevel(fLevel);
     current->SetNLevels(fNLevels);
+    current->SetLevels(levels);
     current->SetGnTree(fGnTree);
   }
   // current->Print();
@@ -215,7 +216,13 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       for (const auto & [axisId, range] : rangesBase) {
         // NLogDebug("XX Axis '%s' range: [%d, %d]", GetAxis(axisId)->GetName(), range[0], range[1]);
         TAxis * a = hnsIn->GetAxis(axisId);
-        title += TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
+        if (a->IsAlphanumeric()) {
+          title += TString::Format("%s[%s]", a->GetName(), a->GetBinLabel(range[0]));
+        }
+        else {
+          title +=
+              TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
+        }
       }
       hns->SetTitle(title.c_str());
       // hns->Print();
@@ -982,6 +989,19 @@ void NGnNavigator::Print(Option_t * option) const
     NLogInfo("NGnNavigator: name='%s' title='%s' level=%d levels=%d projection=nullptr", GetName(), GetTitle(), fLevel,
              fNLevels);
   }
+  if (!fParent) {
+    NLogInfo("NGnNavigator: This is the root navigator.");
+    // Print levels
+    NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition();
+    for (size_t l = 0; l < fLevels.size(); l++) {
+      std::string axesStr = "";
+      for (auto & a : fLevels[l]) {
+        TAxis * axis = binningDef->GetContent()->GetAxis(a);
+        axesStr += TString::Format("%d('%s') ", a, axis->GetName()).Data();
+      }
+      NLogInfo("  Level %zu axes: %s", l, axesStr.c_str());
+    }
+  }
 
   // Print only list of parameters
   NLogInfo("NGnNavigator: Parameters : %s", NUtils::GetCoordsString(GetParameterNames()).c_str());
@@ -1047,7 +1067,7 @@ void NGnNavigator::Draw(Option_t * option)
     // NLogInfo("NGnNavigator::Draw: Making default canvas ...");
     gROOT->MakeDefCanvas();
     // if (!gPad->IsEditable()) return;
-    if (fNLevels > 1) {
+    if (fNLevels > fLevel + 1) {
       Int_t cy = TMath::Sqrt(fNLevels);
       Int_t cx = TMath::Ceil(fNLevels / (Double_t)cy);
       gPad->Divide(cy, cx); // Divide the pad into a grid based on the number of levels
@@ -1055,14 +1075,14 @@ void NGnNavigator::Draw(Option_t * option)
   }
   TVirtualPad *  originalPad = gPad; // Save the original pad
   NGnNavigator * obj         = nullptr;
-  for (size_t level = 0; level < fNLevels; level++) {
+  for (size_t level = fLevel; level < fNLevels; level++) {
     NLogDebug("NGnNavigator::Draw: Drawing level %d", level);
     TVirtualPad * pad = originalPad->cd(level + 1);
     if (pad) {
       NLogDebug("NGnNavigator::Draw: Clearing pad %d", level + 1);
       pad->Clear();
       gPad = pad; // Set the current pad to the level + 1 pad
-      if (level == 0) {
+      if (level == fLevel) {
         obj = this; // For the first level, use the current object
         NLogDebug("NGnNavigator::Draw: Using current object at level %d: %s", level, obj->GetName());
       }
@@ -1269,9 +1289,10 @@ NGnNavigator * NGnNavigator::GetChild(size_t index) const
   ///
   /// Returns child object at given index
   ///
-  // NLogDebug("NGnNavigator::GetChild: index=%d, size=%zu", index, fChildren.size());
+  NLogDebug("NGnNavigator::GetChild: index=%d, size=%zu", index, fChildren.size());
   return (index < fChildren.size()) ? fChildren[index] : nullptr;
 }
+
 void NGnNavigator::SetChild(NGnNavigator * child, int index)
 {
   ///
@@ -1281,6 +1302,43 @@ void NGnNavigator::SetChild(NGnNavigator * child, int index)
     fChildren[index < 0 ? fChildren.size() : index] = child;
     child->SetParent(this);
   }
+}
+
+NGnNavigator * NGnNavigator::GetChild(std::vector<std::vector<size_t>> coords) const
+{
+  ///
+  /// Get child object at given indices
+  ///
+
+  NGnNavigator * next;
+
+  NBinningDef * binningDef    = fGnTree->GetBinning()->GetDefinition();
+  THnSparse *   hnsObjContent = binningDef->GetContent();
+
+  std::vector<std::vector<int>> ranges;
+  NGnNavigator *                root = GetRoot();
+
+  // if (root != this) {
+
+  NLogDebug("NGnNavigator::GetChild: Setting axis ranges for level=%d", fLevel);
+  std::vector<int> levels = root->GetLevels()[fLevel];
+  for (size_t i = 0; i < levels.size(); i++) {
+    int coords_i = (int)coords[i][fLevel];
+    ranges.push_back({levels[i], coords_i, coords_i}); // Initialize ranges vector
+    NLogDebug("NGnNavigator::GetChild: level=%d axis=%d coord=%d", fLevel, levels[i], coords_i);
+  }
+  NUtils::SetAxisRanges(hnsObjContent, ranges, false, false, false);
+
+  coords[0].resize(3, 0);
+
+  size_t bin = fProjection->GetBin(coords[0][0], coords[0][1], coords[0][2]);
+  NLogDebug("NGnNavigator::GetChild: coords=%s bin=%d", NUtils::GetCoordsString(coords[0]).c_str(), bin);
+
+  next = GetChild(bin);
+  if (!next) return nullptr;
+  next->Print();
+
+  return next;
 }
 
 // NGnNavigator * NGnNavigator::Open(TTree * tree, const std::string & branches, TFile * file)
@@ -1459,17 +1517,17 @@ void NGnNavigator::SetParameterError(const std::string & name, double value, int
     }
   }
 }
-void NGnNavigator::DrawSpectraAll(std::string parameterName, Option_t * option) const
+void NGnNavigator::DrawSpectraAll(std::string parameterName, std::vector<double> minmax, Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object for all projection IDs
   ///
   std::vector<int> projIds;
-  DrawSpectra(parameterName, projIds, option);
+  DrawSpectra(parameterName, projIds, minmax, option);
 }
 
 void NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
-                                     Option_t * option) const
+                                     std::vector<double> minmax, Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object for all projection IDs
@@ -1510,10 +1568,11 @@ void NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<std:
     return;
   }
 
-  DrawSpectra(parameterName, projIds, option);
+  DrawSpectra(parameterName, projIds, minmax, option);
 }
 
-void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projIds, Option_t * option) const
+void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax,
+                               Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object with the specified projection IDs
@@ -1536,7 +1595,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
   // int       padCounter = 0;
   TCanvas * c = nullptr;
   // Create a canvas that is, for example, 40% of the screen width and height
-  constexpr double canvasScale  = 0.4;
+  constexpr double canvasScale  = 0.2;
   Int_t            canvasWidth  = static_cast<Int_t>(screenWidth * canvasScale);
   Int_t            canvasHeight = static_cast<Int_t>(screenHeight * canvasScale);
 
@@ -1598,31 +1657,37 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
 
       hsParam->GetAxis(i)->SetName(axis->GetName());
       hsParam->GetAxis(i)->SetTitle(axis->GetTitle());
-      // Apply all labels from fProjection to hs
-      for (int j = 1; j <= axis->GetNbins(); j++) {
-        std::string label = axis->GetBinLabel(j);
-        // if (label.empty()) {
-        //   double binLowEdge = axis->GetBinLowEdge(j);
-        //   double binUpEdge  = axis->GetBinUpEdge(j);
-        //   label             = Form("%.3f-%.3f", binLowEdge, binUpEdge);
-        // }
-        if (!label.empty()) {
-          hsParam->GetAxis(i)->SetBinLabel(j, label.c_str());
-        }
-        // hsParam->SetBinError(j, 1e-10);
-      }
       if (axis->IsVariableBinSize()) {
         hsParam->GetAxis(i)->Set(axis->GetNbins(), axis->GetXbins()->GetArray());
+      }
+      if (axis->IsAlphanumeric()) {
+        for (int j = 1; j <= axis->GetNbins(); j++) {
+          const char * label = axis->GetBinLabel(j);
+          hsParam->GetAxis(i)->SetBinLabel(j, label);
+        }
       }
     }
 
     delete hParameterProjection;
 
-    std::vector<int> dims = proj;
+    std::vector<int> dims;
+
+    std::vector<int> currentLevels = GetRoot()->GetLevels()[fLevel];
+    NLogTrace("Current levels: %s", NUtils::GetCoordsString(currentLevels, -1).c_str());
+    for (auto & id : proj) {
+      dims.push_back(currentLevels[id]);
+    }
+
     if (dims.size() > 3) {
       NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", dims.size());
       return;
     }
+
+    NLogTrace("Projection dims: %s", NUtils::GetCoordsString(dims, -1).c_str());
+
+    // hsParam->Print("all");
+    // return;
+
     std::vector<std::set<int>> dimsResults(3);
 
     std::vector<std::vector<int>> ranges;
@@ -1631,7 +1696,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
       ranges.push_back({dim, 1, nBins}); // 1-based indexing for THnSparse
     }
 
-    NUtils::SetAxisRanges(hnsObjContent, ranges);
+    NUtils::SetAxisRanges(hnsObjContent, ranges, false, false, false);
     Int_t *                                         p      = new Int_t[hnsObjContent->GetNdimensions()];
     Long64_t                                        linBin = 0;
     std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hnsObjContent->CreateIter(true /*use axis range*/)};
@@ -1660,9 +1725,11 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
     int nPads = dims.size() > 2 ? dimsResults[2].size() : 1;
     NLogTrace("Number of pads: %d", nPads);
     std::vector<std::string> projNames;
-    projNames.push_back(hsParam->GetAxis(dims[0])->GetName());
-    if (dims.size() > 1) projNames.push_back(hsParam->GetAxis(dims[1])->GetName());
-    if (dims.size() > 2) projNames.push_back(hsParam->GetAxis(dims[2])->GetName());
+    hsParam->Print("all");
+    NLogTrace("Projection dims: %d %d %d", dims[0], dims.size() > 1 ? dims[1] : -1, dims.size() > 2 ? dims[2] : -1);
+    projNames.push_back(hnsObjContent->GetAxis(dims[0])->GetName());
+    if (dims.size() > 1) projNames.push_back(hnsObjContent->GetAxis(dims[1])->GetName());
+    if (dims.size() > 2) projNames.push_back(hnsObjContent->GetAxis(dims[2])->GetName());
 
     NLogDebug("Drawing %s ...", NUtils::GetCoordsString(projNames, -1).c_str());
 
@@ -1672,85 +1739,108 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
     NLogTrace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
     c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
     c->DivideSquare(nPads);
+
     for (int iPad = 0; iPad < nPads; iPad++) {
 
       std::string stackName  = Form("hStack_%s_%d", posfix.c_str(), iPad);
       std::string stackTitle = parameterName + " : ";
       stackTitle += projNames[0];
       stackTitle += projNames.size() > 1 ? " vs " + projNames[1] : "";
-      if (dims.size() > 2) {
-        p[dims[2]] = iPad + 1; // 1-based index for the third dimension
+      if (proj.size() > 2) {
+        p[proj[2]] = iPad + 1; // 1-based index for the third dimension
 
         // print projIds[2] range
         // NLogDebug("Pad %d: Setting projection indices: %d %d %d", iPad, p[0], p[1], p[2]);
         // NLogDebug("Pad %d: Setting projection indices: %d %d %d", iPad, projIds[0], projIds[1],
         // projIds[2]);
 
-        TAxis * aPad = hsParam->GetAxis(dims[2]);
+        TAxis * aPad = hsParam->GetAxis(proj[2]);
         if (aPad->IsAlphanumeric()) {
-          stackTitle += projNames.size() > 2 ? " for " + projNames[2] + " [" + aPad->GetBinLabel(p[dims[2]]) + "]" : "";
+          stackTitle += projNames.size() > 2 ? " for " + projNames[2] + " [" + aPad->GetBinLabel(p[proj[2]]) + "]" : "";
         }
         else {
-          double binLowEdge = aPad->GetBinLowEdge(p[dims[2]]);
-          double binUpEdge  = aPad->GetBinUpEdge(p[dims[2]]);
+          double binLowEdge = aPad->GetBinLowEdge(p[proj[2]]);
+          double binUpEdge  = aPad->GetBinUpEdge(p[proj[2]]);
           stackTitle +=
               projNames.size() > 2 ? " for " + projNames[2] + " " + Form(" [%.3f,%.3f]", binLowEdge, binUpEdge) : "";
         }
       }
       NLogTrace("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
       //
-      THStack * hStack  = new THStack(stackName.c_str(), stackTitle.c_str());
-      int       nStacks = dims.size() > 1 ? dimsResults[1].size() : 1;
+      THStack * hStack = new THStack(stackName.c_str(), stackTitle.c_str());
+
+      int    nStacks  = proj.size() > 1 ? dimsResults[1].size() : 1;
+      double stackMin = std::numeric_limits<double>::max();
+      double stackMax = std::numeric_limits<double>::lowest();
       for (int iStack = 0; iStack < nStacks; iStack++) {
         // c->cd(iStack + 1);
-        p[dims[0]] = 0;
-        if (dims.size() > 1) p[dims[1]] = iStack + 1; // 1-based index for the second dimension
-        // if (dims.size() > 2) p[dims[2]] = iPad + 1; // 1-based index for the third dimension
+        p[proj[0]] = 0;
+        if (proj.size() > 1) p[proj[1]] = iStack + 1; // 1-based index for the second dimension
+        // if (proj.size() > 2) p[proj[2]] = iPad + 1; // 1-based index for the third dimension
         //
         //
         std::vector<std::vector<int>> ranges;
-        if (dims.size() > 2) ranges.push_back({dims[2], p[dims[2]], p[dims[2]]});
-        if (dims.size() > 1) ranges.push_back({dims[1], p[dims[1]], p[dims[1]]});
+        if (proj.size() > 2) ranges.push_back({proj[2], p[proj[2]], p[proj[2]]});
+        if (proj.size() > 1) ranges.push_back({proj[1], p[proj[1]], p[proj[1]]});
 
         NUtils::SetAxisRanges(hsParam, ranges, true);
 
         // NLogTrace("Projecting for stack %d: Setting projection dims: %d %d %d", iStack, dims[0], dims[1], dims[2]);
 
-        TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {dims[0]}, option);
-        hProj->SetMinimum(0);
-        TAxis * aStack = hsParam->GetAxis(dims[1]);
-        // if (aStack->IsAlphanumeric()) {
-        //   std::string label = aStack->GetBinLabel(p[dims[1]]);
-        //   hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
-        // }
-        // else {
-        double binLowEdge = aStack->GetBinLowEdge(p[dims[1]]);
-        double binUpEdge  = aStack->GetBinUpEdge(p[dims[1]]);
-        hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
-        // }
-
-        // hProj->Print();
+        TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {proj[0]}, option);
         hProj->SetMarkerStyle(20);
         hProj->SetMarkerColor(iStack + 1);
-        // set all errors to zero
-        // for (int iBin = 1; iBin <= hProj->GetNbinsX(); iBin++) {
-        //   hProj->SetBinError(iBin, 1e-10);
-        // }
+        if (stackMin > hProj->GetMinimum(0)) stackMin = hProj->GetMinimum();
+        if (stackMax < hProj->GetMaximum()) stackMax = hProj->GetMaximum();
+
         hStack->Add((TH1 *)hProj->Clone());
       }
 
       c->cd(iPad + 1);
-      // hStack->SetMinimum(1.015);
-      // hStack->SetMaximum(1.023);
+
+      if (minmax.size() > 0) {
+        if (minmax.size() == 2) {
+          stackMin = minmax[0];
+          stackMax = minmax[1];
+        }
+        else if (minmax.size() == 1) {
+          double margin = minmax[0] * (stackMax - stackMin);
+          stackMin      = stackMin - margin;
+          stackMax      = stackMax + margin;
+        }
+        hStack->SetMinimum(stackMin);
+        hStack->SetMaximum(stackMax);
+      }
+
       std::string drawOption = "nostack E";
       drawOption += option;
+      NLogTrace("Drawing stack with option: %s", drawOption.c_str());
       hStack->Draw(drawOption.c_str());
-      // // hStack->GetXaxis()->SetRangeUser(0.0, 8.0);
+      hStack->GetHistogram()->GetXaxis()->SetTitle(projNames[0].c_str());
+      hStack->GetHistogram()->GetYaxis()->SetTitle(parameterName.c_str());
+      gPad->ModifiedUpdate();
       if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
       c->ModifiedUpdate();
       gSystem->ProcessEvents();
     }
   }
+}
+
+NGnNavigator * NGnNavigator::GetRoot() const
+{
+  ///
+  /// Returns the root navigator in the hierarchy
+  ///
+
+  if (fParent == nullptr) {
+    return const_cast<NGnNavigator *>(this);
+  }
+
+  NGnNavigator * current = fParent;
+  while (current->GetParent() != nullptr) {
+    current = current->GetParent();
+  }
+  return current;
 }
 
 } // namespace Ndmspc

@@ -3,6 +3,7 @@
 #include <TNamed.h>
 #include <Buttons.h>
 #include <cstddef>
+#include <vector>
 #include "NBinningDef.h"
 #include "NGnTree.h"
 namespace Ndmspc {
@@ -95,7 +96,8 @@ class NGnNavigator : public TNamed {
    * @param option Draw options.
    * @param projIds Projection IDs.
    */
-  virtual void DrawSpectra(std::string parameterName, std::vector<int> projIds, Option_t * option = "") const;
+  virtual void DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax = {5},
+                           Option_t * option = "") const;
 
   /**
    * @brief Draws spectra for the given parameter and projection axes.
@@ -105,7 +107,7 @@ class NGnNavigator : public TNamed {
    * @param option Optional drawing options.
    */
   virtual void DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
-                                 Option_t * option = "") const;
+                                 std::vector<double> minmax = {5}, Option_t * option = "") const;
 
   /**
    * @brief Draws all spectra for the given parameter.
@@ -113,7 +115,8 @@ class NGnNavigator : public TNamed {
    * @param parameterName The name of the parameter to draw all spectra for.
    * @param option Optional drawing options.
    */
-  virtual void DrawSpectraAll(std::string parameterName, Option_t * option = "") const;
+  virtual void DrawSpectraAll(std::string parameterName, std::vector<double> minmax = {5},
+                              Option_t * option = "") const;
 
   /**
    * @brief Paint navigator objects.
@@ -169,6 +172,17 @@ class NGnNavigator : public TNamed {
   NGnNavigator * GetChild(size_t index) const;
 
   /**
+   * Returns a pointer to a child NGnNavigator object specified by a sequence of coordinate vectors.
+   * Each inner vector in the coords parameter represents a set of indices at a particular hierarchy level.
+   * Traverses the hierarchy according to the provided coordinates.
+   * If the specified child does not exist, returns nullptr.
+   *
+   * @param coords A vector of vectors of size_t, each representing coordinates at each hierarchy level.
+   * @return Pointer to the child NGnNavigator, or nullptr if not found.
+   */
+  NGnNavigator * GetChild(std::vector<std::vector<size_t>> coords) const;
+
+  /**
    * @brief Set child navigator at index.
    * @param child Pointer to child NGnNavigator.
    * @param index Index to set (-1 for append).
@@ -180,6 +194,16 @@ class NGnNavigator : public TNamed {
    * @return Pointer to parent NGnNavigator.
    */
   NGnNavigator * GetParent() const { return fParent; }
+
+  /**
+   * @brief Returns the root parent of this NGnNavigator.
+   *
+   * Traverses up the parent hierarchy and returns a pointer to the root NGnNavigator.
+   * If this navigator has no parent, returns itself.
+   *
+   * @return NGnNavigator* Pointer to the root parent navigator.
+   */
+  NGnNavigator * GetRoot() const;
 
   /**
    * @brief Set parent navigator.
@@ -362,6 +386,18 @@ class NGnNavigator : public TNamed {
   void SetLevel(size_t l) { fLevel = l; }
 
   /**
+   * @brief Get the current levels as a vector of vectors of integers.
+   * @return A vector of vectors of int representing the levels.
+   */
+  std::vector<std::vector<int>> GetLevels() const { return fLevels; }
+
+  /**
+   * @brief Set the levels using a vector of vectors of integers.
+   * @param levels A vector of vectors of int to set as the new levels.
+   */
+  void SetLevels(const std::vector<std::vector<int>> & levels) { fLevels = levels; }
+
+  /**
    * @brief Get number of cells in projection histogram.
    * @return Number of cells.
    */
@@ -428,16 +464,17 @@ class NGnNavigator : public TNamed {
   NGnNavigator *              fParent{nullptr}; ///< Parent object
   std::vector<NGnNavigator *> fChildren{};      ///< Children objects
 
-  TH1 *  fProjection{nullptr};   ///< Projection histogram
-  size_t fNLevels{1};            ///< Number of levels in the hierarchy
-  size_t fLevel{0};              ///< Level of the object in the hierarchy
-  size_t fNCells{0};             ///< Number of cells in the projection histogram
-  size_t fLastHoverBin{0};       ///< To avoid spamming the console on hover
-  size_t fLastIndexSelected{0};  ///< last selected index in the object
-  Int_t  fTrigger{kButton1Down}; ///< last triggered event
+  TH1 *                         fProjection{nullptr};   ///< Projection histogram
+  size_t                        fNLevels{1};            ///< Number of levels in the hierarchy
+  size_t                        fLevel{0};              ///< Level of the object in the hierarchy
+  std::vector<std::vector<int>> fLevels{};              ///< Levels definition
+  size_t                        fNCells{0};             ///< Number of cells in the projection histogram
+  size_t                        fLastHoverBin{0};       ///< To avoid spamming the console on hover
+  size_t                        fLastIndexSelected{0};  ///< last selected index in the object
+  Int_t                         fTrigger{kButton1Down}; ///< last triggered event
 
   /// \cond CLASSIMP
-  ClassDefOverride(NGnNavigator, 1);
+  ClassDefOverride(NGnNavigator, 2);
   /// \endcond;
 };
 } // namespace Ndmspc
