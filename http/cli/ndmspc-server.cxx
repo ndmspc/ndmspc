@@ -7,6 +7,8 @@
 #include "NHttpServer.h"
 #include "NWsHandler.h"
 #include "NStressHistograms.h"
+#include "NGnHttpServer.h"
+#include "NGnWsHandler.h"
 #include "NLogger.h"
 #include "ndmspc.h"
 std::string app_description()
@@ -21,7 +23,7 @@ std::string app_description()
 int main(int argc, char ** argv)
 {
 
-  TApplication rootApp("myapp", &argc, argv);
+  TApplication rootApp("myapp", 0, nullptr);
   if (getenv("NDMSPC_CACHE")) {
     std::string              cache               = getenv("NDMSPC_CACHE");
     std::vector<std::string> cacheOpts           = Ndmspc::NUtils::Tokenize(cache.c_str(), ':');
@@ -31,6 +33,10 @@ int main(int argc, char ** argv)
     TFile::SetCacheFileDir(gSystem->ExpandPathName(cacheDir.c_str()), operateDisconnected, forceCacheRead);
   }
 
+  int port = 8080;
+  if (gSystem->Getenv("PORT")) {
+    port = atoi(gSystem->Getenv("PORT"));
+  }
   CLI::App app{app_description()};
   app.require_subcommand(1); // 1 or more
   argv = app.ensure_utf8(argv);
@@ -43,12 +49,8 @@ int main(int argc, char ** argv)
   if (server_default == nullptr) {
     return 1;
   }
-  auto server_default_fun = ([&rootApp]() {
-    int port = 8080;
-    if (gSystem->Getenv("PORT")) {
-      port = atoi(gSystem->Getenv("PORT"));
-    }
-
+  server_default->add_option("-p,--port", port, "Server port (default: 8080)");
+  auto server_default_fun = ([&rootApp, &port]() {
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     if (serv == nullptr) {
       NLogError("Server was not created !!!");
@@ -74,6 +76,7 @@ int main(int argc, char ** argv)
     NLogError("Problem creating serve stress subcommand");
     return 1;
   }
+  server_stress->add_option("-p,--port", port, "Server port (default: 8080)");
   int fill = 1;
   server_stress->add_option("-f,--fill", fill, "N fill (default: 1)");
   int timeout = 100;
@@ -85,14 +88,9 @@ int main(int argc, char ** argv)
   bool batch = false;
   server_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
 
-  server_stress->callback([&rootApp, &fill, &timeout, &reset, &seed, &batch]() {
+  server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch]() {
     NLogInfo("Using stress processing method.");
     NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
-    int port = 8080;
-
-    if (gSystem->Getenv("PORT")) {
-      port = atoi(gSystem->Getenv("PORT"));
-    }
 
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     NLogInfo("Starting server on port %d ...", port);
@@ -108,6 +106,31 @@ int main(int argc, char ** argv)
       if (!sh.HandleEvent(ws)) break;
       gSystem->Sleep(timeout);
     }
+    rootApp.Run();
+  });
+
+  CLI::App * server_ngnt = server->add_subcommand("ngnt", "NGnTree http server");
+  if (server_ngnt == nullptr) {
+    NLogError("Problem creating serve ngnt subcommand");
+    return 1;
+  }
+  server_ngnt->add_option("-p,--port", port, "Server port (default: 8080)");
+  // add file url option
+  std::string fileUrl = "ngnt.root";
+  server_ngnt->add_option("-f,--file", fileUrl, "NGnTree file url (default: ngnt.root)");
+
+  server_ngnt->callback([&rootApp, &port, &fileUrl]() {
+    Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
+    NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, fileUrl.c_str());
+    // Ndmspc::NGnWsHandler * ws = serv->GetWebSocketHandler();
+
+    // when read-only mode disabled one could execute object methods like TTree::Draw()
+    serv->SetReadOnly(kFALSE);
+
+    // // press Ctrl-C to stop macro
+    // while (!gSystem->ProcessEvents()) {
+    //   gSystem->Sleep(timeout);
+    // }
     rootApp.Run();
   });
 
