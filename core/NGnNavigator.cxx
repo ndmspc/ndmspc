@@ -867,7 +867,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         min                            = TMath::Min(min, param);
         max                            = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
-        j["fArrays"][key]["errors"][i] = paramError;
+        j["fArrays"][key]["errors"][i] = TMath::Power(paramError, 2);
 
         // NLogDebug("NGnNavigator::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
         // entries += 1.0;
@@ -885,6 +885,10 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     }
     else {
 
+      // set min max with 5 percent margin
+      double margin            = 0.05 * (max - min);
+      min                      = min - margin;
+      max                      = max + margin;
       j["fArrays"][key]["min"] = min;
       j["fArrays"][key]["max"] = max;
     }

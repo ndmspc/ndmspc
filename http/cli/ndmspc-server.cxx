@@ -122,6 +122,11 @@ int main(int argc, char ** argv)
   server_ngnt->callback([&rootApp, &port, &fileUrl]() {
     Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, fileUrl.c_str());
+
+    if (serv->IsTerminated()) {
+      NLogError("Server is zombie, exiting ...");
+      exit(1);
+    }
     // Ndmspc::NGnWsHandler * ws = serv->GetWebSocketHandler();
 
     // when read-only mode disabled one could execute object methods like TTree::Draw()
