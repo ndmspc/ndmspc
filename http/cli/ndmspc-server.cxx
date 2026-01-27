@@ -24,14 +24,14 @@ int main(int argc, char ** argv)
 {
 
   TApplication rootApp("myapp", 0, nullptr);
-  if (getenv("NDMSPC_CACHE")) {
-    std::string              cache               = getenv("NDMSPC_CACHE");
-    std::vector<std::string> cacheOpts           = Ndmspc::NUtils::Tokenize(cache.c_str(), ':');
-    std::string              cacheDir            = cacheOpts[0];
-    int                      operateDisconnected = atoi(cacheOpts[1].c_str());
-    int                      forceCacheRead      = atoi(cacheOpts[2].c_str());
-    TFile::SetCacheFileDir(gSystem->ExpandPathName(cacheDir.c_str()), operateDisconnected, forceCacheRead);
-  }
+  // if (getenv("NDMSPC_CACHE")) {
+  //   std::string              cache               = getenv("NDMSPC_CACHE");
+  //   std::vector<std::string> cacheOpts           = Ndmspc::NUtils::Tokenize(cache.c_str(), ':');
+  //   std::string              cacheDir            = cacheOpts[0];
+  //   int                      operateDisconnected = atoi(cacheOpts[1].c_str());
+  //   int                      forceCacheRead      = atoi(cacheOpts[2].c_str());
+  //   TFile::SetCacheFileDir(gSystem->ExpandPathName(cacheDir.c_str()), operateDisconnected, forceCacheRead);
+  // }
 
   int port = 8080;
   if (gSystem->Getenv("PORT")) {
@@ -128,9 +128,17 @@ int main(int argc, char ** argv)
       exit(1);
     }
     // Ndmspc::NGnWsHandler * ws = serv->GetWebSocketHandler();
+    //
+    Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(fileUrl.c_str());
+    if (!ngnt || ngnt->IsZombie()) {
+      NLogError("Cannot open NGnTree file '%s', exiting ...", fileUrl.c_str());
+      exit(1);
+    }
+    serv->SetNGnTree(ngnt);
 
     // when read-only mode disabled one could execute object methods like TTree::Draw()
     serv->SetReadOnly(kFALSE);
+    serv->Print();
 
     // // press Ctrl-C to stop macro
     // while (!gSystem->ProcessEvents()) {

@@ -17,17 +17,29 @@ NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms) : N
   }
 }
 
+void NGnHttpServer::Print(Option_t * option) const
+{
+  if (fNGnTree) {
+    fNGnTree->Print(option);
+  }
+  else {
+    NLogWarning("NGnTree is not set.");
+  }
+}
+
 void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {
 
   NLogInfo("NGnHttpServer::ProcessRequest");
 
-  // json out;
+  json out;
+  out["status"] = "ok";
   // out["msg"] = "Hello from ndmspc-cli";
   arg->AddHeader("X-Header", "Test");
-  // arg->SetContent(out.dump());
-  // arg->SetContentType("application/json");
-  arg->SetContent("Success");
-  arg->SetContentType("text/plain");
+
+  arg->SetContentType("application/json");
+  arg->SetContent(out.dump());
+  // arg->SetContent("ok");
+  // arg->SetContentType("text/plain");
 }
 } // namespace Ndmspc
