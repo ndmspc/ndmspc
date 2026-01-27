@@ -1,9 +1,9 @@
 #ifndef Ndmspc_NGnHttpServer_H
 #define Ndmspc_NGnHttpServer_H
 #include "NHttpServer.h"
+#include "NGnNavigator.h"
 #include "NGnTree.h"
 #include "NGnWsHandler.h"
-#include "Rtypes.h"
 
 namespace Ndmspc {
 
@@ -29,6 +29,7 @@ class NGnHttpServer : public NHttpServer {
   private:
   NGnWsHandler * fNWsHandler{nullptr}; ///< WebSocket handler instance
   NGnTree *      fNGnTree{nullptr};    ///< NGnTree instance
+  NGnNavigator * fNavigator{nullptr};  ///< NGnNavigator instance
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);

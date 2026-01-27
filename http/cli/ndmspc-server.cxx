@@ -129,12 +129,12 @@ int main(int argc, char ** argv)
     }
     // Ndmspc::NGnWsHandler * ws = serv->GetWebSocketHandler();
     //
-    Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(fileUrl.c_str());
-    if (!ngnt || ngnt->IsZombie()) {
-      NLogError("Cannot open NGnTree file '%s', exiting ...", fileUrl.c_str());
-      exit(1);
-    }
-    serv->SetNGnTree(ngnt);
+    // Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(fileUrl.c_str());
+    // if (!ngnt || ngnt->IsZombie()) {
+    //   NLogError("Cannot open NGnTree file '%s', exiting ...", fileUrl.c_str());
+    //   exit(1);
+    // }
+    // serv->SetNGnTree(ngnt);
 
     // when read-only mode disabled one could execute object methods like TTree::Draw()
     serv->SetReadOnly(kFALSE);

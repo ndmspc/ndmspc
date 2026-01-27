@@ -1297,7 +1297,7 @@ NGnNavigator * NGnNavigator::GetChild(size_t index) const
   ///
   /// Returns child object at given index
   ///
-  NLogDebug("NGnNavigator::GetChild: index=%d, size=%zu", index, fChildren.size());
+  NLogTrace("NGnNavigator::GetChild: index=%d, size=%zu", index, fChildren.size());
   return (index < fChildren.size()) ? fChildren[index] : nullptr;
 }
 
