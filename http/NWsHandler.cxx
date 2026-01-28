@@ -109,7 +109,7 @@ void NWsHandler::Broadcast(const std::string & message)
 
 void NWsHandler::BroadcastUnsafe(const std::string & message)
 {
-  // NLogDebug("Broadcasting: %s", message.c_str());
+  NLogDebug("Broadcasting to %d clients : %s", fClients.size(), message.c_str());
   for (const auto & pair : fClients) {
     ULong_t wsId = pair.first;
     // Call the global SendCharStarWS function

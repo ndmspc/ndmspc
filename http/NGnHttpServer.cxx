@@ -1,5 +1,6 @@
 #include <NGnTree.h>
 #include <TTimer.h>
+#include "NHttpServer.h"
 #include "NLogger.h"
 #include "NGnHttpServer.h"
 
@@ -8,24 +9,11 @@ ClassImp(Ndmspc::NGnHttpServer);
 /// \endcond
 
 namespace Ndmspc {
-NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms) : NHttpServer(engine, ws, heartbeat_ms)
-{
-  if (ws) {
-    fNWsHandler = new NGnWsHandler("ws", "ws");
-    Register("/", fNWsHandler);
-    TTimer * heartbeat = new TTimer(fNWsHandler, heartbeat_ms);
-    heartbeat->Start();
-  }
-}
+NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms) : NHttpServer(engine, ws, heartbeat_ms) {}
 
 void NGnHttpServer::Print(Option_t * option) const
 {
-  if (fNGnTree) {
-    fNGnTree->Print(option);
-  }
-  else {
-    NLogWarning("NGnTree is not set.");
-  }
+  NHttpServer::Print(option);
 }
 
 void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
@@ -35,7 +23,8 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
   TString method = arg->GetMethod();
   if (arg->GetRequestHeader("Content-Type").CompareTo("application/json")) {
-    NLogWarning("Unsupported Content-Type: %s", arg->GetRequestHeader("Content-Type").Data());
+    // NLogWarning("Unsupported Content-Type: %s", arg->GetRequestHeader("Content-Type").Data());
+    NHttpServer::ProcessRequest(arg);
     return;
   }
   json in;
@@ -50,110 +39,27 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   }
   NLogInfo("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
-  json out;
-  // Process GET/POST/UPDATE request
-  if (method == "GET") {
-    NLogInfo("Processing GET request");
-    if (in.contains("action")) {
-      if (in["action"] == "info") {
-        if (fNGnTree) {
-          out["ngnt"]["file"]     = fNGnTree->GetStorageTree()->GetFileName();
-          out["ngnt"]["entries"]  = fNGnTree->GetStorageTree()->GetTree()->GetEntries();
-          out["ngnt"]["branches"] = fNGnTree->GetStorageTree()->GetBrancheNames();
-        }
-      }
-      else {
-        NLogWarning("Unknown action: %s", in["action"].get<std::string>().c_str());
-        out["error"] = "Unknown action";
-      }
-    }
-  }
-  else if (method == "POST") {
-    NLogInfo("Processing POST request");
-    if (in.contains("action")) {
-      if (in["action"] == "open") {
-        if (in.contains("file")) {
-          std::string file = in["file"].get<std::string>().c_str();
-          if (file.empty()) {
-            out["error"] = "Empty 'file' parameter for open action";
-          }
-          else {
-
-            if (fNGnTree) {
-              // fNGnTree->Close();
-              delete fNGnTree;
-              fNGnTree = nullptr;
-            }
-
-            fNGnTree = Ndmspc::NGnTree::Open(file);
-            if (fNGnTree && !fNGnTree->IsZombie()) {
-              NLogInfo("Opened NGnTree from file: %s", file.c_str());
-              fNGnTree->Print();
-            }
-            else {
-              NLogError("Failed to open NGnTree from file: %s", file.c_str());
-            }
-            out["result"] = fNGnTree ? "success" : "failure";
-          }
-        }
-        else {
-          out["error"] = "Missing 'file' parameter for open action";
-        }
-      }
-      else if (in["action"] == "reshape") {
-        if (fNavigator) {
-          SafeDelete(fNavigator);
-        }
-
-        std::vector<std::vector<int>> levels = {{0, 1}};
-        if (in.contains("levels")) {
-          levels = in["levels"].get<std::vector<std::vector<int>>>();
-        }
-
-        fNavigator = fNGnTree->Reshape("", levels);
-        if (fNavigator) {
-          fNavigator->Print();
-          out["result"] = "success";
-        }
-        else {
-          out["result"] = "failure";
-        }
-      }
-      else if (in["action"] == "spectra") {
-
-        if (fNavigator) {
-          fNavigator->Print();
-          fNavigator->Draw("HOVER");
-          out["result"] = "success";
-        }
-        else {
-          out["result"] = "failure";
-        }
-      }
-      else {
-        NLogWarning("Unknown action: %s", in["action"].get<std::string>().c_str());
-        out["error"] = "Unknown action";
-      }
-    }
-  }
-  else if (method == "PATCH") {
-    NLogInfo("Processing PATCH request");
-  }
-  else if (method == "OPTIONS") {
-    NLogInfo("Processing OPTIONS request");
-  }
-  else if (method == "DELETE") {
-    NLogInfo("Processing DELETE request");
-  }
-  else {
-    NLogWarning("Unsupported HTTP method: %s", method.Data());
-    out["error"] = "Unsupported HTTP method ";
+  if (in["action"].is_null()) {
+    NLogError("Missing 'action' field in request");
     arg->SetContentType("application/json");
-    arg->SetContent(out.dump());
+    arg->SetContent("{\"error\": \"Missing 'action' field\"}");
     return;
   }
 
-  out["status"] = "ok";
+  std::string action = in["action"].get<std::string>();
+  if (fHttpHandlers.find(action) == fHttpHandlers.end()) {
+    NLogError("Unsupported action: %s", action.c_str());
+    arg->SetContentType("application/json");
+    arg->SetContent("{\"error\": \"Unsupported action\"}");
+    return;
+  }
+
+  fObjectsMap["httpServer"] = this;
+
+  json out;
+  fHttpHandlers[action](method.Data(), in, out, fObjectsMap);
+
+  // out["status"] = "ok";
 
   arg->AddHeader("X-Header", "Test");
   arg->SetContentType("application/json");
@@ -161,4 +67,16 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   // arg->SetContent("ok");
   // arg->SetContentType("text/plain");
 }
+
+bool NGnHttpServer::WebSocketBroadcast(json message)
+{
+  NLogDebug("NGnHttpServer::WebSocketBroadcast: Broadcasting message to all clients.");
+  if (fNWsHandler) {
+    std::string msgStr = message.dump();
+    fNWsHandler->BroadcastUnsafe(msgStr);
+    return true;
+  }
+  return false;
+}
+
 } // namespace Ndmspc

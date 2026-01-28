@@ -91,6 +91,13 @@ class NGnNavigator : public TNamed {
   virtual void Draw(Option_t * option = "") override;
 
   /**
+   * @brief Retrieves information about the navigator in JSON format.
+   *
+   * @return json An object containing navigator information.
+   */
+  json GetInfoJson() const;
+
+  /**
    * @brief Draw spectra for a parameter.
    * @param parameterName Name of parameter.
    * @param option Draw options.

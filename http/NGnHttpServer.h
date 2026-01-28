@@ -20,16 +20,14 @@ class NGnHttpServer : public NHttpServer {
 
   virtual void Print(Option_t * option = "") const override;
 
-  NGnWsHandler * GetWebSocketHandler() const { return fNWsHandler; }
-  void           SetNGnTree(NGnTree * tree) { fNGnTree = tree; }
+  void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers) { fHttpHandlers = handlers; }
+  bool WebSocketBroadcast(json message);
 
-  protected:
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
 
   private:
-  NGnWsHandler * fNWsHandler{nullptr}; ///< WebSocket handler instance
-  NGnTree *      fNGnTree{nullptr};    ///< NGnTree instance
-  NGnNavigator * fNavigator{nullptr};  ///< NGnNavigator instance
+  std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers; ///<! HTTP handlers map
+  std::map<std::string, TObject *>              fObjectsMap;   ///<! Objects map for handlers
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);

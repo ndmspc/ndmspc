@@ -1,4 +1,5 @@
 #include <CLI11.hpp>
+#include "TROOT.h"
 #include <NLogger.h>
 #include <TSystem.h>
 #include <TFile.h>
@@ -11,6 +12,7 @@
 #include "NGnWsHandler.h"
 #include "NLogger.h"
 #include "ndmspc.h"
+
 std::string app_description()
 {
   size_t size = 64;
@@ -116,12 +118,34 @@ int main(int argc, char ** argv)
   }
   server_ngnt->add_option("-p,--port", port, "Server port (default: 8080)");
   // add file url option
-  std::string fileUrl = "ngnt.root";
-  server_ngnt->add_option("-f,--file", fileUrl, "NGnTree file url (default: ngnt.root)");
+  std::string macroFilename;
+  server_ngnt->add_option("-m,--macro", macroFilename,
+                          "Macro path (default: "
+                          ")");
 
-  server_ngnt->callback([&rootApp, &port, &fileUrl]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename]() {
     Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
-    NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, fileUrl.c_str());
+    NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, macroFilename.c_str());
+
+    if (macroFilename.empty()) {
+      NLogError("No macro file given, exiting ...");
+      exit(1);
+    }
+
+    // Your local map
+    std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+    // Set the global pointer to your local map
+    Ndmspc::gNdmspcHttpHandlers = &handlers;
+
+    TMacro * m = Ndmspc::NUtils::OpenMacro(macroFilename);
+    m->Exec();
+
+    if (!Ndmspc::gNdmspcHttpHandlers) {
+      return;
+    }
+
+    NLogInfo("Macro '%s' executed.", macroFilename.c_str());
+    serv->SetHttpHandlers(handlers);
 
     if (serv->IsTerminated()) {
       NLogError("Server is zombie, exiting ...");

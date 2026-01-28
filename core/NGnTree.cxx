@@ -36,7 +36,17 @@ ClassImp(Ndmspc::NGnTree);
 /// \endcond
 
 namespace Ndmspc {
+/**
+ * @brief Global pointer to the HTTP handler map.
+ *
+ * This variable holds a pointer to the global HttpHandlerMap instance,
+ * which is used to manage HTTP request handlers within the application.
+ * It is initialized to nullptr and should be set during application startup.
+ */
+HttpHandlerMap * gNdmspcHttpHandlers = nullptr;
+
 NGnTree::NGnTree() : TObject() {}
+
 NGnTree::NGnTree(std::vector<TAxis *> axes, std::string filename, std::string treename) : TObject(), fInput(nullptr)
 {
   ///

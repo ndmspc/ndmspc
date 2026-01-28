@@ -99,4 +99,16 @@ Bool_t NGnWsHandler::ProcessWS(THttpCallArg * arg)
   return kFALSE;
 }
 
+bool NGnWsHandler::Broadcast(const std::string & message)
+{
+  // std::lock_guard<std::mutex> lock(fMutex);
+
+  NLogDebug("NGnWsHandler::Broadcast: Broadcasting message to %lld clients: %s", fClients.size(), message.c_str());
+  for (const auto & pair : fClients) {
+    NLogDebug("Broadcasting message to client ID %lld: %s", pair.first, message.c_str());
+    SendCharStarWS(pair.first, message.c_str());
+  }
+  return true;
+}
+
 } // namespace Ndmspc

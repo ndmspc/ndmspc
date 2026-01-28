@@ -1035,6 +1035,24 @@ void NGnNavigator::Print(Option_t * option) const
   }
 }
 
+json NGnNavigator::GetInfoJson() const
+{
+  ///
+  /// Convert NGnNavigator info to JSON object
+  ///
+  json j;
+  j["name"]      = GetName();
+  j["title"]     = GetTitle();
+  j["level"]     = fLevel;
+  j["nLevels"]   = fNLevels;
+  j["nChildren"] = fChildren.size();
+  j["objects"]   = GetObjectNames();
+  j["params"]    = GetParameterNames();
+  auto parent    = const_cast<NGnNavigator *>(this)->GetParent();
+  j["levels"]    = parent ? parent->GetLevels() : fLevels;
+  return j;
+}
+
 void NGnNavigator::Draw(Option_t * option)
 {
   ///

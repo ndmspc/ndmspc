@@ -9,7 +9,8 @@ ClassImp(Ndmspc::NParameters);
 /// \endcond
 
 namespace Ndmspc {
-NParameters::NParameters(const char * name, const char * title, std::vector<std::string> parNames) : TNamed(name, title)
+NParameters::NParameters(const char * name, const char * title, std::vector<std::string> parNames)
+    : TNamed(name, title), fNames(parNames)
 {
   ///
   /// Constructor

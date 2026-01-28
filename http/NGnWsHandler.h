@@ -17,6 +17,8 @@ class NGnWsHandler : public NWsHandler {
   NGnWsHandler(const char * name = nullptr, const char * title = nullptr);
   Bool_t ProcessWS(THttpCallArg * arg) override;
 
+  bool Broadcast(const std::string & message);
+
   /// \cond CLASSIMP
   ClassDefOverride(NGnWsHandler, 1);
   /// \endcond;
