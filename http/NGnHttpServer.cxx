@@ -27,9 +27,24 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     NHttpServer::ProcessRequest(arg);
     return;
   }
+
+  std::string path     = arg->GetPathName();
+  std::string filename = arg->GetFileName();
+
+  std::string fullpath = path + "/" + filename;
+
+  // remove first slash if exists
+  fullpath.erase(0, fullpath.find_first_not_of('/'));
+  // remove last slash if exists
+  fullpath.erase(std::remove(fullpath.end() - 1, fullpath.end(), '/'), fullpath.end());
+
+  std::string query = arg->GetQuery();
+  NLogDebug("Processing %s request for path: %s query: %s", method.Data(), fullpath.c_str(), query.c_str());
+
   json in;
   try {
-    in = json::parse((const char *)arg->GetPostData());
+    std::string content = (const char *)arg->GetPostData();
+    if (!content.empty()) in = json::parse(content);
   }
   catch (json::parse_error & e) {
     NLogError("JSON parse error: %s", e.what());
@@ -39,16 +54,8 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   }
   NLogInfo("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
-  if (in["action"].is_null()) {
-    NLogError("Missing 'action' field in request");
-    arg->SetContentType("application/json");
-    arg->SetContent("{\"error\": \"Missing 'action' field\"}");
-    return;
-  }
-
-  std::string action = in["action"].get<std::string>();
-  if (fHttpHandlers.find(action) == fHttpHandlers.end()) {
-    NLogError("Unsupported action: %s", action.c_str());
+  if (fHttpHandlers.find(fullpath) == fHttpHandlers.end()) {
+    NLogError("Unsupported action: %s", fullpath.c_str());
     arg->SetContentType("application/json");
     arg->SetContent("{\"error\": \"Unsupported action\"}");
     return;
@@ -57,7 +64,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   fObjectsMap["httpServer"] = this;
 
   json out;
-  fHttpHandlers[action](method.Data(), in, out, fObjectsMap);
+  fHttpHandlers[fullpath](method.Data(), in, out, fObjectsMap);
 
   // out["status"] = "ok";
 
