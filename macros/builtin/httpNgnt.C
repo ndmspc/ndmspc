@@ -140,9 +140,21 @@ void httpNgnt()
   };
 
   handlers["publish"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
+    NLogInfo("publich: HTTP method called: %s", method.c_str());
     Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)nullptr;
     if (inputs.find("navigator") != inputs.end()) {
       nav = (Ndmspc::NGnNavigator *)inputs["navigator"];
+    }
+
+    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)nullptr;
+    if (inputs.find("ngnt") != inputs.end()) {
+      ngnt = (Ndmspc::NGnTree *)inputs["ngnt"];
+    }
+
+    if (!ngnt || ngnt->IsZombie()) {
+      NLogError("NGnTree is not opened");
+      out["result"] = "not_opened";
+      return;
     }
 
     Ndmspc::NGnHttpServer * server = (Ndmspc::NGnHttpServer *)nullptr;
@@ -155,9 +167,13 @@ void httpNgnt()
         NLogInfo("Reshape navigator is available");
         // nav->Draw("hover");
 
-        TH1 *   proj  = nav->GetProjection();
-        TString h     = TBufferJSON::ConvertToJSON(proj);
-        json    wsOut = json::parse(h.Data());
+        TH1 *   proj = nav->GetProjection();
+        TString h    = TBufferJSON::ConvertToJSON(proj);
+        json    hMap = json::parse(h.Data());
+        json    wsOut;
+        wsOut["map"]["obj"]                        = hMap;
+        wsOut["map"]["handler"]["click"]["action"] = "content";
+        wsOut["map"]["handler"]["hover"]["action"] = "contenthover";
         if (!server) {
           NLogError("HTTP server is not available, cannot publish navigator");
           out["result"] = "http_server_not_available";
@@ -174,7 +190,40 @@ void httpNgnt()
       }
     }
     else if (method.find("POST") != std::string::npos) {
-      out["error"] = "Draw action does not support POST method";
+      if (nav) {
+        NLogInfo("Reshape navigator is available");
+        // nav->Draw("hover");
+        //
+        int bin = in.contains("bin") ? in["bin"].get<int>() : -1;
+
+        json wsOut;
+        if (bin >= 0) {
+          ngnt->GetEntry(bin);
+          TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
+          if (outputPoint) {
+            NLogInfo("Output point for bin %d:", bin);
+            outputPoint->Print();
+            wsOut["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
+          }
+          else {
+            NLogWarning("No output point found for bin %d", bin);
+          }
+        }
+
+        if (!server) {
+          NLogError("HTTP server is not available, cannot publish navigator");
+          out["result"] = "http_server_not_available";
+          return;
+        }
+        server->WebSocketBroadcast(wsOut);
+
+        out["result"] = "success";
+      }
+      else {
+        NLogInfo("Reshape navigator is not available");
+        out["result"] = "not_available";
+        return;
+      }
     }
     else {
       out["error"] = "Unsupported HTTP method for reshape action";
