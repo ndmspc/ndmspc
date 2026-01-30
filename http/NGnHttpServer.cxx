@@ -21,25 +21,29 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
   // NLogInfo("NGnHttpServer::ProcessRequest");
 
-  TString method = arg->GetMethod();
-  if (arg->GetRequestHeader("Content-Type").CompareTo("application/json")) {
-    // NLogWarning("Unsupported Content-Type: %s", arg->GetRequestHeader("Content-Type").Data());
+  TString method   = arg->GetMethod();
+  TString path     = arg->GetPathName();
+  TString filename = arg->GetFileName();
+  // if (arg->GetRequestHeader("Content-Type").CompareTo("application/json")) {
+  //   // NLogWarning("Unsupported Content-Type: %s", arg->GetRequestHeader("Content-Type").Data());
+  //   NHttpServer::ProcessRequest(arg);
+  //   return;
+  // }
+
+  NLogDebug("Received %s request for path: %s filename: %s", method.Data(), path.Data(), filename.Data());
+
+  // if path is not /api/*
+  if (!path.BeginsWith("api")) {
     NHttpServer::ProcessRequest(arg);
     return;
   }
 
-  std::string path     = arg->GetPathName();
-  std::string filename = arg->GetFileName();
-
-  std::string fullpath = path + "/" + filename;
-
-  // remove first slash if exists
-  fullpath.erase(0, fullpath.find_first_not_of('/'));
-  // remove last slash if exists
-  fullpath.erase(std::remove(fullpath.end() - 1, fullpath.end(), '/'), fullpath.end());
-
+  TString fullpath = TString::Format("%s/%s", path.Data(), filename.Data()).Data();
+  fullpath.ReplaceAll("api/", "");
+  fullpath.ReplaceAll("//", "/");
+  fullpath          = fullpath.Strip(TString::kTrailing, '/');
   std::string query = arg->GetQuery();
-  NLogDebug("Processing %s request for path: %s query: %s", method.Data(), fullpath.c_str(), query.c_str());
+  NLogDebug("Processing %s request for path: %s query: %s", method.Data(), fullpath.Data(), query.c_str());
 
   json in;
   try {
@@ -54,8 +58,8 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   }
   NLogInfo("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
-  if (fHttpHandlers.find(fullpath) == fHttpHandlers.end()) {
-    NLogError("Unsupported action: %s", fullpath.c_str());
+  if (fHttpHandlers.find(fullpath.Data()) == fHttpHandlers.end()) {
+    NLogError("Unsupported action: %s", fullpath.Data());
     arg->SetContentType("application/json");
     arg->SetContent("{\"error\": \"Unsupported action\"}");
     return;
@@ -64,7 +68,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   fObjectsMap["httpServer"] = this;
 
   json out;
-  fHttpHandlers[fullpath](method.Data(), in, out, fObjectsMap);
+  fHttpHandlers[fullpath.Data()](method.Data(), in, out, fObjectsMap);
 
   // out["status"] = "ok";
 
