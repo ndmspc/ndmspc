@@ -171,9 +171,16 @@ void httpNgnt()
         TString h    = TBufferJSON::ConvertToJSON(proj);
         json    hMap = json::parse(h.Data());
         json    wsOut;
-        wsOut["map"]["obj"]                        = hMap;
-        wsOut["map"]["handler"]["click"]["action"] = "content";
-        wsOut["map"]["handler"]["hover"]["action"] = "contenthover";
+        wsOut["map"]["obj"] = hMap;
+        json clickAction;
+        json clickHttp                    = clickAction["http"];
+        clickHttp["method"]               = "GET";
+        clickHttp["contentType"]          = "application/json";
+        clickHttp["path"]                 = "point";
+        clickHttp["payload"]              = json::object();
+        wsOut["map"]["handlers"]["click"] = clickAction;
+
+        // wsOut["map"]["handlers"]["hover"]["action"]       = "contenthover";
         if (!server) {
           NLogError("HTTP server is not available, cannot publish navigator");
           out["result"] = "http_server_not_available";
