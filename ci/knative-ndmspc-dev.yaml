@@ -1,0 +1,25 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ndmspc-service
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+        - image: localhost:5001/ndmspc/ndmspc:latest
+          command: ["ndmspc-server"]
+          args:
+            - "start"
+            - "default"
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault

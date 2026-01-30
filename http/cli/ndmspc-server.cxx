@@ -1,4 +1,5 @@
 #include <CLI11.hpp>
+#include <csignal>
 #include "TROOT.h"
 #include <NLogger.h>
 #include <TSystem.h>
@@ -21,9 +22,17 @@ std::string app_description()
   size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
   return std::string(buf.get(), size);
 }
+void handle_sigterm(int sig)
+{
+  std::cout << ">>> SIGNAL RECEIVED: " << sig << " <<<" << std::endl;
+  gSystem->Exit(0);
+}
 
 int main(int argc, char ** argv)
 {
+
+  // Or standard C:
+  signal(SIGTERM, handle_sigterm);
 
   TApplication rootApp("myapp", 0, nullptr);
   // if (getenv("NDMSPC_CACHE")) {
@@ -58,16 +67,30 @@ int main(int argc, char ** argv)
       NLogError("Server was not created !!!");
       exit(1);
     }
-
+    serv->SetCors("*");
+    // // This allows ROOT to process system signals like SIGTERM
     // int timeout = 100;
-    // serv->SetTimer(0, kTRUE);
-    // press Ctrl-C to stop macro
+    // // serv->SetTimer(0, kTRUE);
+    // // press Ctrl-C to stop macro
     // while (!gSystem->ProcessEvents()) {
     //   // NLogDebug("Waiting for requests ...");
     //   gSystem->Sleep(timeout);
     // }
+
+    // gSystem->AddSignalHandler(new TSignalHandler(kSigTermination, kTRUE));
     //
-    NLogInfo("Starting server on port %d ...", port);
+    // // 3. Optional: Define what happens on exit
+    // std::cout << "Server started. Send SIGTERM to exit." << std::endl;
+    //
+    // // 4. Use gSystem->Run() which handles the event loop correctly
+    // // It will return when a signal is received if the handler is set to kTRUE
+    // gSystem->Run();
+    //
+    // std::cout << "Shutting down gracefully..." << std::endl;
+    // delete serv;
+    // gApplication->Terminate(0);
+
+    // NLogInfo("Starting server on port %d ...", port);
     rootApp.Run();
   });
 
@@ -95,9 +118,11 @@ int main(int argc, char ** argv)
     NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
 
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
+    serv->SetCors("*");
     NLogInfo("Starting server on port %d ...", port);
     Ndmspc::NWsHandler * ws = serv->GetWebSocketHandler();
-
+    // This allows ROOT to process system signals like SIGTERM
+    // gSystem->AddSignalHandler(new TSignalHandler(kSigTermination, kTRUE));
     // when read-only mode disabled one could execute object methods like TTree::Draw()
     serv->SetReadOnly(kFALSE);
 
@@ -126,6 +151,7 @@ int main(int argc, char ** argv)
   server_ngnt->callback([&rootApp, &port, &macroFilename]() {
     Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, macroFilename.c_str());
+    serv->SetCors();
 
     if (macroFilename.empty()) {
       NLogError("No macro file given, exiting ...");
@@ -151,23 +177,15 @@ int main(int argc, char ** argv)
       NLogError("Server is zombie, exiting ...");
       exit(1);
     }
-    // Ndmspc::NGnWsHandler * ws = serv->GetWebSocketHandler();
-    //
-    // Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(fileUrl.c_str());
-    // if (!ngnt || ngnt->IsZombie()) {
-    //   NLogError("Cannot open NGnTree file '%s', exiting ...", fileUrl.c_str());
-    //   exit(1);
-    // }
-    // serv->SetNGnTree(ngnt);
+
+    int timeout = 100;
+    while (!gSystem->ProcessEvents()) {
+      gSystem->Sleep(timeout);
+    }
 
     // when read-only mode disabled one could execute object methods like TTree::Draw()
     serv->SetReadOnly(kFALSE);
     serv->Print();
-
-    // // press Ctrl-C to stop macro
-    // while (!gSystem->ProcessEvents()) {
-    //   gSystem->Sleep(timeout);
-    // }
     rootApp.Run();
   });
 

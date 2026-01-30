@@ -1,0 +1,27 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ndmspc-ngnt-service
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+        - image: localhost:5001/ndmspc/ndmspc:latest
+          command: ["ndmspc-server"]
+          args:
+            - "start"
+            - "ngnt"
+            - "-m"
+            - "/usr/share/ndmspc/macros/builtin/httpNgnt.C"
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault

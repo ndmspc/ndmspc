@@ -72,7 +72,8 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
   // out["status"] = "ok";
 
-  arg->AddHeader("X-Header", "Test");
+  // arg->AddHeader("X-Header", "Test");
+  arg->AddHeader("Access-Control-Allow-Origin", "*");
   arg->SetContentType("application/json");
   arg->SetContent(out.dump());
   // arg->SetContent("ok");
