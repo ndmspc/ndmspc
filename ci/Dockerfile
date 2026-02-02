@@ -1,7 +1,7 @@
 ARG MY_PROJECT_VER=0.0.0-rc0
 FROM registry.gitlab.com/ndmspc/ndmspc/base:v${MY_PROJECT_VER}
 USER root
-RUN dnf update -y && dnf install -y screen nmap salsa munge python3-jupyroot python3-pip && dnf clean all
+RUN dnf update -y && dnf install -y screen nmap salsa munge python3-jupyroot python3-pip ansible && dnf clean all
 RUN pip3 install --no-cache-dir jupyter metakernel
 ARG NDMSPC_INIT_DIR=/var/tmp/ndmspc-init
 COPY . ${NDMSPC_INIT_DIR}
