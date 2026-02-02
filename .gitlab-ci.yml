@@ -1,6 +1,7 @@
 stages:
   - build
   - deploy
+  - deploy-full
 
 image: quay.io/podman/stable
 variables:
@@ -47,7 +48,7 @@ build-rpm-copr:
     - tags
 
 base-image:
-  stage: build
+  stage: deploy
   tags:
     - images
   script:
@@ -66,7 +67,7 @@ base-image:
     #- main
 
 prod-image:
-  stage: deploy
+  stage: deploy-full
   tags:
     - images
   script:
