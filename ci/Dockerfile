@@ -1,11 +1,3 @@
-FROM registry.gitlab.com/ndmspc/user/al9:dep AS builder
-ARG MY_PROJECT_VER=0.0.0-rc0
-COPY . /builder/
-WORKDIR /builder
-RUN dnf update -y
-RUN scripts/make.sh clean rpm
-
-#FROM docker.io/library/almalinux:9
 ARG MY_PROJECT_VER=0.0.0-rc0
 FROM registry.gitlab.com/ndmspc/ndmspc/base:v${MY_PROJECT_VER}
 RUN dnf update -y && dnf install -y screen nmap salsa munge python3-jupyroot python3-pip && dnf clean all
