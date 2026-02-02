@@ -209,7 +209,7 @@ void httpNgnt()
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
           if (outputPoint) {
             NLogInfo("Output point for bin %d:", entry);
-            outputPoint->Print();
+            // outputPoint->Print();
             wsOut["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
           }
           else {
