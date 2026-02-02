@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -1543,17 +1544,17 @@ void NGnNavigator::SetParameterError(const std::string & name, double value, int
     }
   }
 }
-void NGnNavigator::DrawSpectraAll(std::string parameterName, std::vector<double> minmax, Option_t * option) const
+TList * NGnNavigator::DrawSpectraAll(std::string parameterName, std::vector<double> minmax, Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object for all projection IDs
   ///
   std::vector<int> projIds;
-  DrawSpectra(parameterName, projIds, minmax, option);
+  return DrawSpectra(parameterName, projIds, minmax, option);
 }
 
-void NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
-                                     std::vector<double> minmax, Option_t * option) const
+TList * NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
+                                        std::vector<double> minmax, Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object for all projection IDs
@@ -1580,25 +1581,25 @@ void NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<std:
   if (projIds.empty()) {
     NLogError("NGnNavigator::DrawSpectra: No projection axes found for names: %s",
               NUtils::GetCoordsString(projAxes, -1).c_str());
-    return;
+    return nullptr;
   }
 
   if (projIds.size() > 3) {
     NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", projIds.size());
-    return;
+    return nullptr;
   }
 
   if (projIds.size() != projAxes.size()) {
     NLogError("NGnNavigator::DrawSpectra: Not all projection axes found: %s",
               NUtils::GetCoordsString(projAxes, -1).c_str());
-    return;
+    return nullptr;
   }
 
-  DrawSpectra(parameterName, projIds, minmax, option);
+  return DrawSpectra(parameterName, projIds, minmax, option);
 }
 
-void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax,
-                               Option_t * option) const
+TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax,
+                                  Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object with the specified projection IDs
@@ -1606,14 +1607,14 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
 
   if (parameterName.empty()) {
     NLogError("NGnNavigator::DrawSpectra: Parameter name is empty");
-    return;
+    return nullptr;
   }
 
   // check if parameterName exists in fParameterContentMap
   if (fParameterContentMap.find(parameterName) == fParameterContentMap.end()) {
     NLogError("NGnNavigator::DrawSpectra: Parameter name '%s' not found in fParameterContentMap",
               parameterName.c_str());
-    return;
+    return nullptr;
   }
   Int_t screenWidth  = gClient->GetDisplayWidth();
   Int_t screenHeight = gClient->GetDisplayHeight();
@@ -1624,6 +1625,9 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
   constexpr double canvasScale  = 0.2;
   Int_t            canvasWidth  = static_cast<Int_t>(screenWidth * canvasScale);
   Int_t            canvasHeight = static_cast<Int_t>(screenHeight * canvasScale);
+
+  if (canvasWidth < 800) canvasWidth = 800;
+  if (canvasHeight < 600) canvasHeight = 600;
 
   NLogTrace("Screen size: %dx%d", screenWidth, screenHeight);
 
@@ -1642,13 +1646,14 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
 
   if (projections.empty()) {
     NLogError("NGnNavigator::DrawSpectra: No projections found");
-    return;
+    return nullptr;
   }
   if (projections[0].size() > 3) {
     NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", projections[0].size());
-    return;
+    return nullptr;
   }
 
+  TList * outputList = new TList();
   for (const auto & proj : projections) {
 
     NLogTrace("Projection IDs: %s", NUtils::GetCoordsString(projIds, -1).c_str());
@@ -1706,7 +1711,8 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
 
     if (dims.size() > 3) {
       NLogError("NGnNavigator::DrawSpectra: Too many projection dimensions: %zu (max 3)", dims.size());
-      return;
+      delete outputList;
+      return nullptr;
     }
 
     NLogTrace("Projection dims: %s", NUtils::GetCoordsString(dims, -1).c_str());
@@ -1764,6 +1770,7 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
     std::string canvasName = Form("c_%s", posfix.c_str());
     NLogTrace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
     c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
+    outputList->Add(c);
     c->DivideSquare(nPads);
 
     for (int iPad = 0; iPad < nPads; iPad++) {
@@ -1850,6 +1857,8 @@ void NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projI
       gSystem->ProcessEvents();
     }
   }
+
+  return outputList;
 }
 
 NGnNavigator * NGnNavigator::GetRoot() const

@@ -236,4 +236,69 @@ void httpNgnt()
       out["error"] = "Unsupported HTTP method for reshape action";
     }
   };
+
+  handlers["spectra"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
+    NLogInfo("publich: HTTP method called: %s", method.c_str());
+    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)nullptr;
+    if (inputs.find("navigator") != inputs.end()) {
+      nav = (Ndmspc::NGnNavigator *)inputs["navigator"];
+    }
+
+    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)nullptr;
+    if (inputs.find("ngnt") != inputs.end()) {
+      ngnt = (Ndmspc::NGnTree *)inputs["ngnt"];
+    }
+
+    if (!ngnt || ngnt->IsZombie()) {
+      NLogError("NGnTree is not opened");
+      out["result"] = "not_opened";
+      return;
+    }
+
+    Ndmspc::NGnHttpServer * server = (Ndmspc::NGnHttpServer *)nullptr;
+    if (inputs.find("httpServer") != inputs.end()) {
+      server = (Ndmspc::NGnHttpServer *)inputs["httpServer"];
+    }
+    if (method.find("GET") != std::string::npos) {
+    }
+    else if (method.find("POST") != std::string::npos) {
+      if (nav) {
+        NLogInfo("Reshape navigator is available");
+        // nav->Draw("hover");
+        //
+        std::string         parameterName = in.contains("parameterName") ? in["parameterName"].get<std::string>() : "";
+        std::vector<double> minmax;
+        if (in.contains("minmax")) {
+          minmax = in["minmax"].get<std::vector<double>>();
+        }
+
+        json    wsOut;
+        TList * spectra = nav->DrawSpectraAll(parameterName, minmax, "");
+        if (spectra) {
+          NLogInfo("Spectra for parameter '%s' obtained:", parameterName.c_str());
+          // spectra->Print();
+          wsOut["spectra"] = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+          if (!server) {
+            NLogError("HTTP server is not available, cannot publish navigator");
+            out["result"] = "http_server_not_available";
+            return;
+          }
+          server->WebSocketBroadcast(wsOut);
+        }
+        else {
+          NLogWarning("No spectra found for parameter '%s'", parameterName.c_str());
+        }
+
+        out["result"] = "success";
+      }
+      else {
+        NLogInfo("Reshape navigator is not available");
+        out["result"] = "not_available";
+        return;
+      }
+    }
+    else {
+      out["error"] = "Unsupported HTTP method for reshape action";
+    }
+  };
 }

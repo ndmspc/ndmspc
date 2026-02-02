@@ -6,8 +6,8 @@ RUN dnf update -y
 RUN scripts/make.sh clean rpm
 
 #FROM docker.io/library/almalinux:9
-FROM registry.gitlab.com/ndmspc/ndmspc/base:${MY_PROJECT_VER}
 ARG MY_PROJECT_VER=0.0.0-rc0
+FROM registry.gitlab.com/ndmspc/ndmspc/base:v${MY_PROJECT_VER}
 RUN dnf update -y && dnf install -y screen nmap salsa munge python3-jupyroot python3-pip && dnf clean all
 RUN pip3 install --no-cache-dir jupyter metakernel
 ARG NDMSPC_INIT_DIR=/var/tmp/ndmspc-init

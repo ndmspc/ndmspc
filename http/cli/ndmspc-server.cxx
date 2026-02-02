@@ -48,6 +48,7 @@ int main(int argc, char ** argv)
   if (gSystem->Getenv("PORT")) {
     port = atoi(gSystem->Getenv("PORT"));
   }
+  bool     batch = true;
   CLI::App app{app_description()};
   app.require_subcommand(1); // 1 or more
   argv = app.ensure_utf8(argv);
@@ -61,6 +62,7 @@ int main(int argc, char ** argv)
     return 1;
   }
   server_default->add_option("-p,--port", port, "Server port (default: 8080)");
+  server_default->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   auto server_default_fun = ([&rootApp, &port]() {
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     if (serv == nullptr) {
@@ -110,13 +112,13 @@ int main(int argc, char ** argv)
   server_stress->add_option("-r,--reset", reset, "Reset every n events (default: 100)");
   int seed = 0;
   server_stress->add_option("-s,--seed", seed, "Random seed (default: 0)");
-  bool batch = false;
   server_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
 
   server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch]() {
     NLogInfo("Using stress processing method.");
     NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
 
+    gROOT->SetBatch(batch);
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     serv->SetCors("*");
     NLogInfo("Starting server on port %d ...", port);
@@ -147,8 +149,11 @@ int main(int argc, char ** argv)
   server_ngnt->add_option("-m,--macro", macroFilename,
                           "Macro path (default: "
                           ")");
+  server_ngnt->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch]() {
+    gROOT->SetBatch(batch);
+
     Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, macroFilename.c_str());
     serv->SetCors();
