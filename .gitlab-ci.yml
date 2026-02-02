@@ -56,10 +56,10 @@ base-image:
     - export MY_PROJECT_VER=${CI_COMMIT_REF_NAME/v/}
     - export MY_VER_RELEASE=$(echo $MY_PROJECT_VER | cut -sd '-' -f2)
     - podman build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" -f ci/Dockerfile.base --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE/base:latest --tag $CI_REGISTRY_IMAGE-base:next .
-    - podman push $CI_REGISTRY_IMAGE-base:$CI_COMMIT_REF_NAME
+    - podman push $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
-    - if [ -z "$MY_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE-base:latest; fi
-    - if [ -n "$MY_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE-base:next; fi
+    - if [ -z "$MY_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE/base:latest; fi
+    - if [ -n "$MY_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE/base:next; fi
   allow_failure: true
   # when: manual
   only:

@@ -201,19 +201,19 @@ void httpNgnt()
         NLogInfo("Reshape navigator is available");
         // nav->Draw("hover");
         //
-        int bin = in.contains("bin") ? in["bin"].get<int>() : -1;
+        int entry = in.contains("entry") ? in["entry"].get<int>() : -1;
 
         json wsOut;
-        if (bin >= 0) {
-          ngnt->GetEntry(bin);
+        if (entry >= 0) {
+          ngnt->GetEntry(entry);
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
           if (outputPoint) {
-            NLogInfo("Output point for bin %d:", bin);
+            NLogInfo("Output point for bin %d:", entry);
             outputPoint->Print();
             wsOut["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
           }
           else {
-            NLogWarning("No output point found for bin %d", bin);
+            NLogWarning("No output point found for entry %d", entry);
           }
         }
 
