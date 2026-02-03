@@ -43,7 +43,6 @@ namespace Ndmspc {
  * which is used to manage HTTP request handlers within the application.
  * It is initialized to nullptr and should be set during application startup.
  */
-HttpHandlerMap * gNdmspcHttpHandlers = nullptr;
 
 NGnTree::NGnTree() : TObject() {}
 

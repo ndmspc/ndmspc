@@ -140,26 +140,24 @@ void httpNgnt()
   };
 
   handlers["point"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
+    Ndmspc::NGnHttpServer * server = (Ndmspc::NGnHttpServer *)nullptr;
+    if (inputs.find("_httpServer") != inputs.end()) {
+      server = (Ndmspc::NGnHttpServer *)inputs["_httpServer"];
+    }
+
     NLogInfo("point: HTTP method called: %s", method.c_str());
-    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)nullptr;
-    if (inputs.find("navigator") != inputs.end()) {
-      nav = (Ndmspc::NGnNavigator *)inputs["navigator"];
-    }
-
-    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)nullptr;
-    if (inputs.find("ngnt") != inputs.end()) {
-      ngnt = (Ndmspc::NGnTree *)inputs["ngnt"];
-    }
-
+    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
     if (!ngnt || ngnt->IsZombie()) {
       NLogError("NGnTree is not opened");
-      out["result"] = "not_opened";
+      out["result"] = "NGnTree is not opened";
       return;
     }
 
-    Ndmspc::NGnHttpServer * server = (Ndmspc::NGnHttpServer *)nullptr;
-    if (inputs.find("httpServer") != inputs.end()) {
-      server = (Ndmspc::NGnHttpServer *)inputs["httpServer"];
+    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)server->GetInputObject("navigator");
+    if (!nav) {
+      NLogError("Navigator is not available");
+      out["result"] = "navigator_not_available";
+      return;
     }
 
     if (method.find("GET") != std::string::npos) {
