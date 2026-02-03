@@ -1,15 +1,14 @@
-#include "NWsHandler.h"
+#include "NGnWsHandler.h"
 #include <THttpCallArg.h>
 #include <TTimer.h>
 #include "NLogger.h"
 #include "NUtils.h"
-// ClassImp(Ndmspc::NWsHandler);
+// ClassImp(Ndmspc::NGnWsHandler);
 //
 namespace Ndmspc {
-NWsHandler::NWsHandler(const char * name, const char * title) : THttpWSHandler(name, title, kFALSE) {}
-NWsHandler::~NWsHandler() {}
+NGnWsHandler::NGnWsHandler(const char * name, const char * title) : NWsHandler(name, title) {}
 
-Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
+Bool_t NGnWsHandler::ProcessWS(THttpCallArg * arg)
 {
 
   if (!arg || (arg->GetWSId() == 0)) return kTRUE;
@@ -100,35 +99,16 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
   return kFALSE;
 }
 
-void NWsHandler::Broadcast(const std::string & message)
+bool NGnWsHandler::Broadcast(const std::string & message)
 {
-  // This method is protected by a mutex to ensure thread safety
-  std::lock_guard<std::mutex> lock(fMutex);
-  BroadcastUnsafe(message);
-}
+  // std::lock_guard<std::mutex> lock(fMutex);
 
-void NWsHandler::BroadcastUnsafe(const std::string & message)
-{
-  NLogDebug("Broadcasting to %d clients : %s", fClients.size(), message.c_str());
+  NLogDebug("NGnWsHandler::Broadcast: Broadcasting message to %lld clients: %s", fClients.size(), message.c_str());
   for (const auto & pair : fClients) {
-    ULong_t wsId = pair.first;
-    // Call the global SendCharStarWS function
-    SendCharStarWS(wsId, message.c_str());
+    NLogDebug("Broadcasting message to client ID %lld: %s", pair.first, message.c_str());
+    SendCharStarWS(pair.first, message.c_str());
   }
-}
-
-Bool_t NWsHandler::HandleTimer(TTimer *)
-{
-  ///
-  /// Handle timer event for heartbeat
-  ///
-
-  json data;
-  data["event"]            = "heartbeat";
-  data["payload"]["count"] = ++fServCnt;
-  BroadcastUnsafe(data.dump());
-
-  return kTRUE;
+  return true;
 }
 
 } // namespace Ndmspc

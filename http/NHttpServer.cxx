@@ -21,6 +21,12 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms) : THttp
     TTimer * heartbeat = new TTimer(fNWsHandler, heartbeat_ms);
     heartbeat->Start();
   }
+  // // check if server is running
+  // if (!IsRunning()) {
+  //   NLogError("NHttpServer: Server is not running on engine %s", engine);
+  // } else {
+  //   NLogInfo("NHttpServer: Server is running on engine %s", engine);
+  // }
 }
 
 void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)

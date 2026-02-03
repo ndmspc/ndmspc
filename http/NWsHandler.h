@@ -68,7 +68,7 @@ class NWsHandler : public THttpWSHandler {
    */
   Bool_t HandleTimer(TTimer * timer) override;
 
-  private:
+  protected:
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
   std::mutex                       fMutex;      ///< Mutex for thread-safe client map access
   Int_t                            fServCnt{0}; ///< Service counter

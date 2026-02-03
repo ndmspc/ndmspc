@@ -82,11 +82,14 @@ class NParameters : public TNamed {
    */
   TH1D * GetHisto() const { return fHisto; }
 
+  std::vector<std::string> GetNames() const { return fNames; }
+
   private:
-  TH1D * fHisto{nullptr}; ///< Histogram with parameters
+  TH1D *                   fHisto{nullptr}; ///< Histogram with parameters
+  std::vector<std::string> fNames{};        ///< Names of parameters
 
   /// \cond CLASSIMP
-  ClassDefOverride(NParameters, 1);
+  ClassDefOverride(NParameters, 2);
   /// \endcond;
 };
 } // namespace Ndmspc

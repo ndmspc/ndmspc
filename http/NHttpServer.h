@@ -48,7 +48,7 @@ class NHttpServer : public THttpServer {
    */
   virtual void ProcessNCloudEventRequest(NCloudEvent * ce, std::shared_ptr<THttpCallArg> arg);
 
-  private:
+  protected:
   NWsHandler * fNWsHandler{nullptr}; ///< WebSocket handler instance
 
   /// \cond CLASSIMP
