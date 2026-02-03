@@ -2,6 +2,7 @@
 #define Ndmspc_NGnNavigator_H
 #include <TNamed.h>
 #include <Buttons.h>
+#include <TList.h>
 #include <cstddef>
 #include <vector>
 #include "NBinningDef.h"
@@ -91,13 +92,20 @@ class NGnNavigator : public TNamed {
   virtual void Draw(Option_t * option = "") override;
 
   /**
+   * @brief Retrieves information about the navigator in JSON format.
+   *
+   * @return json An object containing navigator information.
+   */
+  json GetInfoJson() const;
+
+  /**
    * @brief Draw spectra for a parameter.
    * @param parameterName Name of parameter.
    * @param option Draw options.
    * @param projIds Projection IDs.
    */
-  virtual void DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax = {5},
-                           Option_t * option = "") const;
+  virtual TList * DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax = {5},
+                              Option_t * option = "") const;
 
   /**
    * @brief Draws spectra for the given parameter and projection axes.
@@ -106,8 +114,8 @@ class NGnNavigator : public TNamed {
    * @param projAxes A vector of axis names to project onto.
    * @param option Optional drawing options.
    */
-  virtual void DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
-                                 std::vector<double> minmax = {5}, Option_t * option = "") const;
+  virtual TList * DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
+                                    std::vector<double> minmax = {5}, Option_t * option = "") const;
 
   /**
    * @brief Draws all spectra for the given parameter.
@@ -115,8 +123,8 @@ class NGnNavigator : public TNamed {
    * @param parameterName The name of the parameter to draw all spectra for.
    * @param option Optional drawing options.
    */
-  virtual void DrawSpectraAll(std::string parameterName, std::vector<double> minmax = {5},
-                              Option_t * option = "") const;
+  virtual TList * DrawSpectraAll(std::string parameterName, std::vector<double> minmax = {5},
+                                 Option_t * option = "") const;
 
   /**
    * @brief Paint navigator objects.

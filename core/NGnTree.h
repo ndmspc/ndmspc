@@ -63,6 +63,27 @@ using NGnBeginFuncPtr = void (*)(Ndmspc::NBinningPoint *, int);
 using NGnEndFuncPtr = void (*)(Ndmspc::NBinningPoint *, int);
 
 /**
+ * @brief Function pointer type for HTTP handlers.
+ *
+ * The handler function takes the following parameters:
+ * - std::string: The HTTP request path or identifier.
+ * - json&: Reference to the input JSON payload.
+ * - json&: Reference to the output JSON payload.
+ * - std::map<std::string, TObject*>&: Reference to a map of named TObject pointers.
+ */
+using NGnHttpFuncPtr = void (*)(std::string, json &, json &, std::map<std::string, TObject *> &);
+
+/**
+ * @brief Map of HTTP handler names to their corresponding function pointers.
+ */
+using HttpHandlerMap = std::map<std::string, NGnHttpFuncPtr>;
+
+/**
+ * @brief Global pointer to the HTTP handler map.
+ */
+extern HttpHandlerMap * gNdmspcHttpHandlers;
+
+/**
  * @class NGnTree
  * @brief NDMSPC tree object for managing multi-dimensional data storage and processing.
  *

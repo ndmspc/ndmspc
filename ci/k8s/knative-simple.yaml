@@ -1,0 +1,21 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello-test
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/knative-samples/helloworld-go
+          env:
+            - name: TARGET
+              value: "Knative Test"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
