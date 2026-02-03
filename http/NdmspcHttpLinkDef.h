@@ -8,6 +8,7 @@
 #pragma link C++ class Ndmspc::NWsHandler + ;
 #pragma link C++ class Ndmspc::NStressHistograms + ;
 
+#pragma link C++ class Ndmspc::NGnHistoryEntry + ;
 #pragma link C++ class Ndmspc::NGnHttpServer + ;
 #pragma link C++ class Ndmspc::NGnWsHandler + ;
 
