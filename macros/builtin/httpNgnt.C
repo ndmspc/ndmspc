@@ -139,8 +139,8 @@ void httpNgnt()
     }
   };
 
-  handlers["publish"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
-    NLogInfo("publich: HTTP method called: %s", method.c_str());
+  handlers["point"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
+    NLogInfo("point: HTTP method called: %s", method.c_str());
     Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)nullptr;
     if (inputs.find("navigator") != inputs.end()) {
       nav = (Ndmspc::NGnNavigator *)inputs["navigator"];
@@ -164,7 +164,7 @@ void httpNgnt()
 
     if (method.find("GET") != std::string::npos) {
       if (nav) {
-        NLogInfo("Reshape navigator is available");
+        NLogInfo("Point navigator is available");
         // nav->Draw("hover");
 
         TH1 *   proj = nav->GetProjection();

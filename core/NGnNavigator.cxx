@@ -316,6 +316,33 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
       hProj->SetName(name.c_str());
       hProj->SetTitle(title.c_str());
+      // Increase all bin contents by 1 to avoid empty bins
+      int dim = hProj->GetDimension();
+      if (dim == 1) {
+        for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
+          double content = hProj->GetBinContent(x);
+          hProj->SetBinContent(x, content + 1.0);
+        }
+      }
+      else if (dim == 2) {
+        for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
+          for (int y = 1; y <= hProj->GetNbinsY(); ++y) {
+            double content = hProj->GetBinContent(x, y);
+            hProj->SetBinContent(x, y, content + 1.0);
+          }
+        }
+      }
+      else if (dim == 3) {
+        for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
+          for (int y = 1; y <= hProj->GetNbinsY(); ++y) {
+            for (int z = 1; z <= hProj->GetNbinsZ(); ++z) {
+              double content = hProj->GetBinContent(x, y, z);
+              hProj->SetBinContent(x, y, z, content + 1.0);
+            }
+          }
+        }
+      }
+
       NLogTrace("NGnNavigator::Reshape: [L%d] Projection histogram '%s' for coords=%s index=%d", level,
                                 hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
       //
