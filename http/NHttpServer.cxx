@@ -51,5 +51,15 @@ void NHttpServer::ProcessNCloudEventRequest(NCloudEvent * ce, std::shared_ptr<TH
   // arg->SetContent("Success");
   // arg->SetContentType("text/plain");
 }
+bool NHttpServer::WebSocketBroadcast(json message)
+{
+  NLogTrace("Broadcasting message to all clients.");
+  if (fNWsHandler) {
+    std::string msgStr = message.dump();
+    fNWsHandler->BroadcastUnsafe(msgStr);
+    return true;
+  }
+  return false;
+}
 
 } // namespace Ndmspc

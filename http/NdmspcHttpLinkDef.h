@@ -10,6 +10,5 @@
 
 #pragma link C++ class Ndmspc::NGnHistoryEntry + ;
 #pragma link C++ class Ndmspc::NGnHttpServer + ;
-#pragma link C++ class Ndmspc::NGnWsHandler + ;
 
 #endif

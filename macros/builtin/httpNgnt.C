@@ -1,7 +1,7 @@
-#include <exception>
 #include <map>
 #include <string>
 #include <TBufferJSON.h>
+#include <NUtils.h>
 #include <NGnTree.h>
 #include <NGnNavigator.h>
 #include <NGnHttpServer.h>
@@ -13,150 +13,163 @@ void httpNgnt()
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
   // Store lambdas (must be non-capturing to convert to function pointer)
-  handlers["open"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
-    NLogInfo("HTTP method called: %s", method.c_str());
-    NLogInfo("Processing NGnTree open request");
-    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)nullptr;
-    if (inputs.find("ngnt") != inputs.end()) {
-      ngnt = (Ndmspc::NGnTree *)inputs["ngnt"];
-    }
+  handlers["open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                        std::map<std::string, TObject *> &) {
+    auto              server = Ndmspc::gNGnHttpServer;
+    Ndmspc::NGnTree * ngnt   = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
 
     if (method.find("GET") != std::string::npos) {
       if (ngnt && !ngnt->IsZombie()) {
         NLogInfo("NGnTree is already opened");
-        out["result"]      = "success";
-        out["file"]        = ngnt->GetStorageTree()->GetFileName();
-        out["treename"]    = ngnt->GetStorageTree()->GetTree()->GetName();
-        out["nEntries"]    = ngnt->GetStorageTree()->GetTree()->GetEntries();
-        out["nDimensions"] = ngnt->GetBinning()->GetAxes().size();
+        httpOut["result"]      = "success";
+        httpOut["file"]        = ngnt->GetStorageTree()->GetFileName();
+        httpOut["treename"]    = ngnt->GetStorageTree()->GetTree()->GetName();
+        httpOut["nEntries"]    = ngnt->GetStorageTree()->GetTree()->GetEntries();
+        httpOut["nDimensions"] = ngnt->GetBinning()->GetAxes().size();
         std::vector<std::string> axisNames;
         for (auto axis : ngnt->GetBinning()->GetAxes()) {
           axisNames.push_back(axis->GetName());
         }
-        out["axes"]                  = axisNames;
-        out["branches"]              = ngnt->GetStorageTree()->GetBrancheNames();
+        httpOut["axes"]              = axisNames;
+        httpOut["branches"]          = ngnt->GetStorageTree()->GetBrancheNames();
         Ndmspc::NParameters * params = ngnt->GetParameters();
-        out["parameters"]            = params ? params->GetNames() : std::vector<std::string>{};
+        httpOut["parameters"]        = params ? params->GetNames() : std::vector<std::string>{};
         // inputs["ngnt"] = ngnt;
       }
       else {
         NLogInfo("NGnTree is not opened");
-        out["result"] = "not_opened";
+        httpOut["result"] = "not_opened";
       }
     }
     else if (method.find("POST") != std::string::npos) {
-      if (in.contains("file")) {
-        std::string file = in["file"].get<std::string>();
+      if (httpIn.contains("file")) {
+        std::string file = httpIn["file"].get<std::string>();
         NLogInfo("Opening NGnTree from file: %s", file.c_str());
         if (ngnt && !ngnt->IsZombie()) {
 
           if (file == ngnt->GetStorageTree()->GetFileName()) {
             NLogInfo("NGnTree already opened from file: %s", file.c_str());
-            out["result"] = "success";
+            httpOut["result"] = "success";
             // inputs["ngnt"] = ngnt;
             return;
           }
-          inputs.erase("ngnt");
-
-          delete ngnt;
-          ngnt = nullptr;
+          server->RemoveInputObject("ngnt");
         }
         ngnt = Ndmspc::NGnTree::Open(file);
         if (ngnt) {
           NLogInfo("Successfully opened NGnTree from file: %s", file.c_str());
-          out["result"]  = "success";
-          inputs["ngnt"] = ngnt;
+          httpOut["result"]       = "success";
+          wsOut["ui"]["filename"] = file;
+          // server->WebSocketBroadcast(wsOut);
+          server->AddInputObject("ngnt", ngnt);
         }
         else {
           NLogError("Failed to open NGnTree from file: %s", file.c_str());
-          out["result"] = "failure";
+          httpOut["result"] = "failure";
         }
       }
       else {
-        out["error"] = "Missing 'file' parameter for open action";
+        httpOut["error"] = "Missing 'file' parameter for open action";
       }
     }
+    else if (method.find("DELETE") != std::string::npos) {
+
+      if (ngnt) {
+        NLogInfo("Closing NGnTree %s", ngnt->GetStorageTree()->GetFileName().c_str());
+        server->RemoveInputObject("ngnt");
+      }
+      else {
+        NLogInfo("No NGnTree to close");
+      }
+      httpOut["result"] = "success";
+    }
     else {
-      out["error"] = "Unsupported HTTP method for open action";
+      httpOut["error"] = "Unsupported HTTP method for open action";
     }
   };
-  handlers["reshape"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
-    NLogInfo("HTTP method called: %s", method.c_str());
-    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)nullptr;
-    if (inputs.find("ngnt") != inputs.end()) {
-      ngnt = (Ndmspc::NGnTree *)inputs["ngnt"];
-    }
-
+  handlers["reshape"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                           std::map<std::string, TObject *> &) {
+    auto              server = Ndmspc::gNGnHttpServer;
+    Ndmspc::NGnTree * ngnt   = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
     if (!ngnt || ngnt->IsZombie()) {
       NLogError("NGnTree is not opened, cannot reshape");
-      out["result"] = "not_opened";
+      httpOut["result"] = "not_opened";
       return;
     }
 
-    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)nullptr;
-    if (inputs.find("navigator") != inputs.end()) {
-      nav = (Ndmspc::NGnNavigator *)inputs["navigator"];
-    }
+    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)server->GetInputObject("navigator");
 
     if (method.find("GET") != std::string::npos) {
       if (nav) {
         NLogInfo("Reshape navigator is available");
         nav->Print();
-        out["info"]   = nav->GetInfoJson();
-        out["result"] = "success";
+        httpOut["info"]   = nav->GetInfoJson();
+        httpOut["result"] = "success";
       }
       else {
         NLogInfo("Reshape navigator is not available");
-        out["result"] = "not_available";
+        httpOut["result"] = "not_available";
         return;
       }
     }
     else if (method.find("POST") != std::string::npos) {
       std::string binningName = "";
-      if (in.contains("binningName")) {
-        binningName = in["binningName"].get<std::string>();
+      if (httpIn.contains("binningName")) {
+        binningName = httpIn["binningName"].get<std::string>();
       }
 
       std::vector<std::vector<int>> levels;
-      if (in.contains("levels")) {
-        levels = in["levels"].get<std::vector<std::vector<int>>>();
+      if (httpIn.contains("levels")) {
+        levels = httpIn["levels"].get<std::vector<std::vector<int>>>();
       }
 
       if (nav) {
         SafeDelete(nav);
         nav = nullptr;
       }
-      inputs["navigator"] = (TObject *)ngnt->Reshape("", levels, 0, {}, {});
-      if (inputs["navigator"]) {
-        out["result"] = "success";
+      nav = ngnt->Reshape("", levels, 0, {}, {});
+      server->AddInputObject("navigator", nav);
+      if (nav) {
+        httpOut["result"]          = "success";
+        wsOut["ui"]["binningName"] = binningName.empty() ? ngnt->GetBinning()->GetCurrentDefinitionName() : binningName;
+        wsOut["ui"]["binnings"]    = ngnt->GetBinning()->GetDefinitionNames();
+        wsOut["ui"]["levels"]      = levels;
       }
       else {
-        out["result"] = "failure";
+        httpOut["result"] = "failure";
       }
     }
+    else if (method.find("DELETE") != std::string::npos) {
+
+      NLogInfo("[DELETE][reshape] Closing reshape navigator %p", (void *)nav);
+      if (nav) {
+        NLogInfo("[DELETE][reshape] Navigator deleted successfully");
+        server->RemoveInputObject("navigator");
+      }
+      else {
+        NLogInfo("No NGnTree to close");
+      }
+      httpOut["result"] = "success";
+    }
     else {
-      out["error"] = "Unsupported HTTP method for reshape action";
+      httpOut["error"] = "Unsupported HTTP method for reshape action";
     }
   };
 
-  handlers["point"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
-    Ndmspc::NGnHttpServer * server = (Ndmspc::NGnHttpServer *)nullptr;
-    if (inputs.find("_httpServer") != inputs.end()) {
-      server = (Ndmspc::NGnHttpServer *)inputs["_httpServer"];
-    }
-
-    NLogInfo("point: HTTP method called: %s", method.c_str());
-    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
+  handlers["point"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                         std::map<std::string, TObject *> &) {
+    auto              server = Ndmspc::gNGnHttpServer;
+    Ndmspc::NGnTree * ngnt   = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
     if (!ngnt || ngnt->IsZombie()) {
       NLogError("NGnTree is not opened");
-      out["result"] = "NGnTree is not opened";
+      httpOut["result"] = "NGnTree is not opened";
       return;
     }
 
     Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)server->GetInputObject("navigator");
     if (!nav) {
       NLogError("Navigator is not available");
-      out["result"] = "navigator_not_available";
+      httpOut["result"] = "navigator_not_available";
       return;
     }
 
@@ -165,32 +178,26 @@ void httpNgnt()
         NLogInfo("Point navigator is available");
         // nav->Draw("hover");
 
-        TH1 *   proj = nav->GetProjection();
-        TString h    = TBufferJSON::ConvertToJSON(proj);
-        json    hMap = json::parse(h.Data());
-        json    wsOut;
+        TH1 *   proj        = nav->GetProjection();
+        TString h           = TBufferJSON::ConvertToJSON(proj);
+        json    hMap        = json::parse(h.Data());
         wsOut["map"]["obj"] = hMap;
         json clickAction;
-        json clickHttp                    = clickAction["http"];
-        clickHttp["method"]               = "GET";
-        clickHttp["contentType"]          = "application/json";
-        clickHttp["path"]                 = "point";
-        clickHttp["payload"]              = json::object();
+        clickAction["type"]               = "http";
+        clickAction["method"]             = "GET";
+        clickAction["contentType"]        = "application/json";
+        clickAction["path"]               = "point";
+        clickAction["payload"]            = json::object();
         wsOut["map"]["handlers"]["click"] = clickAction;
 
         // wsOut["map"]["handlers"]["hover"]["action"]       = "contenthover";
-        if (!server) {
-          NLogError("HTTP server is not available, cannot publish navigator");
-          out["result"] = "http_server_not_available";
-          return;
-        }
-        server->WebSocketBroadcast(wsOut);
+        // server->WebSocketBroadcast(wsOut);
 
-        out["result"] = "success";
+        httpOut["result"] = "success";
       }
       else {
         NLogInfo("Reshape navigator is not available");
-        out["result"] = "not_available";
+        httpOut["result"] = "not_available";
         return;
       }
     }
@@ -199,15 +206,14 @@ void httpNgnt()
         NLogInfo("Reshape navigator is available");
         // nav->Draw("hover");
         //
-        int entry = in.contains("entry") ? in["entry"].get<int>() : -1;
+        int entry = httpIn.contains("entry") ? httpIn["entry"].get<int>() : -1;
 
-        json wsOut;
         if (entry >= 0) {
           ngnt->GetEntry(entry);
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
           if (outputPoint) {
             NLogInfo("Output point for bin %d:", entry);
-            // outputPoint->Print();
+            outputPoint->ls();
             wsOut["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
           }
           else {
@@ -215,48 +221,36 @@ void httpNgnt()
           }
         }
 
-        if (!server) {
-          NLogError("HTTP server is not available, cannot publish navigator");
-          out["result"] = "http_server_not_available";
-          return;
-        }
-        server->WebSocketBroadcast(wsOut);
-
-        out["result"] = "success";
+        httpOut["result"] = "success";
       }
       else {
         NLogInfo("Reshape navigator is not available");
-        out["result"] = "not_available";
+        httpOut["result"] = "not_available";
         return;
       }
     }
     else {
-      out["error"] = "Unsupported HTTP method for reshape action";
+      httpOut["error"] = "Unsupported HTTP method for reshape action";
     }
   };
 
-  handlers["spectra"] = [](std::string method, json & in, json & out, std::map<std::string, TObject *> & inputs) {
-    NLogInfo("publich: HTTP method called: %s", method.c_str());
-    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)nullptr;
-    if (inputs.find("navigator") != inputs.end()) {
-      nav = (Ndmspc::NGnNavigator *)inputs["navigator"];
-    }
-
-    Ndmspc::NGnTree * ngnt = (Ndmspc::NGnTree *)nullptr;
-    if (inputs.find("ngnt") != inputs.end()) {
-      ngnt = (Ndmspc::NGnTree *)inputs["ngnt"];
-    }
-
+  handlers["spectra"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                           std::map<std::string, TObject *> &) {
+    auto              server = Ndmspc::gNGnHttpServer;
+    Ndmspc::NGnTree * ngnt   = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
     if (!ngnt || ngnt->IsZombie()) {
       NLogError("NGnTree is not opened");
-      out["result"] = "not_opened";
+      httpOut["result"] = "NGnTree is not opened";
       return;
     }
 
-    Ndmspc::NGnHttpServer * server = (Ndmspc::NGnHttpServer *)nullptr;
-    if (inputs.find("httpServer") != inputs.end()) {
-      server = (Ndmspc::NGnHttpServer *)inputs["httpServer"];
+    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)server->GetInputObject("navigator");
+    if (!nav) {
+      NLogError("Navigator is not available");
+      httpOut["result"] = "navigator_not_available";
+      return;
     }
+
     if (method.find("GET") != std::string::npos) {
     }
     else if (method.find("POST") != std::string::npos) {
@@ -264,13 +258,12 @@ void httpNgnt()
         NLogInfo("Reshape navigator is available");
         // nav->Draw("hover");
         //
-        std::string         parameterName = in.contains("parameterName") ? in["parameterName"].get<std::string>() : "";
+        std::string         parameterName = httpIn.contains("parameter") ? httpIn["parameter"].get<std::string>() : "";
         std::vector<double> minmax;
-        if (in.contains("minmax")) {
-          minmax = in["minmax"].get<std::vector<double>>();
+        if (httpIn.contains("minmax")) {
+          minmax = httpIn["minmax"].get<std::vector<double>>();
         }
 
-        json    wsOut;
         TList * spectra = nav->DrawSpectraAll(parameterName, minmax, "");
         if (spectra) {
           NLogInfo("Spectra for parameter '%s' obtained:", parameterName.c_str());
@@ -278,7 +271,7 @@ void httpNgnt()
           wsOut["spectra"] = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
           if (!server) {
             NLogError("HTTP server is not available, cannot publish navigator");
-            out["result"] = "http_server_not_available";
+            httpOut["result"] = "http_server_not_available";
             return;
           }
           server->WebSocketBroadcast(wsOut);
@@ -287,16 +280,16 @@ void httpNgnt()
           NLogWarning("No spectra found for parameter '%s'", parameterName.c_str());
         }
 
-        out["result"] = "success";
+        httpOut["result"] = "success";
       }
       else {
         NLogInfo("Reshape navigator is not available");
-        out["result"] = "not_available";
+        httpOut["result"] = "not_available";
         return;
       }
     }
     else {
-      out["error"] = "Unsupported HTTP method for reshape action";
+      httpOut["error"] = "Unsupported HTTP method for reshape action";
     }
   };
 }

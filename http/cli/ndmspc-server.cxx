@@ -6,11 +6,8 @@
 #include <TFile.h>
 #include <TApplication.h>
 #include "NUtils.h"
-#include "NHttpServer.h"
-#include "NWsHandler.h"
 #include "NStressHistograms.h"
 #include "NGnHttpServer.h"
-#include "NGnWsHandler.h"
 #include "NLogger.h"
 #include "ndmspc.h"
 
@@ -168,8 +165,13 @@ int main(int argc, char ** argv)
     // Set the global pointer to your local map
     Ndmspc::gNdmspcHttpHandlers = &handlers;
 
-    TMacro * m = Ndmspc::NUtils::OpenMacro(macroFilename);
-    m->Exec();
+    std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroFilename, ',');
+
+    for (const auto & macro : macros) {
+      NLogInfo("Executing macro: %s", macro.c_str());
+      TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
+      m->Exec();
+    }
 
     if (!Ndmspc::gNdmspcHttpHandlers) {
       return;
