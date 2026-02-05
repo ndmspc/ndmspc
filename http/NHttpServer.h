@@ -33,6 +33,7 @@ class NHttpServer : public THttpServer {
    * @return Pointer to NWsHandler instance.
    */
   NWsHandler * GetWebSocketHandler() const { return fNWsHandler; }
+  bool         WebSocketBroadcast(json message);
 
   protected:
   /**
@@ -49,7 +50,7 @@ class NHttpServer : public THttpServer {
   virtual void ProcessNCloudEventRequest(NCloudEvent * ce, std::shared_ptr<THttpCallArg> arg);
 
   protected:
-  NWsHandler * fNWsHandler{nullptr}; ///< WebSocket handler instance
+  NWsHandler * fNWsHandler{nullptr}; ///<! WebSocket handler instance
 
   /// \cond CLASSIMP
   ClassDef(NHttpServer, 1);

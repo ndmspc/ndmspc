@@ -1,8 +1,5 @@
-#include <NGnTree.h>
-#include <TTimer.h>
-#include "NHttpServer.h"
-#include "NLogger.h"
 #include "NGnHttpServer.h"
+#include "NGnHistoryEntry.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NGnHttpServer);
@@ -10,16 +7,20 @@ ClassImp(Ndmspc::NGnHttpServer);
 
 namespace Ndmspc {
 NGnHttpHandlerMap * gNdmspcHttpHandlers = nullptr;
-NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms) : NHttpServer(engine, ws, heartbeat_ms) {}
+NGnHttpServer *     gNGnHttpServer      = nullptr;
+NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms) : NHttpServer(engine, ws, heartbeat_ms)
+{
+  Ndmspc::gNGnHttpServer = this;
+}
 
 void NGnHttpServer::Print(Option_t * option) const
 {
   NHttpServer::Print(option);
   // print HTTP handlers
-  NLogInfo("HTTP Handlers:");
-  for (const auto & handler : fHttpHandlers) {
-    NLogInfo("  %s", handler.first.c_str());
-  }
+  // NLogInfo("HTTP Handlers:");
+  // for (const auto & handler : fHttpHandlers) {
+  //   NLogInfo("  %s", handler.first.c_str());
+  // }
   // print all input objects
   NLogInfo("Input Objects:");
   for (const auto & obj : fObjectsMap) {
@@ -29,7 +30,9 @@ void NGnHttpServer::Print(Option_t * option) const
   // print history entries
   NLogInfo("History Entries:");
   for (size_t i = 0; i < fHistory.size(); i++) {
-    NLogInfo("  [%zu]: %s cfg: %s", i, fHistory[i]->GetName(), fHistory[i]->GetConfig().dump().c_str());
+    NLogInfo("  [%zu]: %s payload: in=%s out=%s wsOut=%s", i, fHistory[i]->GetName(),
+             fHistory[i]->GetPayloadIn().dump().c_str(), fHistory[i]->GetPayloadOut().dump().c_str(),
+             fHistory[i]->GetPayloadWsOut().dump().c_str());
   }
 }
 
@@ -47,7 +50,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   //   return;
   // }
 
-  NLogDebug("Received %s request for path: %s filename: %s", method.Data(), path.Data(), filename.Data());
+  NLogTrace("Received %s request for path: %s filename: %s", method.Data(), path.Data(), filename.Data());
 
   // if path is not /api/*
   if (!path.BeginsWith("api")) {
@@ -60,7 +63,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   fullpath.ReplaceAll("//", "/");
   fullpath          = fullpath.Strip(TString::kTrailing, '/');
   std::string query = arg->GetQuery();
-  NLogDebug("Processing %s request for path: %s query: %s", method.Data(), fullpath.Data(), query.c_str());
+  NLogTrace("Processing %s request for path: %s query: %s", method.Data(), fullpath.Data(), query.c_str());
 
   json in;
   try {
@@ -73,7 +76,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     arg->SetContent("{\"error\": \"Invalid JSON format\"}");
     return;
   }
-  NLogInfo("Received %s request with content: %s", method.Data(), in.dump().c_str());
+  NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
   if (fHttpHandlers.find(fullpath.Data()) == fHttpHandlers.end()) {
     NLogError("Unsupported action: %s", fullpath.Data());
@@ -82,16 +85,43 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     return;
   }
 
-  fObjectsMap["_httpServer"] = this;
+  // fObjectsMap["_httpServer"] = this;
+
+  NGnHistoryEntry * historyEntry = nullptr;
+  if (!method.CompareTo("POST")) {
+    NLogTrace("Adding history entry for path: %s", fullpath.Data());
+    historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
+    historyEntry->SetPayloadIn(in);
+    AddHistoryEntry(historyEntry);
+  }
 
   json out;
-  fHttpHandlers[fullpath.Data()](method.Data(), in, out, fObjectsMap);
-  NGnHistoryEntry * historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
-  historyEntry->SetConfig(in);
-  AddHistoryEntry(historyEntry);
-  // Print();
-  // ExportHistoryToFile("/tmp/ngnt_http_history.json");
+  json wsOut;
+  fHttpHandlers[fullpath.Data()](method.Data(), in, out, wsOut, fObjectsMap);
+  NLogTrace("HTTP handler output for path %s: %s", fullpath.Data(), out.dump().c_str());
+  if (!out["result"].is_null() && !out["result"].get<std::string>().compare("success")) {
+    if (!method.CompareTo("POST")) {
+      historyEntry->SetPayloadOut(out);
+      historyEntry->SetPayloadWsOut(wsOut);
+      // AddHistoryEntry(historyEntry);
+    }
+    else if (!method.CompareTo("DELETE")) {
+      RemoveHistoryEntry(fullpath.Data());
+    }
+    // Print();
+    // ExportHistoryToFile("/tmp/ngnt_http_history.json");
+  }
+  else {
+    if (!method.CompareTo("POST")) {
+      RemoveHistoryEntry(fHistory.size() - 1);
+    }
+  }
 
+  if (!wsOut.empty()) {
+    NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsOut.dump().c_str());
+    WebSocketBroadcast(wsOut);
+  }
+  // Print();
   // out["status"] = "ok";
 
   // arg->AddHeader("X-Header", "Test");
@@ -100,17 +130,6 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   arg->SetContent(out.dump());
   // arg->SetContent("ok");
   // arg->SetContentType("text/plain");
-}
-
-bool NGnHttpServer::WebSocketBroadcast(json message)
-{
-  NLogDebug("NGnHttpServer::WebSocketBroadcast: Broadcasting message to all clients.");
-  if (fNWsHandler) {
-    std::string msgStr = message.dump();
-    fNWsHandler->BroadcastUnsafe(msgStr);
-    return true;
-  }
-  return false;
 }
 
 TObject * NGnHttpServer::GetInputObject(const std::string & name)
@@ -139,30 +158,37 @@ bool NGnHttpServer::RemoveInputObject(const std::string & name)
 void NGnHttpServer::AddHistoryEntry(NGnHistoryEntry * entry)
 {
 
-  // remove top entries if entry with same name exists
-  // loop from most recent to oldest
-  // if found remove all entries above it
+  RemoveHistoryEntry(entry->GetName());
+
+  NLogTrace("Adding history entry: %s", entry->GetName());
+  fHistory.push_back(entry);
+}
+
+bool NGnHttpServer::RemoveHistoryEntry(const std::string & name)
+{
+
+  // Find if entry exits and remove it along with all newer entries
+  bool found = false;
   for (int i = static_cast<int>(fHistory.size()) - 1; i >= 0; i--) {
-    NLogDebug("Checking history entry at index %d: %s", i, fHistory[i]->GetName());
+    NLogTrace("Checking history entry at index %d: %s", i, fHistory[i]->GetName());
     std::string existingName = fHistory[i]->GetName();
-    if (!existingName.compare(entry->GetName())) {
-      NLogDebug("Found existing history entry with same name: %s at index %d, removing newer entries.",
-                entry->GetName(), i);
+    if (!existingName.compare(name)) {
+      NLogTrace("Found existing history entry with same name: %s at index %d, removing newer entries.", name.c_str(),
+                i);
       // remove all entries above it
       int j = -1;
       for (j = fHistory.size() - 1; j > static_cast<int>(i); j--) {
-        NLogDebug("Removing history entry at index %zu: %s", j, fHistory[j]->GetName());
+        NLogTrace("Removing history entry at index %zu: %s", j, fHistory[j]->GetName());
 
         RemoveHistoryEntry(j);
       }
       if (j >= 0) RemoveHistoryEntry(j);
+      found = true;
       break;
     }
   }
 
-  NLogDebug("Adding history entry: %s", entry->GetName());
-  fHistory.push_back(entry);
-  Print();
+  return found;
 }
 
 bool NGnHttpServer::RemoveHistoryEntry(int index)
@@ -173,13 +199,14 @@ bool NGnHttpServer::RemoveHistoryEntry(int index)
     return false;
   }
 
-  NGnHistoryEntry * entry  = fHistory[index];
-  json              jsonIn = entry->GetConfig();
-  json              jsonOut;
-  NLogDebug("Removing history entry: %s", entry->GetName());
-  NLogDebug("Config: %s", jsonIn.dump().c_str());
-  NLogDebug("Invoking HTTP handler for DELETE on entry: %s", entry->GetName());
-  fHttpHandlers[entry->GetName()]("DELETE", jsonIn, jsonOut, fObjectsMap);
+  NGnHistoryEntry * entry = fHistory[index];
+  json              in    = entry->GetPayloadIn();
+  json              out;
+  json              wsOut;
+  NLogTrace("Removing history entry: %s", entry->GetName());
+  NLogTrace("Config: %s", in.dump().c_str());
+  NLogTrace("Invoking HTTP handler for DELETE on entry: %s", entry->GetName());
+  fHttpHandlers[entry->GetName()]("DELETE", in, out, wsOut, fObjectsMap);
   delete entry;
 
   fHistory.erase(fHistory.begin() + index);
@@ -188,7 +215,7 @@ bool NGnHttpServer::RemoveHistoryEntry(int index)
 
 void NGnHttpServer::ClearHistory()
 {
-  NLogDebug("Clearing %zu history entries.", fHistory.size());
+  NLogTrace("Clearing %zu history entries.", fHistory.size());
   for (auto entry : fHistory) {
     delete entry;
   }
@@ -208,9 +235,10 @@ bool NGnHttpServer::ExportHistoryToFile(const std::string & filename) const
   json historyJson = json::array();
   for (const auto & entry : fHistory) {
     json entryJson;
-    entryJson["name"]   = entry->GetName();
-    entryJson["method"] = "POST";
-    entryJson["config"] = entry->GetConfig();
+    entryJson["name"]           = entry->GetName();
+    entryJson["method"]         = "POST";
+    entryJson["payload"]["in"]  = entry->GetPayloadIn();
+    entryJson["payload"]["out"] = entry->GetPayloadOut();
     historyJson.push_back(entryJson);
   }
 

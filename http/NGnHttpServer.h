@@ -1,8 +1,8 @@
 #ifndef Ndmspc_NGnHttpServer_H
 #define Ndmspc_NGnHttpServer_H
+#include "NLogger.h"
 #include "NHttpServer.h"
-#include "NGnWsHandler.h"
-#include "NGnHistoryEntry.h"
+// #include "NGnHistoryEntry.h"
 
 namespace Ndmspc {
 
@@ -13,9 +13,10 @@ namespace Ndmspc {
  * - std::string: The HTTP request path or identifier.
  * - json&: Reference to the input JSON payload.
  * - json&: Reference to the output JSON payload.
- * - std::map<std::string, TObject*>&: Reference to a map of named TObject pointers.
+ * - json&: Reference to the output JSON payload to websocket.
  */
-using NGnHttpFuncPtr = void (*)(std::string, json &, json &, std::map<std::string, TObject *> &);
+// using NGnHttpFuncPtr = void (*)(std::string, json &, json &, json &, std::map<std::string, TObject *> &);
+using NGnHttpFuncPtr = void (*)(std::string, json &, json &, json &, std::map<std::string, TObject *> &);
 
 /**
  * @brief Map of HTTP handler names to their corresponding function pointers.
@@ -33,7 +34,7 @@ extern NGnHttpHandlerMap * gNdmspcHttpHandlers;
 /// \brief NGnHttpServer object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
-
+class NGnHistoryEntry;
 class NGnHttpServer : public NHttpServer {
   public:
   NGnHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000);
@@ -41,7 +42,7 @@ class NGnHttpServer : public NHttpServer {
   virtual void Print(Option_t * option = "") const override;
 
   void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers) { fHttpHandlers = handlers; }
-  bool WebSocketBroadcast(json message);
+  // bool WebSocketBroadcast(json message);
 
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
 
@@ -51,6 +52,7 @@ class NGnHttpServer : public NHttpServer {
 
   void AddHistoryEntry(NGnHistoryEntry * entry);
   bool RemoveHistoryEntry(int index);
+  bool RemoveHistoryEntry(const std::string & name);
   void ClearHistory();
 
   bool LoadHistoryFromFile(const std::string & filename);
@@ -65,5 +67,8 @@ class NGnHttpServer : public NHttpServer {
   ClassDefOverride(NGnHttpServer, 1);
   /// \endcond;
 };
+
+extern NGnHttpServer * gNGnHttpServer;
+
 } // namespace Ndmspc
 #endif
