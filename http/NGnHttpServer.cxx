@@ -52,71 +52,89 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
   NLogTrace("Received %s request for path: %s filename: %s", method.Data(), path.Data(), filename.Data());
 
-  // if path is not /api/*
-  if (!path.BeginsWith("api")) {
+  TString fullpath = TString::Format("/%s/%s/", path.Data(), filename.Data()).Data();
+  fullpath.ReplaceAll("//", "/");
+  // Yes it needs to be done twice to handle cases where both path and filename are empty resulting in "///"
+  fullpath.ReplaceAll("//", "/");
+
+  NLogTrace("Constructed full path: %s", fullpath.Data());
+  // if fullpath does not start with "/api" or "api", process it with base class handler
+
+  if (!(fullpath.BeginsWith("/api/"))) {
+    NLogTrace("Using base http server for path: %s", fullpath.Data());
     NHttpServer::ProcessRequest(arg);
     return;
   }
 
-  TString fullpath = TString::Format("%s/%s", path.Data(), filename.Data()).Data();
-  fullpath.ReplaceAll("api/", "");
-  fullpath.ReplaceAll("//", "/");
+  fullpath.Remove(0, 4);
+  fullpath          = fullpath.Strip(TString::kLeading, '/');
   fullpath          = fullpath.Strip(TString::kTrailing, '/');
   std::string query = arg->GetQuery();
   NLogTrace("Processing %s request for path: %s query: %s", method.Data(), fullpath.Data(), query.c_str());
 
-  json in;
-  try {
-    std::string content = (const char *)arg->GetPostData();
-    if (!content.empty()) in = json::parse(content);
-  }
-  catch (json::parse_error & e) {
-    NLogError("JSON parse error: %s", e.what());
-    arg->SetContentType("application/json");
-    arg->SetContent("{\"error\": \"Invalid JSON format\"}");
-    return;
-  }
-  NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
-
-  if (fHttpHandlers.find(fullpath.Data()) == fHttpHandlers.end()) {
-    NLogError("Unsupported action: %s", fullpath.Data());
-    arg->SetContentType("application/json");
-    arg->SetContent("{\"error\": \"Unsupported action\"}");
-    return;
-  }
-
-  // fObjectsMap["_httpServer"] = this;
-
-  NGnHistoryEntry * historyEntry = nullptr;
-  if (!method.CompareTo("POST")) {
-    NLogTrace("Adding history entry for path: %s", fullpath.Data());
-    historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
-    historyEntry->SetPayloadIn(in);
-    AddHistoryEntry(historyEntry);
-  }
-
   json out;
   json wsOut;
-  fHttpHandlers[fullpath.Data()](method.Data(), in, out, wsOut, fObjectsMap);
-  NLogTrace("HTTP handler output for path %s: %s", fullpath.Data(), out.dump().c_str());
-  if (!out["result"].is_null() && !out["result"].get<std::string>().compare("success")) {
-    if (!method.CompareTo("POST")) {
-      historyEntry->SetPayloadOut(out);
-      historyEntry->SetPayloadWsOut(wsOut);
-      // AddHistoryEntry(historyEntry);
-    }
-    else if (!method.CompareTo("DELETE")) {
-      RemoveHistoryEntry(fullpath.Data());
-    }
-    // Print();
-    // ExportHistoryToFile("/tmp/ngnt_http_history.json");
+  if (fullpath.IsNull()) {
+
+    out["result"]  = "success";
+    out["message"] = "Welcome to NGnHttpServer API";
+    // out["ws"]["path"] = "ws/root.websocket";
+
+    out["state"]["history"] = GetJson();
+    out["state"]["users"]   = fNWsHandler ? fNWsHandler->GetClientCount() : 0;
   }
   else {
+
+    json in;
+    try {
+      std::string content = (const char *)arg->GetPostData();
+      if (!content.empty()) in = json::parse(content);
+    }
+    catch (json::parse_error & e) {
+      NLogError("JSON parse error: %s", e.what());
+      arg->SetContentType("application/json");
+      arg->SetContent("{\"error\": \"Invalid JSON format\"}");
+      return;
+    }
+    NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
+
+    if (fHttpHandlers.find(fullpath.Data()) == fHttpHandlers.end()) {
+      NLogError("Unsupported action: %s", fullpath.Data());
+      arg->SetContentType("application/json");
+      arg->SetContent("{\"error\": \"Unsupported action\"}");
+      return;
+    }
+
+    // fObjectsMap["_httpServer"] = this;
+
+    NGnHistoryEntry * historyEntry = nullptr;
     if (!method.CompareTo("POST")) {
-      RemoveHistoryEntry(fHistory.size() - 1);
+      NLogTrace("Adding history entry for path: %s", fullpath.Data());
+      historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
+      historyEntry->SetPayloadIn(in);
+      AddHistoryEntry(historyEntry);
+    }
+
+    fHttpHandlers[fullpath.Data()](method.Data(), in, out, wsOut, fObjectsMap);
+    NLogTrace("HTTP handler output for path %s: %s", fullpath.Data(), out.dump().c_str());
+    if (!out["result"].is_null() && !out["result"].get<std::string>().compare("success")) {
+      if (!method.CompareTo("POST")) {
+        historyEntry->SetPayloadOut(out);
+        historyEntry->SetPayloadWsOut(wsOut);
+        // AddHistoryEntry(historyEntry);
+      }
+      else if (!method.CompareTo("DELETE")) {
+        RemoveHistoryEntry(fullpath.Data());
+      }
+      // Print();
+      // ExportHistoryToFile("/tmp/ngnt_http_history.json");
+    }
+    else {
+      if (!method.CompareTo("POST")) {
+        RemoveHistoryEntry(fHistory.size() - 1);
+      }
     }
   }
-
   if (!wsOut.empty()) {
     NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsOut.dump().c_str());
     WebSocketBroadcast(wsOut);
@@ -125,7 +143,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   // out["status"] = "ok";
 
   // arg->AddHeader("X-Header", "Test");
-  arg->AddHeader("Access-Control-Allow-Origin", "*");
+  arg->AddHeader("Access-Control-Allow-Origin", GetCors());
   arg->SetContentType("application/json");
   arg->SetContent(out.dump());
   // arg->SetContent("ok");
@@ -157,7 +175,6 @@ bool NGnHttpServer::RemoveInputObject(const std::string & name)
 
 void NGnHttpServer::AddHistoryEntry(NGnHistoryEntry * entry)
 {
-
   RemoveHistoryEntry(entry->GetName());
 
   NLogTrace("Adding history entry: %s", entry->GetName());
@@ -166,7 +183,6 @@ void NGnHttpServer::AddHistoryEntry(NGnHistoryEntry * entry)
 
 bool NGnHttpServer::RemoveHistoryEntry(const std::string & name)
 {
-
   // Find if entry exits and remove it along with all newer entries
   bool found = false;
   for (int i = static_cast<int>(fHistory.size()) - 1; i >= 0; i--) {
@@ -193,7 +209,6 @@ bool NGnHttpServer::RemoveHistoryEntry(const std::string & name)
 
 bool NGnHttpServer::RemoveHistoryEntry(int index)
 {
-
   if (index < 0 || index >= static_cast<int>(fHistory.size())) {
     NLogError("Invalid history entry index: %d", index);
     return false;
@@ -229,20 +244,27 @@ bool NGnHttpServer::LoadHistoryFromFile(const std::string & filename)
   return NUtils::LoadJsonFile(cfg, filename);
 }
 
-bool NGnHttpServer::ExportHistoryToFile(const std::string & filename) const
+json NGnHttpServer::GetJson() const
 {
-  NLogInfo("Exporting history to file: %s", filename.c_str());
   json historyJson = json::array();
   for (const auto & entry : fHistory) {
     json entryJson;
-    entryJson["name"]           = entry->GetName();
-    entryJson["method"]         = "POST";
-    entryJson["payload"]["in"]  = entry->GetPayloadIn();
-    entryJson["payload"]["out"] = entry->GetPayloadOut();
+    entryJson["name"]             = entry->GetName();
+    entryJson["method"]           = "POST";
+    entryJson["payload"]["in"]    = entry->GetPayloadIn();
+    entryJson["payload"]["out"]   = entry->GetPayloadOut();
+    entryJson["payload"]["wsOut"] = entry->GetPayloadWsOut();
     historyJson.push_back(entryJson);
   }
+  return historyJson;
+}
 
-  bool rc = NUtils::SaveRawFile(filename, historyJson.dump());
+bool NGnHttpServer::ExportHistoryToFile(const std::string & filename) const
+{
+  NLogInfo("Exporting history to file: %s", filename.c_str());
+
+  json historyJson = GetJson();
+  bool rc          = NUtils::SaveRawFile(filename, historyJson.dump());
   if (rc)
     NLogInfo("Successfully exported history to file: %s", filename.c_str());
   else

@@ -15,7 +15,6 @@ namespace Ndmspc {
  * - json&: Reference to the output JSON payload.
  * - json&: Reference to the output JSON payload to websocket.
  */
-// using NGnHttpFuncPtr = void (*)(std::string, json &, json &, json &, std::map<std::string, TObject *> &);
 using NGnHttpFuncPtr = void (*)(std::string, json &, json &, json &, std::map<std::string, TObject *> &);
 
 /**
@@ -40,9 +39,9 @@ class NGnHttpServer : public NHttpServer {
   NGnHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000);
 
   virtual void Print(Option_t * option = "") const override;
+  json         GetJson() const;
 
   void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers) { fHttpHandlers = handlers; }
-  // bool WebSocketBroadcast(json message);
 
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
 
