@@ -100,6 +100,11 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
   return kFALSE;
 }
 
+size_t NWsHandler::GetClientCount() const
+{
+  return fClients.size();
+}
+
 void NWsHandler::Broadcast(const std::string & message)
 {
   // This method is protected by a mutex to ensure thread safety

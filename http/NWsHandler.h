@@ -36,6 +36,8 @@ class NWsHandler : public THttpWSHandler {
    */
   ~NWsHandler() override;
 
+  size_t GetClientCount() const;
+
   /**
    * @brief Returns the default page content for the handler.
    * @return Default page content string.

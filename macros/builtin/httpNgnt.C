@@ -5,14 +5,12 @@
 #include <NGnTree.h>
 #include <NGnNavigator.h>
 #include <NGnHttpServer.h>
-#include <NLogger.h>
 
 void httpNgnt()
 {
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
-  // Store lambdas (must be non-capturing to convert to function pointer)
   handlers["open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                         std::map<std::string, TObject *> &) {
     auto              server = Ndmspc::gNGnHttpServer;
