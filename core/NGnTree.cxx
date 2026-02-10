@@ -311,6 +311,18 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
             return;
           }
           obj = cObj->Clone();
+          // Prevent ROOT from managing cleanup through global lists to avoid RecursiveRemove crashes
+          ((TCanvas *)obj)->SetBit(kMustCleanup, kFALSE);
+          // Also disable cleanup for primitives inside the canvas
+          TList * primitives = ((TCanvas *)obj)->GetListOfPrimitives();
+          if (primitives) {
+            primitives->SetBit(kMustCleanup, kFALSE);
+            TIter next(primitives);
+            TObject * prim;
+            while ((prim = next())) {
+              prim->SetBit(kMustCleanup, kFALSE);
+            }
+          }
         }
         outputPoint->Add(obj);
       }

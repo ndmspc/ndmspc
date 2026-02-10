@@ -1796,7 +1796,16 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
     std::string canvasName = Form("c_%s", posfix.c_str());
     NLogTrace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
+    
+    // Delete existing canvas with same name to prevent crash during auto-deletion
+    TCanvas* existingCanvas = (TCanvas*)gROOT->GetListOfCanvases()->FindObject(canvasName.c_str());
+    if (existingCanvas) {
+      NLogTrace("Deleting existing canvas '%s'", canvasName.c_str());
+      delete existingCanvas;
+    }
+    
     c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
+    c->SetBit(kMustCleanup, kFALSE);
     outputList->Add(c);
     c->DivideSquare(nPads);
 
@@ -1828,6 +1837,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
       NLogTrace("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
       //
       THStack * hStack = new THStack(stackName.c_str(), stackTitle.c_str());
+      hStack->SetBit(kMustCleanup, kFALSE);
 
       int    nStacks  = proj.size() > 1 ? dimsResults[1].size() : 1;
       double stackMin = std::numeric_limits<double>::max();

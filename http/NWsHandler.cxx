@@ -30,7 +30,10 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 
     NLogDebug("New client connected with ID %lld and username '%s'.", currentWsId, username.c_str());
     // Call the global SendCharStarWS function
-    SendCharStarWS(currentWsId, ("Welcome, " + username + "!").c_str());
+    json welcomeData;
+    welcomeData["event"]   = "welcome";
+    welcomeData["payload"] = "Welcome to the chat, " + username + "!";
+    SendCharStarWS(currentWsId, welcomeData.dump().c_str());
 
     for (const auto & pair : fClients) {
       if (pair.first != currentWsId) {
@@ -54,7 +57,10 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 
     NLogDebug("Client with ID %lld and username '%s' has disconnected.", closedWsId, username.c_str());
 
-    BroadcastUnsafe(username + " has left the chat.");
+    json disconnectData;
+    disconnectData["event"]   = "goodbye";
+    disconnectData["payload"] = "Goodbye, " + username + "!";
+    BroadcastUnsafe(disconnectData.dump());
 
     return kTRUE;
   }
