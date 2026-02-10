@@ -1,5 +1,6 @@
 #include "NGnHttpServer.h"
 #include "NGnHistoryEntry.h"
+#include "NLogger.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NGnHttpServer);
@@ -137,7 +138,10 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   }
   if (!wsOut.empty()) {
     NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsOut.dump().c_str());
-    WebSocketBroadcast(wsOut);
+    json wsMessage;
+    wsMessage["event"]   = "ngnt";
+    wsMessage["payload"] = wsOut;
+    WebSocketBroadcast(wsMessage);
   }
   // Print();
   // out["status"] = "ok";
@@ -230,11 +234,19 @@ bool NGnHttpServer::RemoveHistoryEntry(int index)
 
 void NGnHttpServer::ClearHistory()
 {
+  // Remove all input objects
+  NLogTrace("Clearing all input objects.");
+  for (const auto & obj : fObjectsMap) {
+    NLogTrace("Removing input object: %s", obj.first.c_str());
+    delete obj.second;
+  }
+  fObjectsMap.clear();
   NLogTrace("Clearing %zu history entries.", fHistory.size());
   for (auto entry : fHistory) {
     delete entry;
   }
   fHistory.clear();
+  Print();
 }
 
 bool NGnHttpServer::LoadHistoryFromFile(const std::string & filename)

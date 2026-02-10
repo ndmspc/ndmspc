@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <map>
 #include <string>
 #include <TBufferJSON.h>
@@ -57,8 +58,43 @@ void httpNgnt()
         if (ngnt) {
           NLogInfo("Successfully opened NGnTree from file: %s", file.c_str());
           httpOut["result"]       = "success";
-          wsOut["ui"]["filename"] = file;
-          // server->WebSocketBroadcast(wsOut);
+          
+          // Return new API schema with reshape configuration
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["type"] = "object";
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["type"] = "array";
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["description"] = "A nested array of integers representing levels.";
+          
+          // Build nested array based on actual axes count
+          json default_levels = json::array();
+          size_t nAxes = ngnt->GetBinning()->GetAxes().size();
+          const int MAX_ELEMENTS_PER_LEVEL = 3;
+          
+          for (size_t i = 0; i < nAxes; i += MAX_ELEMENTS_PER_LEVEL) {
+            json level = json::array();
+            for (int j = 0; j < MAX_ELEMENTS_PER_LEVEL && (i + j) < nAxes; j++) {
+              level.push_back(static_cast<int>(i + j));
+            }
+            default_levels.push_back(level);
+          }
+          
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["default"] = default_levels;
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["items"]["type"] = "array";
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["items"]["items"]["type"] = "integer";
+
+          std::vector<std::string> binningNames = ngnt->GetBinning()->GetDefinitionNames();
+          std::string currentBinningName = ngnt->GetBinning()->GetCurrentDefinitionName();
+          if (currentBinningName.empty() && !binningNames.empty()) {
+            currentBinningName = binningNames.front();
+          } else if (!binningNames.empty() &&
+                     std::find(binningNames.begin(), binningNames.end(), currentBinningName) == binningNames.end()) {
+            currentBinningName = binningNames.front();
+          }
+
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["type"] = "string";
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["format"] = "select";
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["enum"] = binningNames;
+          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["default"] = currentBinningName;
+          
           server->AddInputObject("ngnt", ngnt);
         }
         else {
@@ -129,9 +165,14 @@ void httpNgnt()
       server->AddInputObject("navigator", nav);
       if (nav) {
         httpOut["result"]          = "success";
-        wsOut["ui"]["binningName"] = binningName.empty() ? ngnt->GetBinning()->GetCurrentDefinitionName() : binningName;
-        wsOut["ui"]["binnings"]    = ngnt->GetBinning()->GetDefinitionNames();
-        wsOut["ui"]["levels"]      = levels;
+        // wsOut["ui"]["binningName"] = binningName.empty() ? ngnt->GetBinning()->GetCurrentDefinitionName() : binningName;
+        // wsOut["ui"]["binnings"]    = ngnt->GetBinning()->GetDefinitionNames();
+        // wsOut["ui"]["levels"]      = levels;
+        wsOut["workspace"]["schema"]["properties"]["map"]["type"] = "object";
+        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["mappingPad"]["type"] = "string";
+        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["mappingPad"]["default"] = "pad1";
+        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["contentPad"]["type"] = "string";
+        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["contentPad"]["default"] = "pad2";
       }
       else {
         httpOut["result"] = "failure";
@@ -151,6 +192,64 @@ void httpNgnt()
     }
     else {
       httpOut["error"] = "Unsupported HTTP method for reshape action";
+    }
+  };
+
+  handlers["map"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                       std::map<std::string, TObject *> &) {
+    auto              server = Ndmspc::gNGnHttpServer;
+    Ndmspc::NGnTree * ngnt   = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
+    if (!ngnt || ngnt->IsZombie()) {
+      NLogError("NGnTree is not opened");
+      httpOut["result"] = "NGnTree is not opened";
+      return;
+    }
+
+    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)server->GetInputObject("navigator");
+    if (!nav) {
+      NLogError("Navigator is not available");
+      httpOut["result"] = "navigator_not_available";
+      return;
+    }
+
+    if (method.find("POST") != std::string::npos) {
+      std::string mappingPad = "";
+      if (httpIn.contains("mappingPad")) {
+        mappingPad = httpIn["mappingPad"].get<std::string>();
+      }
+      if (mappingPad.empty()) {
+        mappingPad = "pad1";
+      }
+      NLogInfo("Map handler received mappingPad: %s", mappingPad.c_str());
+
+      std::string contentPad = "";
+      if (httpIn.contains("contentPad")) {
+        contentPad = httpIn["contentPad"].get<std::string>();
+      }
+      if (contentPad.empty()) {
+        contentPad = "pad2";
+      }
+      NLogInfo("Map handler received contentPad: %s", contentPad.c_str());
+
+      TH1 *   proj        = nav->GetProjection();
+      TString h           = TBufferJSON::ConvertToJSON(proj);
+      json    hMap        = json::parse(h.Data());
+      wsOut["map"]["obj"] = hMap;
+      wsOut["map"]["mappingPad"] = mappingPad;
+      wsOut["map"]["contentPad"] = contentPad;
+      json clickAction;
+      clickAction["type"]               = "http";
+      clickAction["method"]             = "POST";
+      clickAction["contentType"]        = "application/json";
+      clickAction["path"]               = "point";
+      clickAction["payload"]            = json::object();
+      
+      wsOut["map"]["handlers"]["click"] = clickAction;
+
+      httpOut["result"] = "success";
+    }
+    else {
+      httpOut["error"] = "Unsupported HTTP method for map action";
     }
   };
 
@@ -266,13 +365,14 @@ void httpNgnt()
         if (spectra) {
           NLogInfo("Spectra for parameter '%s' obtained:", parameterName.c_str());
           // spectra->Print();
-          wsOut["spectra"] = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+          wsOut["spectra"]["parameter"]                   = parameterName;
+          wsOut["spectra"]["handlers"]["click"]["action"] = "http";
+          wsOut["spectra"]["obj"]                         = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
           if (!server) {
             NLogError("HTTP server is not available, cannot publish navigator");
             httpOut["result"] = "http_server_not_available";
             return;
           }
-          server->WebSocketBroadcast(wsOut);
         }
         else {
           NLogWarning("No spectra found for parameter '%s'", parameterName.c_str());
