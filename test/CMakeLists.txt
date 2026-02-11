@@ -25,11 +25,19 @@ set(MY_EXTERNAL_LIBS
   NdmspcBase
   NdmspcCore
 )
+if(WITH_NUMCAL)
+  list(APPEND MY_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/numcal ${GINAC_INCLUDE_DIRS})
+  list(APPEND MY_EXTERNAL_LIBS NdmspcNumcal ${GINAC_LIBRARIES})
+endif()
 file(COPY ${CMAKE_SOURCE_DIR}/macros/root/cernstaff/cernstaff.root
 DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
+
+if(NOT WITH_NUMCAL)
+  list(FILTER SRCS EXCLUDE REGEX "test_NNumcal.*\\.cxx$")
+endif()
 
 foreach(src ${SRCS})
   string(REPLACE ".C" "" testname ${src})

@@ -9,14 +9,32 @@ Group:		System Environment/Libraries
 License:	LGPL v3+
 Source0:    %{name}-%{version}.tar.gz
 
+%if 0%{?rhel} == 10 || 0%{?almalinux} == 10
+%global with_numcal 0
+%global with_parquet 0
+%else
+%if 0%{?rhel} == 9 || 0%{?almalinux} == 9
+%global with_numcal 1
+%global with_parquet 0
+%else
+%global with_numcal 1
+%global with_parquet 1
+%endif
+%endif
+
 BuildRequires: systemd-rpm-macros
 BuildRequires: gcc-c++, cmake
 BuildRequires: doxygen
 BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
 # BuildRequires: protobuf-devel
 BuildRequires: json-devel
-# BuildRequires: parquet-libs-devel
+%if %{with_parquet}
+BuildRequires: parquet-libs-devel
+%endif
 BuildRequires: root, root-net-http, root-net-httpsniff
+%if %{with_numcal}
+BuildRequires: ginac-devel, cuba-devel
+%endif
 Requires:      root, root-netx, xrootd-client
 Requires:      libwebsockets-devel, json-devel
 
@@ -30,6 +48,17 @@ Requires: %{name} = %{version}-%{release}, pkgconfig
 
 %description doc
 This package contains @PROJECT_NAME@ documentation.
+
+%if %{with_numcal}
+%package numcal
+Summary:  Numcal support for @PROJECT_NAME@
+Group:    Additional Packages
+Requires: %{name} = %{version}-%{release}, pkgconfig
+Requires: ginac, cuba
+
+%description numcal
+This package contains numcal support for @PROJECT_NAME@.
+%endif
 
 %package server
 Summary:  Server for @PROJECT_NAME@
@@ -60,7 +89,16 @@ cmake ../ \
 -DCMAKE_BUILD_TYPE=Release \
 -DBUILD_DOCUMENTATION=on \
 -DWITH_TEST=OFF \
--DWITH_PARQUET=OFF
+%if %{with_parquet}
+-DWITH_PARQUET=ON \
+%else
+-DWITH_PARQUET=OFF \
+%endif
+%if %{with_numcal}
+-DWITH_NUMCAL=ON
+%else
+-DWITH_NUMCAL=OFF
+%endif
 
 make %{?_smp_mflags}
 cd ../
@@ -89,6 +127,8 @@ make install DESTDIR=%{buildroot}
 %systemd_post ndmspc-notebook@*.service
 
 %files
+%exclude %{_libdir}/libNdmspcNumcal*
+%exclude %{_includedir}/ndmspc/NNumcalManager.h
 %{_libdir}/*
 %{_bindir}/ndmspc-run
 %{_datadir}/%{name}/*
@@ -98,6 +138,12 @@ make install DESTDIR=%{buildroot}
 
 %files doc
 %doc /usr/share/doc/%{name}/
+
+%if %{with_numcal}
+%files numcal
+%{_libdir}/libNdmspcNumcal*
+%{_includedir}/ndmspc/NNumcalManager.h
+%endif
 
 %files server
 %{_bindir}/ndmspc-server
