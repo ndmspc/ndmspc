@@ -2,6 +2,7 @@
 #define NDMSPC_NWS_CLIENT_INFO_H
 
 #include <string>   // For std::string
+#include <chrono>   // For std::chrono::system_clock
 #include "Rtypes.h" // For ULong_t
 
 namespace Ndmspc {
@@ -17,6 +18,7 @@ class NWsClientInfo {
   ULong_t     fWsId;         ///< Unique WebSocket client ID
   std::string fUsername;     ///< Username associated with the client
   int         fMessageCount; ///< Number of messages sent/received
+  std::chrono::system_clock::time_point fConnectedAt; ///< Connection start time
 
   public:
   /**
@@ -50,6 +52,12 @@ class NWsClientInfo {
   int GetMessageCount() const;
 
   /**
+   * @brief Get the connection start time for the client.
+   * @return Connection start time.
+   */
+  std::chrono::system_clock::time_point GetConnectedAt() const;
+
+  /**
    * @brief Set the username for the client.
    * @param username New username.
    */
@@ -59,6 +67,7 @@ class NWsClientInfo {
    * @brief Increment the message count for the client.
    */
   void IncrementMessageCount();
+
 };
 
 } // namespace Ndmspc

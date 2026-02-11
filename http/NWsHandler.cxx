@@ -1,12 +1,17 @@
 #include "NWsHandler.h"
 #include <THttpCallArg.h>
 #include <TTimer.h>
+#include <chrono>
 #include "NLogger.h"
 #include "NUtils.h"
 // ClassImp(Ndmspc::NWsHandler);
 //
 namespace Ndmspc {
-NWsHandler::NWsHandler(const char * name, const char * title) : THttpWSHandler(name, title, kFALSE) {}
+NWsHandler::NWsHandler(const char * name, const char * title)
+    : THttpWSHandler(name, title, kFALSE),
+      fServerStartedAt(std::chrono::system_clock::now())
+{
+}
 NWsHandler::~NWsHandler() {}
 
 Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
@@ -31,8 +36,9 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
     NLogDebug("New client connected with ID %lld and username '%s'.", currentWsId, username.c_str());
     // Call the global SendCharStarWS function
     json welcomeData;
-    welcomeData["event"]   = "welcome";
-    welcomeData["payload"] = "Welcome to the chat, " + username + "!";
+    welcomeData["event"]               = "welcome";
+    welcomeData["payload"]["username"] = username;
+    welcomeData["payload"]["wsId"]     = currentWsId;
     SendCharStarWS(currentWsId, welcomeData.dump().c_str());
 
     for (const auto & pair : fClients) {
@@ -40,6 +46,20 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
         SendCharStarWS(pair.first, (username + " has joined the chat!").c_str());
       }
     }
+
+    json clientsData;
+    clientsData["event"]            = "clients";
+    clientsData["payload"]["count"] = static_cast<int>(fClients.size());
+    for (const auto & pair : fClients) {
+      json userData;
+      userData["wsId"]     = pair.first;
+      userData["username"] = pair.second.GetUsername();
+      const auto connectedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+          pair.second.GetConnectedAt().time_since_epoch()).count();
+      userData["connectedAt"] = connectedAtMs;
+      clientsData["payload"]["users"].push_back(userData);
+    }
+    BroadcastUnsafe(clientsData.dump());
 
     return kTRUE;
   }
@@ -61,6 +81,20 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
     disconnectData["event"]   = "goodbye";
     disconnectData["payload"] = "Goodbye, " + username + "!";
     BroadcastUnsafe(disconnectData.dump());
+
+    json clientsData;
+    clientsData["event"]            = "clients";
+    clientsData["payload"]["count"] = static_cast<int>(fClients.size());
+    for (const auto & pair : fClients) {
+      json userData;
+      userData["wsId"]     = pair.first;
+      userData["username"] = pair.second.GetUsername();
+      const auto connectedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+          pair.second.GetConnectedAt().time_since_epoch()).count();
+      userData["connectedAt"] = connectedAtMs;
+      clientsData["payload"]["users"].push_back(userData);
+    }
+    BroadcastUnsafe(clientsData.dump());
 
     return kTRUE;
   }
@@ -134,9 +168,23 @@ Bool_t NWsHandler::HandleTimer(TTimer *)
   /// Handle timer event for heartbeat
   ///
 
+  std::lock_guard<std::mutex> lock(fMutex);
+
   json data;
-  data["event"]            = "heartbeat";
-  data["payload"]["count"] = ++fServCnt;
+  data["event"]              = "heartbeat";
+  data["payload"]["count"]   = ++fServCnt;
+  data["payload"]["clients"] = static_cast<int>(fClients.size());
+  data["payload"]["serverStartedAt"] = std::chrono::duration_cast<std::chrono::milliseconds>(
+      fServerStartedAt.time_since_epoch()).count();
+  for (const auto & pair : fClients) {
+    json userData;
+    userData["wsId"]     = pair.first;
+    userData["username"] = pair.second.GetUsername();
+    const auto connectedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        pair.second.GetConnectedAt().time_since_epoch()).count();
+    userData["connectedAt"] = connectedAtMs;
+    data["payload"]["users"].push_back(userData);
+  }
   BroadcastUnsafe(data.dump());
 
   return kTRUE;
