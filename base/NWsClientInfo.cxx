@@ -3,11 +3,14 @@
 namespace Ndmspc {
 
 // Default constructor implementation
-NWsClientInfo::NWsClientInfo() : fWsId(0), fUsername(""), fMessageCount(0) {}
+NWsClientInfo::NWsClientInfo()
+  : fWsId(0), fUsername(""), fMessageCount(0), fConnectedAt(std::chrono::system_clock::now())
+{
+}
 
 // Constructor with initial values implementation
 NWsClientInfo::NWsClientInfo(ULong_t id, const std::string & username)
-    : fWsId(id), fUsername(username), fMessageCount(0)
+  : fWsId(id), fUsername(username), fMessageCount(0), fConnectedAt(std::chrono::system_clock::now())
 {
 }
 
@@ -25,16 +28,24 @@ int NWsClientInfo::GetMessageCount() const
   return fMessageCount;
 }
 
+std::chrono::system_clock::time_point NWsClientInfo::GetConnectedAt() const
+{
+  return fConnectedAt;
+}
+
+
 // Setter for username implementation
 void NWsClientInfo::SetUsername(const std::string & username)
 {
   fUsername = username;
 }
 
+
 // Method to increment message count implementation
 void NWsClientInfo::IncrementMessageCount()
 {
   fMessageCount++;
 }
+
 
 } // namespace Ndmspc

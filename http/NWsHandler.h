@@ -3,6 +3,7 @@
 #include <map>    // For std::map
 #include <string> // For std::string
 #include <mutex>  // For std::mutex
+#include <chrono> // For std::chrono::system_clock
 #include <cstdio>
 #include <THttpWSHandler.h>
 #include <TString.h>
@@ -74,6 +75,7 @@ class NWsHandler : public THttpWSHandler {
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
   std::mutex                       fMutex;      ///< Mutex for thread-safe client map access
   Int_t                            fServCnt{0}; ///< Service counter
+  std::chrono::system_clock::time_point fServerStartedAt; ///< Server start time
 
   /// \cond CLASSIMP
   ClassDefOverride(NWsHandler, 1);
