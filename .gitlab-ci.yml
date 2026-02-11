@@ -14,7 +14,7 @@ build-al9:
   stage: build
   tags:
     - ndmspc-hosted
-  script: scripts/make.sh release test
+  script: scripts/make.sh release test numcal
   except:
     - main
     - tags

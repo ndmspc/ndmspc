@@ -13,6 +13,7 @@ TEST_ARGS=${TEST_ARGS-""}
 WITH_SERVER=${WITH_SERVER-true}
 WITH_LEGACY=${WITH_LEGACY-false}
 WITH_PARQUET=${WITH_PARQUET-false}
+WITH_NUMCAL=${WITH_NUMCAL-false}
 
 PRINT_DEBUG=${PRINT_DEBUG-false}
 MY_CMAKE_OPTS=""
@@ -70,12 +71,16 @@ for ARG in $@; do
       MY_MAKE_OPTS="${MY_MAKE_OPTS} install"
       ;;
     "server")
-      echo "Forcing build with Parquet support"
+      echo "Forcing build with Server support"
       WITH_SERVER=true
       ;;
     "parquet")
       echo "Forcing build with Parquet support"
       WITH_PARQUET=true
+      ;;
+    "numcal")
+      echo "Forcing build with NUMCAL support"
+      WITH_NUMCAL=true
       ;;
     "rpm")
       echo "Building rpm"
@@ -124,6 +129,10 @@ fi
 if [[ $WITH_SERVER == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_SERVER:bool=ON"
 fi
+if [[ $WITH_NUMCAL == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_NUMCAL:bool=ON"
+fi
+
 
 # MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_EXPORT_COMPILE_COMMANDS=1"
 

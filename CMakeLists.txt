@@ -13,6 +13,8 @@ option(WITH_TEST "Compile with tests" OFF)
 option(WITH_SERVER "Compile with server part" ON)
 option(WITH_PARQUET "Compile with Parquet support" OFF)
 
+option(WITH_NUMCAL "Compile with numcal support" OFF)
+
 # option to use strict warning flags
 option(ENABLE_STRICT_WARNINGS "Enable strict warning flags" OFF)
 
@@ -21,6 +23,10 @@ include(cmake/deps.cmake)
 
 add_subdirectory(base)
 add_subdirectory(core)
+if(WITH_NUMCAL)
+  add_subdirectory(numcal)
+endif()
+
 if(WITH_SERVER)
   add_subdirectory(http)
 endif()
