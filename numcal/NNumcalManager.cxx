@@ -1,13 +1,31 @@
 #include "NNumcalManager.h"
+ #include "NumcalResult.h"
 
-#include <cuba.h>
+
+ #include <cuba.h>
+#include <fstream>
+#include <sstream>
+#include <regex>
+#include <iostream>
+#include <nlohmann/json.hpp>
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NNumcalManager);
 /// \endcond
 
-namespace Ndmspc
-{
+namespace Ndmspc {
+void NNumcalManager::Print(Option_t* option) const {
+	(void)option; // Suppress unused parameter warning
+       NLogDebug("NNumcalManager: %s (%s)", GetName(), GetTitle());
+       NLogDebug("Imported functions:");
+	int idx = 1;
+	for (const auto& label : fLabels) {
+        NLogDebug("  f%d %s", idx++, label.c_str());
+	}
+	if (fLabels.empty()) {
+           NLogDebug("  (none)");
+	}
+}
 NNumcalManager::NNumcalManager(const char *name, const char* title) : TNamed(name,title) {}
 NNumcalManager::~NNumcalManager() {}
 
@@ -32,295 +50,137 @@ void NNumcalManager::SetFunctions(const std::vector<Integrand>& fns, const std::
 	}
 }
 
-int NNumcalManager::VegasIntegrand(const int* ndim, const double x[], const int* ncomp, double f[], void* userdata)
-{
-	const auto* mgr = static_cast<const NNumcalManager*>(userdata);
-	if (!mgr) {
-		return 1;
-	}
-
-	std::vector<double> vars(static_cast<size_t>(*ndim));
-	for (int i = 0; i < *ndim; ++i) {
-		vars[static_cast<size_t>(i)] = x[i];
-	}
-
-	for (int i = 0; i < *ncomp; ++i) {
-		if (i < static_cast<int>(mgr->fFunctions.size())) {
-			f[i] = mgr->fFunctions[static_cast<size_t>(i)](vars);
-		} else {
-			f[i] = 0.0;
-		}
-	}
-	return 0;
+// High-level interface implementations
+NumcalResult NNumcalManager::RunVegas() const {
+    VegasIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run();
 }
 
-NNumcalManager::VegasResult NNumcalManager::RunVegas(const VegasOptions& options) const
-{
-	VegasResult result;
-	if (fFunctions.empty()) {
-		return result;
-	}
-
-	const int ndim = options.ndim;
-	const int ncomp = static_cast<int>(fFunctions.size());
-	result.integral.assign(static_cast<size_t>(ncomp), 0.0);
-	result.error.assign(static_cast<size_t>(ncomp), 0.0);
-	result.prob.assign(static_cast<size_t>(ncomp), 0.0);
-
-	int neval = 0;
-	int fail = 0;
-	const int nvec = 1;
-	const int flags = options.verbose;
-
-	Vegas(
-		ndim,
-		ncomp,
-		NNumcalManager::VegasIntegrand,
-		const_cast<NNumcalManager*>(this),
-		nvec,
-		options.epsrel,
-		options.epsabs,
-		flags,
-		options.seed,
-		options.mineval,
-		options.maxeval,
-		options.nstart,
-		options.nincrease,
-		options.nbatch,
-		options.gridno,
-		nullptr,
-		nullptr,
-		&neval,
-		&fail,
-		result.integral.data(),
-		result.error.data(),
-		result.prob.data()
-	);
-
-	result.neval = neval;
-	result.fail = fail;
-	return result;
+NumcalResult NNumcalManager::RunSuave() const {
+    SuaveIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run();
 }
 
-NNumcalManager::VegasResult NNumcalManager::RunSuave(const SuaveOptions& options) const
-{
-	VegasResult result;
-	if (fFunctions.empty()) {
-		return result;
-	}
-
-	const int ndim = options.ndim;
-	const int ncomp = static_cast<int>(fFunctions.size());
-	result.integral.assign(static_cast<size_t>(ncomp), 0.0);
-	result.error.assign(static_cast<size_t>(ncomp), 0.0);
-	result.prob.assign(static_cast<size_t>(ncomp), 0.0);
-
-	int neval = 0;
-	int fail = 0;
-	int nregions = 0;
-	const int nvec = 1;
-	const int flags = options.verbose;
-
-	Suave(
-		ndim,
-		ncomp,
-		NNumcalManager::VegasIntegrand,
-		const_cast<NNumcalManager*>(this),
-		nvec,
-		options.epsrel,
-		options.epsabs,
-		flags,
-		options.seed,
-		options.mineval,
-		options.maxeval,
-		options.nnew,
-		options.nmin,
-		options.flatness,
-		nullptr,
-		nullptr,
-		&nregions,
-		&neval,
-		&fail,
-		result.integral.data(),
-		result.error.data(),
-		result.prob.data()
-	);
-
-	result.neval = neval;
-	result.fail = fail;
-	return result;
+NumcalResult NNumcalManager::RunDivonne() const {
+    DivonneIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run();
 }
 
-NNumcalManager::VegasResult NNumcalManager::RunDivonne(const DivonneOptions& options) const
-{
-	VegasResult result;
-	if (fFunctions.empty()) {
-		return result;
-	}
-
-	const int ndim = options.ndim;
-	const int ncomp = static_cast<int>(fFunctions.size());
-	result.integral.assign(static_cast<size_t>(ncomp), 0.0);
-	result.error.assign(static_cast<size_t>(ncomp), 0.0);
-	result.prob.assign(static_cast<size_t>(ncomp), 0.0);
-
-	int neval = 0;
-	int fail = 0;
-	int nregions = 0;
-	const int nvec = 1;
-	const int flags = options.verbose;
-	const int ngiven = 0;
-	const int ldxgiven = 0;
-	cubareal* xgiven = nullptr;
-	const int nextra = 0;
-	const peakfinder_t peakfinder = nullptr;
-
-	Divonne(
-		ndim,
-		ncomp,
-		NNumcalManager::VegasIntegrand,
-		const_cast<NNumcalManager*>(this),
-		nvec,
-		options.epsrel,
-		options.epsabs,
-		flags,
-		options.seed,
-		options.mineval,
-		options.maxeval,
-		options.key1,
-		options.key2,
-		options.key3,
-		options.maxpass,
-		options.border,
-		options.maxchisq,
-		options.mindeviation,
-		ngiven,
-		ldxgiven,
-		xgiven,
-		nextra,
-		peakfinder,
-		nullptr,
-		nullptr,
-		&nregions,
-		&neval,
-		&fail,
-		result.integral.data(),
-		result.error.data(),
-		result.prob.data()
-	);
-
-	result.neval = neval;
-	result.fail = fail;
-	return result;
+NumcalResult NNumcalManager::RunCuhre() const {
+    CuhreIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run();
 }
 
-NNumcalManager::VegasResult NNumcalManager::RunCuhre(const CuhreOptions& options) const
-{
-	VegasResult result;
-	if (fFunctions.empty()) {
-		return result;
-	}
-
-	const int ndim = options.ndim;
-	const int ncomp = static_cast<int>(fFunctions.size());
-	result.integral.assign(static_cast<size_t>(ncomp), 0.0);
-	result.error.assign(static_cast<size_t>(ncomp), 0.0);
-	result.prob.assign(static_cast<size_t>(ncomp), 0.0);
-
-	int neval = 0;
-	int fail = 0;
-	int nregions = 0;
-	const int nvec = 1;
-	const int flags = options.verbose;
-
-	Cuhre(
-		ndim,
-		ncomp,
-		NNumcalManager::VegasIntegrand,
-		const_cast<NNumcalManager*>(this),
-		nvec,
-		options.epsrel,
-		options.epsabs,
-		flags,
-		options.mineval,
-		options.maxeval,
-		options.key,
-		nullptr,
-		nullptr,
-		&nregions,
-		&neval,
-		&fail,
-		result.integral.data(),
-		result.error.data(),
-		result.prob.data()
-	);
-
-	result.neval = neval;
-	result.fail = fail;
-	return result;
+// JSON-based methods
+NumcalResult NNumcalManager::RunVegasFromJson(const std::string& json_str) const {
+    VegasIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromJson(json_str);
 }
 
-NNumcalManager::VegasResult NNumcalManager::ExampleVegas()
-{
-	NNumcalManager mgr("vegas-example", "Vegas example");
-	mgr.AddFunction([](const std::vector<double>& x) {
-		if (x.size() < 2) {
-			return 0.0;
-		}
-		return x[0] * x[1];
-	}, "x*y");
-
-	VegasOptions options;
-	options.ndim = 2;
-	options.maxeval = 20000;
-	return mgr.RunVegas(options);
+NumcalResult NNumcalManager::RunVegasFromFile(const std::string& filename) const {
+    VegasIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromFile(filename);
 }
 
-NNumcalManager::VegasResult NNumcalManager::ExampleSuave()
-{
-	NNumcalManager mgr("suave-example", "Suave example");
-	mgr.AddFunction([](const std::vector<double>& x) {
-		if (x.size() < 2) {
-			return 0.0;
-		}
-		return x[0] * x[1];
-	}, "x*y");
-
-	SuaveOptions options;
-	options.ndim = 2;
-	options.maxeval = 20000;
-	return mgr.RunSuave(options);
+NumcalResult NNumcalManager::RunSuaveFromJson(const std::string& json_str) const {
+    SuaveIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromJson(json_str);
 }
 
-NNumcalManager::VegasResult NNumcalManager::ExampleDivonne()
-{
-	NNumcalManager mgr("divonne-example", "Divonne example");
-	mgr.AddFunction([](const std::vector<double>& x) {
-		if (x.size() < 2) {
-			return 0.0;
-		}
-		return x[0] * x[1];
-	}, "x*y");
-
-	DivonneOptions options;
-	options.ndim = 2;
-	options.maxeval = 20000;
-	return mgr.RunDivonne(options);
+NumcalResult NNumcalManager::RunSuaveFromFile(const std::string& filename) const {
+    SuaveIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromFile(filename);
 }
 
-NNumcalManager::VegasResult NNumcalManager::ExampleCuhre()
-{
-	NNumcalManager mgr("cuhre-example", "Cuhre example");
-	mgr.AddFunction([](const std::vector<double>& x) {
-		if (x.size() < 2) {
-			return 0.0;
-		}
-		return x[0] * x[1];
-	}, "x*y");
-
-	CuhreOptions options;
-	options.ndim = 2;
-	options.maxeval = 20000;
-	return mgr.RunCuhre(options);
+NumcalResult NNumcalManager::RunDivonneFromJson(const std::string& json_str) const {
+    DivonneIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromJson(json_str);
 }
+
+NumcalResult NNumcalManager::RunDivonneFromFile(const std::string& filename) const {
+    DivonneIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromFile(filename);
+}
+
+NumcalResult NNumcalManager::RunCuhreFromJson(const std::string& json_str) const {
+    CuhreIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromJson(json_str);
+}
+
+NumcalResult NNumcalManager::RunCuhreFromFile(const std::string& filename) const {
+    CuhreIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.RunFromFile(filename);
+}
+
+// Backward compatibility methods with explicit options
+NumcalResult NNumcalManager::RunVegas(const VegasIntegrator::VegasOptions& options) const {
+    VegasIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run(options);
+}
+
+NumcalResult NNumcalManager::RunSuave(const SuaveIntegrator::SuaveOptions& options) const {
+    SuaveIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run(options);
+}
+
+NumcalResult NNumcalManager::RunDivonne(const DivonneIntegrator::DivonneOptions& options) const {
+    DivonneIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run(options);
+}
+
+NumcalResult NNumcalManager::RunCuhre(const CuhreIntegrator::CuhreOptions& options) const {
+    CuhreIntegrator integrator;
+    integrator.SetFunctions(fFunctions, fLabels);
+    return integrator.Run(options);
+}
+
+// Static example methods
+NumcalResult NNumcalManager::ExampleVegas() {
+    return VegasIntegrator::Example();
+}
+
+NumcalResult NNumcalManager::ExampleSuave() {
+    return SuaveIntegrator::Example();
+}
+
+NumcalResult NNumcalManager::ExampleDivonne() {
+    return DivonneIntegrator::Example();
+}
+
+NumcalResult NNumcalManager::ExampleCuhre() {
+    return CuhreIntegrator::Example();
+}
+
+// Default options access
+nlohmann::json NNumcalManager::GetDefaultVegasOptions() {
+    return VegasIntegrator::VegasOptions{}.to_json();
+}
+
+nlohmann::json NNumcalManager::GetDefaultSuaveOptions() {
+    return SuaveIntegrator::SuaveOptions{}.to_json();
+}
+
+nlohmann::json NNumcalManager::GetDefaultDivonneOptions() {
+    return DivonneIntegrator::DivonneOptions{}.to_json();
+}
+
+nlohmann::json NNumcalManager::GetDefaultCuhreOptions() {
+    return CuhreIntegrator::CuhreOptions{}.to_json();
+}
+
 } // namespace Ndmspc

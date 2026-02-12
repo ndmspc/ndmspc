@@ -1,31 +1,33 @@
-set(MODULE Numcal)
-set(PACKAGE Ndmspc${MODULE})
-file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
-
 set(MY_INCLUDE_DIRS
-  ${OpenSSL_INCLUDE_DIRS}
   ${LIBUV_INCLUDE_DIRS}
   ${CURL_INCLUDE_DIRS}
+  ${OpenSSL_INCLUDE_DIRS}
   ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${CUBA_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/base
   ${CMAKE_SOURCE_DIR}/core
+  ${CMAKE_SOURCE_DIR}/numcal
+  ${CMAKE_SOURCE_DIR}/http/cli
+  ${CMAKE_BINARY_DIR}
 )
-include_directories(${MY_INCLUDE_DIRS})
+
 set(MY_EXTERNAL_LIBS
-  ${OpenSSL_LIBRARIES}
   ${LIBUV_LIBRARIES}
   ${CURL_LIBRARIES}
+  ${OpenSSL_LIBRARIES}
   ${LIBWEBSOCKETS_LIBRARIES}
   ${NLOHMANN_JSON_LIBRARIES}
   ${CUBA_LIBRARIES}
   RHTTP
   NdmspcBase
   NdmspcCore
+  NdmspcNumcal
 )
 
-RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
-
-add_subdirectory(cli)
-
+include_directories(${MY_INCLUDE_DIRS})
+file(GLOB EXEC_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.cxx")
+string(REPLACE ".cxx" "" EXECS "${EXEC_SRCS}")
+foreach(t ${EXECS})
+  RootBin(${t} "${t}.cxx" "${MY_EXTERNAL_LIBS}")
+endforeach(t)
