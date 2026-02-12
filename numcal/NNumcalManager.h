@@ -1,110 +1,81 @@
 #ifndef Ndmspc_NNumcalManager_H
 #define Ndmspc_NNumcalManager_H
-#include <TNamed.h>
 #include <functional>
 #include <string>
 #include <vector>
+#include <TNamed.h>
+#include <nlohmann/json.hpp>
+
+#include "NumcalResult.h"
+#include "VegasIntegrator.h"
+#include "SuaveIntegrator.h"
+#include "DivonneIntegrator.h"
+#include "CuhreIntegrator.h"
 
 namespace Ndmspc {
 
 ///
 /// \class NNumcalManager
 ///
-/// \brief NNumcalManager object
+/// \brief NNumcalManager object - High-level interface for numerical integration
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
 class NNumcalManager : public TNamed {
-  public:
-  NNumcalManager(const char *name = "", const char *title = "");
-  virtual ~NNumcalManager();
+public:
+    using Integrand = std::function<double(const std::vector<double>&)>;
+    NNumcalManager(const char *name = "", const char *title = "");
+    virtual ~NNumcalManager();
+    void Print(Option_t* option = "") const override;
+    const std::vector<std::string>& GetLabels() const { return fLabels; }
+    const std::vector<Integrand>& GetFunctions() const { return fFunctions; }
+    void ClearFunctions();
+    void AddFunction(const Integrand& fn, const std::string& label = "");
+    void SetFunctions(const std::vector<Integrand>& fns, const std::vector<std::string>& labels = {});
 
-  using Integrand = std::function<double(const std::vector<double>&)>;
+    // High-level interface methods with default parameters
+    NumcalResult RunVegas() const;
+    NumcalResult RunSuave() const;
+    NumcalResult RunDivonne() const;
+    NumcalResult RunCuhre() const;
 
-  struct VegasOptions {
-    int ndim = 1;
-    double epsrel = 1e-3;
-    double epsabs = 1e-12;
-    int seed = 0;
-    int mineval = 0;
-    int maxeval = 50000;
-    int nstart = 1000;
-    int nincrease = 500;
-    int nbatch = 1000;
-    int gridno = 0;
-    int verbose = 0;
-  };
+    // JSON configuration methods
+    NumcalResult RunVegasFromJson(const std::string& json_str) const;
+    NumcalResult RunVegasFromFile(const std::string& filename) const;
+    NumcalResult RunSuaveFromJson(const std::string& json_str) const;
+    NumcalResult RunSuaveFromFile(const std::string& filename) const;
+    NumcalResult RunDivonneFromJson(const std::string& json_str) const;
+    NumcalResult RunDivonneFromFile(const std::string& filename) const;
+    NumcalResult RunCuhreFromJson(const std::string& json_str) const;
+    NumcalResult RunCuhreFromFile(const std::string& filename) const;
 
-  struct SuaveOptions {
-    int ndim = 1;
-    double epsrel = 1e-3;
-    double epsabs = 1e-12;
-    int seed = 0;
-    int mineval = 0;
-    int maxeval = 50000;
-    int nnew = 1000;
-    int nmin = 2;
-    double flatness = 25.0;
-    int verbose = 0;
-  };
+    // Methods with explicit options (for backward compatibility)
+    NumcalResult RunVegas(const VegasIntegrator::VegasOptions& options) const;
+    NumcalResult RunSuave(const SuaveIntegrator::SuaveOptions& options) const;
+    NumcalResult RunDivonne(const DivonneIntegrator::DivonneOptions& options) const;
+    NumcalResult RunCuhre(const CuhreIntegrator::CuhreOptions& options) const;
 
-  struct DivonneOptions {
-    int ndim = 1;
-    double epsrel = 1e-3;
-    double epsabs = 1e-12;
-    int seed = 0;
-    int mineval = 0;
-    int maxeval = 50000;
-    int key1 = 47;
-    int key2 = 1;
-    int key3 = 1;
-    int maxpass = 5;
-    double border = 0.0;
-    double maxchisq = 10.0;
-    double mindeviation = 0.25;
-    int verbose = 0;
-  };
+    // Static example methods
+    static NumcalResult ExampleVegas();
+    static NumcalResult ExampleSuave();
+    static NumcalResult ExampleDivonne();
+    static NumcalResult ExampleCuhre();
 
-  struct CuhreOptions {
-    int ndim = 1;
-    double epsrel = 1e-3;
-    double epsabs = 1e-12;
-    int mineval = 0;
-    int maxeval = 50000;
-    int key = 0;
-    int verbose = 0;
-  };
+    // Access to default options as JSON
+    static nlohmann::json GetDefaultVegasOptions();
+    static nlohmann::json GetDefaultSuaveOptions();
+    static nlohmann::json GetDefaultDivonneOptions();
+    static nlohmann::json GetDefaultCuhreOptions();
 
-  struct VegasResult {
-    int neval = 0;
-    int fail = 0;
-    std::vector<double> integral;
-    std::vector<double> error;
-    std::vector<double> prob;
-  };
+private:
+    std::vector<Integrand> fFunctions; //!
+    std::vector<std::string> fLabels;  //!
 
-  void ClearFunctions();
-  void AddFunction(const Integrand& fn, const std::string& label = "");
-  void SetFunctions(const std::vector<Integrand>& fns, const std::vector<std::string>& labels = {});
-
-  VegasResult RunVegas(const VegasOptions& options) const;
-  VegasResult RunSuave(const SuaveOptions& options) const;
-  VegasResult RunDivonne(const DivonneOptions& options) const;
-  VegasResult RunCuhre(const CuhreOptions& options) const;
-
-  // Simple example: integral of f(x,y)=x*y over unit square
-  static VegasResult ExampleVegas();
-  static VegasResult ExampleSuave();
-  static VegasResult ExampleDivonne();
-  static VegasResult ExampleCuhre();
-
-  /// \cond CLASSIMP
-  ClassDef(NNumcalManager, 1);
-  /// \endcond;
-  private:
-  static int VegasIntegrand(const int* ndim, const double x[], const int* ncomp, double f[], void* userdata);
-  std::vector<Integrand> fFunctions; //!
-  std::vector<std::string> fLabels;  //!
+    /// \cond CLASSIMP
+    ClassDefOverride(NNumcalManager, 1);
+    /// \endcond
 };
+
 } // namespace Ndmspc
+
 #endif

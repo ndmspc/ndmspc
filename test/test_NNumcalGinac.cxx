@@ -23,19 +23,19 @@ TEST(NNumcalManager, GiNaCVegas) {
     return GiNaC::ex_to<GiNaC::numeric>(value).to_double();
   }, "sin(x)*y");
 
-  Ndmspc::NNumcalManager::VegasOptions options;
+  Ndmspc::VegasIntegrator::VegasOptions options;
   options.ndim = 2;
   options.maxeval = 20000;
   auto result = mgr.RunVegas(options);
 
-  ASSERT_EQ(result.integral.size(), 1u);
-  ASSERT_EQ(result.error.size(), 1u);
-  ASSERT_EQ(result.prob.size(), 1u);
+  ASSERT_EQ(result.GetIntegral().size(), 1u);
+  ASSERT_EQ(result.GetError().size(), 1u);
+  ASSERT_EQ(result.GetProb().size(), 1u);
 
   const double expected = 0.5 * (1.0 - std::cos(1.0));
   const double tolerance = 0.1;
-  EXPECT_TRUE(std::isfinite(result.integral[0]));
-  EXPECT_NEAR(result.integral[0], expected, tolerance);
+  EXPECT_TRUE(std::isfinite(result.GetIntegral()[0]));
+  EXPECT_NEAR(result.GetIntegral()[0], expected, tolerance);
 }
 
 }  // namespace
