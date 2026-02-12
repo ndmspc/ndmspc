@@ -143,6 +143,7 @@ make install DESTDIR=%{buildroot}
 %files numcal
 %{_libdir}/libNdmspcNumcal*
 %{_includedir}/ndmspc/NNumcalManager.h
+%{_bindir}/ndmspc-numcal
 %endif
 
 %files server
