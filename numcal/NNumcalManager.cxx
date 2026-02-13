@@ -14,9 +14,11 @@ ClassImp(Ndmspc::NNumcalManager);
 /// \endcond
 
 namespace Ndmspc {
+NNumcalManager::NNumcalManager(const char *name, const char* title) : TNamed(name,title) {}
+NNumcalManager::~NNumcalManager() {}
 void NNumcalManager::Print(Option_t* option) const {
 	(void)option; // Suppress unused parameter warning
-       NLogDebug("NNumcalManager: %s (%s)", GetName(), GetTitle());
+    NLogInfo("NNumcalManager: %s (%s) dims=%d functions=%zu", GetName(), GetTitle(), fDims, fFunctions.size());
        NLogDebug("Imported functions:");
 	int idx = 1;
 	for (const auto& label : fLabels) {
@@ -26,8 +28,6 @@ void NNumcalManager::Print(Option_t* option) const {
            NLogDebug("  (none)");
 	}
 }
-NNumcalManager::NNumcalManager(const char *name, const char* title) : TNamed(name,title) {}
-NNumcalManager::~NNumcalManager() {}
 
 void NNumcalManager::ClearFunctions()
 {
@@ -35,22 +35,33 @@ void NNumcalManager::ClearFunctions()
 	fLabels.clear();
 }
 
-void NNumcalManager::AddFunction(const Integrand& fn, const std::string& label)
+void NNumcalManager::AddFunction(const Integrand& fn, const std::string& label, int dims)
 {
-	fFunctions.push_back(fn);
-	fLabels.push_back(label);
+    fDims = dims;
+    NLogInfo("Loading function: %s", label.c_str());
+    fFunctions.push_back(fn);
+    fLabels.push_back(label);
+    NLogInfo("Total functions loaded: %zu", fFunctions.size());
 }
 
-void NNumcalManager::SetFunctions(const std::vector<Integrand>& fns, const std::vector<std::string>& labels)
+void NNumcalManager::SetFunctions(const std::vector<Integrand>& fns, const std::vector<std::string>& labels, int dims)
 {
+    fDims = dims;
 	fFunctions = fns;
 	fLabels = labels;
 	if (fLabels.size() < fFunctions.size()) {
 		fLabels.resize(fFunctions.size());
-	}
-}
-
-// High-level interface implementations
+    {
+        NLogInfo("Setting functions. Count: %zu", fns.size());
+        fFunctions = fns;
+        fLabels = labels;
+        if (fLabels.size() < fFunctions.size()) {
+            fLabels.resize(fFunctions.size());
+        }
+        NLogInfo("Total functions loaded: %zu", fFunctions.size());
+    }
+    }
+    }
 NumcalResult NNumcalManager::RunVegas() const {
     VegasIntegrator integrator;
     integrator.SetFunctions(fFunctions, fLabels);
@@ -128,6 +139,8 @@ NumcalResult NNumcalManager::RunCuhreFromFile(const std::string& filename) const
 NumcalResult NNumcalManager::RunVegas(const VegasIntegrator::VegasOptions& options) const {
     VegasIntegrator integrator;
     integrator.SetFunctions(fFunctions, fLabels);
+    NLogInfo("Running integration method: Vegas");
+    NLogInfo("Vegas parameters: ndim=%d, epsrel=%e, epsabs=%e, seed=%d, mineval=%d, maxeval=%d, nstart=%d, nincrease=%d, nbatch=%d, gridno=%d, verbose=%d", options.ndim, options.epsrel, options.epsabs, options.seed, options.mineval, options.maxeval, options.nstart, options.nincrease, options.nbatch, options.gridno, options.verbose);
     return integrator.Run(options);
 }
 

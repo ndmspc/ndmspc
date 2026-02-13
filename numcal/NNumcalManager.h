@@ -23,6 +23,7 @@ namespace Ndmspc {
 
 class NNumcalManager : public TNamed {
 public:
+
     using Integrand = std::function<double(const std::vector<double>&)>;
     NNumcalManager(const char *name = "", const char *title = "");
     virtual ~NNumcalManager();
@@ -30,8 +31,10 @@ public:
     const std::vector<std::string>& GetLabels() const { return fLabels; }
     const std::vector<Integrand>& GetFunctions() const { return fFunctions; }
     void ClearFunctions();
-    void AddFunction(const Integrand& fn, const std::string& label = "");
-    void SetFunctions(const std::vector<Integrand>& fns, const std::vector<std::string>& labels = {});
+    void AddFunction(const Integrand& fn, const std::string& label = "", int dims = 0);
+    void SetFunctions(const std::vector<Integrand>& fns, const std::vector<std::string>& labels = {}, int dims = 0);
+        void SetDims(int dims) { fDims = dims; }
+    int GetDims() const { return fDims; }
 
     // High-level interface methods with default parameters
     NumcalResult RunVegas() const;
@@ -70,6 +73,7 @@ public:
 private:
     std::vector<Integrand> fFunctions; //!
     std::vector<std::string> fLabels;  //!
+    int fDims = 0; //!
 
     /// \cond CLASSIMP
     ClassDefOverride(NNumcalManager, 1);
