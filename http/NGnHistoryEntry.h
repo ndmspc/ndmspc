@@ -17,6 +17,7 @@ class NGnHistoryEntry : public TNamed {
   NGnHistoryEntry(const char * name = "", const char * title = "");
   virtual ~NGnHistoryEntry();
 
+
   json GetPayloadIn() const { return fIn; }
   void SetPayloadIn(const json & payload) { fIn = payload; }
   json GetPayloadOut() const { return fOut; }
@@ -24,10 +25,15 @@ class NGnHistoryEntry : public TNamed {
   json GetPayloadWsOut() const { return fWsOut; }
   void SetPayloadWsOut(const json & payload) { fWsOut = payload; }
 
+  json GetWorkspace() const { return fWorkspace; }
+  void SetWorkspace(const json & workspace) { fWorkspace = workspace; }
+
+
   private:
-  json fIn;    ///< Input JSON object
-  json fOut;   ///< Output JSON object
-  json fWsOut; ///< Websocket output JSON object
+  json fIn;        ///< Input JSON object
+  json fOut;       ///< Output JSON object
+  json fWsOut;     ///< Websocket output JSON object
+  json fWorkspace; ///< Workspace schema JSON object
 
   /// \cond CLASSIMP
   ClassDef(NGnHistoryEntry, 1);

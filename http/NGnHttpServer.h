@@ -3,6 +3,7 @@
 #include "NLogger.h"
 #include "NHttpServer.h"
 // #include "NGnHistoryEntry.h"
+#include "NGnHistory.h"
 
 namespace Ndmspc {
 
@@ -34,33 +35,34 @@ extern NGnHttpHandlerMap * gNdmspcHttpHandlers;
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 class NGnHistoryEntry;
+class NGnHistory;
 class NGnHttpServer : public NHttpServer {
+
   public:
   NGnHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000);
 
   virtual void Print(Option_t * option = "") const override;
-  json         GetJson() const;
+  virtual void Clear(Option_t * option = "") override { NHttpServer::Clear(option); }
+  void ClearHistory() { fHistory.Clear(); }
 
-  void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers) { fHttpHandlers = handlers; }
+  json GetJson() const;
 
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
+
+  void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers) { fHttpHandlers = handlers; }
 
   void      AddInputObject(const std::string & name, TObject * obj) { fObjectsMap[name] = obj; }
   bool      RemoveInputObject(const std::string & name);
   TObject * GetInputObject(const std::string & name);
 
-  void AddHistoryEntry(NGnHistoryEntry * entry);
-  bool RemoveHistoryEntry(int index);
-  bool RemoveHistoryEntry(const std::string & name);
-  void ClearHistory();
-
-  bool LoadHistoryFromFile(const std::string & filename);
-  bool ExportHistoryToFile(const std::string & filename) const;
+  std::map<std::string, Ndmspc::NGnHttpFuncPtr> GetHttpHandlers() const { return fHttpHandlers; }
+  std::map<std::string, TObject *>              &GetObjectsMap() { return fObjectsMap; }
+  json                                         &GetWorkspace() { return fHistory.GetWorkspace(); }
 
   private:
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers; ///<! HTTP handlers map
-  std::map<std::string, TObject *>              fObjectsMap;   ///<! Objects map for handlers
-  std::vector<NGnHistoryEntry *>                fHistory;      ///<! History entries
+  std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;     ///<! HTTP handlers map
+  std::map<std::string, TObject *>              fObjectsMap;       ///<! Objects map for handlers
+  NGnHistory                                  fHistory{nullptr}; ///<! History object (TNamed)
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);

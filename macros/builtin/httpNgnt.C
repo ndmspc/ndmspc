@@ -57,18 +57,21 @@ void httpNgnt()
         ngnt = Ndmspc::NGnTree::Open(file);
         if (ngnt) {
           NLogInfo("Successfully opened NGnTree from file: %s", file.c_str());
-          httpOut["result"]       = "success";
-          
+          httpOut["result"]                                               = "success";
+          server->GetWorkspace()["open"]["type"]                          = "object";
+          server->GetWorkspace()["open"]["properties"]["file"]["type"]    = "string";
+          server->GetWorkspace()["open"]["properties"]["file"]["default"] = file;
+
           // Return new API schema with reshape configuration
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["type"] = "object";
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["type"] = "array";
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["description"] = "A nested array of integers representing levels.";
-          
+          server->GetWorkspace()["reshape"]["type"] = "object";
+          json reshapeProperties;
+          reshapeProperties["levels"]["type"]        = "array";
+          reshapeProperties["levels"]["description"] = "A nested array of integers representing levels.";
+
           // Build nested array based on actual axes count
-          json default_levels = json::array();
-          size_t nAxes = ngnt->GetBinning()->GetAxes().size();
+          json      default_levels         = json::array();
+          size_t    nAxes                  = ngnt->GetBinning()->GetAxes().size();
           const int MAX_ELEMENTS_PER_LEVEL = 3;
-          
           for (size_t i = 0; i < nAxes; i += MAX_ELEMENTS_PER_LEVEL) {
             json level = json::array();
             for (int j = 0; j < MAX_ELEMENTS_PER_LEVEL && (i + j) < nAxes; j++) {
@@ -76,25 +79,27 @@ void httpNgnt()
             }
             default_levels.push_back(level);
           }
-          
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["default"] = default_levels;
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["items"]["type"] = "array";
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["levels"]["items"]["items"]["type"] = "integer";
+          reshapeProperties["levels"]["default"]                = default_levels;
+          reshapeProperties["levels"]["items"]["type"]          = "array";
+          reshapeProperties["levels"]["items"]["items"]["type"] = "integer";
 
-          std::vector<std::string> binningNames = ngnt->GetBinning()->GetDefinitionNames();
-          std::string currentBinningName = ngnt->GetBinning()->GetCurrentDefinitionName();
+          std::vector<std::string> binningNames       = ngnt->GetBinning()->GetDefinitionNames();
+          std::string              currentBinningName = ngnt->GetBinning()->GetCurrentDefinitionName();
           if (currentBinningName.empty() && !binningNames.empty()) {
             currentBinningName = binningNames.front();
-          } else if (!binningNames.empty() &&
-                     std::find(binningNames.begin(), binningNames.end(), currentBinningName) == binningNames.end()) {
+          }
+          else if (!binningNames.empty() &&
+                   std::find(binningNames.begin(), binningNames.end(), currentBinningName) == binningNames.end()) {
             currentBinningName = binningNames.front();
           }
+          reshapeProperties["binningName"]["type"]    = "string";
+          reshapeProperties["binningName"]["format"]  = "select";
+          reshapeProperties["binningName"]["enum"]    = binningNames;
+          reshapeProperties["binningName"]["default"] = currentBinningName;
 
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["type"] = "string";
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["format"] = "select";
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["enum"] = binningNames;
-          wsOut["workspace"]["schema"]["properties"]["reshape"]["properties"]["binningName"]["default"] = currentBinningName;
-          
+          wsOut["workspace"]["reshape"]["properties"] = reshapeProperties;
+          wsOut["workspace"]["reshape"]["type"]       = "object";
+
           server->AddInputObject("ngnt", ngnt);
         }
         else {
@@ -140,6 +145,7 @@ void httpNgnt()
         httpOut["info"]   = nav->GetInfoJson();
         httpOut["result"] = "success";
       }
+
       else {
         NLogInfo("Reshape navigator is not available");
         httpOut["result"] = "not_available";
@@ -164,15 +170,19 @@ void httpNgnt()
       nav = ngnt->Reshape("", levels, 0, {}, {});
       server->AddInputObject("navigator", nav);
       if (nav) {
-        httpOut["result"]          = "success";
-        // wsOut["ui"]["binningName"] = binningName.empty() ? ngnt->GetBinning()->GetCurrentDefinitionName() : binningName;
-        // wsOut["ui"]["binnings"]    = ngnt->GetBinning()->GetDefinitionNames();
-        // wsOut["ui"]["levels"]      = levels;
-        wsOut["workspace"]["schema"]["properties"]["map"]["type"] = "object";
-        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["mappingPad"]["type"] = "string";
-        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["mappingPad"]["default"] = "pad1";
-        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["contentPad"]["type"] = "string";
-        wsOut["workspace"]["schema"]["properties"]["map"]["properties"]["contentPad"]["default"] = "pad2";
+        httpOut["result"] = "success";
+        // Update levels in workspace schema
+        server->GetWorkspace()["reshape"]["properties"]["levels"]["default"] = levels;
+        server->GetWorkspace()["reshape"]["properties"]["binningName"]["default"] = binningName;
+
+        json mapProperties;
+        mapProperties["mappingPad"]["type"]    = "string";
+        mapProperties["mappingPad"]["default"] = "pad1";
+        mapProperties["contentPad"]["type"]    = "string";
+        mapProperties["contentPad"]["default"] = "pad2";
+
+        wsOut["workspace"]["map"]["properties"] = mapProperties;
+        wsOut["workspace"]["map"]["type"]       = "object";
       }
       else {
         httpOut["result"] = "failure";
@@ -231,20 +241,20 @@ void httpNgnt()
       }
       NLogInfo("Map handler received contentPad: %s", contentPad.c_str());
 
-      TH1 *   proj        = nav->GetProjection();
-      TString h           = TBufferJSON::ConvertToJSON(proj);
-      json    hMap        = json::parse(h.Data());
-      wsOut["map"]["obj"] = hMap;
-      wsOut["map"]["mappingPad"] = mappingPad;
-      wsOut["map"]["contentPad"] = contentPad;
+      TH1 *   proj               = nav->GetProjection();
+      TString h                  = TBufferJSON::ConvertToJSON(proj);
+      json    hMap               = json::parse(h.Data());
+      wsOut["payload"]["map"]["obj"]        = hMap;
+      wsOut["payload"]["map"]["mappingPad"] = mappingPad;
+      wsOut["payload"]["map"]["contentPad"] = contentPad;
       json clickAction;
-      clickAction["type"]               = "http";
-      clickAction["method"]             = "POST";
-      clickAction["contentType"]        = "application/json";
-      clickAction["path"]               = "point";
-      clickAction["payload"]            = json::object();
-      
-      wsOut["map"]["handlers"]["click"] = clickAction;
+      clickAction["type"]        = "http";
+      clickAction["method"]      = "POST";
+      clickAction["contentType"] = "application/json";
+      clickAction["path"]        = "point";
+      clickAction["payload"]     = json::object();
+
+      wsOut["payload"]["map"]["handlers"]["click"] = clickAction;
 
       httpOut["result"] = "success";
     }
@@ -278,14 +288,14 @@ void httpNgnt()
         TH1 *   proj        = nav->GetProjection();
         TString h           = TBufferJSON::ConvertToJSON(proj);
         json    hMap        = json::parse(h.Data());
-        wsOut["map"]["obj"] = hMap;
+        wsOut["payload"]["map"]["obj"] = hMap;
         json clickAction;
         clickAction["type"]               = "http";
         clickAction["method"]             = "GET";
         clickAction["contentType"]        = "application/json";
         clickAction["path"]               = "point";
         clickAction["payload"]            = json::object();
-        wsOut["map"]["handlers"]["click"] = clickAction;
+        wsOut["payload"]["map"]["handlers"]["click"] = clickAction;
 
         // wsOut["map"]["handlers"]["hover"]["action"]       = "contenthover";
         // server->WebSocketBroadcast(wsOut);
@@ -311,7 +321,7 @@ void httpNgnt()
           if (outputPoint) {
             NLogInfo("Output point for bin %d:", entry);
             outputPoint->ls();
-            wsOut["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
+            wsOut["payload"]["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
           }
           else {
             NLogWarning("No output point found for entry %d", entry);
@@ -365,9 +375,9 @@ void httpNgnt()
         if (spectra) {
           NLogInfo("Spectra for parameter '%s' obtained:", parameterName.c_str());
           // spectra->Print();
-          wsOut["spectra"]["parameter"]                   = parameterName;
-          wsOut["spectra"]["handlers"]["click"]["action"] = "http";
-          wsOut["spectra"]["obj"]                         = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+          wsOut["payload"]["spectra"]["parameter"]                   = parameterName;
+          wsOut["payload"]["spectra"]["handlers"]["click"]["action"] = "http";
+          wsOut["payload"]["spectra"]["obj"]                         = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
           if (!server) {
             NLogError("HTTP server is not available, cannot publish navigator");
             httpOut["result"] = "http_server_not_available";
