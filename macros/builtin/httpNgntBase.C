@@ -24,6 +24,10 @@ void httpNgntBase()
       // server->WebSocketBroadcast(wsOut);
       httpOut["result"] = "skipped";
     }
+    else if (method.find("PATCH") != std::string::npos) {
+      httpOut["result"] = "success";
+    }
+
     else if (method.find("DELETE") != std::string::npos) {
       httpOut["result"] = "success";
     }
@@ -31,6 +35,34 @@ void httpNgntBase()
       httpOut["error"] = "Unsupported HTTP method for test action";
     }
   };
+
+  // Store lambdas (must be non-capturing to convert to function pointer)
+  handlers["debug"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                          std::map<std::string, TObject *> &) {
+    auto server = Ndmspc::gNGnHttpServer;
+
+    NLogInfo("/debug method=%s in=%s", method.c_str(), httpIn.dump().c_str());
+
+    if (method.find("GET") != std::string::npos) {
+      httpOut["result"] = "success";
+    }
+    else if (method.find("POST") != std::string::npos) {
+      // wsOut["health"] = "ok";
+      // server->WebSocketBroadcast(wsOut);
+      httpOut["result"] = "success";
+      // httpOut["result"] = "skipped";
+    }
+    else if (method.find("DELETE") != std::string::npos) {
+      httpOut["result"] = "success";
+    }
+    else if (method.find("PATCH") != std::string::npos) {
+      httpOut["result"] = "success";
+    }
+    else {
+      httpOut["error"] = "Unsupported HTTP method for test action";
+    }
+  };
+
 
   handlers["reset"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                          std::map<std::string, TObject *> & inputs) {

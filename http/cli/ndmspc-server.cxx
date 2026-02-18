@@ -153,7 +153,7 @@ int main(int argc, char ** argv)
 
     Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
     NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, macroFilename.c_str());
-    serv->SetCors();
+    serv->SetCors("*");
 
     if (macroFilename.empty()) {
       NLogError("No macro file given, exiting ...");

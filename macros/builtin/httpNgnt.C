@@ -19,7 +19,7 @@ void httpNgnt()
 
     if (method.find("GET") != std::string::npos) {
       if (ngnt && !ngnt->IsZombie()) {
-        NLogInfo("NGnTree is already opened");
+        NLogTrace("NGnTree is already opened");
         httpOut["result"]      = "success";
         httpOut["file"]        = ngnt->GetStorageTree()->GetFileName();
         httpOut["treename"]    = ngnt->GetStorageTree()->GetTree()->GetName();
@@ -36,18 +36,18 @@ void httpNgnt()
         // inputs["ngnt"] = ngnt;
       }
       else {
-        NLogInfo("NGnTree is not opened");
+        NLogTrace("NGnTree is not opened");
         httpOut["result"] = "not_opened";
       }
     }
     else if (method.find("POST") != std::string::npos) {
       if (httpIn.contains("file")) {
         std::string file = httpIn["file"].get<std::string>();
-        NLogInfo("Opening NGnTree from file: %s", file.c_str());
+        NLogTrace("Opening NGnTree from file: %s", file.c_str());
         if (ngnt && !ngnt->IsZombie()) {
 
           if (file == ngnt->GetStorageTree()->GetFileName()) {
-            NLogInfo("NGnTree already opened from file: %s", file.c_str());
+            NLogTrace("NGnTree already opened from file: %s", file.c_str());
             httpOut["result"] = "success";
             // inputs["ngnt"] = ngnt;
             return;
@@ -56,7 +56,7 @@ void httpNgnt()
         }
         ngnt = Ndmspc::NGnTree::Open(file);
         if (ngnt) {
-          NLogInfo("Successfully opened NGnTree from file: %s", file.c_str());
+          NLogTrace("Successfully opened NGnTree from file: %s", file.c_str());
           httpOut["result"]                                               = "success";
           server->GetWorkspace()["open"]["type"]                          = "object";
           server->GetWorkspace()["open"]["properties"]["file"]["type"]    = "string";
@@ -114,11 +114,11 @@ void httpNgnt()
     else if (method.find("DELETE") != std::string::npos) {
 
       if (ngnt) {
-        NLogInfo("Closing NGnTree %s", ngnt->GetStorageTree()->GetFileName().c_str());
+        NLogTrace("Closing NGnTree %s", ngnt->GetStorageTree()->GetFileName().c_str());
         server->RemoveInputObject("ngnt");
       }
       else {
-        NLogInfo("No NGnTree to close");
+        NLogTrace("No NGnTree to close");
       }
       httpOut["result"] = "success";
     }
@@ -140,14 +140,14 @@ void httpNgnt()
 
     if (method.find("GET") != std::string::npos) {
       if (nav) {
-        NLogInfo("Reshape navigator is available");
+        NLogTrace("Reshape navigator is available");
         nav->Print();
         httpOut["info"]   = nav->GetInfoJson();
         httpOut["result"] = "success";
       }
 
       else {
-        NLogInfo("Reshape navigator is not available");
+        NLogTrace("Reshape navigator is not available");
         httpOut["result"] = "not_available";
         return;
       }
@@ -170,9 +170,7 @@ void httpNgnt()
       nav = ngnt->Reshape("", levels, 0, {}, {});
       server->AddInputObject("navigator", nav);
       if (nav) {
-        httpOut["result"] = "success";
-        // Update levels in workspace schema
-        server->GetWorkspace()["reshape"]["properties"]["levels"]["default"] = levels;
+        server->GetWorkspace()["reshape"]["properties"]["levels"]["default"]      = levels;
         server->GetWorkspace()["reshape"]["properties"]["binningName"]["default"] = binningName;
 
         json mapProperties;
@@ -180,9 +178,9 @@ void httpNgnt()
         mapProperties["mappingPad"]["default"] = "pad1";
         mapProperties["contentPad"]["type"]    = "string";
         mapProperties["contentPad"]["default"] = "pad2";
-
         wsOut["workspace"]["map"]["properties"] = mapProperties;
         wsOut["workspace"]["map"]["type"]       = "object";
+        httpOut["result"] = "success";
       }
       else {
         httpOut["result"] = "failure";
@@ -190,13 +188,13 @@ void httpNgnt()
     }
     else if (method.find("DELETE") != std::string::npos) {
 
-      NLogInfo("[DELETE][reshape] Closing reshape navigator %p", (void *)nav);
+      NLogTrace("[DELETE][reshape] Closing reshape navigator %p", (void *)nav);
       if (nav) {
-        NLogInfo("[DELETE][reshape] Navigator deleted successfully");
+        NLogTrace("[DELETE][reshape] Navigator deleted successfully");
         server->RemoveInputObject("navigator");
       }
       else {
-        NLogInfo("No NGnTree to close");
+        NLogTrace("No NGnTree to close");
       }
       httpOut["result"] = "success";
     }
@@ -230,7 +228,7 @@ void httpNgnt()
       if (mappingPad.empty()) {
         mappingPad = "pad1";
       }
-      NLogInfo("Map handler received mappingPad: %s", mappingPad.c_str());
+      // NLogTrace("Map handler received mappingPad: %s", mappingPad.c_str());
 
       std::string contentPad = "";
       if (httpIn.contains("contentPad")) {
@@ -239,22 +237,121 @@ void httpNgnt()
       if (contentPad.empty()) {
         contentPad = "pad2";
       }
-      NLogInfo("Map handler received contentPad: %s", contentPad.c_str());
+      // NLogTrace("Map handler received contentPad: %s", contentPad.c_str());
 
-      TH1 *   proj               = nav->GetProjection();
-      TString h                  = TBufferJSON::ConvertToJSON(proj);
-      json    hMap               = json::parse(h.Data());
-      wsOut["payload"]["map"]["obj"]        = hMap;
+      TList * l    = new TList();
+      TH1 *   proj = nav->GetProjection();
+
+      proj->SetStats(false);
+      l->Add(proj);
+
+      TString listStr  = TBufferJSON::ConvertToJSON(l);
+      json    listJson = json::parse(listStr.Data());
+
+      // loop listJson and add clickAction to each histogram
+      std::vector<int> pointForClickAction;
+
+      for (auto & item : listJson["arr"]) {
+        json clickAction;
+        clickAction["type"]             = "http";
+        clickAction["method"]           = "PATCH";
+        clickAction["path"]             = "map";
+        clickAction["contentType"]      = "application/json";
+        clickAction["payload"]          = json::object();
+        clickAction["payload"]["point"] = json::array();
+
+        item["handlers"]["click"] = clickAction;
+      }
+
+      wsOut["payload"]["map"]["obj"]        = listJson;
       wsOut["payload"]["map"]["mappingPad"] = mappingPad;
       wsOut["payload"]["map"]["contentPad"] = contentPad;
-      json clickAction;
-      clickAction["type"]        = "http";
-      clickAction["method"]      = "POST";
-      clickAction["contentType"] = "application/json";
-      clickAction["path"]        = "point";
-      clickAction["payload"]     = json::object();
+      httpOut["result"]                     = "success";
+    }
+    else if (method.find("PATCH") != std::string::npos) {
+      NLogTrace("[Server] PATCH map received: %s", httpIn.dump().c_str());
 
-      wsOut["payload"]["map"]["handlers"]["click"] = clickAction;
+      std::vector<int> point;
+      if (httpIn.contains("point")) {
+        point = httpIn["point"].get<std::vector<int>>();
+        NLogTrace("[Server] PATCH map received point: %s", json(point).dump().c_str());
+      }
+
+      json binInfo;
+      if (httpIn.contains("args")) {
+        binInfo = httpIn["args"];
+        int bin = binInfo["bin"].get<int>();
+        point.push_back(bin);
+        NLogTrace("[Server] PATCH map added bin to point: %d", bin);
+      }
+
+      NLogTrace("[Server] Final point for PATCH map: %s", json(point).dump().c_str());
+
+      Ndmspc::NGnNavigator * navCurrent = nav;
+      int                    iLevel     = 0;
+      for (const auto & bin : point) {
+        NLogTrace("[Server] Traversing to child navigator for bin: %d navCurrent=%p", bin, (void *)navCurrent);
+        navCurrent = navCurrent->GetChild(bin);
+        // if (!navCurrent) {
+        //   NLogError("[Server] No child navigator found for bin %d at level %d", bin, iLevel);
+        //   break;
+        // }
+        iLevel++;
+      }
+
+      NLogTrace("[Server] Final navigator after traversal: %p", (void *)navCurrent);
+
+      if (navCurrent && navCurrent->GetChildren().size() > 0) {
+        TH1 * proj = navCurrent->GetProjection();
+        proj->SetStats(false);
+        // Always wrap in a TList for UI consistency
+        TList l;
+        l.Add(proj);
+        TString          listStr             = TBufferJSON::ConvertToJSON(&l);
+        json             listJson            = json::parse(listStr.Data());
+        std::vector<int> pointForClickAction = point;
+        for (auto & item : listJson["arr"]) {
+          json clickAction;
+          clickAction["type"]             = "http";
+          clickAction["method"]           = "PATCH";
+          clickAction["path"]             = "map";
+          clickAction["contentType"]      = "application/json";
+          clickAction["payload"]          = json::object();
+          clickAction["payload"]["point"] = pointForClickAction;
+          item["handlers"]["click"]       = clickAction;
+          NLogTrace("[Server] Sending only new projection for PATCH, point: %s",
+                    json(pointForClickAction).dump().c_str());
+        }
+        // Always send as TList, even for single histogram
+        wsOut["payload"]["map"]["obj"]         = listJson;
+        wsOut["payload"]["map"]["appendToTab"] = true;
+        wsOut["payload"]["map"]["mappingPad"]  = httpIn.contains("mappingPad") ? httpIn["mappingPad"] : "pad1";
+        wsOut["payload"]["map"]["contentPad"]  = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad2";
+      }
+      else {
+        NLogTrace("[Server] No projection found at final level, nothing sent to websocket");
+        // Do not send anything to websocket if navCurrent is not found
+        int entry = httpIn.contains("entry") ? httpIn["entry"].get<int>() : -1;
+        if (entry >= 0) {
+          ngnt->GetEntry(entry);
+          TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
+          if (outputPoint) {
+            NLogTrace("Output point for bin %d:", entry);
+            outputPoint->ls();
+            wsOut["payload"]["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
+          }
+          else {
+            NLogTrace("No output point found for entry %d", entry);
+            httpOut["result"] = "skipped";
+            return;
+          }
+        }
+        else {
+          NLogTrace("[Server] No entry provided for PATCH map and no projection found, nothing sent to websocket");
+          httpOut["result"] = "skipped";
+          return;
+        }
+      }
 
       httpOut["result"] = "success";
     }
@@ -282,19 +379,19 @@ void httpNgnt()
 
     if (method.find("GET") != std::string::npos) {
       if (nav) {
-        NLogInfo("Point navigator is available");
+        NLogTrace("Point navigator is available");
         // nav->Draw("hover");
 
-        TH1 *   proj        = nav->GetProjection();
-        TString h           = TBufferJSON::ConvertToJSON(proj);
-        json    hMap        = json::parse(h.Data());
+        TH1 *   proj                   = nav->GetProjection();
+        TString h                      = TBufferJSON::ConvertToJSON(proj);
+        json    hMap                   = json::parse(h.Data());
         wsOut["payload"]["map"]["obj"] = hMap;
         json clickAction;
-        clickAction["type"]               = "http";
-        clickAction["method"]             = "GET";
-        clickAction["contentType"]        = "application/json";
-        clickAction["path"]               = "point";
-        clickAction["payload"]            = json::object();
+        clickAction["type"]                          = "http";
+        clickAction["method"]                        = "GET";
+        clickAction["contentType"]                   = "application/json";
+        clickAction["path"]                          = "point";
+        clickAction["payload"]                       = json::object();
         wsOut["payload"]["map"]["handlers"]["click"] = clickAction;
 
         // wsOut["map"]["handlers"]["hover"]["action"]       = "contenthover";
@@ -303,14 +400,14 @@ void httpNgnt()
         httpOut["result"] = "success";
       }
       else {
-        NLogInfo("Reshape navigator is not available");
+        NLogTrace("Reshape navigator is not available");
         httpOut["result"] = "not_available";
         return;
       }
     }
     else if (method.find("POST") != std::string::npos) {
       if (nav) {
-        NLogInfo("Reshape navigator is available");
+        NLogTrace("Reshape navigator is available");
         // nav->Draw("hover");
         //
         int entry = httpIn.contains("entry") ? httpIn["entry"].get<int>() : -1;
@@ -319,7 +416,7 @@ void httpNgnt()
           ngnt->GetEntry(entry);
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
           if (outputPoint) {
-            NLogInfo("Output point for bin %d:", entry);
+            NLogTrace("Output point for bin %d:", entry);
             outputPoint->ls();
             wsOut["payload"]["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
           }
@@ -331,7 +428,7 @@ void httpNgnt()
         httpOut["result"] = "success";
       }
       else {
-        NLogInfo("Reshape navigator is not available");
+        NLogTrace("Reshape navigator is not available");
         httpOut["result"] = "not_available";
         return;
       }
@@ -362,7 +459,7 @@ void httpNgnt()
     }
     else if (method.find("POST") != std::string::npos) {
       if (nav) {
-        NLogInfo("Reshape navigator is available");
+        NLogTrace("Reshape navigator is available");
         // nav->Draw("hover");
         //
         std::string         parameterName = httpIn.contains("parameter") ? httpIn["parameter"].get<std::string>() : "";
@@ -373,11 +470,11 @@ void httpNgnt()
 
         TList * spectra = nav->DrawSpectraAll(parameterName, minmax, "");
         if (spectra) {
-          NLogInfo("Spectra for parameter '%s' obtained:", parameterName.c_str());
+          NLogTrace("Spectra for parameter '%s' obtained:", parameterName.c_str());
           // spectra->Print();
           wsOut["payload"]["spectra"]["parameter"]                   = parameterName;
           wsOut["payload"]["spectra"]["handlers"]["click"]["action"] = "http";
-          wsOut["payload"]["spectra"]["obj"]                         = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+          wsOut["payload"]["spectra"]["obj"] = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
           if (!server) {
             NLogError("HTTP server is not available, cannot publish navigator");
             httpOut["result"] = "http_server_not_available";
@@ -391,7 +488,7 @@ void httpNgnt()
         httpOut["result"] = "success";
       }
       else {
-        NLogInfo("Reshape navigator is not available");
+        NLogTrace("Reshape navigator is not available");
         httpOut["result"] = "not_available";
         return;
       }
