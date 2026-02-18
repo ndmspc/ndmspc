@@ -20,9 +20,8 @@ void NGnHistory::Print(Option_t * option) const {
   (void)option;
   NLogInfo("NGnHistory with %zu entries:", fEntries.size());
   for (size_t i = 0; i < fEntries.size(); i++) {
-    NLogInfo("  [%zu]: %s payload: in=%s out=%s wsOut=%s", i, fEntries[i]->GetName(),
-             fEntries[i]->GetPayloadIn().dump().c_str(), fEntries[i]->GetPayloadOut().dump().c_str(),
-             fEntries[i]->GetPayloadWsOut().dump().c_str());
+    NLogInfo("  [%zu]: %s payload: in=%s out=%s", i, fEntries[i]->GetName(),
+             fEntries[i]->GetPayloadIn().dump().c_str(), fEntries[i]->GetPayloadOut().dump().c_str());
   }
   NLogInfo("Workspace: %s", GetWorkspace().dump().c_str());
 }
