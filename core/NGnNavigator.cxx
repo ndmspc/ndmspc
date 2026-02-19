@@ -1796,14 +1796,14 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
     std::string canvasName = Form("c_%s", posfix.c_str());
     NLogTrace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
-    
+
     // Delete existing canvas with same name to prevent crash during auto-deletion
-    TCanvas* existingCanvas = (TCanvas*)gROOT->GetListOfCanvases()->FindObject(canvasName.c_str());
+    TCanvas * existingCanvas = (TCanvas *)gROOT->GetListOfCanvases()->FindObject(canvasName.c_str());
     if (existingCanvas) {
       NLogTrace("Deleting existing canvas '%s'", canvasName.c_str());
       delete existingCanvas;
     }
-    
+
     c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
     c->SetBit(kMustCleanup, kFALSE);
     outputList->Add(c);
@@ -1858,6 +1858,18 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
         // NLogTrace("Projecting for stack %d: Setting projection dims: %d %d %d", iStack, dims[0], dims[1], dims[2]);
 
         TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {proj[0]}, option);
+
+        TAxis * aStack = hsParam->GetAxis(dims[1]);
+        if (aStack->IsAlphanumeric()) {
+          std::string label = aStack->GetBinLabel(p[dims[1]]);
+          hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
+        }
+        else {
+          double binLowEdge = aStack->GetBinLowEdge(p[dims[1]]);
+          double binUpEdge  = aStack->GetBinUpEdge(p[dims[1]]);
+          hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
+        }
+
         hProj->SetMarkerStyle(20);
         hProj->SetMarkerColor(iStack + 1);
         if (stackMin > hProj->GetMinimum(0)) stackMin = hProj->GetMinimum();

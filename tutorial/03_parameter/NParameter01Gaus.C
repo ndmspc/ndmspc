@@ -46,7 +46,7 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
 
     // Create Gaussian histogram for each point
     // TRandom3 rnd(0);
-    TH1D * h = new TH1D("h", "Gaussian", 100, -10, 10);
+    TH1D * h = new TH1D("h", "Gaussian", 200, -10, 10);
 
     // Retrieve mean and sigma from the bin centers of current point
     int mean  = point->GetBinCenter("mean");

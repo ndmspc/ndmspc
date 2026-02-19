@@ -23,6 +23,9 @@ RUN mkdir -p /ndmspc
 RUN chown -R ${MY_USER}:${MY_USER} /ndmspc
 USER 1000
 WORKDIR /ndmspc
+RUN root -b -q /usr/share/ndmspc/tutorial/02_storage/NStorage01Gaus.C
+RUN root -b -q /usr/share/ndmspc/tutorial/03_parameter/NParameter01Gaus.C
 RUN root -b -q /usr/share/ndmspc/tutorial/04_customization/NCustomization01Gaus.C
+RUN root -b -q /usr/share/ndmspc/tutorial/05_nested/NNested01Gaus.C
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD [ "/bin/bash" ]
