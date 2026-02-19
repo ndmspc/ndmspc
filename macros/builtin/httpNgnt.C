@@ -178,9 +178,10 @@ void httpNgnt()
         mapProperties["mappingPad"]["default"] = "pad1";
         mapProperties["contentPad"]["type"]    = "string";
         mapProperties["contentPad"]["default"] = "pad2";
+
         wsOut["workspace"]["map"]["properties"] = mapProperties;
         wsOut["workspace"]["map"]["type"]       = "object";
-        httpOut["result"] = "success";
+        httpOut["result"]                       = "success";
       }
       else {
         httpOut["result"] = "failure";
@@ -228,7 +229,6 @@ void httpNgnt()
       if (mappingPad.empty()) {
         mappingPad = "pad1";
       }
-      // NLogTrace("Map handler received mappingPad: %s", mappingPad.c_str());
 
       std::string contentPad = "";
       if (httpIn.contains("contentPad")) {
@@ -237,7 +237,9 @@ void httpNgnt()
       if (contentPad.empty()) {
         contentPad = "pad2";
       }
-      // NLogTrace("Map handler received contentPad: %s", contentPad.c_str());
+
+      // Print all pads
+      NLogDebug("Mapping pad: %s, Content pad: %s", mappingPad.c_str(), contentPad.c_str());
 
       TList * l    = new TList();
       TH1 *   proj = nav->GetProjection();
@@ -260,13 +262,34 @@ void httpNgnt()
         clickAction["payload"]          = json::object();
         clickAction["payload"]["point"] = json::array();
 
-        item["handlers"]["click"] = clickAction;
+        json debugAction;
+        debugAction["type"]    = "debug";
+        debugAction["message"] = std::string("Debug click: ") + item["fName"].dump();
+
+        item["handlers"]["click"] = json::array({clickAction, debugAction});
       }
 
       wsOut["payload"]["map"]["obj"]        = listJson;
-      wsOut["payload"]["map"]["mappingPad"] = mappingPad;
+      wsOut["payload"]["map"]["targetPad"]  = mappingPad;
       wsOut["payload"]["map"]["contentPad"] = contentPad;
-      httpOut["result"]                     = "success";
+
+      server->GetWorkspace()["map"]["properties"]["mappingPad"]["default"] = mappingPad;
+      server->GetWorkspace()["map"]["properties"]["contentPad"]["default"] = contentPad;
+
+      json spectraProperties;
+      spectraProperties["pad"]["type"]    = "string";
+      spectraProperties["pad"]["default"] = "pad3";
+
+      spectraProperties["parameters"]["type"]          = "array";
+      spectraProperties["parameters"]["format"]        = "multiselect";
+      spectraProperties["parameters"]["items"]["type"] = "string";
+      spectraProperties["parameters"]["items"]["enum"] = nav->GetParameterNames();
+      spectraProperties["parameters"]["default"] = json::array({nav->GetParameterNames().front()});
+
+      wsOut["workspace"]["spectra"]["properties"] = spectraProperties;
+      wsOut["workspace"]["spectra"]["type"]       = "object";
+
+      httpOut["result"] = "success";
     }
     else if (method.find("PATCH") != std::string::npos) {
       NLogTrace("[Server] PATCH map received: %s", httpIn.dump().c_str());
@@ -318,15 +341,15 @@ void httpNgnt()
           clickAction["contentType"]      = "application/json";
           clickAction["payload"]          = json::object();
           clickAction["payload"]["point"] = pointForClickAction;
-          item["handlers"]["click"]       = clickAction;
+          item["handlers"]["click"]       = json::array({clickAction});
           NLogTrace("[Server] Sending only new projection for PATCH, point: %s",
                     json(pointForClickAction).dump().c_str());
         }
         // Always send as TList, even for single histogram
         wsOut["payload"]["map"]["obj"]         = listJson;
         wsOut["payload"]["map"]["appendToTab"] = true;
-        wsOut["payload"]["map"]["mappingPad"]  = httpIn.contains("mappingPad") ? httpIn["mappingPad"] : "pad1";
-        wsOut["payload"]["map"]["contentPad"]  = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad2";
+        wsOut["payload"]["map"]["targetPad"]   = httpIn.contains("mappingPad") ? httpIn["mappingPad"] : "pad1";
+        // wsOut["payload"]["map"]["contentPad"]  = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
       }
       else {
         NLogTrace("[Server] No projection found at final level, nothing sent to websocket");
@@ -337,8 +360,9 @@ void httpNgnt()
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
           if (outputPoint) {
             NLogTrace("Output point for bin %d:", entry);
-            outputPoint->ls();
-            wsOut["payload"]["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
+            // outputPoint->ls();
+            wsOut["payload"]["content"]              = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
+            wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
           }
           else {
             NLogTrace("No output point found for entry %d", entry);
@@ -357,6 +381,100 @@ void httpNgnt()
     }
     else {
       httpOut["error"] = "Unsupported HTTP method for map action";
+    }
+  };
+
+  handlers["spectra"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                           std::map<std::string, TObject *> &) {
+    auto              server = Ndmspc::gNGnHttpServer;
+    Ndmspc::NGnTree * ngnt   = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
+    if (!ngnt || ngnt->IsZombie()) {
+      NLogError("NGnTree is not opened");
+      httpOut["result"] = "NGnTree is not opened";
+      return;
+    }
+
+    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)server->GetInputObject("navigator");
+    if (!nav) {
+      NLogError("Navigator is not available");
+      httpOut["result"] = "navigator_not_available";
+      return;
+    }
+
+    if (method.find("GET") != std::string::npos) {
+    }
+    else if (method.find("POST") != std::string::npos) {
+      std::string spectraPad = "";
+      if (httpIn.contains("pad")) {
+        spectraPad = httpIn["pad"].get<std::string>();
+      }
+      if (spectraPad.empty()) {
+        spectraPad = "pad3";
+      }
+
+      if (nav) {
+        NLogTrace("Reshape navigator is available");
+        // nav->Draw("hover");
+        //
+        std::vector<std::string> parameterName = httpIn.contains("parameters")
+                       ? httpIn["parameters"].get<std::vector<std::string>>()
+                       : std::vector<std::string>{};
+
+        if (parameterName.empty()) {
+          NLogWarning("No parameter name provided for spectra, defaulting to 'meanFit'");
+          httpOut["result"] = "missing_parameters";
+          return;
+        }
+
+        std::vector<double> minmax;
+        if (httpIn.contains("minmax")) {
+          minmax = httpIn["minmax"].get<std::vector<double>>();
+        }
+
+        // Parse starting pad index from pad name (e.g., pad4 → 4)
+        int padIndex = 3;
+        if (spectraPad.size() > 3 && spectraPad.substr(0, 3) == "pad") {
+          try {
+            padIndex = std::stoi(spectraPad.substr(3));
+          } catch (...) {
+            padIndex = 3;
+          }
+        }
+        std::vector<json> multiSpectra;
+        for (const auto& param : parameterName) {
+          std::string padName = "pad" + std::to_string(padIndex);
+          TList * spectra = nav->DrawSpectraAll(param, minmax, "");
+          if (spectra) {
+            NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
+            json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+            json debugAction;
+            debugAction["type"]                = "debug";
+            debugAction["message"]             = std::string("Debug click: ") + spectraObject["fName"].dump();
+            spectraObject["handlers"]["click"] = json::array({debugAction});
+            spectraObject["targetPad"] = padName;
+            spectraObject["parameter"] = param;
+            multiSpectra.push_back(spectraObject);
+          } else {
+            NLogWarning("No spectra found for parameter '%s'", param.c_str());
+          }
+          padIndex++;
+        }
+        if (!multiSpectra.empty()) {
+          wsOut["payload"]["spectra"]["objs"] = multiSpectra;
+          wsOut["payload"]["spectra"]["parameters"] = parameterName;
+          wsOut["payload"]["spectra"]["multipad"] = true;
+        }
+
+        httpOut["result"] = "success";
+      }
+      else {
+        NLogTrace("Reshape navigator is not available");
+        httpOut["result"] = "not_available";
+        return;
+      }
+    }
+    else {
+      httpOut["error"] = "Unsupported HTTP method for reshape action";
     }
   };
 
@@ -392,7 +510,7 @@ void httpNgnt()
         clickAction["contentType"]                   = "application/json";
         clickAction["path"]                          = "point";
         clickAction["payload"]                       = json::object();
-        wsOut["payload"]["map"]["handlers"]["click"] = clickAction;
+        wsOut["payload"]["map"]["handlers"]["click"] = json::array({clickAction});
 
         // wsOut["map"]["handlers"]["hover"]["action"]       = "contenthover";
         // server->WebSocketBroadcast(wsOut);
@@ -417,72 +535,13 @@ void httpNgnt()
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
           if (outputPoint) {
             NLogTrace("Output point for bin %d:", entry);
-            outputPoint->ls();
-            wsOut["payload"]["content"] = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
+            // outputPoint->ls();
+            wsOut["payload"]["content"]["obj"]       = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
+            wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
           }
           else {
             NLogWarning("No output point found for entry %d", entry);
           }
-        }
-
-        httpOut["result"] = "success";
-      }
-      else {
-        NLogTrace("Reshape navigator is not available");
-        httpOut["result"] = "not_available";
-        return;
-      }
-    }
-    else {
-      httpOut["error"] = "Unsupported HTTP method for reshape action";
-    }
-  };
-
-  handlers["spectra"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
-                           std::map<std::string, TObject *> &) {
-    auto              server = Ndmspc::gNGnHttpServer;
-    Ndmspc::NGnTree * ngnt   = (Ndmspc::NGnTree *)server->GetInputObject("ngnt");
-    if (!ngnt || ngnt->IsZombie()) {
-      NLogError("NGnTree is not opened");
-      httpOut["result"] = "NGnTree is not opened";
-      return;
-    }
-
-    Ndmspc::NGnNavigator * nav = (Ndmspc::NGnNavigator *)server->GetInputObject("navigator");
-    if (!nav) {
-      NLogError("Navigator is not available");
-      httpOut["result"] = "navigator_not_available";
-      return;
-    }
-
-    if (method.find("GET") != std::string::npos) {
-    }
-    else if (method.find("POST") != std::string::npos) {
-      if (nav) {
-        NLogTrace("Reshape navigator is available");
-        // nav->Draw("hover");
-        //
-        std::string         parameterName = httpIn.contains("parameter") ? httpIn["parameter"].get<std::string>() : "";
-        std::vector<double> minmax;
-        if (httpIn.contains("minmax")) {
-          minmax = httpIn["minmax"].get<std::vector<double>>();
-        }
-
-        TList * spectra = nav->DrawSpectraAll(parameterName, minmax, "");
-        if (spectra) {
-          NLogTrace("Spectra for parameter '%s' obtained:", parameterName.c_str());
-          // spectra->Print();
-          wsOut["payload"]["spectra"]["parameter"]                   = parameterName;
-          wsOut["payload"]["spectra"]["handlers"]["click"]["action"] = "http";
-          wsOut["payload"]["spectra"]["obj"] = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
-          if (!server) {
-            NLogError("HTTP server is not available, cannot publish navigator");
-            httpOut["result"] = "http_server_not_available";
-            return;
-          }
-        }
-        else {
-          NLogWarning("No spectra found for parameter '%s'", parameterName.c_str());
         }
 
         httpOut["result"] = "success";
