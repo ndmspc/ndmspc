@@ -29,6 +29,7 @@ endif()
 
 if(WITH_SERVER)
   add_subdirectory(http)
+  add_subdirectory(mon)
 endif()
 add_subdirectory(hep)
 if(WITH_TEST)
