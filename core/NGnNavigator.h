@@ -104,8 +104,16 @@ class NGnNavigator : public TNamed {
    * @param option Draw options.
    * @param projIds Projection IDs.
    */
-  virtual TList * DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax = {5},
-                              Option_t * option = "") const;
+  /**
+   * @brief Draw spectra for a parameter.
+   * @param parameterName Name of parameter.
+   * @param projIds Projection IDs.
+   * @param minmax Min/max or percent range.
+   * @param minmaxMode Mode for min/max calculation ("VE" = value±error, "V" = value only).
+   * @param option Draw options.
+   */
+  virtual TList * DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax = {0.05},
+                              const std::string& minmaxMode = "V", Option_t * option = "") const;
 
   /**
    * @brief Draws spectra for the given parameter and projection axes.
@@ -114,8 +122,16 @@ class NGnNavigator : public TNamed {
    * @param projAxes A vector of axis names to project onto.
    * @param option Optional drawing options.
    */
+  /**
+   * @brief Draws spectra for the given parameter and projection axes.
+   * @param parameterName The name of the parameter to draw spectra for.
+   * @param projAxes A vector of axis names to project onto.
+   * @param minmax Min/max or percent range.
+   * @param minmaxMode Mode for min/max calculation ("VE" = value±error, "V" = value only).
+   * @param option Optional drawing options.
+   */
   virtual TList * DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
-                                    std::vector<double> minmax = {5}, Option_t * option = "") const;
+                                    std::vector<double> minmax = {0.05}, const std::string& minmaxMode = "V", Option_t * option = "") const;
 
   /**
    * @brief Draws all spectra for the given parameter.
@@ -123,8 +139,15 @@ class NGnNavigator : public TNamed {
    * @param parameterName The name of the parameter to draw all spectra for.
    * @param option Optional drawing options.
    */
-  virtual TList * DrawSpectraAll(std::string parameterName, std::vector<double> minmax = {5},
-                                 Option_t * option = "") const;
+  /**
+   * @brief Draws all spectra for the given parameter.
+   * @param parameterName The name of the parameter to draw all spectra for.
+   * @param minmax Min/max or percent range.
+   * @param minmaxMode Mode for min/max calculation ("VE" = value±error, "V" = value only).
+   * @param option Optional drawing options.
+   */
+  virtual TList * DrawSpectraAll(std::string parameterName, std::vector<double> minmax = {0.05},
+                                 const std::string& minmaxMode = "V", Option_t * option = "") const;
 
   /**
    * @brief Paint navigator objects.

@@ -277,14 +277,27 @@ void httpNgnt()
       server->GetWorkspace()["map"]["properties"]["contentPad"]["default"] = contentPad;
 
       json spectraProperties;
-      spectraProperties["pad"]["type"]    = "string";
-      spectraProperties["pad"]["default"] = "pad3";
+      spectraProperties["startPad"]["type"]    = "string";
+      spectraProperties["startPad"]["default"] = "pad3";
 
       spectraProperties["parameters"]["type"]          = "array";
       spectraProperties["parameters"]["format"]        = "multiselect";
       spectraProperties["parameters"]["items"]["type"] = "string";
-      spectraProperties["parameters"]["items"]["enum"] = nav->GetParameterNames();
-      spectraProperties["parameters"]["default"] = json::array({nav->GetParameterNames().front()});
+      auto paramNames                                  = nav->GetParameterNames();
+      spectraProperties["parameters"]["items"]["enum"] = paramNames;
+      if (!paramNames.empty()) {
+        spectraProperties["parameters"]["default"] = json::array({paramNames.front()});
+      }
+      else {
+        spectraProperties["parameters"]["default"] = json::array();
+      }
+
+      spectraProperties["minmaxMode"]["type"]    = "string";
+      spectraProperties["minmaxMode"]["default"] = "V";
+      spectraProperties["minmaxMode"]["format"]  = "select";
+      spectraProperties["minmaxMode"]["enum"]    = {"V", "VE"};
+      spectraProperties["axismargin"]["type"]    = "number";
+      spectraProperties["axismargin"]["default"] = 0.05;
 
       wsOut["workspace"]["spectra"]["properties"] = spectraProperties;
       wsOut["workspace"]["spectra"]["type"]       = "object";
@@ -405,8 +418,8 @@ void httpNgnt()
     }
     else if (method.find("POST") != std::string::npos) {
       std::string spectraPad = "";
-      if (httpIn.contains("pad")) {
-        spectraPad = httpIn["pad"].get<std::string>();
+      if (httpIn.contains("startPad")) {
+        spectraPad = httpIn["startPad"].get<std::string>();
       }
       if (spectraPad.empty()) {
         spectraPad = "pad3";
@@ -417,8 +430,8 @@ void httpNgnt()
         // nav->Draw("hover");
         //
         std::vector<std::string> parameterName = httpIn.contains("parameters")
-                       ? httpIn["parameters"].get<std::vector<std::string>>()
-                       : std::vector<std::string>{};
+                                                     ? httpIn["parameters"].get<std::vector<std::string>>()
+                                                     : std::vector<std::string>{};
 
         if (parameterName.empty()) {
           NLogWarning("No parameter name provided for spectra, defaulting to 'meanFit'");
@@ -426,24 +439,35 @@ void httpNgnt()
           return;
         }
 
-        std::vector<double> minmax;
-        if (httpIn.contains("minmax")) {
-          minmax = httpIn["minmax"].get<std::vector<double>>();
+        double minmax = 0.05;
+        if (httpIn.contains("axismargin")) {
+            minmax = {httpIn["axismargin"].get<double>()};
         }
+        std::string minmaxMode = "V";
+        if (httpIn.contains("minmaxMode")) {
+          minmaxMode = httpIn["minmaxMode"].get<std::string>();
+        }
+
+        server->GetWorkspace()["spectra"]["properties"]["startPad"]["default"]   = spectraPad;
+        server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameterName;
+        // Only use the first element for DrawSpectra and workspace default
+        // server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"] = minmax;
+        server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"] = minmaxMode;
 
         // Parse starting pad index from pad name (e.g., pad4 → 4)
         int padIndex = 3;
         if (spectraPad.size() > 3 && spectraPad.substr(0, 3) == "pad") {
           try {
             padIndex = std::stoi(spectraPad.substr(3));
-          } catch (...) {
+          }
+          catch (...) {
             padIndex = 3;
           }
         }
         std::vector<json> multiSpectra;
-        for (const auto& param : parameterName) {
+        for (const auto & param : parameterName) {
           std::string padName = "pad" + std::to_string(padIndex);
-          TList * spectra = nav->DrawSpectraAll(param, minmax, "");
+          TList *     spectra = nav->DrawSpectraAll(param, {minmax}, minmaxMode, "");
           if (spectra) {
             NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
             json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
@@ -451,18 +475,23 @@ void httpNgnt()
             debugAction["type"]                = "debug";
             debugAction["message"]             = std::string("Debug click: ") + spectraObject["fName"].dump();
             spectraObject["handlers"]["click"] = json::array({debugAction});
-            spectraObject["targetPad"] = padName;
-            spectraObject["parameter"] = param;
+            spectraObject["targetPad"]         = padName;
+            spectraObject["parameter"]         = param;
             multiSpectra.push_back(spectraObject);
-          } else {
+          }
+          else {
             NLogWarning("No spectra found for parameter '%s'", param.c_str());
           }
           padIndex++;
         }
         if (!multiSpectra.empty()) {
-          wsOut["payload"]["spectra"]["objs"] = multiSpectra;
+          wsOut["payload"]["spectra"]["objs"]       = multiSpectra;
           wsOut["payload"]["spectra"]["parameters"] = parameterName;
-          wsOut["payload"]["spectra"]["multipad"] = true;
+          wsOut["payload"]["spectra"]["multipad"]   = true;
+        }
+        wsOut["payload"]["spectra"]["axismargin"] = minmax;
+        if (!minmaxMode.empty()) {
+          wsOut["payload"]["spectra"]["minmaxMode"] = minmaxMode;
         }
 
         httpOut["result"] = "success";
