@@ -42,7 +42,8 @@ void httpNgntBase()
     auto server = Ndmspc::gNGnHttpServer;
 
     NLogInfo("/debug method=%s in=%s", method.c_str(), httpIn.dump().c_str());
-
+    httpOut["httpIn"] = httpIn;
+    httpOut["method"] = method;
     if (method.find("GET") != std::string::npos) {
       httpOut["result"] = "success";
     }
