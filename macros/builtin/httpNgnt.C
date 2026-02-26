@@ -412,17 +412,29 @@ void httpNgnt()
 
           // check of server workspace spectra parameters is empty or different from current navigator parameters, if so
           // update it and send to client
-          if (server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"].empty()) {
 
-            server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"] =
-                navCurrent->GetParameterNames();
-            server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] =
-                navCurrent->GetParameterNames().empty() ? json::array()
-                                                        : json::array({navCurrent->GetParameterNames().front()});
-            NLogDebug("[Server] Updated spectra parameters for final level navigator: %s",
-                      json(navCurrent->GetParameterNames()).dump().c_str());
+          // check if workspace spectra parameters are missing or empty, if so set it based on current navigator
+          // parameters
+          if (!server->GetWorkspace().contains("spectra") ||
+              !server->GetWorkspace()["spectra"].contains("properties") ||
+              !server->GetWorkspace()["spectra"]["properties"].contains("parameters") ||
+              !server->GetWorkspace()["spectra"]["properties"]["parameters"].contains("items") ||
+              !server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"].contains("enum") ||
+              server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"].empty()) {
 
-            wsOut["payload"]["workspace"]["spectra"] = server->GetWorkspace()["spectra"];
+            if (!navCurrent->GetParameterNames().empty()) {
+              NLogDebug("[Server] Updating spectra parameters for final level navigator: %s",
+                        json(navCurrent->GetParameterNames()).dump().c_str());
+              server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"] =
+                  navCurrent->GetParameterNames();
+              server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] =
+                  navCurrent->GetParameterNames().empty() ? json::array()
+                                                          : json::array({navCurrent->GetParameterNames().front()});
+              NLogDebug("[Server] Updated spectra parameters for final level navigator: %s",
+                        json(navCurrent->GetParameterNames()).dump().c_str());
+
+              wsOut["payload"]["workspace"]["spectra"] = server->GetWorkspace()["spectra"];
+            }
           }
         }
       }
@@ -517,6 +529,7 @@ void httpNgnt()
         // Only use the first element for DrawSpectra and workspace default
         // server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"] = minmax;
         server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"] = minmaxMode;
+        wsOut["workspace"]["spectra"]                                            = server->GetWorkspace()["spectra"];
 
         // Parse starting pad index from pad name (e.g., pad4 → 4)
         int padIndex = 3;
@@ -590,9 +603,10 @@ void httpNgnt()
 
       NLogTrace("[Server] Final navigator after traversal: %p", (void *)navCurrent);
       if (navCurrent) {
-        std::vector<std::string> parameters = httpIn.contains("parameters")
-                                                  ? httpIn["parameters"].get<std::vector<std::string>>()
-                                                  : std::vector<std::string>{};
+        std::vector<std::string> parameters;
+        if (httpIn.contains("parameters")) {
+          parameters = httpIn["parameters"].get<std::vector<std::string>>();
+        }
 
         if (parameters.empty()) {
           // NLogWarning("No parameter name provided for spectra !!!");
@@ -600,6 +614,11 @@ void httpNgnt()
           // return;
           parameters =
               server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"].get<std::vector<std::string>>();
+        }
+        else {
+          // Update workspace default with provided parameters
+          server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameters;
+          wsOut["workspace"]["spectra"]                                            = server->GetWorkspace()["spectra"];
         }
         NLogDebug("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
 
