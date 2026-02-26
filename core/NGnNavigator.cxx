@@ -886,21 +886,22 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   // --- Propagate parameter min/max from children ---
   std::map<std::string, double> paramMinGlobal;
   std::map<std::string, double> paramMaxGlobal;
-  bool firstChild = true;
+  bool                          firstChild = true;
   for (const auto & child : obj->GetChildren()) {
     json childJson;
     if (child != nullptr) {
       ExportToJson(childJson, child, objectNames);
       // Aggregate parameter min/max from child
       if (childJson.contains("fArrays")) {
-        for (auto& [param, arr] : childJson["fArrays"].items()) {
+        for (auto & [param, arr] : childJson["fArrays"].items()) {
           if (arr.contains("min") && arr.contains("max")) {
             double cmin = arr["min"].get<double>();
             double cmax = arr["max"].get<double>();
             if (firstChild || paramMinGlobal.find(param) == paramMinGlobal.end()) {
               paramMinGlobal[param] = cmin;
               paramMaxGlobal[param] = cmax;
-            } else {
+            }
+            else {
               paramMinGlobal[param] = std::min(paramMinGlobal[param], cmin);
               paramMaxGlobal[param] = std::max(paramMaxGlobal[param], cmax);
             }
@@ -914,7 +915,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
   // Store aggregated min/max at this level if any
   if (!paramMinGlobal.empty()) {
-    for (const auto& [param, minVal] : paramMinGlobal) {
+    for (const auto & [param, minVal] : paramMinGlobal) {
       j["fArrays"][param]["min"] = minVal;
       j["fArrays"][param]["max"] = paramMaxGlobal[param];
     }
@@ -1536,7 +1537,8 @@ void NGnNavigator::SetParameterError(const std::string & name, double value, int
     }
   }
 }
-TList * NGnNavigator::DrawSpectraAll(std::string parameterName, std::vector<double> minmax, const std::string& minmaxMode, Option_t * option) const
+TList * NGnNavigator::DrawSpectraAll(std::string parameterName, std::vector<double> minmax,
+                                     const std::string & minmaxMode, Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object for all projection IDs
@@ -1546,7 +1548,8 @@ TList * NGnNavigator::DrawSpectraAll(std::string parameterName, std::vector<doub
 }
 
 TList * NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
-                                        std::vector<double> minmax, const std::string& minmaxMode, Option_t * option) const
+                                        std::vector<double> minmax, const std::string & minmaxMode,
+                                        Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object for all projection IDs
@@ -1591,7 +1594,7 @@ TList * NGnNavigator::DrawSpectraByName(std::string parameterName, std::vector<s
 }
 
 TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax,
-                                  const std::string& minmaxMode, Option_t * option) const
+                                  const std::string & minmaxMode, Option_t * option) const
 {
   ///
   /// Draws the NGnProjection object with the specified projection IDs
@@ -1808,7 +1811,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
       double stackMin = std::numeric_limits<double>::max();
       double stackMax = std::numeric_limits<double>::lowest();
       // Only support "VE" and "V" modes; default to "V" if unsupported
-      std::string mode = (minmaxMode == "VE" || minmaxMode == "V") ? minmaxMode : "V";
+      std::string mode = (minmaxMode == "VE" || minmaxMode == "V" || minmaxMode == "D") ? minmaxMode : "V";
       for (int iStack = 0; iStack < nStacks; iStack++) {
         p[proj[0]] = 0;
         if (proj.size() > 1) p[proj[1]] = iStack + 1;
@@ -1817,17 +1820,19 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
         if (proj.size() > 1) ranges.push_back({proj[1], p[proj[1]], p[proj[1]]});
         NUtils::SetAxisRanges(hsParam, ranges, true);
         TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {proj[0]}, option);
-        TAxis * aStack = hsParam->GetAxis(dims[1]);
-        if (aStack->IsAlphanumeric()) {
-          std::string label = aStack->GetBinLabel(p[dims[1]]);
-          hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
-        } else {
-          double binLowEdge = aStack->GetBinLowEdge(p[dims[1]]);
-          double binUpEdge  = aStack->GetBinUpEdge(p[dims[1]]);
-          hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
+        if (proj.size() > 1) {
+          TAxis * aStack = hsParam->GetAxis(proj[1]);
+          if (aStack->IsAlphanumeric()) {
+            std::string label = aStack->GetBinLabel(p[proj[1]]);
+            hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
+          }
+          else {
+            double binLowEdge = aStack->GetBinLowEdge(p[proj[1]]);
+            double binUpEdge  = aStack->GetBinUpEdge(p[proj[1]]);
+            hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
+          }
         }
-        hProj->SetMarkerStyle(20);
-        hProj->SetMarkerColor(iStack + 1);
+
         // Track min/max according to mode
         for (int bin = 1; bin <= hProj->GetNbinsX(); ++bin) {
           double val = hProj->GetBinContent(bin);
@@ -1835,46 +1840,58 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
           if (mode == "VE") {
             if (stackMin > val - err) stackMin = val - err;
             if (stackMax < val + err) stackMax = val + err;
-          } else if (mode == "V") {
+          }
+          else if (mode == "V") {
             if (stackMin > val) stackMin = val;
             if (stackMax < val) stackMax = val;
           }
         }
+
+        hProj->SetMarkerStyle(20);
+        hProj->SetMarkerColor(iStack + 1);
+        hProj->Draw("text");
         hStack->Add((TH1 *)hProj->Clone());
+        NLogTrace("Added histogram to stack: %s", hProj->GetTitle());
       }
 
       c->cd(iPad + 1);
 
-      // Always set stackMin and stackMax to THStack, using value ± error for all bins
-      if (minmax.size() > 0) {
-        if (minmax.size() == 2) {
-          stackMin = minmax[0];
-          stackMax = minmax[1];
-        }
-        else if (minmax.size() == 1) {
-          // minmax[0] is N percent (e.g., 0.05 for 5%)
-          double percent = minmax[0];
-          double center = 0.5 * (stackMax + stackMin);
-          double halfRange = 0.5 * (stackMax - stackMin);
-          double margin = percent * halfRange;
-          stackMin = center - (halfRange + margin);
-          stackMax = center + (halfRange + margin);
-        }
+      if (mode == "D") {
+        hStack->SetMinimum(-1111);
+        hStack->SetMaximum(-1111);
       }
-
-      // Safeguard: avoid wmin == wmax errors
-      if (stackMin == stackMax) {
-        if (stackMin == 0.0) {
-          stackMin = 0.0;
-          stackMax = 1.0;
-        } else {
-          stackMin -= 1.0;
-          stackMax += 1.0;
+      else {
+        // Always set stackMin and stackMax to THStack, using value ± error for all bins
+        if (minmax.size() > 0) {
+          if (minmax.size() == 2) {
+            stackMin = minmax[0];
+            stackMax = minmax[1];
+          }
+          else if (minmax.size() == 1) {
+            // minmax[0] is N percent (e.g., 0.05 for 5%)
+            double percent   = minmax[0];
+            double center    = 0.5 * (stackMax + stackMin);
+            double halfRange = 0.5 * (stackMax - stackMin);
+            double margin    = percent * halfRange;
+            stackMin         = center - (halfRange + margin);
+            stackMax         = center + (halfRange + margin);
+          }
         }
-      }
-      hStack->SetMinimum(stackMin);
-      hStack->SetMaximum(stackMax);
 
+        // Safeguard: avoid wmin == wmax errors
+        if (stackMin == stackMax) {
+          if (stackMin == 0.0) {
+            stackMin = 0.0;
+            stackMax = 1.0;
+          }
+          else {
+            stackMin -= 1.0;
+            stackMax += 1.0;
+          }
+        }
+        hStack->SetMinimum(stackMin);
+        hStack->SetMaximum(stackMax);
+      }
       std::string drawOption = "nostack E";
       drawOption += option;
       NLogTrace("Drawing stack with option: %s", drawOption.c_str());

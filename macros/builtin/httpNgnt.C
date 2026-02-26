@@ -61,44 +61,50 @@ void httpNgnt()
           server->GetWorkspace()["open"]["type"]                          = "object";
           server->GetWorkspace()["open"]["properties"]["file"]["type"]    = "string";
           server->GetWorkspace()["open"]["properties"]["file"]["default"] = file;
+          wsOut["workspace"]["open"]                                      = server->GetWorkspace()["open"];
 
-          // Return new API schema with reshape configuration
-          server->GetWorkspace()["reshape"]["type"] = "object";
-          json reshapeProperties;
-          reshapeProperties["levels"]["type"]        = "array";
-          reshapeProperties["levels"]["description"] = "A nested array of integers representing levels.";
+          if (server->GetWorkspace().contains("reshape") == false) {
 
-          // Build nested array based on actual axes count
-          json      default_levels         = json::array();
-          size_t    nAxes                  = ngnt->GetBinning()->GetAxes().size();
-          const int MAX_ELEMENTS_PER_LEVEL = 3;
-          for (size_t i = 0; i < nAxes; i += MAX_ELEMENTS_PER_LEVEL) {
-            json level = json::array();
-            for (int j = 0; j < MAX_ELEMENTS_PER_LEVEL && (i + j) < nAxes; j++) {
-              level.push_back(static_cast<int>(i + j));
+            // Build reshape properties based on NGnTree binning (default values and options for levels and binning
+            // definitions)
+            json reshapeProperties;
+            reshapeProperties["levels"]["type"]        = "array";
+            reshapeProperties["levels"]["description"] = "A nested array of integers representing levels.";
+
+            // Build nested array based on actual axes count
+            json      default_levels         = json::array();
+            size_t    nAxes                  = ngnt->GetBinning()->GetAxes().size();
+            const int MAX_ELEMENTS_PER_LEVEL = 3;
+            for (size_t i = 0; i < nAxes; i += MAX_ELEMENTS_PER_LEVEL) {
+              json level = json::array();
+              for (int j = 0; j < MAX_ELEMENTS_PER_LEVEL && (i + j) < nAxes; j++) {
+                level.push_back(static_cast<int>(i + j));
+              }
+              default_levels.push_back(level);
             }
-            default_levels.push_back(level);
-          }
-          reshapeProperties["levels"]["default"]                = default_levels;
-          reshapeProperties["levels"]["items"]["type"]          = "array";
-          reshapeProperties["levels"]["items"]["items"]["type"] = "integer";
+            reshapeProperties["levels"]["default"]                = default_levels;
+            reshapeProperties["levels"]["items"]["type"]          = "array";
+            reshapeProperties["levels"]["items"]["items"]["type"] = "integer";
 
-          std::vector<std::string> binningNames       = ngnt->GetBinning()->GetDefinitionNames();
-          std::string              currentBinningName = ngnt->GetBinning()->GetCurrentDefinitionName();
-          if (currentBinningName.empty() && !binningNames.empty()) {
-            currentBinningName = binningNames.front();
-          }
-          else if (!binningNames.empty() &&
-                   std::find(binningNames.begin(), binningNames.end(), currentBinningName) == binningNames.end()) {
-            currentBinningName = binningNames.front();
-          }
-          reshapeProperties["binningName"]["type"]    = "string";
-          reshapeProperties["binningName"]["format"]  = "select";
-          reshapeProperties["binningName"]["enum"]    = binningNames;
-          reshapeProperties["binningName"]["default"] = currentBinningName;
+            std::vector<std::string> binningNames       = ngnt->GetBinning()->GetDefinitionNames();
+            std::string              currentBinningName = ngnt->GetBinning()->GetCurrentDefinitionName();
+            if (currentBinningName.empty() && !binningNames.empty()) {
+              currentBinningName = binningNames.front();
+            }
+            else if (!binningNames.empty() &&
+                     std::find(binningNames.begin(), binningNames.end(), currentBinningName) == binningNames.end()) {
+              currentBinningName = binningNames.front();
+            }
+            reshapeProperties["binningName"]["type"]    = "string";
+            reshapeProperties["binningName"]["format"]  = "select";
+            reshapeProperties["binningName"]["enum"]    = binningNames;
+            reshapeProperties["binningName"]["default"] = currentBinningName;
 
-          wsOut["workspace"]["reshape"]["properties"] = reshapeProperties;
-          wsOut["workspace"]["reshape"]["type"]       = "object";
+            // wsOut["workspace"]["reshape"]["properties"] = reshapeProperties;
+            server->GetWorkspace()["reshape"]["properties"] = reshapeProperties;
+            server->GetWorkspace()["reshape"]["type"]       = "object";
+          }
+          wsOut["workspace"]["reshape"] = server->GetWorkspace()["reshape"];
 
           server->AddInputObject("ngnt", ngnt);
         }
@@ -168,20 +174,27 @@ void httpNgnt()
         nav = nullptr;
       }
       nav = ngnt->Reshape("", levels, 0, {}, {});
-      server->AddInputObject("navigator", nav);
+
       if (nav) {
+        server->AddInputObject("navigator", nav);
         server->GetWorkspace()["reshape"]["properties"]["levels"]["default"]      = levels;
         server->GetWorkspace()["reshape"]["properties"]["binningName"]["default"] = binningName;
+        wsOut["workspace"]["reshape"]                                             = server->GetWorkspace()["reshape"];
 
-        json mapProperties;
-        mapProperties["mappingPad"]["type"]    = "string";
-        mapProperties["mappingPad"]["default"] = "pad1";
-        mapProperties["contentPad"]["type"]    = "string";
-        mapProperties["contentPad"]["default"] = "pad2";
+        if (server->GetWorkspace().contains("map") == false) {
+          // set default mapping and content pads for map workspace
+          json mapProperties;
+          mapProperties["mappingPad"]["type"]    = "string";
+          mapProperties["mappingPad"]["default"] = "pad1";
+          mapProperties["contentPad"]["type"]    = "string";
+          mapProperties["contentPad"]["default"] = "pad2";
 
-        wsOut["workspace"]["map"]["properties"] = mapProperties;
-        wsOut["workspace"]["map"]["type"]       = "object";
-        httpOut["result"]                       = "success";
+          server->GetWorkspace()["map"]["properties"] = mapProperties;
+          server->GetWorkspace()["map"]["type"]       = "object";
+        }
+        wsOut["workspace"]["map"] = server->GetWorkspace()["map"];
+
+        httpOut["result"] = "success";
       }
       else {
         httpOut["result"] = "failure";
@@ -254,6 +267,7 @@ void httpNgnt()
       std::vector<int> pointForClickAction;
 
       for (auto & item : listJson["arr"]) {
+
         json clickAction;
         clickAction["type"]             = "http";
         clickAction["method"]           = "PATCH";
@@ -266,7 +280,22 @@ void httpNgnt()
         debugAction["type"]    = "debug";
         debugAction["message"] = std::string("Debug click: ") + item["fName"].dump();
 
-        item["handlers"]["click"] = json::array({clickAction, debugAction});
+        json clicks = json::array({clickAction, debugAction});
+
+        NLogDebug("[Server] map POST XXX level %d == %d - 2", nav->GetLevel(), nav->GetNLevels());
+        if (nav->GetLevel() == nav->GetNLevels() - 2) {
+          json clickSpectra;
+          clickSpectra["type"]             = "http";
+          clickSpectra["method"]           = "PATCH";
+          clickSpectra["path"]             = "spectra";
+          clickSpectra["contentType"]      = "application/json";
+          clickSpectra["payload"]          = json::object();
+          clickSpectra["payload"]["point"] = pointForClickAction;
+          NLogDebug("[Server] Adding click handler for spectra at final level navigator, point: %s",
+                    json(listJson["arr"][0]).dump().c_str());
+          clicks.push_back(clickSpectra);
+        }
+        item["handlers"]["click"] = clicks;
       }
 
       wsOut["payload"]["map"]["obj"]        = listJson;
@@ -275,32 +304,36 @@ void httpNgnt()
 
       server->GetWorkspace()["map"]["properties"]["mappingPad"]["default"] = mappingPad;
       server->GetWorkspace()["map"]["properties"]["contentPad"]["default"] = contentPad;
+      wsOut["workspace"]["map"]                                            = server->GetWorkspace()["map"];
 
-      json spectraProperties;
-      spectraProperties["startPad"]["type"]    = "string";
-      spectraProperties["startPad"]["default"] = "pad3";
+      if (server->GetWorkspace().contains("spectra") == false) {
 
-      spectraProperties["parameters"]["type"]          = "array";
-      spectraProperties["parameters"]["format"]        = "multiselect";
-      spectraProperties["parameters"]["items"]["type"] = "string";
-      auto paramNames                                  = nav->GetParameterNames();
-      spectraProperties["parameters"]["items"]["enum"] = paramNames;
-      if (!paramNames.empty()) {
-        spectraProperties["parameters"]["default"] = json::array({paramNames.front()});
+        json spectraProperties;
+        spectraProperties["startPad"]["type"]    = "string";
+        spectraProperties["startPad"]["default"] = "pad3";
+
+        spectraProperties["parameters"]["type"]          = "array";
+        spectraProperties["parameters"]["format"]        = "multiselect";
+        spectraProperties["parameters"]["items"]["type"] = "string";
+        auto paramNames                                  = nav->GetParameterNames();
+        spectraProperties["parameters"]["items"]["enum"] = paramNames;
+        if (!paramNames.empty()) {
+          spectraProperties["parameters"]["default"] = json::array({paramNames.front()});
+        }
+        else {
+          spectraProperties["parameters"]["default"] = json::array();
+        }
+
+        spectraProperties["minmaxMode"]["type"]         = "string";
+        spectraProperties["minmaxMode"]["default"]      = "D";
+        spectraProperties["minmaxMode"]["format"]       = "select";
+        spectraProperties["minmaxMode"]["enum"]         = {"D", "V", "VE"};
+        spectraProperties["axismargin"]["type"]         = "number";
+        spectraProperties["axismargin"]["default"]      = 0.05;
+        server->GetWorkspace()["spectra"]["properties"] = spectraProperties;
+        server->GetWorkspace()["spectra"]["type"]       = "object";
       }
-      else {
-        spectraProperties["parameters"]["default"] = json::array();
-      }
-
-      spectraProperties["minmaxMode"]["type"]    = "string";
-      spectraProperties["minmaxMode"]["default"] = "V";
-      spectraProperties["minmaxMode"]["format"]  = "select";
-      spectraProperties["minmaxMode"]["enum"]    = {"V", "VE"};
-      spectraProperties["axismargin"]["type"]    = "number";
-      spectraProperties["axismargin"]["default"] = 0.05;
-
-      wsOut["workspace"]["spectra"]["properties"] = spectraProperties;
-      wsOut["workspace"]["spectra"]["type"]       = "object";
+      wsOut["workspace"]["spectra"] = server->GetWorkspace()["spectra"];
 
       httpOut["result"] = "success";
     }
@@ -324,15 +357,9 @@ void httpNgnt()
       NLogTrace("[Server] Final point for PATCH map: %s", json(point).dump().c_str());
 
       Ndmspc::NGnNavigator * navCurrent = nav;
-      int                    iLevel     = 0;
       for (const auto & bin : point) {
         NLogTrace("[Server] Traversing to child navigator for bin: %d navCurrent=%p", bin, (void *)navCurrent);
         navCurrent = navCurrent->GetChild(bin);
-        // if (!navCurrent) {
-        //   NLogError("[Server] No child navigator found for bin %d at level %d", bin, iLevel);
-        //   break;
-        // }
-        iLevel++;
       }
 
       NLogTrace("[Server] Final navigator after traversal: %p", (void *)navCurrent);
@@ -347,14 +374,29 @@ void httpNgnt()
         json             listJson            = json::parse(listStr.Data());
         std::vector<int> pointForClickAction = point;
         for (auto & item : listJson["arr"]) {
-          json clickAction;
-          clickAction["type"]             = "http";
-          clickAction["method"]           = "PATCH";
-          clickAction["path"]             = "map";
-          clickAction["contentType"]      = "application/json";
-          clickAction["payload"]          = json::object();
-          clickAction["payload"]["point"] = pointForClickAction;
-          item["handlers"]["click"]       = json::array({clickAction});
+          json clickMap;
+          clickMap["type"]             = "http";
+          clickMap["method"]           = "PATCH";
+          clickMap["path"]             = "map";
+          clickMap["contentType"]      = "application/json";
+          clickMap["payload"]          = json::object();
+          clickMap["payload"]["point"] = pointForClickAction;
+          json clicks                  = json::array({clickMap});
+
+          NLogDebug("[Server] XXX level %d == %d - 2", navCurrent->GetLevel(), nav->GetNLevels());
+          if (navCurrent->GetLevel() == nav->GetNLevels() - 2) {
+            json clickSpectra;
+            clickSpectra["type"]             = "http";
+            clickSpectra["method"]           = "PATCH";
+            clickSpectra["path"]             = "spectra";
+            clickSpectra["contentType"]      = "application/json";
+            clickSpectra["payload"]          = json::object();
+            clickSpectra["payload"]["point"] = pointForClickAction;
+            NLogDebug("[Server] Adding click handler for spectra at final level navigator, point: %s",
+                      json(listJson["arr"][0]).dump().c_str());
+            clicks.push_back(clickSpectra);
+          }
+          item["handlers"]["click"] = clicks;
           NLogTrace("[Server] Sending only new projection for PATCH, point: %s",
                     json(pointForClickAction).dump().c_str());
         }
@@ -363,6 +405,26 @@ void httpNgnt()
         wsOut["payload"]["map"]["appendToTab"] = true;
         wsOut["payload"]["map"]["targetPad"]   = httpIn.contains("mappingPad") ? httpIn["mappingPad"] : "pad1";
         // wsOut["payload"]["map"]["contentPad"]  = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
+
+        if (navCurrent->GetLevel() == nav->GetNLevels() - 1) {
+          NLogDebug("[Server] Reached final level navigator, sending content for point: %s [%d/%d]",
+                    json(pointForClickAction).dump().c_str(), navCurrent->GetLevel(), navCurrent->GetNLevels());
+
+          // check of server workspace spectra parameters is empty or different from current navigator parameters, if so
+          // update it and send to client
+          if (server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"].empty()) {
+
+            server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"] =
+                navCurrent->GetParameterNames();
+            server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] =
+                navCurrent->GetParameterNames().empty() ? json::array()
+                                                        : json::array({navCurrent->GetParameterNames().front()});
+            NLogDebug("[Server] Updated spectra parameters for final level navigator: %s",
+                      json(navCurrent->GetParameterNames()).dump().c_str());
+
+            wsOut["payload"]["workspace"]["spectra"] = server->GetWorkspace()["spectra"];
+          }
+        }
       }
       else {
         NLogTrace("[Server] No projection found at final level, nothing sent to websocket");
@@ -434,14 +496,14 @@ void httpNgnt()
                                                      : std::vector<std::string>{};
 
         if (parameterName.empty()) {
-          NLogWarning("No parameter name provided for spectra, defaulting to 'meanFit'");
+          NLogWarning("No parameter name provided for spectra !!!");
           httpOut["result"] = "missing_parameters";
           return;
         }
 
         double minmax = 0.05;
         if (httpIn.contains("axismargin")) {
-            minmax = {httpIn["axismargin"].get<double>()};
+          minmax = {httpIn["axismargin"].get<double>()};
         }
         std::string minmaxMode = "V";
         if (httpIn.contains("minmaxMode")) {
@@ -450,6 +512,8 @@ void httpNgnt()
 
         server->GetWorkspace()["spectra"]["properties"]["startPad"]["default"]   = spectraPad;
         server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameterName;
+
+        // server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameterName;
         // Only use the first element for DrawSpectra and workspace default
         // server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"] = minmax;
         server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"] = minmaxMode;
@@ -500,6 +564,106 @@ void httpNgnt()
         NLogTrace("Reshape navigator is not available");
         httpOut["result"] = "not_available";
         return;
+      }
+    }
+    else if (method.find("PATCH") != std::string::npos) {
+
+      NLogDebug("[Server] PATCH spectra received: %s", httpIn.dump().c_str());
+      std::vector<int> point;
+      if (httpIn.contains("point")) {
+        point = httpIn["point"].get<std::vector<int>>();
+        NLogTrace("[Server] PATCH map received point: %s", json(point).dump().c_str());
+      }
+      int newBin = -1;
+      if (httpIn.contains("args")) {
+        json binInfo = httpIn["args"];
+        newBin       = binInfo["bin"].get<int>();
+      }
+      point.push_back(newBin);
+      NLogDebug("[Server] Final point for PATCH spectra: %s", json(point).dump().c_str());
+
+      Ndmspc::NGnNavigator * navCurrent = nav;
+      for (const auto & bin : point) {
+        NLogTrace("[Server] Traversing to child navigator for bin: %d navCurrent=%p", bin, (void *)navCurrent);
+        navCurrent = navCurrent->GetChild(bin);
+      }
+
+      NLogTrace("[Server] Final navigator after traversal: %p", (void *)navCurrent);
+      if (navCurrent) {
+        std::vector<std::string> parameters = httpIn.contains("parameters")
+                                                  ? httpIn["parameters"].get<std::vector<std::string>>()
+                                                  : std::vector<std::string>{};
+
+        if (parameters.empty()) {
+          // NLogWarning("No parameter name provided for spectra !!!");
+          // httpOut["result"] = "missing_parameters";
+          // return;
+          parameters =
+              server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"].get<std::vector<std::string>>();
+        }
+        NLogDebug("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
+
+        double minmax = 0.05;
+        if (httpIn.contains("axismargin")) {
+          minmax = {httpIn["axismargin"].get<double>()};
+        }
+        std::string minmaxMode = "D";
+        if (httpIn.contains("minmaxMode")) {
+          minmaxMode = httpIn["minmaxMode"].get<std::string>();
+        }
+
+        std::string spectraPad = "pad3";
+        if (httpIn.contains("startPad")) {
+          spectraPad = httpIn["startPad"].get<std::string>();
+        }
+
+        // Parse starting pad index from pad name (e.g., pad4 → 4)
+        int padIndex = 3;
+        if (spectraPad.size() > 3 && spectraPad.substr(0, 3) == "pad") {
+          try {
+            padIndex = std::stoi(spectraPad.substr(3));
+          }
+          catch (...) {
+            padIndex = 3;
+          }
+        }
+
+        json spectraPayload;
+        spectraPayload["point"] = point;
+        // loop over all parameters and get spectra for each, then send as array to client
+        std::vector<json> multiSpectra;
+        for (const auto & param : parameters) {
+          NLogDebug("[Server] Obtaining spectra for parameter '%s' at navigator level %d", param.c_str(),
+                    navCurrent->GetLevel());
+          std::string padName = "pad" + std::to_string(padIndex);
+          TList *     spectra = navCurrent->DrawSpectraAll(param, {minmax}, minmaxMode, "");
+          if (spectra) {
+            NLogDebug("Spectra for parameter '%s' obtained:", param.c_str());
+            json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+            // json debugAction;
+            // debugAction["type"]                = "debug";
+            // debugAction["message"]             = std::string("Debug click: ") + spectraObject["fName"].dump();
+            // spectraObject["handlers"]["click"] = json::array({debugAction});
+            spectraObject["targetPad"] = padName;
+            spectraObject["parameter"] = param;
+            multiSpectra.push_back(spectraObject);
+          }
+          else {
+            NLogWarning("No spectra found for parameter '%s'", param.c_str());
+          }
+          padIndex++;
+        }
+        if (!multiSpectra.empty()) {
+          wsOut["payload"]["spectra"]["objs"]       = multiSpectra;
+          wsOut["payload"]["spectra"]["parameters"] = parameters;
+          wsOut["payload"]["spectra"]["multipad"]   = true;
+        }
+        wsOut["payload"]["spectra"]["axismargin"] = minmax;
+        if (!minmaxMode.empty()) {
+          wsOut["payload"]["spectra"]["minmaxMode"] = minmaxMode;
+        }
+
+        httpOut["result"] = "success";
       }
     }
     else {

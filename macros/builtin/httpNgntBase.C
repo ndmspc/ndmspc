@@ -20,11 +20,14 @@ void httpNgntBase()
       httpOut["result"] = "success";
     }
     else if (method.find("POST") != std::string::npos) {
+      // wsOut["workspace"] = server->GetWorkspace();
+      wsOut["payload"]["workspace"] = server->GetWorkspace();
       // wsOut["health"] = "ok";
       // server->WebSocketBroadcast(wsOut);
-      httpOut["result"] = "skipped";
+      httpOut["result"] = "success";
     }
     else if (method.find("PATCH") != std::string::npos) {
+      wsOut["payload"]["workspace"] = server->GetWorkspace();
       httpOut["result"] = "success";
     }
 
