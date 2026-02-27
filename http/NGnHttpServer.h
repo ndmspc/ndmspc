@@ -3,7 +3,8 @@
 #include "NLogger.h"
 #include "NHttpServer.h"
 // #include "NGnHistoryEntry.h"
-#include "NGnHistory.h"
+#include "NGnWorkspace.h"
+#include "NGnWorkspace.h"
 
 namespace Ndmspc {
 
@@ -43,7 +44,7 @@ class NGnHttpServer : public NHttpServer {
 
   virtual void Print(Option_t * option = "") const override;
   virtual void Clear(Option_t * option = "") override { NHttpServer::Clear(option); }
-  void ClearHistory() { fHistory.Clear(); }
+  void         ClearHistory() { fWorkspace.Clear(); }
 
   json GetJson() const;
 
@@ -56,13 +57,14 @@ class NGnHttpServer : public NHttpServer {
   TObject * GetInputObject(const std::string & name);
 
   std::map<std::string, Ndmspc::NGnHttpFuncPtr> GetHttpHandlers() const { return fHttpHandlers; }
-  std::map<std::string, TObject *>              &GetObjectsMap() { return fObjectsMap; }
-  json                                         &GetWorkspace() { return fHistory.GetWorkspace(); }
+  std::map<std::string, TObject *> &            GetObjectsMap() { return fObjectsMap; }
+  json &                                        GetWorkspace() { return fWorkspace.GetWorkspace(); }
+  json &                                        GetState() { return fWorkspace.GetState(); }
 
   private:
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;     ///<! HTTP handlers map
-  std::map<std::string, TObject *>              fObjectsMap;       ///<! Objects map for handlers
-  NGnHistory                                  fHistory{nullptr}; ///<! History object (TNamed)
+  std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
+  std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
+  NGnWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);

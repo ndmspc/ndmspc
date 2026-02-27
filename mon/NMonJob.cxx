@@ -15,7 +15,7 @@ NMonJob::NMonJob(const char * name, const char * title) : TNamed(name, title)
 }
 NMonJob::~NMonJob() {}
 
-void NMonJob::Print(Option_t * option) const
+void NMonJob::Print(Option_t *) const
 {
   ///
   /// Print NMonJob information

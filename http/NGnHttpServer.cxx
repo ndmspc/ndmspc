@@ -12,7 +12,7 @@ NGnHttpServer *     gNGnHttpServer      = nullptr;
 NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms) : NHttpServer(engine, ws, heartbeat_ms)
 {
   Ndmspc::gNGnHttpServer = this;
-  fHistory.SetServer(this);
+  fWorkspace.SetServer(this);
 }
 
 void NGnHttpServer::Print(Option_t * option) const
@@ -29,7 +29,7 @@ void NGnHttpServer::Print(Option_t * option) const
     NLogInfo("  %s -> %p", obj.first.c_str(), obj.second);
   }
   // print history entries
-  fHistory.Print(option);
+  fWorkspace.Print(option);
 }
 
 void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
@@ -109,8 +109,8 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       NLogTrace("Adding history entry for path: %s", fullpath.Data());
       historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
       historyEntry->SetPayloadIn(in);
-      NLogDebug("History entry created for path: %s with payload: %s", fullpath.Data(), in.dump().c_str());
-      fHistory.AddEntry(historyEntry);
+      NLogTrace("History entry created for path: %s with payload: %s", fullpath.Data(), in.dump().c_str());
+      fWorkspace.AddEntry(historyEntry);
     }
 
     fHttpHandlers[fullpath.Data()](method.Data(), in, out, wsOut, fObjectsMap);
@@ -123,12 +123,12 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         }
       }
       else if (!method.CompareTo("DELETE")) {
-        fHistory.RemoveEntry(fullpath.Data());
+        fWorkspace.RemoveEntry(fullpath.Data());
       }
     }
     else {
       if (!method.CompareTo("POST")) {
-        fHistory.RemoveEntry(static_cast<int>(fHistory.GetEntries().size()) - 1);
+        fWorkspace.RemoveEntry(static_cast<int>(fWorkspace.GetEntries().size()) - 1);
       }
     }
   }
@@ -143,16 +143,16 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   if (!wsOut["workspace"].is_null()) {
     // Build workspace with order of keys same as in NGnHistoryEntry
     json workspace;
-    for (const auto & entry : fHistory.GetEntries()) {
-      NLogDebug("Adding workspace entry for: %s", entry->GetName());
+    for (const auto & entry : fWorkspace.GetEntries()) {
+      NLogTrace("Adding workspace entry for: %s", entry->GetName());
       workspace[entry->GetName()] = GetWorkspace()[entry->GetName()];
     }
 
     for (auto it = wsOut["workspace"].begin(); it != wsOut["workspace"].end(); ++it) {
-      NLogDebug("Updating workspace entry for: %s", it.key().c_str());
+      NLogTrace("Updating workspace entry for: %s", it.key().c_str());
       // if value us null, skip it
       if (it.value().is_null()) {
-        NLogDebug("Skipping null workspace entry for: %s", it.key().c_str());
+        NLogTrace("Skipping null workspace entry for: %s", it.key().c_str());
         continue;
       }
 
@@ -204,7 +204,7 @@ json NGnHttpServer::GetJson() const
 {
   json historyJson = json::array();
 
-  for (const auto & entry : fHistory.GetEntries()) {
+  for (const auto & entry : fWorkspace.GetEntries()) {
     json entryJson;
     entryJson["name"]             = entry->GetName();
     entryJson["method"]           = "POST";

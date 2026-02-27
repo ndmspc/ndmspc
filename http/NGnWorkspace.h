@@ -1,5 +1,5 @@
-#ifndef Ndmspc_NGnHistory_H
-#define Ndmspc_NGnHistory_H
+#ifndef Ndmspc_NGnWorkspace_H
+#define Ndmspc_NGnWorkspace_H
 
 #include <TNamed.h>
 #include <vector>
@@ -9,14 +9,14 @@
 namespace Ndmspc {
 
 ///
-/// \class NGnHistory
-/// \brief Encapsulates history entries for NGnHttpServer
+/// \class NGnWorkspace
+/// \brief Encapsulates workspace entries for NGnHttpServer
 ///
 class NGnHttpServer;
-class NGnHistory : public TNamed {
+class NGnWorkspace : public TNamed {
 public:
-  NGnHistory(const char* name = "NGnHistory", const char* title = "NGnHistory object", NGnHttpServer * server = nullptr);
-  virtual ~NGnHistory();
+  NGnWorkspace(const char* name = "NGnWorkspace", const char* title = "NGnWorkspace object", NGnHttpServer * server = nullptr);
+  virtual ~NGnWorkspace();
 
   virtual void Print(Option_t * option = "") const override;
 
@@ -31,15 +31,18 @@ public:
   const std::vector<NGnHistoryEntry*>& GetEntries() const { return fEntries; }
   json& GetWorkspace() { return fWorkspace; }
   const json& GetWorkspace() const { return fWorkspace; }
+  json& GetState() { return fState; }
+  const json& GetState() const { return fState; }
 
   void SetServer(NGnHttpServer * server) { fServer = server; }  
 
 private:
   json fWorkspace; ///< Workspace schema JSON object
-  std::vector<NGnHistoryEntry*> fEntries; ///< History entries
+  json fState;     ///< Additional state information for the workspace
+  std::vector<NGnHistoryEntry*> fEntries; ///< Workspace entries
   NGnHttpServer * fServer{nullptr}; ///< Pointer to the HTTP server for invoking handlers
 
-  ClassDefOverride(NGnHistory, 1);
+  ClassDefOverride(NGnWorkspace, 1);
 };
 
 } // namespace Ndmspc
