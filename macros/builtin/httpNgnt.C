@@ -147,7 +147,7 @@ void httpNgnt()
     if (method.find("GET") != std::string::npos) {
       if (nav) {
         NLogTrace("Reshape navigator is available");
-        nav->Print();
+        // nav->Print();
         httpOut["info"]   = nav->GetInfoJson();
         httpOut["result"] = "success";
       }
@@ -252,7 +252,7 @@ void httpNgnt()
       }
 
       // Print all pads
-      NLogDebug("Mapping pad: %s, Content pad: %s", mappingPad.c_str(), contentPad.c_str());
+      NLogTrace("Mapping pad: %s, Content pad: %s", mappingPad.c_str(), contentPad.c_str());
 
       TList * l    = new TList();
       TH1 *   proj = nav->GetProjection();
@@ -275,6 +275,7 @@ void httpNgnt()
         clickAction["contentType"]      = "application/json";
         clickAction["payload"]          = json::object();
         clickAction["payload"]["point"] = json::array();
+        clickAction["payload"]["level"] = nav->GetLevel();
 
         json debugAction;
         debugAction["type"]    = "debug";
@@ -282,7 +283,7 @@ void httpNgnt()
 
         json clicks = json::array({clickAction, debugAction});
 
-        NLogDebug("[Server] map POST XXX level %d == %d - 2", nav->GetLevel(), nav->GetNLevels());
+        NLogTrace("[Server] map POST XXX level %d == %d - 2", nav->GetLevel(), nav->GetNLevels());
         if (nav->GetLevel() == nav->GetNLevels() - 2) {
           json clickSpectra;
           clickSpectra["type"]             = "http";
@@ -291,7 +292,9 @@ void httpNgnt()
           clickSpectra["contentType"]      = "application/json";
           clickSpectra["payload"]          = json::object();
           clickSpectra["payload"]["point"] = pointForClickAction;
-          NLogDebug("[Server] Adding click handler for spectra at final level navigator, point: %s",
+          clickSpectra["payload"]["level"] = nav->GetLevel();
+
+          NLogTrace("[Server] Adding click handler for spectra at final level navigator, point: %s",
                     json(listJson["arr"][0]).dump().c_str());
           clicks.push_back(clickSpectra);
         }
@@ -325,9 +328,9 @@ void httpNgnt()
         }
 
         spectraProperties["minmaxMode"]["type"]         = "string";
-        spectraProperties["minmaxMode"]["default"]      = "D";
+        spectraProperties["minmaxMode"]["default"]      = "V";
         spectraProperties["minmaxMode"]["format"]       = "select";
-        spectraProperties["minmaxMode"]["enum"]         = {"D", "V", "VE"};
+        spectraProperties["minmaxMode"]["enum"]         = {"V", "VE", "D"};
         spectraProperties["axismargin"]["type"]         = "number";
         spectraProperties["axismargin"]["default"]      = 0.05;
         server->GetWorkspace()["spectra"]["properties"] = spectraProperties;
@@ -341,10 +344,29 @@ void httpNgnt()
       NLogTrace("[Server] PATCH map received: %s", httpIn.dump().c_str());
 
       std::vector<int> point;
-      if (httpIn.contains("point")) {
-        point = httpIn["point"].get<std::vector<int>>();
-        NLogTrace("[Server] PATCH map received point: %s", json(point).dump().c_str());
+      // if (httpIn.contains("point")) {
+      //   point = httpIn["point"].get<std::vector<int>>();
+      //   NLogTrace("[Server] PATCH map received point: %s", json(point).dump().c_str());
+      // }
+
+      if (server->GetState().contains("spectra") && server->GetState()["spectra"].contains("point")) {
+        point = server->GetState()["spectra"]["point"].get<std::vector<int>>();
+        NLogTrace("[Server] PATCH spectra current point from state: %s", json(point).dump().c_str());
       }
+
+      int level = httpIn.contains("level") ? httpIn["level"].get<int>() : -1;
+      if (level >= 0) {
+        // Resize point to the specified level if needed
+        // if (point.size() >= static_cast<size_t>(level)) {
+          point.resize(level);
+          // NLogTrace("[Server] PATCH spectra resized point to level %d: %s", level, json(point).dump().c_str());
+        // }
+      }
+      // else {
+      //   NLogTrace("[Server] PATCH spectra no level specified, using current point: %s", json(point).dump().c_str());
+      //   httpOut["result"] = "missing_level";
+      //   return;
+      // }
 
       json binInfo;
       if (httpIn.contains("args")) {
@@ -353,6 +375,8 @@ void httpNgnt()
         point.push_back(bin);
         NLogTrace("[Server] PATCH map added bin to point: %d", bin);
       }
+
+      server->GetState()["spectra"]["point"] = point; // Update current point in server state
 
       NLogTrace("[Server] Final point for PATCH map: %s", json(point).dump().c_str());
 
@@ -381,9 +405,10 @@ void httpNgnt()
           clickMap["contentType"]      = "application/json";
           clickMap["payload"]          = json::object();
           clickMap["payload"]["point"] = pointForClickAction;
+          clickMap["payload"]["level"] = navCurrent->GetLevel();
           json clicks                  = json::array({clickMap});
 
-          NLogDebug("[Server] XXX level %d == %d - 2", navCurrent->GetLevel(), nav->GetNLevels());
+          NLogTrace("[Server] XXX level %d == %d - 2", navCurrent->GetLevel(), nav->GetNLevels());
           if (navCurrent->GetLevel() == nav->GetNLevels() - 2) {
             json clickSpectra;
             clickSpectra["type"]             = "http";
@@ -392,7 +417,8 @@ void httpNgnt()
             clickSpectra["contentType"]      = "application/json";
             clickSpectra["payload"]          = json::object();
             clickSpectra["payload"]["point"] = pointForClickAction;
-            NLogDebug("[Server] Adding click handler for spectra at final level navigator, point: %s",
+            clickSpectra["payload"]["level"] = navCurrent->GetLevel();
+            NLogTrace("[Server] Adding click handler for spectra at final level navigator, point: %s",
                       json(listJson["arr"][0]).dump().c_str());
             clicks.push_back(clickSpectra);
           }
@@ -407,7 +433,7 @@ void httpNgnt()
         // wsOut["payload"]["map"]["contentPad"]  = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
 
         if (navCurrent->GetLevel() == nav->GetNLevels() - 1) {
-          NLogDebug("[Server] Reached final level navigator, sending content for point: %s [%d/%d]",
+          NLogTrace("[Server] Reached final level navigator, sending content for point: %s [%d/%d]",
                     json(pointForClickAction).dump().c_str(), navCurrent->GetLevel(), navCurrent->GetNLevels());
 
           // check of server workspace spectra parameters is empty or different from current navigator parameters, if so
@@ -423,14 +449,14 @@ void httpNgnt()
               server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"].empty()) {
 
             if (!navCurrent->GetParameterNames().empty()) {
-              NLogDebug("[Server] Updating spectra parameters for final level navigator: %s",
+              NLogTrace("[Server] Updating spectra parameters for final level navigator: %s",
                         json(navCurrent->GetParameterNames()).dump().c_str());
               server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"] =
                   navCurrent->GetParameterNames();
               server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] =
                   navCurrent->GetParameterNames().empty() ? json::array()
                                                           : json::array({navCurrent->GetParameterNames().front()});
-              NLogDebug("[Server] Updated spectra parameters for final level navigator: %s",
+              NLogTrace("[Server] Updated spectra parameters for final level navigator: %s",
                         json(navCurrent->GetParameterNames()).dump().c_str());
 
               wsOut["payload"]["workspace"]["spectra"] = server->GetWorkspace()["spectra"];
@@ -463,6 +489,7 @@ void httpNgnt()
           return;
         }
       }
+      // server->Print();
 
       httpOut["result"] = "success";
     }
@@ -503,11 +530,11 @@ void httpNgnt()
         NLogTrace("Reshape navigator is available");
         // nav->Draw("hover");
         //
-        std::vector<std::string> parameterName = httpIn.contains("parameters")
+        std::vector<std::string> parameters = httpIn.contains("parameters")
                                                      ? httpIn["parameters"].get<std::vector<std::string>>()
                                                      : std::vector<std::string>{};
 
-        if (parameterName.empty()) {
+        if (parameters.empty()) {
           NLogWarning("No parameter name provided for spectra !!!");
           httpOut["result"] = "missing_parameters";
           return;
@@ -523,13 +550,48 @@ void httpNgnt()
         }
 
         server->GetWorkspace()["spectra"]["properties"]["startPad"]["default"]   = spectraPad;
-        server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameterName;
+        server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameters;
 
         // server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameterName;
         // Only use the first element for DrawSpectra and workspace default
         // server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"] = minmax;
         server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"] = minmaxMode;
         wsOut["workspace"]["spectra"]                                            = server->GetWorkspace()["spectra"];
+
+        // Take current spectra point from server state if available, otherwise use empty point
+        std::vector<int> point;
+        if (server->GetState().contains("spectra") && server->GetState()["spectra"].contains("point")) {
+          point = server->GetState()["spectra"]["point"].get<std::vector<int>>();
+          NLogTrace("[Server] Using current spectra point from state: %s", json(point).dump().c_str());
+        }
+
+        Ndmspc::NGnNavigator * navCurrent = nav;
+        size_t                 nLevels    = nav->GetNLevels();
+
+        // loop from 0 to nLevels - 1 and traverse navigator based on point, if point is smaller than level add -1 to
+        // point and
+        for (size_t iLevel = 0; iLevel < nLevels - 1; iLevel++) {
+          int bin = (iLevel < point.size()) ? point[iLevel] : -1;
+          if (bin == -1) {
+            NLogTrace("[Server] Point does not have bin for level %zu, using -1", iLevel);
+            httpOut["result"] = "invalid_point";
+            return;
+          }
+          else {
+            NLogTrace("[Server] Traversing to child navigator for bin: %d navCurrent=%p", bin, (void *)navCurrent);
+            navCurrent = navCurrent->GetChild(bin);
+          }
+        }
+
+        if (navCurrent) {
+          NLogTrace("Final navigator for spectra obtained: %p", (void *)navCurrent);
+          // navCurrent->Print();
+        }
+        else {
+          NLogTrace("No navigator found for spectra at point: %s", json(point).dump().c_str());
+          httpOut["result"] = "navigator_not_found";
+          return;
+        }
 
         // Parse starting pad index from pad name (e.g., pad4 → 4)
         int padIndex = 3;
@@ -542,9 +604,9 @@ void httpNgnt()
           }
         }
         std::vector<json> multiSpectra;
-        for (const auto & param : parameterName) {
+        for (const auto & param : parameters) {
           std::string padName = "pad" + std::to_string(padIndex);
-          TList *     spectra = nav->DrawSpectraAll(param, {minmax}, minmaxMode, "");
+          TList *     spectra = navCurrent->DrawSpectraAll(param, {minmax}, minmaxMode, "");
           if (spectra) {
             NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
             json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
@@ -563,7 +625,7 @@ void httpNgnt()
         }
         if (!multiSpectra.empty()) {
           wsOut["payload"]["spectra"]["objs"]       = multiSpectra;
-          wsOut["payload"]["spectra"]["parameters"] = parameterName;
+          wsOut["payload"]["spectra"]["parameters"] = parameters;
           wsOut["payload"]["spectra"]["multipad"]   = true;
         }
         wsOut["payload"]["spectra"]["axismargin"] = minmax;
@@ -581,19 +643,42 @@ void httpNgnt()
     }
     else if (method.find("PATCH") != std::string::npos) {
 
-      NLogDebug("[Server] PATCH spectra received: %s", httpIn.dump().c_str());
+      NLogTrace("[Server] PATCH spectra received: %s", httpIn.dump().c_str());
       std::vector<int> point;
-      if (httpIn.contains("point")) {
-        point = httpIn["point"].get<std::vector<int>>();
-        NLogTrace("[Server] PATCH map received point: %s", json(point).dump().c_str());
+      // if (httpIn.contains("point")) {
+      //   point = httpIn["point"].get<std::vector<int>>();
+      //   NLogTrace("[Server] PATCH map received point: %s", json(point).dump().c_str());
+      // }
+
+      if (server->GetState().contains("spectra") && server->GetState()["spectra"].contains("point")) {
+        point = server->GetState()["spectra"]["point"].get<std::vector<int>>();
+        NLogTrace("[Server] PATCH spectra current point from state: %s", json(point).dump().c_str());
       }
+
+      int level = httpIn.contains("level") ? httpIn["level"].get<int>() : -1;
+      if (level >= 0) {
+        // Resize point to the specified level if needed
+        if (point.size() > static_cast<size_t>(level)) {
+          point.resize(level);
+          NLogTrace("[Server] PATCH spectra resized point to level %d: %s", level, json(point).dump().c_str());
+        }
+      }
+      else {
+        NLogTrace("[Server] PATCH spectra no level specified, using current point: %s", json(point).dump().c_str());
+        httpOut["result"] = "missing_level";
+        return;
+      }
+
       int newBin = -1;
       if (httpIn.contains("args")) {
         json binInfo = httpIn["args"];
         newBin       = binInfo["bin"].get<int>();
       }
       point.push_back(newBin);
-      NLogDebug("[Server] Final point for PATCH spectra: %s", json(point).dump().c_str());
+      NLogTrace("[Server] Final point for PATCH spectra: %s", json(point).dump().c_str());
+
+      server->GetState()["spectra"]["point"] = point;
+      // server->Print();
 
       Ndmspc::NGnNavigator * navCurrent = nav;
       for (const auto & bin : point) {
@@ -620,13 +705,13 @@ void httpNgnt()
           server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameters;
           wsOut["workspace"]["spectra"]                                            = server->GetWorkspace()["spectra"];
         }
-        NLogDebug("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
+        NLogTrace("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
 
         double minmax = 0.05;
         if (httpIn.contains("axismargin")) {
           minmax = {httpIn["axismargin"].get<double>()};
         }
-        std::string minmaxMode = "D";
+        std::string minmaxMode = "V";
         if (httpIn.contains("minmaxMode")) {
           minmaxMode = httpIn["minmaxMode"].get<std::string>();
         }
@@ -652,12 +737,12 @@ void httpNgnt()
         // loop over all parameters and get spectra for each, then send as array to client
         std::vector<json> multiSpectra;
         for (const auto & param : parameters) {
-          NLogDebug("[Server] Obtaining spectra for parameter '%s' at navigator level %d", param.c_str(),
+          NLogTrace("[Server] Obtaining spectra for parameter '%s' at navigator level %d", param.c_str(),
                     navCurrent->GetLevel());
           std::string padName = "pad" + std::to_string(padIndex);
           TList *     spectra = navCurrent->DrawSpectraAll(param, {minmax}, minmaxMode, "");
           if (spectra) {
-            NLogDebug("Spectra for parameter '%s' obtained:", param.c_str());
+            NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
             json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
             // json debugAction;
             // debugAction["type"]                = "debug";

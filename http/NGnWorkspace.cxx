@@ -1,48 +1,50 @@
 
-#include "NGnHistory.h"
+#include "NGnWorkspace.h"
 #include "NGnHttpServer.h"
 
 #include "NLogger.h"
 #include <algorithm>
 #include <fstream>
 
+
 namespace Ndmspc {
 
-NGnHistory::NGnHistory(const char * name, const char * title, NGnHttpServer * server)
+NGnWorkspace::NGnWorkspace(const char * name, const char * title, NGnHttpServer * server)
     : TNamed(name, title), fServer(server)
 {
 }
 
-NGnHistory::~NGnHistory()
+NGnWorkspace::~NGnWorkspace()
 {
   Clear();
 }
 
-void NGnHistory::Print(Option_t * option) const
+void NGnWorkspace::Print(Option_t * option) const
 {
   (void)option;
-  NLogInfo("NGnHistory with %zu entries:", fEntries.size());
+  NLogInfo("NGnWorkspace with %zu entries:", fEntries.size());
   for (size_t i = 0; i < fEntries.size(); i++) {
     NLogInfo("  [%zu]: %s payload: in=%s out=%s", i, fEntries[i]->GetName(), fEntries[i]->GetPayloadIn().dump().c_str(),
              fEntries[i]->GetPayloadOut().dump().c_str());
   }
   NLogInfo("Workspace: %s", GetWorkspace().dump().c_str());
+  NLogInfo("State: %s", GetState().dump().c_str());
 }
 
-void NGnHistory::AddEntry(NGnHistoryEntry * entry)
+void NGnWorkspace::AddEntry(NGnHistoryEntry * entry)
 {
   if (entry) {
     RemoveEntry(entry->GetName());
-    NLogTrace("Adding history entry: %s", entry->GetName());
+    NLogTrace("Adding workspace entry: %s", entry->GetName());
     NLogTrace("Config: %s", entry->GetPayloadIn().dump().c_str());
     fEntries.push_back(entry);
   }
 }
 
-bool NGnHistory::RemoveEntry(int index)
+bool NGnWorkspace::RemoveEntry(int index)
 {
   if (index < 0 || index >= static_cast<int>(fEntries.size())) {
-    NLogError("Invalid history entry index: %d", index);
+    NLogError("Invalid workspace entry index: %d", index);
     return false;
   }
 
@@ -50,7 +52,7 @@ bool NGnHistory::RemoveEntry(int index)
   json              in    = entry->GetPayloadIn();
   json              out;
   json              wsOut;
-  NLogTrace("Removing history entry: %s", entry->GetName());
+  NLogTrace("Removing workspace entry: %s", entry->GetName());
   NLogTrace("Config: %s", in.dump().c_str());
   NLogTrace("Invoking HTTP handler for DELETE on entry: %s", entry->GetName());
   fServer->GetHttpHandlers()[entry->GetName()]("DELETE", in, out, wsOut, fServer->GetObjectsMap());
@@ -61,20 +63,20 @@ bool NGnHistory::RemoveEntry(int index)
   return true;
 }
 
-bool NGnHistory::RemoveEntry(const std::string & name)
+bool NGnWorkspace::RemoveEntry(const std::string & name)
 {
   // Find if entry exists and remove it along with all newer entries
   bool found = false;
   for (int i = static_cast<int>(fEntries.size()) - 1; i >= 0; i--) {
-    NLogTrace("Checking history entry at index %d: %s", i, fEntries.at(i)->GetName());
+    NLogTrace("Checking workspace entry at index %d: %s", i, fEntries.at(i)->GetName());
     std::string existingName = fEntries.at(i)->GetName();
     if (!existingName.compare(name)) {
-      NLogTrace("Found existing history entry with same name: %s at index %d, removing newer entries.", name.c_str(),
+      NLogTrace("Found existing workspace entry with same name: %s at index %d, removing newer entries.", name.c_str(),
                 i);
       // remove all entries above it
       int j = -1;
       for (j = fEntries.size() - 1; j > static_cast<int>(i); j--) {
-        NLogTrace("Removing history entry at index %zu: %s", j, fEntries.at(j)->GetName());
+        NLogTrace("Removing workspace entry at index %zu: %s", j, fEntries.at(j)->GetName());
         RemoveEntry(j);
       }
       if (j >= 0) RemoveEntry(j);
@@ -85,7 +87,7 @@ bool NGnHistory::RemoveEntry(const std::string & name)
   return found;
 }
 
-void NGnHistory::Clear(Option_t * option)
+void NGnWorkspace::Clear(Option_t * option)
 {
   (void)option;
   for (auto * entry : fEntries) {
@@ -96,14 +98,14 @@ void NGnHistory::Clear(Option_t * option)
   fEntries.clear();
 }
 
-bool NGnHistory::LoadFromFile(const std::string & filename)
+bool NGnWorkspace::LoadFromFile(const std::string & filename)
 {
   (void)filename;
   // Implement loading logic as needed
   return false;
 }
 
-bool NGnHistory::ExportToFile(const std::string & filename) const
+bool NGnWorkspace::ExportToFile(const std::string & filename) const
 {
   (void)filename;
   // Implement export logic as needed
@@ -112,4 +114,4 @@ bool NGnHistory::ExportToFile(const std::string & filename) const
 
 } // namespace Ndmspc
 
-ClassImp(Ndmspc::NGnHistory);
+ClassImp(Ndmspc::NGnWorkspace);
