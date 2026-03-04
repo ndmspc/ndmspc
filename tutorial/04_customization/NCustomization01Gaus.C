@@ -1,12 +1,13 @@
 #include <TAxis.h>
 #include <TObjArray.h>
 #include <TFitResult.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>
+#include <TF1.h>
+#include <NGnTree.h>
+#include <NLogger.h>
+#include <NUtils.h>
 
 void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomization01Gaus.root")
 {
@@ -47,17 +48,14 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
 
   // Define the processing function
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
-                                             int /*threadId*/) {
-    // print the title of the binning point
-    NLogInfo("title : %s", point->GetString().c_str());
-
+                                             int threadId) {
     // Create Gaussian histogram for each point
-    // TRandom3 rnd(0);
-    TH1D * h = new TH1D("h", "Gaussian", 200, -10, 10);
+    std::string title = "Gauss " + point->GetString();
+    TH1D *      h     = new TH1D("hGaus", title.c_str(), 200, -10, 10);
 
     // Retrieve mean and sigma from the bin centers of current point
-    int mean  = point->GetBinCenter("mean");
-    int sigma = point->GetBinCenter("sigma");
+    double mean  = point->GetBinCenter("mean");
+    double sigma = point->GetBinCenter("sigma");
 
     // Retrieve configuration
     json cfg = point->GetCfg();
@@ -70,24 +68,37 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
       h->Fill(x);
     }
 
+    // Warning: Make sure that you add this canvas to the output list of the point.
+    //          If not you have to delete it manually to avoid memory leaks.
+    TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
+
+    // Create Gaussian fit function for the histogram
+    std::string fitFuncName = Form("gausFunc_%lld", point->GetEntryNumber());
+    TF1 *       gausFunc    = new TF1(fitFuncName.c_str(), "gaus", -10, 10);
+
     // Retrieve fit results and store them in the parameters of the point
-    // Note: "O" option is    // Note: "O" option is used to suppress drawing, but function is stored in the histogram
-    TFitResultPtr         fitResult   = h->Fit("gaus", "QSON");
+    TFitResultPtr fitResult = h->Fit(gausFunc, "QS");
+    NLogInfo("Fit results: [%d] %s mean = %.3f ± %.3f, sigma = %.3f ± %.3f", threadId, point->GetString().c_str(),
+             fitResult->Parameter(1), fitResult->Error(1), fitResult->Parameter(2), fitResult->Error(2));
+
+    // Store fit results in the parameters of the point
     Ndmspc::NParameters * pointParams = point->GetParameters();
     if (pointParams) {
       pointParams->SetParameter("meanFit", fitResult->Parameter(1), fitResult->Error(1));
       pointParams->SetParameter("sigmaFit", fitResult->Parameter(2), fitResult->Error(2));
     }
 
-    // Fill output list for the current point
-    outputPoint->Add(h);
+    // Fill output list for the current point with the canvas containing the histogram and fit results
+    outputPoint->Add(c);
   };
 
+  // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     NLogInfo("Starting processing ...");
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
+    TH1::AddDirectory(kFALSE);
   };
 
+  // Define the end function which is executed after processing all points
   Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     NLogInfo("Finished processing ...");
   };

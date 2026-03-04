@@ -71,29 +71,32 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
 
   NStorageTree * ts = fHnSparseBase->GetStorageTree();
   std::string    fn = ts->GetFileName();
-  fHnSparseBase->GetStorageTree()->Clear("F");
-  fHnSparseBase->GetStorageTree()->InitTree(filename.empty() ? fn : filename, treename);
+  ts->Clear("F");
+  ts->InitTree(filename.empty() ? fn : filename, treename);
 
+  NTreeBranch * b = nullptr;
   // loop over all branches and add them to the new storage tree
   for (auto & kv : ngnt->GetStorageTree()->GetBranchesMap()) {
     NLogTrace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
-    NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch(kv.first);
+    b = ts->GetBranch(kv.first);
     if (b) continue;
 
-    b = fHnSparseBase->GetStorageTree()->GetBranch(kv.first);
+    b = ts->GetBranch(kv.first);
     if (b) continue;
 
-    fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
+    ts->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
   }
-  NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch("outputPoint");
-  if (!b) fHnSparseBase->GetStorageTree()->AddBranch("outputPoint", nullptr, "TList");
+  b = ts->GetBranch("outputPoint");
+  if (!b) ts->AddBranch("outputPoint", nullptr, "TList");
 
   if (ngnt->GetParameters()) {
     NLogTrace("NGnThreadData::Init: Setting parameters branch for thread %zu", id);
-    NTreeBranch * b = fHnSparseBase->GetStorageTree()->GetBranch("_params");
-    if (!b) fHnSparseBase->GetStorageTree()->AddBranch("_params", nullptr, "Ndmspc::NParameters");
-    fHnSparseBase->GetStorageTree()->GetBranch("_params")->SetAddress(ngnt->GetParameters());
-    fHnSparseBase->GetBinning()->GetPoint()->SetParameters(ngnt->GetParameters());
+    b = ts->GetBranch("_params");
+    if (!b) ts->AddBranch("_params", nullptr, "Ndmspc::NParameters");
+
+    NParameters * params = (NParameters*) ngnt->GetParameters()->Clone();
+    ts->GetBranch("_params")->SetAddress(params);
+    fHnSparseBase->GetBinning()->GetPoint()->SetParameters(params);
   }
 
   // Recreate the point and set the storage tree

@@ -1750,7 +1750,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     //   dims.push_back(0); // Add a dummy dimension for 2D plotting
     // }
     int nPads = dims.size() > 2 ? dimsResults[2].size() : 1;
-    NLogTrace("Number of pads: %d", nPads);
+    NLogDebug("Number of pads: %d", nPads);
     std::vector<std::string> projNames;
     hsParam->Print("all");
     NLogTrace("Projection dims: %d %d %d", dims[0], dims.size() > 1 ? dims[1] : -1, dims.size() > 2 ? dims[2] : -1);
@@ -1778,6 +1778,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     c->DivideSquare(nPads);
 
     for (int iPad = 0; iPad < nPads; iPad++) {
+      c->cd(iPad + 1);
 
       std::string stackName  = Form("hStack_%s_%d", posfix.c_str(), iPad);
       std::string stackTitle = parameterName + " : ";
@@ -1849,12 +1850,9 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
         hProj->SetMarkerStyle(20);
         hProj->SetMarkerColor(iStack + 1);
-        hProj->Draw("text");
         hStack->Add((TH1 *)hProj->Clone());
         NLogTrace("Added histogram to stack: %s", hProj->GetTitle());
       }
-
-      c->cd(iPad + 1);
 
       if (mode == "D") {
         hStack->SetMinimum(-1111);
@@ -1894,11 +1892,12 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
       }
       std::string drawOption = "nostack E";
       drawOption += option;
-      NLogTrace("Drawing stack with option: %s", drawOption.c_str());
+      NLogDebug("Drawing stack with option: %s in pad %d", drawOption.c_str(), iPad + 1);
+
       hStack->Draw(drawOption.c_str());
       hStack->GetHistogram()->GetXaxis()->SetTitle(projNames[0].c_str());
       hStack->GetHistogram()->GetYaxis()->SetTitle(parameterName.c_str());
-      gPad->ModifiedUpdate();
+      // gPad->ModifiedUpdate();
       if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
       c->ModifiedUpdate();
       gSystem->ProcessEvents();
