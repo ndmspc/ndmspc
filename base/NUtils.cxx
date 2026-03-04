@@ -1579,6 +1579,20 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   if (current == total) std::cout << std::endl;
   std::cout << std::flush; // Ensure immediate output
 }
+
+TCanvas * NUtils::CreateCanvas(const std::string & name, const std::string & title, int width, int height)
+{
+  ///
+  /// Create canvas
+  ///
+  TCanvas * c = new TCanvas("", title.c_str(), width, height);
+  gROOT->GetListOfCanvases()->Remove(c);
+  c->ResetBit(kMustCleanup);
+  c->SetBit(kCanDelete, kFALSE);
+  c->SetName(name.c_str());
+  return c;
+}
+
 #ifdef WITH_PARQUET
 THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, THnSparse * hns, Int_t nMaxRows)
 {

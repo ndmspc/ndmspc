@@ -4,6 +4,7 @@
 #include <set>
 #include <vector>
 #include <TFile.h>
+#include <TCanvas.h>
 #include <TAxis.h>
 #include <TMacro.h>
 #include <TH2.h>
@@ -439,6 +440,19 @@ class NUtils : TObject {
    */
   static void ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime,
                           std::string prefix = "", std::string suffix = "", int barWidth = 50);
+
+  /**
+   * @brief Create a ROOT TCanvas with specified name, title, and dimensions.
+   *
+   * This utility function creates and returns a pointer to a new TCanvas object.
+   *
+   * @param name Name of the canvas.
+   * @param title Title of the canvas.
+   * @param width Width of the canvas in pixels (default: 800).
+   * @param height Height of the canvas in pixels (default: 600).
+   * @return Pointer to the created TCanvas object.
+   */
+  static TCanvas * CreateCanvas(const std::string & name, const std::string & title, int width = 800, int height = 600);
 
   /**
    * @brief Create THnSparse from Parquet Taxi file.
