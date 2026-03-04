@@ -20,10 +20,10 @@ void httpNgntMon()
 
     if (method.find("GET") != std::string::npos) {
       httpOut["result"]  = "success";
-      httpOut["jobList"] = jobManager->GetString();
+      httpOut["jobList"] = jobManager->ToJson();
       jobManager->Print();
       wsOut["nJobs"]     = jobManager->getfJobs().size();
-      wsOut["jobList"]   = jobManager->GetString();
+      wsOut["jobList"]   = jobManager->ToJson();
       httpOut["message"] = "Get action is not implemented for jobs, but acknowledged.";
     }
     else if (method.find("PATCH") != std::string::npos) {
@@ -32,7 +32,7 @@ void httpNgntMon()
       if (jobManager->UpdateTask(j["name"], j["task"], j["action"])) {
 
         httpOut["result"]  = "succes";
-        httpOut["jobList"] = jobManager->GetString();
+        httpOut["jobList"] = jobManager->ToJson();
       }
       else {
         httpOut["result"] = "failure";
@@ -48,7 +48,7 @@ void httpNgntMon()
       if (job->ParseMessage(httpIn.dump())) {
         jobManager->AddJob(job);
         httpOut["result"]  = "success";
-        httpOut["jobList"] = jobManager->GetString();
+        httpOut["jobList"] = jobManager->ToJson();
       }
       else {
         httpOut["result"] = "failure";
