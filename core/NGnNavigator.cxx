@@ -688,6 +688,12 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
       NLogError("Failed to save JSON file: %s", filename.c_str());
       return;
     }
+    NLogInfo("Exported NGnNavigator to file: %s", filename.c_str());
+  } else if (filename.empty()) {
+    NLogInfo("No filename provided, export to JSON only ...");
+    NGnNavigator * obj = const_cast<NGnNavigator *>(this);
+    ExportToJson(objJson, obj, objectNames);
+    std::cout << objJson.dump() << std::endl;
   }
   else {
     NLogError("Unsupported file format for export: %s", filename.c_str());
@@ -724,7 +730,7 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
     NLogInfo("Sent: %s", message.c_str());
   }
 
-  NLogInfo("Exported NGnNavigator to file: %s", filename.c_str());
+
 }
 
 void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames)
@@ -815,24 +821,27 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
       TObject * objContent = val[i];
 
       if (objContent) {
-        json   objJson = json::parse(TBufferJSON::ConvertToJSON(objContent).Data());
-        double objMin, objMax;
-        NUtils::GetTrueHistogramMinMax((TH1 *)objContent, objMin, objMax, false);
-        // NLogDebug("NGnNavigator::ExportJson: Object %s has min=%f, max=%f", objContent->GetName(), objMin,
-        //                objMax);
-
-        min            = TMath::Min(min, objMin);
-        max            = TMath::Max(max, objMax);
-        entries        = ((TH1 *)objContent)->GetEntries();
-        j["fArray"][i] = entries;
-        if (entries > 0) {
-          j["children"][key].push_back(objJson);
-        }
-        else {
+        // Runtime check: Only cast if objContent inherits from TH1
+        TH1* hist = dynamic_cast<TH1*>(objContent);
+        if (hist) {
+          json objJson = json::parse(TBufferJSON::ConvertToJSON(hist).Data());
+          double objMin, objMax;
+          NUtils::GetTrueHistogramMinMax(hist, objMin, objMax, false);
+          min = TMath::Min(min, objMin);
+          max = TMath::Max(max, objMax);
+          entries = hist->GetEntries();
+          j["fArray"][i] = entries;
+          if (entries > 0) {
+            j["children"][key].push_back(objJson);
+          } else {
+            j["children"][key].push_back(nullptr);
+          }
+        } else {
+          NLogWarning("NGnNavigator::ExportJson: Object %s at index %zu is not a TH1, skipping.", key.c_str(), i);
+          entries = 0.0;
           j["children"][key].push_back(nullptr);
         }
-      }
-      else {
+      } else {
         entries = 0.0;
         j["children"][key].push_back(nullptr);
       }
@@ -845,18 +854,23 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     entries    = 0.0;                                 // Reset entries for each key
 
     for (size_t i = 0; i < val.size(); i++) {
-      double param      = val[i];
-      double paramError = obj->GetParameterError(key, i);
+      double param = val[i];
+      double paramError = 0.0;
+      // Runtime check: Only call GetParameterError if index is valid
+      if (i < val.size()) {
+        try {
+          paramError = obj->GetParameterError(key, i);
+        } catch (...) {
+          NLogWarning("NGnNavigator::ExportJson: Exception in GetParameterError for key %s index %zu", key.c_str(), i);
+          paramError = 0.0;
+        }
+      }
       if (!std::isnan(param) && std::fabs(param) > 1e-12) {
-        min                            = TMath::Min(min, param);
-        max                            = TMath::Max(max, param);
+        min = TMath::Min(min, param);
+        max = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
         j["fArrays"][key]["errors"][i] = TMath::Power(paramError, 2);
-
-        // NLogDebug("NGnNavigator::ExportJson: Adding parameter %s with value=%f", key.c_str(), param);
-        // entries += 1.0;
-      }
-      else {
+      } else {
         j["fArrays"][key]["values"][i] = 0.0;
         j["fArrays"][key]["errors"][i] = 0.0;
       }
@@ -890,7 +904,12 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   for (const auto & child : obj->GetChildren()) {
     json childJson;
     if (child != nullptr) {
-      ExportToJson(childJson, child, objectNames);
+      try {
+        ExportToJson(childJson, child, objectNames);
+      } catch (...) {
+        NLogWarning("NGnNavigator::ExportJson: Exception in recursive ExportToJson for child.");
+        childJson = json();
+      }
       // Aggregate parameter min/max from child
       if (childJson.contains("fArrays")) {
         for (auto & [param, arr] : childJson["fArrays"].items()) {

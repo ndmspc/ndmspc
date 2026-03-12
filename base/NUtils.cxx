@@ -11,6 +11,7 @@
 #include <TString.h>
 #include "NLogger.h"
 #include "NHttpRequest.h"
+#include "ndmspc.h"
 #ifdef WITH_PARQUET
 #include <arrow/api.h>
 #include <arrow/io/api.h>

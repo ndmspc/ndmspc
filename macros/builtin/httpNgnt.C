@@ -263,6 +263,14 @@ void httpNgnt()
       TString listStr  = TBufferJSON::ConvertToJSON(l);
       json    listJson = json::parse(listStr.Data());
 
+
+      if (nav->GetLevel() == 0){
+        json nested;
+        nav->ExportToJson(nested, nav, {});
+        NLogDebug("[Server] Exported navigator JSON: %s", nested.dump().c_str());
+        listJson["nested"] = nested;
+      }
+
       // loop listJson and add clickAction to each histogram
       std::vector<int> pointForClickAction;
 
