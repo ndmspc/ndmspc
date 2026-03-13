@@ -12,12 +12,12 @@ spec:
           env:
             - name: NDMSPC_LOG_LEVEL
               value: DEBUG
-          command: ["ndmspc-server"]
-          args:
-            - "start"
-            - "ngnt"
-            - "-m"
-            - "/usr/share/ndmspc/macros/builtin/httpNgnt.C"
+          # command: ["ndmspc-server"]
+          # args:
+          #   - "start"
+          #   - "ngnt"
+          #   - "-m"
+          #   - "/usr/share/ndmspc/macros/builtin/httpNgntBase.C,/usr/share/ndmspc/macros/builtin/httpNgnt.C"
           ports:
             - containerPort: 8080
           securityContext:
