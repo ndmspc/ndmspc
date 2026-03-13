@@ -110,7 +110,6 @@ int main(int argc, char ** argv)
   int seed = 0;
   server_stress->add_option("-s,--seed", seed, "Random seed (default: 0)");
   server_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
-
   server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch]() {
     NLogInfo("Using stress processing method.");
     NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
@@ -147,13 +146,22 @@ int main(int argc, char ** argv)
                           "Macro path (default: "
                           ")");
   server_ngnt->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
+  std::string htmlDir = "";
+  server_ngnt->add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir]() {
     gROOT->SetBatch(batch);
 
     Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
-    NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, macroFilename.c_str());
+
     serv->SetCors("*");
+    if (!htmlDir.empty()) {
+      NLogInfo("Using '%s' as directory with static assets.", htmlDir.c_str());
+      serv->AddLocation("assets/", TString::Format("%s/assets", htmlDir.c_str()).Data());
+      serv->SetDefaultPage(TString::Format("%s/index.html", htmlDir.c_str()).Data());
+    }
+
+    NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, macroFilename.c_str());
 
     if (macroFilename.empty()) {
       NLogError("No macro file given, exiting ...");
