@@ -340,7 +340,7 @@ void httpNgnt()
         spectraProperties["minmaxMode"]["format"]       = "select";
         spectraProperties["minmaxMode"]["enum"]         = {"V", "VE", "D"};
         spectraProperties["axismargin"]["type"]         = "number";
-        spectraProperties["axismargin"]["default"]      = 0.05;
+        spectraProperties["axismargin"]["default"]      = 1.0;
         server->GetWorkspace()["spectra"]["properties"] = spectraProperties;
         server->GetWorkspace()["spectra"]["type"]       = "object";
       }
@@ -548,7 +548,7 @@ void httpNgnt()
           return;
         }
 
-        double minmax = 0.05;
+        double minmax = 1.0;
         if (httpIn.contains("axismargin")) {
           minmax = httpIn["axismargin"].get<double>();
         }
@@ -715,7 +715,7 @@ void httpNgnt()
         }
         NLogTrace("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
 
-        double minmax = 0.05;
+        double minmax = 1.0;
         if (server->GetWorkspace()["spectra"].contains("properties") && server->GetWorkspace()["spectra"]["properties"].contains("axismargin") &&
             server->GetWorkspace()["spectra"]["properties"]["axismargin"].contains("default")) {
           minmax = server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"].get<double>();
