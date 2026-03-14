@@ -373,7 +373,7 @@ class NGnTree : public TObject {
    */
   static NGnTree * Import(const std::string & findPath, const std::string & fileName,
                           const std::vector<std::string> & headers,
-                          const std::string &              outFileName = "/tmp/ngnt_imported.root");
+                          const std::string &              outFileName = "/tmp/ngnt_imported.root",bool close=true);
 
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
