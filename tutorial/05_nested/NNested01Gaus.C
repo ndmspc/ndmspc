@@ -8,7 +8,7 @@
 #include <TMath.h>
 #include <TH1D.h>
 
-void NNested01Gaus(int nEntries = 1e5, std::string outFile = "NNested01Gaus.root")
+void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
 {
   ///
   /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash
@@ -48,9 +48,6 @@ void NNested01Gaus(int nEntries = 1e5, std::string outFile = "NNested01Gaus.root
   // Define the processing function
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
                                              int threadId) {
-    // print the title of the binning point
-    NLogInfo("title : %s", point->GetString().c_str());
-
     // Create Gaussian histogram for each point
     std::string title = "Gauss " + point->GetString();
     TH1D *      h     = new TH1D("hGaus", title.c_str(), 200, -10, 10);
@@ -69,7 +66,7 @@ void NNested01Gaus(int nEntries = 1e5, std::string outFile = "NNested01Gaus.root
       double x = gRandom->Gaus(mean, sigma);
       h->Fill(x);
     }
- 
+
     // Warning: Make sure that you add this canvas to the output list of the point.
     //          If not you have to delete it manually to avoid memory leaks.
     TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
@@ -89,6 +86,7 @@ void NNested01Gaus(int nEntries = 1e5, std::string outFile = "NNested01Gaus.root
       pointParams->SetParameter("meanFit", fitResult->Parameter(1), fitResult->Error(1));
       pointParams->SetParameter("sigmaFit", fitResult->Parameter(2), fitResult->Error(2));
     }
+    outputPoint->Add(h);
     outputPoint->Add(c);
   };
 
