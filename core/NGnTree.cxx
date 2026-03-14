@@ -971,7 +971,7 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   gSystem->Exec(
       TString::Format("magick -delay 20 -loop 0 %s/ndmspc_play_*.png ndmspc_play.gif", annimationTempDir.c_str()));
   gSystem->Exec(TString::Format("rm -fr %s", annimationTempDir.c_str()));
-  NLogInfo("Animation saved to %s/ndmspc_play.gif", annimationTempDir.c_str());
+  NLogInfo("Animation saved to ndmspc_play.gif");
 
   if (client) client->Disconnect();
   delete bdContent;
