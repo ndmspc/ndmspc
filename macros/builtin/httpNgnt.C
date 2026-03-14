@@ -550,7 +550,7 @@ void httpNgnt()
 
         double minmax = 0.05;
         if (httpIn.contains("axismargin")) {
-          minmax = {httpIn["axismargin"].get<double>()};
+          minmax = httpIn["axismargin"].get<double>();
         }
         std::string minmaxMode = "V";
         if (httpIn.contains("minmaxMode")) {
@@ -562,7 +562,7 @@ void httpNgnt()
 
         // server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameterName;
         // Only use the first element for DrawSpectra and workspace default
-        // server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"] = minmax;
+        server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"] = minmax;
         server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"] = minmaxMode;
         wsOut["workspace"]["spectra"]                                            = server->GetWorkspace()["spectra"];
 
@@ -716,10 +716,18 @@ void httpNgnt()
         NLogTrace("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
 
         double minmax = 0.05;
+        if (server->GetWorkspace()["spectra"].contains("properties") && server->GetWorkspace()["spectra"]["properties"].contains("axismargin") &&
+            server->GetWorkspace()["spectra"]["properties"]["axismargin"].contains("default")) {
+          minmax = server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"].get<double>();
+        }
         if (httpIn.contains("axismargin")) {
-          minmax = {httpIn["axismargin"].get<double>()};
+          minmax = httpIn["axismargin"].get<double>();
         }
         std::string minmaxMode = "V";
+        if (server->GetWorkspace()["spectra"].contains("properties") && server->GetWorkspace()["spectra"]["properties"].contains("minmaxMode") &&
+            server->GetWorkspace()["spectra"]["properties"]["minmaxMode"].contains("default")) {
+          minmaxMode = server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"].get<std::string>();
+        }
         if (httpIn.contains("minmaxMode")) {
           minmaxMode = httpIn["minmaxMode"].get<std::string>();
         }

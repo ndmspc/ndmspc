@@ -1150,7 +1150,7 @@ bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
 }
 
 NGnTree * NGnTree::Import(const std::string & findPath, const std::string & fileName,
-                          const std::vector<std::string> & headers, const std::string & outputFile)
+                          const std::vector<std::string> & headers, const std::string & outputFile, bool close)
 {
   ///
   /// Import NGnTree from mutiple files in the given path
@@ -1279,6 +1279,11 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   };
 
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
+  if (close) {
+    ngnt->Close(true);
+    delete ngnt;
+    ngnt = NGnTree::Open(outputFile.c_str());
+  }
   return ngnt;
 }
 
