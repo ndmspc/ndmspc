@@ -4,6 +4,7 @@
 #include <THnSparse.h>
 #include <TBranch.h>
 #include <TObject.h>
+#include <TROOT.h>
 #include "NLogger.h"
 
 #include "NTreeBranch.h"
@@ -101,7 +102,14 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
 
   Long64_t bytes = 0;
   if (fBranch && tree->GetBranchStatus(fBranch->GetName()) == 1) {
+    // Temporarily disable ROOT's recursive cleanup to prevent crashes when
+    // TCanvas objects (stored in TList branches) are destroyed during
+    // deserialization of a new entry (TCanvas::Streamer -> TObjArray::~TObjArray
+    // -> RecursiveRemove).
+    Bool_t prevMustClean = gROOT->MustClean();
+    gROOT->SetMustClean(kFALSE);
     bytes = fBranch->GetEntry(entry);
+    gROOT->SetMustClean(prevMustClean);
     NLogTrace("Getting content from %s with size %.3f MB", fBranch->GetName(), (double)bytes / (1024 * 1024));
     // if (fObject) {
     //   fObject->Print();
