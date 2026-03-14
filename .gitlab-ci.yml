@@ -40,6 +40,11 @@ base-image-test:
     - podman build -f ci/Dockerfile.base .
   allow_failure: true
   when: manual
+  except:
+    - tags
+    - main
+    - develop
+
 
 build-rpm-copr:
   stage: deploy
@@ -55,10 +60,8 @@ build-rpm-copr:
     - scripts/make.sh rpm
     - if [ -z "$MY_VER_RELEASE" ];then copr-cli build ndmspc/stable build/SRPMS/*.src.rpm --nowait; fi
     - if [ -n "$MY_VER_RELEASE" ];then copr-cli build ndmspc/testing build/SRPMS/*.src.rpm --nowait; fi
-  except:
+  only:
     - tags
-    - main
-    - develop
 
 base-image:
   stage: deploy
