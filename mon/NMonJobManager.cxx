@@ -28,7 +28,7 @@ void NMonJobManager::Print(Option_t * option) const
     NLogInfo("  Number of jobs: %zu", fJobs.size());
     NLogInfo("  Jobs:");
     for (const auto & p : fJobs) {
-      NLogInfo("    %s", p.first.c_str());
+      //NLogInfo("    %s", p.first.c_str());
       p.second->Print(option);
     }
   }
@@ -38,7 +38,6 @@ void NMonJobManager::AddJob(NMonJob * job)
 {
   fJobs[job->GetName()] = job;
   NLogInfo("NMonJobManager::AddJob(job): job: %s", job->GetName());
-  // fJobs.append(job);
 }
 
 json NMonJobManager::ToJson() const
@@ -47,10 +46,6 @@ json NMonJobManager::ToJson() const
   for (const auto & [id, job] : fJobs) {
     j.push_back(job->ToJson());
   }
-  /*for (const auto & p : fJobs) {
-    j.push_back(p.second->ToJson());
-  }*/
-  // NLogInfo("NMonJobManager::ToJson(): json: %s", j.dump().c_str());
   return j;
 }
 
@@ -58,14 +53,20 @@ std::string NMonJobManager::GetString() const
 {
   json        j   = ToJson();
   std::string msg = j.dump();
-  // NLogInfo("NMonJobS::GetString(): msg: %s", msg.c_str());
 
   return msg;
 }
 
-bool NMonJobManager::UpdateTask(const std::string & jobName, unsigned int taskId, const std::string & action)
+bool NMonJobManager::UpdateTask(const std::string & jobName, unsigned int taskId, const std::string & action,
+                                int errorCode)
 {
-  return fJobs[jobName]->UpdateTask(taskId, action); // fixme treba odhandlovat invalidne vstupy
+  NLogTrace("NMonJobManager::UpdateTask(jobName=%s, taskId=%u, action=%s, errorCode=%d)", jobName.c_str(), taskId,
+            action.c_str(), errorCode);
+  if (fJobs.find(jobName) == fJobs.end()) {
+    NLogWarning("Job with name %s not found in UpdateTask", jobName.c_str());
+    return false;
+  }
+  return fJobs[jobName]->UpdateTask(taskId, action, errorCode); // fixme treba odhandlovat invalidne vstupy
 }
 
 } // namespace Ndmspc

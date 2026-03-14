@@ -22,22 +22,22 @@ void httpNgntMon()
       httpOut["result"]  = "success";
       httpOut["jobList"] = jobManager->ToJson();
       jobManager->Print();
-      wsOut["nJobs"]     = jobManager->getfJobs().size();
-      wsOut["jobList"]   = jobManager->ToJson();
-      httpOut["message"] = "Get action is not implemented for jobs, but acknowledged.";
+      // wsOut["payload"]["nJobs"]   = jobManager->getfJobs().size();
+      // wsOut["payload"]["jobList"] = jobManager->ToJson();
     }
     else if (method.find("PATCH") != std::string::npos) {
       // wsOut["health"] = "ok";
       json j = httpIn;
-      if (jobManager->UpdateTask(j["name"], j["task"], j["action"])) {
+      if (jobManager->UpdateTask(j["name"], j["task"], j["action"], j["rc"])) {
 
-        httpOut["result"]  = "succes";
-        httpOut["jobList"] = jobManager->ToJson();
+        httpOut["result"]           = "succes";
+        // httpOut["jobList"]          = jobManager->ToJson();
+        wsOut["payload"]["nJobs"]   = jobManager->getfJobs().size();
+        wsOut["payload"]["jobList"] = jobManager->ToJson();
       }
       else {
         httpOut["result"] = "failure";
       }
-      httpOut["message"] = "Update action is not implemented for jobs, but acknowledged.";
     }
     else if (method.find("POST") != std::string::npos) {
       // wsOut["health"] = "ok";
@@ -49,11 +49,13 @@ void httpNgntMon()
         jobManager->AddJob(job);
         httpOut["result"]  = "success";
         httpOut["jobList"] = jobManager->ToJson();
+
+        wsOut["payload"]["nJobs"]   = jobManager->getfJobs().size();
+        wsOut["payload"]["jobList"] = jobManager->ToJson();
       }
       else {
         httpOut["result"] = "failure";
       }
-      httpOut["message"] = "Post action is not implemented for jobs, but acknowledged.";
     }
     else if (method.find("DELETE") != std::string::npos) {
       httpOut["result"]  = "success";

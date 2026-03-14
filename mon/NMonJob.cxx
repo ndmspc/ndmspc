@@ -20,12 +20,8 @@ void NMonJob::Print(Option_t *) const
   ///
   /// Print NMonJob information
   ///
-
-  NLogInfo("NMonJob: %s, title: %s P[%zu]", fName.Data(), fTitle.Data(), fPendingTasks.size());
-  NLogInfo(" Running tasks: %zu", fRunningTasks.size());
-  NLogInfo("    Done tasks: %zu", fDoneTasks.size());
-  NLogInfo("  Failed tasks: %zu", fFailedTasks.size());
-  NLogInfo(" Skipped tasks: %zu", fSkippedTasks.size());
+  NLogInfo("    %s, P[%zu] R[%zu] D[%zu] S[%zu] title: %s", fName.Data(),
+           fPendingTasks.size(), fRunningTasks.size(), fDoneTasks.size(), fSkippedTasks.size(), fTitle.Data());
 }
 
 bool NMonJob::ParseMessage(const std::string & msg)
@@ -81,25 +77,32 @@ json NMonJob::ToJson() const
   j["pending"] = fPendingTasks;
   j["running"] = fRunningTasks;
   j["done"]    = fDoneTasks;
-  j["failed"]  = fFailedTasks;
+  j["rc"]      = fErrorCodes;
   j["skipped"] = fSkippedTasks;
   // NLogInfo("NMonJob::ToJson(): msg: %s", j.dump().c_str());
   return j;
 }
 
-bool NMonJob::UpdateTask(unsigned int taskId, const std::string & action)
+bool NMonJob::UpdateTask(unsigned int taskId, const std::string & action, int errorCode)
 {
   if (action == "start") {
-    MoveTask(taskId, fPendingTasks, fRunningTasks);
+    if (MoveTask(taskId, fPendingTasks, fRunningTasks)) {
+      return true;
+    }
+    return false;
   }
   else if (action == "done") {
-    MoveTask(taskId, fRunningTasks, fDoneTasks);
-  }
-  else if (action == "failed") {
-    MoveTask(taskId, fRunningTasks, fFailedTasks);
+    if (MoveTask(taskId, fRunningTasks, fDoneTasks)) {
+      fErrorCodes.push_back(errorCode);
+      return true;
+    }
+    return false;
   }
   else if (action == "skipped") {
-    MoveTask(taskId, fPendingTasks, fSkippedTasks);
+    if (MoveTask(taskId, fPendingTasks, fSkippedTasks)) {
+      return true;
+    }
+    return false;
   }
   else {
     return false;
@@ -108,16 +111,18 @@ bool NMonJob::UpdateTask(unsigned int taskId, const std::string & action)
   return true;
 }
 
-void NMonJob::MoveTask(const unsigned int taskId, std::vector<unsigned int> & from, std::vector<unsigned int> & to)
+bool NMonJob::MoveTask(const unsigned int taskId, std::vector<unsigned int> & from, std::vector<unsigned int> & to)
 {
   auto it = std::find(from.begin(), from.end(), taskId);
 
   if (it != from.end()) {
     to.push_back(*it);
     from.erase(it);
+    return true;
   }
   else {
     NLogWarning("Task '%u' not found.", taskId);
+    return false;
   }
 }
 
