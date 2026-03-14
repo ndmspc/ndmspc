@@ -26,7 +26,7 @@ class NMonJobManager : public TNamed {
   void        AddJob(NMonJob * job);
   json        ToJson() const;
   std::string GetString() const;
-  bool        UpdateTask(const std::string & jobName, unsigned int taskId, const std::string & action);
+  bool        UpdateTask(const std::string & jobName, unsigned int taskId, const std::string & action, int errorCode);
 
   private:
   std::map<std::string, NMonJob *> fJobs;
