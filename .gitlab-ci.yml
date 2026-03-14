@@ -30,6 +30,17 @@ build-al10:
     - main
     - tags
 
+
+base-image-test:
+  stage: build
+  tags:
+    - images
+  script:
+    - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - podman build -f ci/Dockerfile.base .
+  allow_failure: true
+  when: manual
+
 build-rpm-copr:
   stage: deploy
   tags:
@@ -44,8 +55,10 @@ build-rpm-copr:
     - scripts/make.sh rpm
     - if [ -z "$MY_VER_RELEASE" ];then copr-cli build ndmspc/stable build/SRPMS/*.src.rpm --nowait; fi
     - if [ -n "$MY_VER_RELEASE" ];then copr-cli build ndmspc/testing build/SRPMS/*.src.rpm --nowait; fi
-  only:
+  except:
     - tags
+    - main
+    - develop
 
 base-image:
   stage: deploy
@@ -64,7 +77,6 @@ base-image:
   # when: manual
   only:
     - tags
-    #- main
 
 prod-image:
   stage: deploy-full
@@ -83,7 +95,6 @@ prod-image:
   # when: manual
   only:
     - tags
-    #- main
 
 pages:
   image: registry.gitlab.com/ndmspc/user/fc43:dep
@@ -97,4 +108,4 @@ pages:
     paths:
       - public
   only:
-    - main
+    - develop
