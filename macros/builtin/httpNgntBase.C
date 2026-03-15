@@ -76,20 +76,7 @@ void httpNgntBase()
       NLogInfo("Resetting API history and clearing all objects");
       
       try {
-        // First, manually remove all stored objects
-        std::vector<std::string> keysToRemove;
-        for (const auto & pair : inputs) {
-          keysToRemove.push_back(pair.first);
-        }
-        for (const auto & key : keysToRemove) {
-          NLogInfo("Removing input object: %s", key.c_str());
-          server->RemoveInputObject(key);
-        }
-        NLogInfo("All input objects removed");
-        
-        // Clear the history - this should now be safe since we've cleaned up objects
-        server->ClearHistory();
-        NLogInfo("History cleared successfully");
+        server->ResetServer();
         
         httpOut = json::object();
         httpOut["result"] = "success";

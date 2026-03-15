@@ -37,7 +37,28 @@ NGnNavigator::NGnNavigator(const char * name, const char * title, std::vector<st
     : TNamed(name, title), fObjectTypes(objectTypes)
 {
 }
-NGnNavigator::~NGnNavigator() {}
+NGnNavigator::~NGnNavigator()
+{
+  // Detach and delete the projection histogram owned by this navigator node.
+  // SetDirectory(nullptr) removes it from ROOT's global directory before deletion
+  // to avoid dangling pointers in gDirectory/gROOT.
+  if (fProjection) {
+    fProjection->SetDirectory(nullptr);
+    delete fProjection;
+    fProjection = nullptr;
+  }
+  // Recursively delete the entire child-navigator subtree.
+  for (auto * child : fChildren) {
+    delete child;
+  }
+  fChildren.clear();
+  // Delete histograms owned by this node (cloned in Reshape).
+  for (auto & [key, vec] : fObjectContentMap) {
+    for (TObject * obj : vec) {
+      delete obj;
+    }
+  }
+}
 
 NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::vector<int>> levels, size_t level,
                                      std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase)
@@ -239,6 +260,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       // if (level < 3) {
       if (nDims == 1) {
         hProj = hnsIn->Projection(axesIds[0]);
+        hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
         // set name from hnsIn
         TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
         TAxis * axisProjX = hProj->GetXaxis();
@@ -254,6 +276,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       else if (nDims == 2) {
         // TODO: Check the order of axes is really correct
         hProj             = hnsIn->Projection(axesIds[1], axesIds[0]);
+        hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
         TAxis * axisIn1   = hnsIn->GetAxis(axesIds[0]);
         TAxis * axisIn0   = hnsIn->GetAxis(axesIds[1]);
         TAxis * axisProjX = hProj->GetXaxis();
@@ -276,6 +299,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       }
       else if (nDims == 3) {
         hProj             = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
+        hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
         TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
         TAxis * axisIn1   = hnsIn->GetAxis(axesIds[1]);
         TAxis * axisIn2   = hnsIn->GetAxis(axesIds[2]);
@@ -564,7 +588,12 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                 // nCells); fParent->SetObject(name, hProjTmp, indexInProj);
                 if (current->GetObjectContentMap()[name].size() != nCells)
                   current->ResizeObjectContentMap(name, nCells);
-                current->SetObject(name, hProjTmp, indexInProj);
+                // Clone the histogram so the navigator owns it independently of the TTree branch
+                // buffer. ROOT clears TList branch objects on every GetEntry() call, which would
+                // leave the stored pointer dangling if we don't clone here.
+                TH1 * hClone = (TH1 *)hProjTmp->Clone();
+                hClone->SetDirectory(nullptr);
+                current->SetObject(name, hClone, indexInProj);
               }
               if (isValid == false) {
                 NLogTrace("NGnNavigator::Reshape::Warning: Branch '%s' TList does not contain any valid histograms !!!",

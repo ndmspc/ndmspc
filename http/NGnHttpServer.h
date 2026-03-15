@@ -45,6 +45,7 @@ class NGnHttpServer : public NHttpServer {
   virtual void Print(Option_t * option = "") const override;
   virtual void Clear(Option_t * option = "") override { NHttpServer::Clear(option); }
   void         ClearHistory() { fWorkspace.Clear(); }
+  void         ResetServer();
 
   json GetJson() const;
 

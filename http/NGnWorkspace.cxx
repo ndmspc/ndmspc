@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <fstream>
 
-
 namespace Ndmspc {
 
 NGnWorkspace::NGnWorkspace(const char * name, const char * title, NGnHttpServer * server)
@@ -87,15 +86,13 @@ bool NGnWorkspace::RemoveEntry(const std::string & name)
   return found;
 }
 
-void NGnWorkspace::Clear(Option_t * option)
+void NGnWorkspace::Clear(Option_t *)
 {
-  (void)option;
-  for (auto * entry : fEntries) {
-    if (entry == nullptr) continue;
-    if (fWorkspace.contains(entry->GetName())) fWorkspace.erase(entry->GetName());
-    delete entry;
+  for (int i = static_cast<int>(fEntries.size()) - 1; i >= 0; i--) {
+    RemoveEntry(i);
   }
-  fEntries.clear();
+  fWorkspace = nullptr;
+  fState     = nullptr;
 }
 
 bool NGnWorkspace::LoadFromFile(const std::string & filename)
