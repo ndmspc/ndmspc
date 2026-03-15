@@ -393,6 +393,7 @@ void httpNgnt()
 
       Ndmspc::NGnNavigator * navCurrent = nav;
       for (const auto & bin : point) {
+        if (!navCurrent) break;
         NLogTrace("[Server] Traversing to child navigator for bin: %d navCurrent=%p", bin, (void *)navCurrent);
         navCurrent = navCurrent->GetChild(bin);
       }
@@ -591,6 +592,7 @@ void httpNgnt()
           else {
             NLogTrace("[Server] Traversing to child navigator for bin: %d navCurrent=%p", bin, (void *)navCurrent);
             navCurrent = navCurrent->GetChild(bin);
+            if (!navCurrent) break;
           }
         }
 
@@ -699,6 +701,7 @@ void httpNgnt()
 
       Ndmspc::NGnNavigator * navCurrent = nav;
       for (const auto & bin : point) {
+        if (!navCurrent) break;
         NLogTrace("[Server] Traversing to child navigator for bin: %d navCurrent=%p", bin, (void *)navCurrent);
         navCurrent = navCurrent->GetChild(bin);
       }
