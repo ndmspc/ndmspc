@@ -621,6 +621,12 @@ void httpNgnt()
           if (spectra) {
             NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
             json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+            // Clean up canvases immediately after JSON serialisation; this prevents them from
+            // accumulating in gROOT's canvas list and triggering the delete-existing-canvas
+            // code path (with its RecursiveRemove cascade) on the next request.
+            spectra->SetOwner(kTRUE);
+            delete spectra;
+            spectra = nullptr;
             json debugAction;
             debugAction["type"]                = "debug";
             debugAction["message"]             = std::string("Debug click: ") + spectraObject["fName"].dump();
@@ -763,6 +769,10 @@ void httpNgnt()
           if (spectra) {
             NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
             json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+            // Clean up canvases immediately after JSON serialisation.
+            spectra->SetOwner(kTRUE);
+            delete spectra;
+            spectra = nullptr;
             // json debugAction;
             // debugAction["type"]                = "debug";
             // debugAction["message"]             = std::string("Debug click: ") + spectraObject["fName"].dump();
