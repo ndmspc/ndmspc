@@ -8,7 +8,7 @@ EnvironmentFile=/etc/ndmspc/http
 EnvironmentFile=-/etc/ndmspc/http.%I
 EnvironmentFile=-%h/.ndmspc/http
 EnvironmentFile=-%h/.ndmspc/http.%I
-ExecStart=/usr/bin/ndmspc-cli serve %I $NDMSPC_HTTP_OPTS
+ExecStart=/usr/bin/ndmspc-server start %I $NDMSPC_HTTP_OPTS
 Restart=on-abort
 
 [Install]
