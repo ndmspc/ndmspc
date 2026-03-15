@@ -454,17 +454,6 @@ class NUtils : TObject {
    */
   static TCanvas * CreateCanvas(const std::string & name, const std::string & title, int width = 800, int height = 600);
 
-  /**
-   * @brief Recursively clear the kMustCleanup bit on a TObject and, if it is a
-   * TPad (or TCanvas), on every object in its primitives list at all nesting
-   * levels.  This prevents TPave-derived destructors (TPaveText, TLegend,
-   * TPaveStats …) from calling gROOT->RecursiveRemove during canvas deletion,
-   * which can crash via TTree::RecursiveRemove when any branch pointer is stale.
-   * TCanvas::Destructor() still removes the canvas from
-   * gROOT->GetListOfCanvases() explicitly, so deregistration is not lost.
-   * @param obj Root object to process (typically a TCanvas).
-   */
-  static void ClearMustCleanupDeep(TObject * obj);
 
   /**
    * @brief Create THnSparse from Parquet Taxi file.

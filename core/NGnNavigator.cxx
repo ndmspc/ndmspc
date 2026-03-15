@@ -39,15 +39,8 @@ NGnNavigator::NGnNavigator(const char * name, const char * title, std::vector<st
 }
 NGnNavigator::~NGnNavigator()
 {
-  // Detach and delete the projection histogram owned by this navigator node.
-  // SetDirectory(nullptr) removes it from ROOT's global directory before deletion
-  // to avoid dangling pointers in gDirectory/gROOT.
-  // ResetBit(kMustCleanup) prevents TNamed::~TNamed from calling
-  // gROOT->RecursiveRemove, which can crash via TTree::RecursiveRemove when
-  // any branch pointer is stale.
   if (fProjection) {
     fProjection->SetDirectory(nullptr);
-    fProjection->ResetBit(kMustCleanup);
     delete fProjection;
     fProjection = nullptr;
   }
@@ -59,7 +52,6 @@ NGnNavigator::~NGnNavigator()
   // Delete histograms owned by this node (cloned in Reshape).
   for (auto & [key, vec] : fObjectContentMap) {
     for (TObject * obj : vec) {
-      NUtils::ClearMustCleanupDeep(obj);
       delete obj;
     }
   }
@@ -210,7 +202,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
       std::vector<int> axesIds = levels[level];
       ///////// Make projection histogram /////////
-      THnSparse * hns   = nullptr;
+      // THnSparse * hns   = nullptr;
       Int_t       nDims = axesIds.size();
       auto        dims  = std::make_unique<Int_t[]>(nDims);
       // Int_t       dims[nDims];
@@ -220,11 +212,11 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       THnSparse * hnsIn = binningDef->GetContent();
 
       NUtils::SetAxisRanges(hnsIn, ranges); // Set the ranges for the axes
-      hns = static_cast<THnSparse *>(hnsIn->ProjectionND(axesIds.size(), dims.get(), "O"));
-      if (!hns) {
-        NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
-        return;
-      }
+      // hns = static_cast<THnSparse *>(hnsIn->ProjectionND(axesIds.size(), dims.get(), "O"));
+      // if (!hns) {
+      //   NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
+      //   return;
+      // }
 
       //   // int nCells = h->GetNcells();
       //   // h->SetMinimum(0);
@@ -251,7 +243,11 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
               TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
         }
       }
-      hns->SetTitle(title.c_str());
+      // hns->SetTitle(title.c_str());
+      // // hns is only needed to derive name/title strings; delete it now to
+      // // avoid leaking one THnSparse per bin iteration.
+      // delete hns;
+      // hns = nullptr;
       // hns->Print();
 
       // TODO: Handle it via NGnSparseObject
@@ -383,7 +379,16 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       // }
       // hProj->Print();
       // hProj->Draw("colz text");
-      current->SetProjection(hProj);
+      // `current` is shared across all bin iterations at this level. The
+      // projection is identical for every iteration (ranges are fixed), so
+      // only store it once.  Subsequent iterations delete the duplicate and
+      // reuse the already-stored pointer so that `nCells` below stays valid.
+      if (current->GetProjection() == nullptr) {
+        current->SetProjection(hProj);
+      } else {
+        delete hProj;
+        hProj = current->GetProjection();
+      }
       //////// End of projection histogram ////////
 
       std::map<int, std::vector<int>> rangesTmp     = ranges;
@@ -1491,6 +1496,9 @@ void NGnNavigator::SetObject(const std::string & name, TObject * obj, int index)
       // if (index >= (int)fObjectContentMap[name].size()) {
       //   fObjectContentMap[name].resize(index + 1, nullptr);
       // }
+      // Delete any previous object at this slot before overwriting, so that
+      // repeated SetObject calls at the same index don't leak the old pointer.
+      delete fObjectContentMap[name][index];
       fObjectContentMap[name][index] = obj;
     }
   }
@@ -1824,10 +1832,6 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     TCanvas * existingCanvas = (TCanvas *)gROOT->GetListOfCanvases()->FindObject(canvasName.c_str());
     if (existingCanvas) {
       NLogTrace("Deleting existing canvas '%s'", canvasName.c_str());
-      // ClearMustCleanupDeep was already called on this canvas when it was
-      // returned from a previous DrawSpectra call, so deletion is safe.
-      // Call it again defensively in case the canvas arrived via another path.
-      NUtils::ClearMustCleanupDeep(existingCanvas);
       delete existingCanvas;
     }
 
@@ -1970,19 +1974,6 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     }
     delete[] p;
     delete hsParam;
-  }
-
-  // All drawing is complete.  Clear kMustCleanup recursively on every canvas
-  // and all objects nested inside it (sub-pads, THStack, TLegend, TPaveText,
-  // TPaveStats …).  This ensures that whoever deletes the returned list —
-  // whether the macro (via SetOwner+delete) or the next DrawSpectra call (via
-  // delete existingCanvas) — will not trigger the
-  // TPave::~TPave → gROOT::RecursiveRemove → TTree::RecursiveRemove crash.
-  {
-    TIter nextCanvas(outputList);
-    TObject * canvObj;
-    while ((canvObj = nextCanvas()))
-      NUtils::ClearMustCleanupDeep(canvObj);
   }
 
   return outputList;
