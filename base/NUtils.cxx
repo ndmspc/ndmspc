@@ -2,6 +2,7 @@
 #include <iostream>
 #include <TSystem.h>
 #include <TROOT.h>
+#include <TPad.h>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -1030,6 +1031,10 @@ TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes
 
   h->SetName(TString::Format("%s_proj", sparse->GetName()).Data());
   h->SetTitle(TString::Format("%s Projection", sparse->GetTitle()).Data());
+  // Detach from gDirectory to prevent TFile from claiming ownership of the histogram.
+  // Without this, if gDirectory is an open TFile, the TFile will delete this histogram
+  // when closed, causing a double-free when THStack/canvas tries to clean it up later.
+  h->SetDirectory(nullptr);
 
   // Set labels for axis
   for (size_t i = 0; i < axes.size(); i++) {
@@ -1051,6 +1056,22 @@ TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes
   }
 
   return h;
+}
+
+void NUtils::ClearMustCleanupDeep(TObject * obj)
+{
+  ///
+  /// Recursively clear kMustCleanup on obj and all primitives inside it
+  ///
+  if (!obj) return;
+  obj->ResetBit(kMustCleanup);
+  if (!obj->InheritsFrom(TPad::Class())) return;
+  TList * prims = ((TPad *)obj)->GetListOfPrimitives();
+  if (!prims) return;
+  TIter     next(prims);
+  TObject * child;
+  while ((child = next()))
+    ClearMustCleanupDeep(child);
 }
 
 bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow,

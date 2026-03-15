@@ -42,8 +42,12 @@ NGnNavigator::~NGnNavigator()
   // Detach and delete the projection histogram owned by this navigator node.
   // SetDirectory(nullptr) removes it from ROOT's global directory before deletion
   // to avoid dangling pointers in gDirectory/gROOT.
+  // ResetBit(kMustCleanup) prevents TNamed::~TNamed from calling
+  // gROOT->RecursiveRemove, which can crash via TTree::RecursiveRemove when
+  // any branch pointer is stale.
   if (fProjection) {
     fProjection->SetDirectory(nullptr);
+    fProjection->ResetBit(kMustCleanup);
     delete fProjection;
     fProjection = nullptr;
   }
@@ -55,6 +59,7 @@ NGnNavigator::~NGnNavigator()
   // Delete histograms owned by this node (cloned in Reshape).
   for (auto & [key, vec] : fObjectContentMap) {
     for (TObject * obj : vec) {
+      NUtils::ClearMustCleanupDeep(obj);
       delete obj;
     }
   }
@@ -1703,6 +1708,8 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
     // fProjection->Draw("colz");
     TH1 * hParameterProjection = (TH1 *)fProjection->Clone("hParameterProjection");
+    // Detach from gDirectory so the TFile does not claim ownership and cause a double-free
+    hParameterProjection->SetDirectory(nullptr);
     // hParameterProjection->Sumw2(kFALSE);
 
     // fill hParameterProjection from fParameterContentMap
@@ -1817,6 +1824,10 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     TCanvas * existingCanvas = (TCanvas *)gROOT->GetListOfCanvases()->FindObject(canvasName.c_str());
     if (existingCanvas) {
       NLogTrace("Deleting existing canvas '%s'", canvasName.c_str());
+      // ClearMustCleanupDeep was already called on this canvas when it was
+      // returned from a previous DrawSpectra call, so deletion is safe.
+      // Call it again defensively in case the canvas arrived via another path.
+      NUtils::ClearMustCleanupDeep(existingCanvas);
       delete existingCanvas;
     }
 
@@ -1873,11 +1884,13 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
           TAxis * aStack = hsParam->GetAxis(proj[1]);
           if (aStack->IsAlphanumeric()) {
             std::string label = aStack->GetBinLabel(p[proj[1]]);
+            hProj->SetName(Form("%s_%s", aStack->GetName(), label.c_str()));
             hProj->SetTitle(Form("%s [%s]", aStack->GetName(), label.c_str()));
           }
           else {
             double binLowEdge = aStack->GetBinLowEdge(p[proj[1]]);
             double binUpEdge  = aStack->GetBinUpEdge(p[proj[1]]);
+            hProj->SetName(Form("%s_%.3f_%.3f", aStack->GetName(), binLowEdge, binUpEdge));
             hProj->SetTitle(Form("%s [%.3f,%.3f]", aStack->GetName(), binLowEdge, binUpEdge));
           }
         }
@@ -1898,8 +1911,13 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
         hProj->SetMarkerStyle(20);
         hProj->SetMarkerColor(iStack + 1);
-        hStack->Add((TH1 *)hProj->Clone());
+        TH1 * hProjClone = (TH1 *)hProj->Clone();
+        // Detach clone from gDirectory to prevent TFile from owning it and causing a
+        // double-free when THStack deletes it during canvas cleanup later.
+        hProjClone->SetDirectory(nullptr);
+        hStack->Add(hProjClone);
         NLogTrace("Added histogram to stack: %s", hProj->GetTitle());
+        delete hProj;
       }
 
       if (mode == "D") {
@@ -1950,6 +1968,21 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
       c->ModifiedUpdate();
       gSystem->ProcessEvents();
     }
+    delete[] p;
+    delete hsParam;
+  }
+
+  // All drawing is complete.  Clear kMustCleanup recursively on every canvas
+  // and all objects nested inside it (sub-pads, THStack, TLegend, TPaveText,
+  // TPaveStats …).  This ensures that whoever deletes the returned list —
+  // whether the macro (via SetOwner+delete) or the next DrawSpectra call (via
+  // delete existingCanvas) — will not trigger the
+  // TPave::~TPave → gROOT::RecursiveRemove → TTree::RecursiveRemove crash.
+  {
+    TIter nextCanvas(outputList);
+    TObject * canvObj;
+    while ((canvObj = nextCanvas()))
+      NUtils::ClearMustCleanupDeep(canvObj);
   }
 
   return outputList;
