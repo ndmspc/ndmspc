@@ -264,10 +264,13 @@ void httpNgnt()
       json    listJson = json::parse(listStr.Data());
 
 
+      // NLogDebug("[Server] Exporting navigator level = %d",  nav->GetLevel());
       if (nav->GetLevel() == 0){
         json nested;
+        // NLogDebug("[Server] Exporting navigator JSON for level 0 navigator: %p", (void *)nav);
+        nav->Print();
         nav->ExportToJson(nested, nav, {});
-        NLogDebug("[Server] Exported navigator JSON: %s", nested.dump().c_str());
+        // NLogDebug("[Server] Exported navigator JSON: %s", nested.dump().c_str());
         listJson["nested"] = nested;
       }
 

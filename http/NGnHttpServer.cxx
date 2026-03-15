@@ -1,3 +1,4 @@
+#include <TROOT.h>
 #include "NGnHttpServer.h"
 #include "NGnHistoryEntry.h"
 #include "NLogger.h"
@@ -132,42 +133,43 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       }
     }
   }
-  // if (!wsOut.empty()) {
 
-  json wsMessage;
-  wsMessage["event"]   = "ngnt";
-  wsMessage["payload"] = wsOut["payload"].is_null() ? json::object() : wsOut["payload"];
-  // wsMessage["payload"]["workspace"]["schema"]["properties"] = GetWorkspace();
 
-  // loop over keys in wsOut["workspace"] and add them to workspace, overwriting existing ones if necessary
-  if (!wsOut["workspace"].is_null()) {
-    // Build workspace with order of keys same as in NGnHistoryEntry
-    json workspace;
-    for (const auto & entry : fWorkspace.GetEntries()) {
-      NLogTrace("Adding workspace entry for: %s", entry->GetName());
-      workspace[entry->GetName()] = GetWorkspace()[entry->GetName()];
-    }
+  if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null()) {
+    json wsMessage;
+    wsMessage["event"]   = "ngnt";
+    wsMessage["payload"] = wsOut["payload"].is_null() ? json::object() : wsOut["payload"];
 
-    for (auto it = wsOut["workspace"].begin(); it != wsOut["workspace"].end(); ++it) {
-      NLogTrace("Updating workspace entry for: %s", it.key().c_str());
-      // if value us null, skip it
-      if (it.value().is_null()) {
-        NLogTrace("Skipping null workspace entry for: %s", it.key().c_str());
-        continue;
+    // loop over keys in wsOut["workspace"] and add them to workspace, overwriting existing ones if necessary
+    if (!wsOut["workspace"].is_null()) {
+      // Build workspace with order of keys same as in NGnHistoryEntry
+      json workspace;
+      for (const auto & entry : fWorkspace.GetEntries()) {
+        NLogTrace("Adding workspace entry for: %s", entry->GetName());
+        workspace[entry->GetName()] = GetWorkspace()[entry->GetName()];
       }
 
-      workspace[it.key()]         = it.value();
-      workspace[it.key()]["type"] = "object";
-      GetWorkspace()[it.key()]    = it.value();
+      for (auto it = wsOut["workspace"].begin(); it != wsOut["workspace"].end(); ++it) {
+        NLogTrace("Updating workspace entry for: %s", it.key().c_str());
+        // if value is null, skip it
+        if (it.value().is_null()) {
+          NLogTrace("Skipping null workspace entry for: %s", it.key().c_str());
+          continue;
+        }
+
+        workspace[it.key()]         = it.value();
+        workspace[it.key()]["type"] = "object";
+        GetWorkspace()[it.key()]    = it.value();
+      }
+      wsMessage["payload"]["workspace"]["schema"]["properties"] = workspace;
     }
-    wsMessage["payload"]["workspace"]["schema"]["properties"] = workspace;
+
+    NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());
+    WebSocketBroadcast(wsMessage);
+  } else {
+    NLogTrace("Skipping WebSocket broadcast for path %s: no payload or workspace changes", fullpath.Data());
   }
 
-  NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());
-  WebSocketBroadcast(wsMessage);
-  // }
-  // Print();
-  // out["status"] = "ok";
 
   // arg->AddHeader("X-Header", "Test");
   arg->AddHeader("Access-Control-Allow-Origin", GetCors());
@@ -183,6 +185,28 @@ TObject * NGnHttpServer::GetInputObject(const std::string & name)
     return fObjectsMap[name];
   }
   return nullptr;
+}
+
+void NGnHttpServer::ResetServer()
+{
+  ///
+  /// Clear workspace history first so DELETE handlers can still access input
+  /// objects, then remove any remaining objects that weren't cleaned up by
+  /// the handlers.
+  ///
+  NLogInfo("NGnHttpServer::ResetServer: Clearing history ...");
+  ClearHistory();
+  NLogInfo("NGnHttpServer::ResetServer: Removing remaining input objects ...");
+  std::vector<std::string> keys;
+  keys.reserve(fObjectsMap.size());
+  for (const auto & pair : fObjectsMap) {
+    keys.push_back(pair.first);
+  }
+  for (const auto & key : keys) {
+    NLogInfo("NGnHttpServer::ResetServer: Removing input object '%s'", key.c_str());
+    RemoveInputObject(key);
+  }
+  NLogInfo("NGnHttpServer::ResetServer: Done.");
 }
 
 bool NGnHttpServer::RemoveInputObject(const std::string & name)

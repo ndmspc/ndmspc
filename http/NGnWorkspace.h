@@ -37,8 +37,8 @@ public:
   void SetServer(NGnHttpServer * server) { fServer = server; }  
 
 private:
-  json fWorkspace; ///< Workspace schema JSON object
-  json fState;     ///< Additional state information for the workspace
+  json fWorkspace{}; ///< Workspace schema JSON object
+  json fState{};     ///< Additional state information for the workspace
   std::vector<NGnHistoryEntry*> fEntries; ///< Workspace entries
   NGnHttpServer * fServer{nullptr}; ///< Pointer to the HTTP server for invoking handlers
 
