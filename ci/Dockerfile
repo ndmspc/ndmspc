@@ -13,6 +13,8 @@ COPY ci/eos/custom.target /etc/systemd/system/custom.target
 COPY ci/eos/eos-init.service /etc/systemd/system/eos-init.service
 RUN ln -sf /etc/systemd/system/custom.target /etc/systemd/system/default.target
 RUN ln -sf /etc/systemd/system/eos-init.service /etc/systemd/system/multi-user.target.wants/eos-init.service
-RUN ln -sf /usr/lib/systemd/system/ndmspc-http@.service /etc/systemd/system/multi-user.target.wants/ndmspc-http@default.service
-ENTRYPOINT ["/sbin/init"]
-CMD []
+RUN ln -sf /usr/lib/systemd/system/ndmspc-http@.service /etc/systemd/system/multi-user.target.wants/ndmspc-http@ngnt.service
+ENV NDMSPC_INIT_DIR=${NDMSPC_INIT_DIR}
+STOPSIGNAL SIGRTMIN+3
+ENTRYPOINT []
+CMD ["/sbin/init"]

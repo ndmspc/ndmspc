@@ -1,0 +1,2 @@
+PORT=8080
+NDMSPC_HTTP_OPTS="-m /usr/share/ndmspc/macros/builtin/httpNgntBase.C,/usr/share/ndmspc/macros/builtin/httpNgnt.C --html /usr/share/ndmspc/ndmspc-ui"
