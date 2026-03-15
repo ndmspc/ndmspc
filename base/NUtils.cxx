@@ -1058,22 +1058,6 @@ TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes
   return h;
 }
 
-void NUtils::ClearMustCleanupDeep(TObject * obj)
-{
-  ///
-  /// Recursively clear kMustCleanup on obj and all primitives inside it
-  ///
-  if (!obj) return;
-  obj->ResetBit(kMustCleanup);
-  if (!obj->InheritsFrom(TPad::Class())) return;
-  TList * prims = ((TPad *)obj)->GetListOfPrimitives();
-  if (!prims) return;
-  TIter     next(prims);
-  TObject * child;
-  while ((child = next()))
-    ClearMustCleanupDeep(child);
-}
-
 bool NUtils::SetAxisRanges(THnSparse * sparse, std::vector<std::vector<int>> ranges, bool withOverflow,
                            bool modifyTitle, bool reset)
 {

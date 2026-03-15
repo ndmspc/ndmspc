@@ -60,7 +60,7 @@ void NTreeBranch::SetAddress(void * address, bool deleteExisting)
   NLogTrace("NTreeBranch::SetAddress: Setting address %p for branch '%s' ...", address, fName.c_str());
 
   if (fObject && deleteExisting) {
-    NLogDebug("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
+    NLogTrace("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
     delete fObject;
     fObject = nullptr;
   }
@@ -79,6 +79,7 @@ void NTreeBranch::SetBranchAddress(TTree * tree)
   }
 
   NLogTrace("NTreeBranch::SetBranchAddress: Setting branch address '%s' ...", fName.c_str());
+  // delete fObject;
   // fObject = nullptr;
 
   tree->SetBranchStatus(fName.c_str(), fBranchStatus);
@@ -111,9 +112,6 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
     bytes = fBranch->GetEntry(entry);
     gROOT->SetMustClean(prevMustClean);
     NLogTrace("Getting content from %s with size %.3f MB", fBranch->GetName(), (double)bytes / (1024 * 1024));
-    // if (fObject) {
-    //   fObject->Print();
-    // }
   }
 
   return bytes;
