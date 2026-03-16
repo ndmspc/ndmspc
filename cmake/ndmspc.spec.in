@@ -100,13 +100,13 @@ rm -rf %{buildroot}
 cd build
 make install DESTDIR=%{buildroot}
 
-%post server
+%post
 %systemd_post ndmspc-http@*.service
 
-%preun server
+%preun
 %systemd_preun ndmspc-http@*.service
 
-%postun server
+%postun
 %systemd_postun ndmspc-http@*.service
 
 %preun jupyroot

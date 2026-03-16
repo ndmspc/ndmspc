@@ -253,8 +253,13 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       ranges.push_back({i, coord, coord});
       // NLogInfo("Setting axis %d range to [%d, %d]", i, coord, coord);
     }
+
     NUtils::SetAxisRanges(hns, ranges);
     TH1 * h = hns->Projection(axisIdx, "O");
+    if (!h) {
+      NLogError("NGnTree::Import: Projection of THnSparse failed !!!");
+      return;
+    }
     if (h->GetEntries() > 0) {
       NParameters * params = point->GetParameters();
       if (params) {
@@ -265,10 +270,27 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       // outputPoint->Add(hParams);
       outputPoint->Add(h);
 
+      std::string filename = cfg["filename"].get<std::string>();
+      TFile *     f        = (TFile *)point->GetTempObject("file");
+      if (!f || filename.compare(f->GetName()) != 0) {
+        if (f) {
+          NLogDebug("NGnTree::Import: Closing previously opened file '%s' ...", f->GetName());
+          f->Close();
+        }
+        NLogDebug("NGnTree::Import: Opening file '%s' ...", filename.c_str());
+        f = TFile::Open(filename.c_str());
+        if (!f || f->IsZombie()) {
+          NLogError("NGnTree::Import: Cannot open file '%s' !!!", filename.c_str());
+          return;
+        }
+        point->SetTempObject("file", f);
+      }
+
       // Get all objects
-      TFile * f = TFile::Open(cfg["filename"].get<std::string>().c_str());
+      // NLogDebug("Opening file '%s' to import additional objects ...", filename.c_str());
+      // TFile * f = TFile::Open(filename.c_str());
       if (f->IsZombie()) {
-        NLogError("NGnTree::Import: Cannot open file '%s' !!!", cfg["filename"].get<std::string>().c_str());
+        NLogError("NGnTree::Import: Cannot open file '%s' !!!", filename.c_str());
         return;
       }
 
@@ -294,6 +316,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
         // remove trailing underscore
         objPath = objPath.substr(0, objPath.size() - objFormatAxis.size());
+        objPath += cfg["objects"][objName]["sufix"].get<std::string>();
 
         TObject * obj = f->Get(objPath.c_str());
         if (!obj) {
@@ -301,32 +324,16 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
                     cfg["filename"].get<std::string>().c_str());
           continue;
         }
-        NLogTrace("NGnTree::Import: Retrieved object '%s' storting to '%s' ...", objPath.c_str(), objName.c_str());
-        // outputPoint->Add(obj->Clone(objName.c_str()));
+        NLogDebug("NGnTree::Import: Retrieved object '%s' storting to '%s' ...", objPath.c_str(), objName.c_str());
+
         if (obj->InheritsFrom(TCanvas::Class())) {
           TCanvas * cObj = (TCanvas *)obj;
           cObj->SetName(objName.c_str());
-          if (cObj->GetWw() == 0.0 || cObj->GetWh() == 0.0) {
-            NLogWarning("gPad has at least one zero dimension.");
-            return;
-          }
-          obj = cObj->Clone();
-          // Prevent ROOT from managing cleanup through global lists to avoid RecursiveRemove crashes
-          ((TCanvas *)obj)->SetBit(kMustCleanup, kFALSE);
-          // Also disable cleanup for primitives inside the canvas
-          TList * primitives = ((TCanvas *)obj)->GetListOfPrimitives();
-          if (primitives) {
-            primitives->SetBit(kMustCleanup, kFALSE);
-            TIter next(primitives);
-            TObject * prim;
-            while ((prim = next())) {
-              prim->SetBit(kMustCleanup, kFALSE);
-            }
-          }
         }
-        outputPoint->Add(obj);
+        outputPoint->Add(obj->Clone(objName.c_str()));
+        NLogTrace("NGnTree::Import: Added object '%s' to output point ...", objName.c_str());
       }
-      f->Close();
+      // f->Close();
     }
   };
 
@@ -483,7 +490,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
     if (!NLogger::GetConsoleOutput()) {
       size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
-                                                                                                   : totalEntries - processedEntries;
+                                                                                     : totalEntries - processedEntries;
       NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
     }
   };

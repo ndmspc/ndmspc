@@ -798,7 +798,10 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   h->SetStats(kFALSE); // Turn off stats box for clarity
   // h->SetDirectory(nullptr); // Avoid ROOT trying to save the histogram in a file
 
-  j = json::parse(TBufferJSON::ConvertToJSON(h).Data());
+  // Store TString in a named variable: in Cling's interpreted mode, TString temporaries
+  // can be destroyed before json::parse() reads the char* pointer, causing a segfault.
+  TString hJsonStr = TBufferJSON::ConvertToJSON(h);
+  j = json::parse(hJsonStr.Data());
   // loop over content map and add objects
   double entries = 0.0;
   // int    idx     = 0;
@@ -863,7 +866,9 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         // Runtime check: Only cast if objContent inherits from TH1
         TH1* hist = dynamic_cast<TH1*>(objContent);
         if (hist) {
-          json objJson = json::parse(TBufferJSON::ConvertToJSON(hist).Data());
+          // Store TString in a named variable to avoid Cling temporary lifetime issue.
+          TString histJsonStr = TBufferJSON::ConvertToJSON(hist);
+          json objJson = json::parse(histJsonStr.Data());
           double objMin, objMax;
           NUtils::GetTrueHistogramMinMax(hist, objMin, objMax, false);
           min = TMath::Min(min, objMin);
@@ -989,7 +994,9 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
   if (!hasContent) {
     j["children"].erase("content");
-    obj->GetChildren().clear(); // Clear children if no content is present
+    // NOTE: GetChildren() returns by value, so .clear() here was a no-op and did NOT
+    // modify fChildren. The node's actual children remain intact.
+    // If pruning is desired, add a ClearChildren() method that clears fChildren directly.
     // j["ndmspc"]["content"]["fMinimum"] = min;
     // j["ndmspc"]["content"]["fMaximum"] = max;
   }
