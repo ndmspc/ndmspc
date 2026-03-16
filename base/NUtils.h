@@ -454,6 +454,35 @@ class NUtils : TObject {
    */
   static TCanvas * CreateCanvas(const std::string & name, const std::string & title, int width = 800, int height = 600);
 
+  /**
+   * @brief Safely delete a vector of ROOT objects, bypassing GarbageCollect.
+   *
+   * Extracts and empties pad primitive lists (to prevent GarbageCollect during
+   * canvas/pad destruction), then deletes all objects directly.
+   *
+   * @param objects Vector of object pointers. Cleared after deletion.
+   */
+  static void SafeDeleteObjects(std::vector<TObject *> & objects);
+
+  /**
+   * @brief Safely delete a TList and all its contents, bypassing ROOT's GarbageCollect.
+   *
+   * Extracts objects into a vector, destroys the TList shell, then delegates
+   * to SafeDeleteObjects.
+   *
+   * @param lst Pointer reference to the TList. Set to nullptr after deletion.
+   */
+  static void SafeDeleteTList(TList *& lst);
+
+  /**
+   * @brief Safely delete a TObject, handling TList contents and TCanvas/TPad cleanup.
+   *
+   * If the object is a TList, delegates to SafeDeleteTList. Otherwise deletes directly.
+   *
+   * @param obj Pointer reference to the object. Set to nullptr after deletion.
+   */
+  static void SafeDeleteObject(TObject *& obj);
+
 
   /**
    * @brief Create THnSparse from Parquet Taxi file.

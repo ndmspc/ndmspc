@@ -1,7 +1,6 @@
 #include <NGnTree.h>
 #include <NStorageTree.h>
-#include <TList.h>
-#include <TThread.h>
+#include <TROOT.h>
 #include "THnSparse.h"
 #include "NBinningPoint.h"
 #include "NLogger.h"
@@ -94,7 +93,7 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
     b = ts->GetBranch("_params");
     if (!b) ts->AddBranch("_params", nullptr, "Ndmspc::NParameters");
 
-    NParameters * params = (NParameters*) ngnt->GetParameters()->Clone();
+    NParameters * params = (NParameters *)ngnt->GetParameters()->Clone();
     ts->GetBranch("_params")->SetAddress(params);
     fHnSparseBase->GetBinning()->GetPoint()->SetParameters(params);
   }
@@ -263,23 +262,18 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     //     point->GetNDimensionsContent())).c_str());
   }
 
-  // protect this section with mutex if needed
-
+  // Defer deletion to FlushDeferredDeletes() on the main thread.
+  // ROOT's cleanup machinery (GarbageCollect, RecursiveRemove) is not thread-safe.
   {
-    std::lock_guard<std::mutex> lock(fSharedMutex);
-    // TThread::Lock();
+    NLogTrace("NGnThreadData::Process: [%zu] Cleaning output list with %d entries for entry '%lld' ...",
+              GetAssignedIndex(), outputPoint->GetEntries(), entry);
 
-    for (Int_t i = 0; i < outputPoint->GetEntries(); ++i) {
-      TObject * obj = outputPoint->At(i);
-      if (obj) {
-        // obj->SetDirectory(nullptr); // Detach from any directory to avoid memory leaks
-        outputPoint->Remove(obj); // Remove if already exists
-        delete obj;               // Delete the object to avoid memory leaks
-      }
+    TObject * obj = nullptr;
+    while ((obj = outputPoint->First())) {
+      outputPoint->Remove(obj);
+      fDeferredDeletes.push_back(obj);
     }
-    outputPoint->Clear();
-    delete outputPoint; // Clean up the output list
-    // TThread::UnLock();
+    delete outputPoint;
   }
 }
 
@@ -461,6 +455,16 @@ void NGnThreadData::ExecuteEndFunction()
   if (fEndFunc) {
     fEndFunc(fHnSparseBase->GetBinning()->GetPoint(), GetAssignedIndex());
   }
+}
+
+void NGnThreadData::FlushDeferredDeletes()
+{
+  if (fDeferredDeletes.empty()) return;
+
+  NLogTrace("NGnThreadData::FlushDeferredDeletes: [%zu] Deleting %zu deferred objects ...",
+            GetAssignedIndex(), fDeferredDeletes.size());
+
+  NUtils::SafeDeleteObjects(fDeferredDeletes);
 }
 
 } // namespace Ndmspc

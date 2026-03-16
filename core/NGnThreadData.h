@@ -104,6 +104,11 @@ class NGnThreadData : public NThreadData {
   void ExecuteEndFunction();
 
   /**
+   * @brief Delete deferred ROOT objects, skipping TCanvas/TPad (leaked safely).
+   */
+  void FlushDeferredDeletes();
+
+  /**
    * @brief Merge thread data from a collection (virtual).
    * @param list Pointer to TCollection.
    * @return Number of merged entries.
@@ -111,14 +116,15 @@ class NGnThreadData : public NThreadData {
   virtual Long64_t Merge(TCollection * list);
 
   private:
-  NGnProcessFuncPtr fProcessFunc{nullptr};  ///< Function pointer to the processing function
-  NGnBeginFuncPtr   fBeginFunc{nullptr};    ///< Function pointer to the begin function
-  NGnEndFuncPtr     fEndFunc{nullptr};      ///< Function pointer to the end function
-  NGnTree *         fHnSparseBase{nullptr}; ///< Pointer to the base class
-  Long64_t          fNProcessed{0};         ///< Number of processed entries
-  NBinning *        fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
-  json              fCfg{};                 ///< Configuration object
-  bool              fIsPureCopy{false};     ///< Flag indicating pure copy mode
+  NGnProcessFuncPtr          fProcessFunc{nullptr};  ///< Function pointer to the processing function
+  NGnBeginFuncPtr            fBeginFunc{nullptr};    ///< Function pointer to the begin function
+  NGnEndFuncPtr              fEndFunc{nullptr};      ///< Function pointer to the end function
+  NGnTree *                  fHnSparseBase{nullptr}; ///< Pointer to the base class
+  Long64_t                   fNProcessed{0};         ///< Number of processed entries
+  NBinning *                 fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
+  json                       fCfg{};                 ///< Configuration object
+  bool                       fIsPureCopy{false};     ///< Flag indicating pure copy mode
+  std::vector<TObject *>     fDeferredDeletes;       //!< Objects deferred for single-threaded deletion
 
   /// \cond CLASSIMP
   ClassDef(NGnThreadData, 1);

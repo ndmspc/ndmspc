@@ -529,8 +529,21 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
     /// Main execution
 
+    // Disable ROOT's RecursiveRemove during the parallel phase.
+    // Without this, concurrent threads' object deletions trigger RecursiveRemove
+    // which iterates pad->fPrimitives without per-object locks → TObjLink corruption.
+    Bool_t prevMustClean = gROOT->MustClean();
+    gROOT->SetMustClean(kFALSE);
+
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
     executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
+
+    // Flush deferred deletes single-threaded with MustClean still false.
+    for (size_t i = 0; i < threadDataVector.size(); ++i) {
+      threadDataVector[i].FlushDeferredDeletes();
+    }
+
+    gROOT->SetMustClean(prevMustClean);
 
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].ExecuteEndFunction();

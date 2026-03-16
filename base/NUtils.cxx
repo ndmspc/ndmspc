@@ -7,6 +7,7 @@
 #include <string>
 #include <sstream>
 #include <TF1.h>
+#include <TThread.h>
 #include <TAxis.h>
 #include <THnSparse.h>
 #include <TString.h>
@@ -64,8 +65,11 @@ bool NUtils::EnableMT(Int_t numthreads)
     }
   }
 
+  // Initialise ROOT's thread-safety infrastructure (gROOTMutex, etc.)
+  ROOT::EnableThreadSafety();
+
   // Enable IMT with default number of threads (usually number of CPU cores)
-  if (numthreads > 1) {
+  if (numthreads > 0) {
     ROOT::EnableImplicitMT(numthreads);
   }
 
@@ -1591,11 +1595,14 @@ TCanvas * NUtils::CreateCanvas(const std::string & name, const std::string & tit
   ///
   /// Create canvas
   ///
+
+  TThread::Lock();
   TCanvas * c = new TCanvas("", title.c_str(), width, height);
   gROOT->GetListOfCanvases()->Remove(c);
   c->ResetBit(kMustCleanup);
   c->SetBit(kCanDelete, kFALSE);
   c->SetName(name.c_str());
+  TThread::UnLock();
   return c;
 }
 
@@ -1787,5 +1794,109 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & /*filename*/
   return nullptr;
 }
 #endif
+
+void NUtils::SafeDeleteObjects(std::vector<TObject *> & objects)
+{
+  if (objects.empty()) return;
+
+  // With EnableThreadSafety(), every TList has fUsingRWLock=true, so
+  // TList::Clear() acquires gCoreMutex and calls GarbageCollect() on each
+  // element.  When deleting a TCanvas, the cascade TPad::Close() →
+  // fPrimitives->Clear() → GarbageCollect() crashes.
+  //
+  // Fix: fully disarm every pad's primitive list (disable RW lock, mark
+  // non-owning, remove all links with "nodelete"), then delete the objects.
+  // Orphaned primitives (histograms, frames, sub-pads) are collected and
+  // deleted manually afterwards.
+
+  Bool_t prevMustClean = gROOT->MustClean();
+  gROOT->SetMustClean(kFALSE);
+
+  // Collect all pads breadth-first (top-level + nested sub-pads)
+  std::vector<TPad *> pads;
+  for (auto * obj : objects) {
+    if (obj && obj->InheritsFrom(TPad::Class()))
+      pads.push_back(static_cast<TPad *>(obj));
+  }
+  for (size_t i = 0; i < pads.size(); ++i) {
+    TList * prims = pads[i]->GetListOfPrimitives();
+    if (!prims || prims->IsEmpty()) continue;
+    for (TObjLink * lnk = prims->FirstLink(); lnk; lnk = lnk->Next()) {
+      TObject * child = lnk->GetObject();
+      if (child && child->InheritsFrom(TPad::Class()))
+        pads.push_back(static_cast<TPad *>(child));
+    }
+  }
+
+  // Track input objects to avoid double-deleting shared primitives
+  std::set<TObject *> inputSet(objects.begin(), objects.end());
+  inputSet.erase(nullptr);
+
+  // Disarm all pad primitive lists (deepest first) and collect orphans
+  std::set<TObject *> orphans;
+  for (auto it = pads.rbegin(); it != pads.rend(); ++it) {
+    TList * prims = (*it)->GetListOfPrimitives();
+    if (!prims) continue;
+    // Collect primitives not in the input vector — they'd leak otherwise
+    for (TObjLink * lnk = prims->FirstLink(); lnk; lnk = lnk->Next()) {
+      TObject * child = lnk->GetObject();
+      if (child && inputSet.find(child) == inputSet.end())
+        orphans.insert(child);
+    }
+    // Disarm: no lock, non-owning, remove links only (no GarbageCollect)
+    prims->UseRWLock(kFALSE);
+    prims->SetOwner(kFALSE);
+    prims->Clear("nodelete");
+  }
+
+  // Delete all input objects (canvas/pad destructors find empty primitive lists)
+  for (auto * obj : objects) {
+    if (obj) delete obj;
+  }
+  objects.clear();
+
+  // Delete orphaned primitives (histograms, frames, sub-pads extracted above)
+  for (auto * obj : orphans) {
+    delete obj;
+  }
+
+  gROOT->SetMustClean(prevMustClean);
+}
+
+void NUtils::SafeDeleteTList(TList *& lst)
+{
+  if (!lst) return;
+
+  // Extract objects from the TList into a vector
+  std::vector<TObject *> objects;
+  for (TObjLink * lnk = lst->FirstLink(); lnk; lnk = lnk->Next()) {
+    TObject * obj = lnk->GetObject();
+    if (obj) objects.push_back(obj);
+  }
+
+  // Destroy the TList shell without touching objects
+  lst->UseRWLock(kFALSE);
+  lst->SetOwner(kFALSE);
+  lst->Clear("nodelete");
+  delete lst;
+  lst = nullptr;
+
+  // Delete all collected objects safely
+  SafeDeleteObjects(objects);
+}
+
+void NUtils::SafeDeleteObject(TObject *& obj)
+{
+  if (!obj) return;
+
+  if (obj->InheritsFrom(TList::Class())) {
+    TList * lst = static_cast<TList *>(obj);
+    obj = nullptr;
+    SafeDeleteTList(lst);
+  } else {
+    delete obj;
+    obj = nullptr;
+  }
+}
 
 } // namespace Ndmspc
