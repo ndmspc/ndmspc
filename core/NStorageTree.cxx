@@ -305,6 +305,13 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
   }
   else {
     if (fFile) {
+      // Remove 'this' from TTree's UserInfo before deleting the file.
+      // TTree is owned by TFile; when SafeDelete(fFile) triggers ~TFile -> ~TTree,
+      // TTree::GetUserInfo()->Delete() would free 'this' (self-deletion / UAF).
+      // macOS's allocator catches this immediately; Linux silently corrupts memory.
+      if (fTree && fTree->GetUserInfo()) {
+        fTree->GetUserInfo()->Remove(this);
+      }
       fFile->Close();
       NLogTrace("File '%s' was closed without saving ...", fFile->GetName());
     }
@@ -581,7 +588,10 @@ Long64_t NStorageTree::Merge(TCollection * list)
             AddBranch(kv.first, kv.second.GetObject(), branchObj->IsA()->GetName());
             b = GetBranch(kv.first);
           }
-          b->SetAddress(branchObj); // Set the branch address
+          // Pass deleteExisting=false: the source branch owns this object and
+          // already deletes it in GetEntry (de404cb). Deleting it here too
+          // would be a use-after-free on macOS's strict allocator.
+          b->SetAddress(branchObj, false); // Set the branch address
         }
         // SetPoint(obj->GetPoint()); // Set the point in the current NGnTree
         // SaveEntry();
