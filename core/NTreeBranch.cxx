@@ -67,7 +67,8 @@ void NTreeBranch::SetAddress(void * address, bool deleteExisting)
   if (fObject && deleteExisting) {
     NLogDebug("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
     fObject->Delete(); // Delete existing object to avoid memory leaks when setting new address
-    delete fObject;
+    // NOTE: fObject->Delete() calls 'delete this' internally (TObject::Delete()),
+    // so do NOT also call 'delete fObject' here — that would be a double-free.
     fObject = nullptr;
   }
   fObject = (TObject *)address;
@@ -89,7 +90,8 @@ void NTreeBranch::SetBranchAddress(TTree * tree)
   if (fObject) {
     NLogDebug("NTreeBranch::SetBranchAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
     fObject->Delete(); // Delete existing object to avoid memory leaks when setting new address
-    delete fObject;
+    // NOTE: fObject->Delete() calls 'delete this' internally (TObject::Delete()),
+    // so do NOT also call 'delete fObject' here — that would be a double-free.
     fObject = nullptr;
   }
   tree->SetBranchStatus(fName.c_str(), fBranchStatus);
