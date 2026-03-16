@@ -1,11 +1,15 @@
 #include <TTree.h>
+#include <TList.h>
 #include <string>
+#include <vector>
 #include <TH1.h>
 #include <THnSparse.h>
 #include <TBranch.h>
 #include <TObject.h>
 #include <TROOT.h>
+#include <TSystem.h>
 #include "NLogger.h"
+#include "NUtils.h"
 
 #include "NTreeBranch.h"
 
@@ -59,8 +63,10 @@ void NTreeBranch::SetAddress(void * address, bool deleteExisting)
   ///
   NLogTrace("NTreeBranch::SetAddress: Setting address %p for branch '%s' ...", address, fName.c_str());
 
+  // if (fObject && deleteExisting) {
   if (fObject && deleteExisting) {
-    NLogTrace("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
+    NLogDebug("NTreeBranch::SetAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
+    fObject->Delete(); // Delete existing object to avoid memory leaks when setting new address
     delete fObject;
     fObject = nullptr;
   }
@@ -79,9 +85,13 @@ void NTreeBranch::SetBranchAddress(TTree * tree)
   }
 
   NLogTrace("NTreeBranch::SetBranchAddress: Setting branch address '%s' ...", fName.c_str());
-  // delete fObject;
-  // fObject = nullptr;
 
+  if (fObject) {
+    NLogDebug("NTreeBranch::SetBranchAddress: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
+    fObject->Delete(); // Delete existing object to avoid memory leaks when setting new address
+    delete fObject;
+    fObject = nullptr;
+  }
   tree->SetBranchStatus(fName.c_str(), fBranchStatus);
   tree->SetBranchAddress(fName.c_str(), &fObject);
   fBranch = tree->GetBranch(fName.c_str());
@@ -109,9 +119,20 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
     // -> RecursiveRemove).
     Bool_t prevMustClean = gROOT->MustClean();
     gROOT->SetMustClean(kFALSE);
+
+    if (fObject) {
+      NLogTrace("NTreeBranch::GetEntry: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
+      NUtils::SafeDeleteObject(fObject);
+      fObject = nullptr;
+    }
     bytes = fBranch->GetEntry(entry);
+    // ProcInfo_t info;
+    // gSystem->GetProcInfo(&info);
+    // NLogDebug("NTreeBranch::GetEntry:[RSS]: %ld kB", info.fMemResident);
+
     gROOT->SetMustClean(prevMustClean);
-    NLogTrace("Getting content from %s with size %.3f MB", fBranch->GetName(), (double)bytes / (1024 * 1024));
+    NLogTrace("NTreeBranch::GetEntry: Getting content from %s with size %.3f MB", fBranch->GetName(),
+              (double)bytes / (1024 * 1024));
   }
 
   return bytes;

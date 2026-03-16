@@ -182,9 +182,10 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool chec
     bytessum += kv.second.GetEntry(fTree, entry);
   }
 
-  // Print byte sum
-  NLogDebug("NStorageTree::GetEntry: [entry=%lld] Bytes read : %.3f MB file='%s'", entry,
-            (double)bytessum / (1024 * 1024), fFileName.empty() ? "memory" : fFileName.c_str());
+  ProcInfo_t info;
+  gSystem->GetProcInfo(&info);
+  NLogDebug("NStorageTree::GetEntry: [entry=%lld] Bytes read : %.3f MB [RSS]: %ld kB file='%s'", entry,
+            (double)bytessum / (1024 * 1024), info.fMemResident, fFileName.empty() ? "memory" : fFileName.c_str());
   return bytessum;
 }
 
@@ -248,8 +249,12 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   Long64_t entry = fTree->GetEntries() - 1;
   fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
   point->SetEntryNumber(entry);
-  NLogDebug("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f MB file='%s'", entry,
-            (Double_t)nBytes / (1024 * 1024), fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
+
+
+  ProcInfo_t info;
+  gSystem->GetProcInfo(&info);
+  NLogDebug("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f [RSS]: %ld kB MB file='%s'" , entry,
+            (Double_t)nBytes / (1024 * 1024), info.fMemResident, fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
 
   return nBytes;
 }

@@ -92,13 +92,13 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
 
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
-    NLogInfo("Starting processing ...");
+    // NLogInfo("Starting processing ...");
     TH1::AddDirectory(kFALSE);
   };
 
   // Define the end function which is executed after processing all points
   Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
-    NLogInfo("Finished processing ...");
+    // NLogInfo("Finished processing ...");
   };
   // execute the processing function
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
