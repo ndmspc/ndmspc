@@ -250,11 +250,11 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
   point->SetEntryNumber(entry);
 
-
   ProcInfo_t info;
   gSystem->GetProcInfo(&info);
-  NLogDebug("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f [RSS]: %ld kB MB file='%s'" , entry,
-            (Double_t)nBytes / (1024 * 1024), info.fMemResident, fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
+  NLogDebug("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f MB [RSS]: %ld kB file='%s'", entry,
+            (Double_t)nBytes / (1024 * 1024), info.fMemResident,
+            fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
 
   return nBytes;
 }
@@ -265,12 +265,13 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
   /// Close
   ///
 
-  if (!fTree) {
-    NLogError("NStorageTree::Close: Tree is not initialized !!!");
-    return false;
-  }
-
   if (write) {
+
+    if (!fTree) {
+      NLogError("NStorageTree::Close: Tree is not initialized !!!");
+      return false;
+    }
+
     TList * userInfo = fTree->GetUserInfo();
     if (fBinning) {
       userInfo->Add(fBinning->Clone());

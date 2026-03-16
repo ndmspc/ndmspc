@@ -257,6 +257,12 @@ void httpNgnt()
       TList * l    = new TList();
       TH1 *   proj = nav->GetProjection();
 
+      if (!proj) {
+        NLogError("[Server] map POST: nav->GetProjection() returned nullptr for nav=%p", (void *)nav);
+        httpOut["result"] = "projection_null";
+        delete l;
+        return;
+      }
       proj->SetStats(false);
       l->Add(proj);
 
@@ -267,10 +273,12 @@ void httpNgnt()
       // NLogDebug("[Server] Exporting navigator level = %d",  nav->GetLevel());
       if (nav->GetLevel() == 0){
         json nested;
-        // NLogDebug("[Server] Exporting navigator JSON for level 0 navigator: %p", (void *)nav);
+        NLogDebug("[Server] ExportToJson start: nav=%p level=%d nLevels=%d nChildren=%zu proj=%p",
+                  (void *)nav, nav->GetLevel(), nav->GetNLevels(),
+                  nav->GetChildren().size(), (void *)nav->GetProjection());
         // nav->Print();
-        nav->ExportToJson(nested, nav, {});
-        // NLogDebug("[Server] Exported navigator JSON: %s", nested.dump().c_str());
+        nav->ExportToJson(nested, nav, std::vector<std::string>{});
+        NLogDebug("[Server] ExportToJson done, nested is %s", nested.is_null() ? "null" : "valid");
         listJson["nested"] = nested;
       }
 
