@@ -80,6 +80,20 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     out["state"]["history"]   = GetJson();
     out["state"]["users"]     = fNWsHandler ? fNWsHandler->GetClientCount() : 0;
     out["state"]["workspace"] = GetWorkspace();
+
+    // Derive group from handler keys if not yet set by a handler call
+    if (fGroup.empty()) {
+      for (const auto & h : fHttpHandlers) {
+        auto pos = h.first.find('/');
+        if (pos != std::string::npos) {
+          fGroup = h.first.substr(0, pos);
+          break;
+        }
+      }
+    }
+    if (!fGroup.empty()) {
+      out["state"]["group"] = fGroup;
+    }
   }
   else {
 
@@ -153,8 +167,16 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         // Build workspace with order of keys same as in NGnHistoryEntry
         json workspace;
         for (const auto & entry : fWorkspace.GetEntries()) {
-          NLogTrace("Adding workspace entry for: %s", entry->GetName());
-          workspace[entry->GetName()] = GetWorkspace()[entry->GetName()];
+          // History entries use full path (e.g. "ngnt/open"), but workspace uses short keys ("open")
+          std::string entryName = entry->GetName();
+          std::string wsKey     = entryName;
+          if (!fGroup.empty() && entryName.rfind(fGroup + "/", 0) == 0) {
+            wsKey = entryName.substr(fGroup.size() + 1);
+          }
+          NLogTrace("Adding workspace entry for: %s (wsKey: %s)", entryName.c_str(), wsKey.c_str());
+          if (!GetWorkspace()[wsKey].is_null()) {
+            workspace[wsKey] = GetWorkspace()[wsKey];
+          }
         }
 
         for (auto it = wsOut["workspace"].begin(); it != wsOut["workspace"].end(); ++it) {
@@ -170,6 +192,14 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
           GetWorkspace()[it.key()]    = it.value();
         }
         wsMessage["payload"]["workspace"]["schema"]["properties"] = workspace;
+
+        // Pass through group prefix if set by handler macro
+        if (wsOut.contains("group") && wsOut["group"].is_string()) {
+          wsMessage["payload"]["workspace"]["schema"]["group"] = wsOut["group"];
+          if (fGroup.empty()) {
+            fGroup = wsOut["group"].get<std::string>();
+          }
+        }
       }
 
       NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());

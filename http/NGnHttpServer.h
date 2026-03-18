@@ -64,12 +64,15 @@ class NGnHttpServer : public NHttpServer {
   std::map<std::string, TObject *> &            GetObjectsMap() { return fObjectsMap; }
   json &                                        GetWorkspace() { return fWorkspace.GetWorkspace(); }
   json &                                        GetState() { return fWorkspace.GetState(); }
+  void                                          SetGroup(const std::string & group) { fGroup = group; }
+  const std::string &                           GetGroup() const { return fGroup; }
 
   private:
   std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
   NGnWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
   bool fUseHistory{true}; ///<! Flag to indicate whether to use history in processing requests
+  std::string fGroup;     ///<! Group prefix for workspace routes
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);
