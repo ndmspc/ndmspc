@@ -148,12 +148,14 @@ int main(int argc, char ** argv)
   server_ngnt->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
   server_ngnt->add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
+  bool noHistory = false;
+  server_ngnt->add_option("--no-history", noHistory, "Disable history in processing requests")->default_val("false");
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory]() {
     gROOT->SetBatch(batch);
 
     Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
-
+    serv->SetUseHistory(!noHistory);
     serv->SetCors("*");
     if (!htmlDir.empty()) {
       NLogInfo("Using '%s' as directory with static assets.", htmlDir.c_str());

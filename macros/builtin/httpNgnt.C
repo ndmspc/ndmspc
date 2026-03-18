@@ -490,7 +490,7 @@ void httpNgnt()
         int entry = httpIn.contains("entry") ? httpIn["entry"].get<int>() : -1;
         if (entry >= 0) {
           ngnt->GetEntry(entry);
-          TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
+          TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
           if (outputPoint) {
             NLogTrace("Output point for bin %d:", entry);
             // outputPoint->ls();
@@ -869,7 +869,7 @@ void httpNgnt()
 
         if (entry >= 0) {
           ngnt->GetEntry(entry);
-          TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("outputPoint");
+          TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
           if (outputPoint) {
             NLogTrace("Output point for bin %d:", entry);
             // outputPoint->ls();

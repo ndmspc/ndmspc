@@ -47,6 +47,9 @@ class NGnHttpServer : public NHttpServer {
   void         ClearHistory() { fWorkspace.Clear(); }
   void         ResetServer();
 
+  void         SetUseHistory(bool useHistory) { fUseHistory = useHistory; }
+  bool         GetUseHistory() const { return fUseHistory; }
+
   json GetJson() const;
 
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
@@ -66,6 +69,7 @@ class NGnHttpServer : public NHttpServer {
   std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
   NGnWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
+  bool fUseHistory{true}; ///<! Flag to indicate whether to use history in processing requests
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);

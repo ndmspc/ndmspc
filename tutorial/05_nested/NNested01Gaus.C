@@ -7,6 +7,7 @@
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>
+#include <TF1.h>
 
 void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
 {
@@ -62,8 +63,10 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
     // Retrieve number of entries
     int nEntries = std::stoi(point->GetBinLabel("entries"));
 
+    // each thread gets its own RNG (thread-safe)
+    thread_local TRandom3 rnd(0);
     for (int i = 0; i < nEntries; i++) {
-      double x = gRandom->Gaus(mean, sigma);
+      double x = rnd.Gaus(mean, sigma);
       h->Fill(x);
     }
 
@@ -72,8 +75,8 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
     TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
 
     // Create Gaussian fit function for the histogram
-    std::string fitFuncName = Form("gausFunc_%lld", point->GetEntryNumber());
-    TF1 *       gausFunc    = new TF1(fitFuncName.c_str(), "gaus", -10, 10);
+    TF1 *         gausFunc  = new TF1("gausFunc", "gaus", -10, 10);
+    gausFunc->AddToGlobalList(false); // prevent registration in ROOT's global list (thread-safe)
 
     // Retrieve fit results and store them in the parameters of the point
     TFitResultPtr fitResult = h->Fit(gausFunc, "QS");

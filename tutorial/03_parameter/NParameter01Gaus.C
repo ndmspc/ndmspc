@@ -7,6 +7,7 @@
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>
+#include <TF1.h>
 
 void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
 {
@@ -39,13 +40,12 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
   ngnt->InitParameters({"meanFit", "sigmaFit"});
 
   // Define the processing function
-  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/,
-                                                   TList *                 outputPoint, int /*threadId*/) {
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
     // print the title of the binning point
     NLogInfo("title : %s", point->GetString().c_str());
 
     // Create Gaussian histogram for each point
-    // TRandom3 rnd(0);
     TH1D * h = new TH1D("h", "Gaussian", 200, -10, 10);
 
     // Retrieve mean and sigma from the bin centers of current point
@@ -53,13 +53,17 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
     int sigma = point->GetBinCenter("sigma");
 
     // Fill histogram with Gaussian random numbers 10,000 times
+    // each thread gets its own RNG (thread-safe)
+    thread_local TRandom3 rnd(0);
     for (int i = 0; i < 10000; i++) {
-      double x = gRandom->Gaus(mean, sigma);
+      double x = rnd.Gaus(mean, sigma);
       h->Fill(x);
     }
 
     // Retrieve fit results and store them in the parameters of the point
-    TFitResultPtr         fitResult   = h->Fit("gaus", "QS");
+    TF1 *         gausFunc  = new TF1("gausFunc", "gaus", -10, 10);
+    gausFunc->AddToGlobalList(false); // prevent registration in ROOT's global list (thread-safe)
+    TFitResultPtr fitResult = h->Fit(gausFunc, "QS");
     Ndmspc::NParameters * pointParams = point->GetParameters();
     if (pointParams) {
       pointParams->SetParameter("meanFit", fitResult->Parameter(1), fitResult->Error(1));

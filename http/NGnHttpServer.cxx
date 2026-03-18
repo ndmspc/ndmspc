@@ -77,8 +77,8 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     out["message"] = "Welcome to NGnHttpServer API";
     // out["ws"]["path"] = "ws/root.websocket";
 
-    out["state"]["history"] = GetJson();
-    out["state"]["users"]   = fNWsHandler ? fNWsHandler->GetClientCount() : 0;
+    out["state"]["history"]   = GetJson();
+    out["state"]["users"]     = fNWsHandler ? fNWsHandler->GetClientCount() : 0;
     out["state"]["workspace"] = GetWorkspace();
   }
   else {
@@ -106,70 +106,74 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     // fObjectsMap["_httpServer"] = this;
 
     NGnHistoryEntry * historyEntry = nullptr;
-    if (!method.CompareTo("POST")) {
-      NLogTrace("Adding history entry for path: %s", fullpath.Data());
-      historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
-      historyEntry->SetPayloadIn(in);
-      NLogTrace("History entry created for path: %s with payload: %s", fullpath.Data(), in.dump().c_str());
-      fWorkspace.AddEntry(historyEntry);
+    if (fUseHistory) {
+      if (!method.CompareTo("POST")) {
+        NLogTrace("Adding history entry for path: %s", fullpath.Data());
+        historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
+        historyEntry->SetPayloadIn(in);
+        NLogTrace("History entry created for path: %s with payload: %s", fullpath.Data(), in.dump().c_str());
+        fWorkspace.AddEntry(historyEntry);
+      }
     }
 
     fHttpHandlers[fullpath.Data()](method.Data(), in, out, wsOut, fObjectsMap);
-    NLogTrace("HTTP handler output for path %s: %s", fullpath.Data(), out.dump().c_str());
-    if (!out["result"].is_null() && !out["result"].get<std::string>().compare("success")) {
-      if (!method.CompareTo("POST")) {
-        if (historyEntry) {
-          historyEntry->SetPayloadOut(out);
-          historyEntry->SetPayloadWsOut(wsOut);
+
+    if (fUseHistory) {
+      NLogTrace("HTTP handler output for path %s: %s", fullpath.Data(), out.dump().c_str());
+      if (!out["result"].is_null() && !out["result"].get<std::string>().compare("success")) {
+        if (!method.CompareTo("POST")) {
+          if (historyEntry) {
+            historyEntry->SetPayloadOut(out);
+            historyEntry->SetPayloadWsOut(wsOut);
+          }
+        }
+        else if (!method.CompareTo("DELETE")) {
+          fWorkspace.RemoveEntry(fullpath.Data());
         }
       }
-      else if (!method.CompareTo("DELETE")) {
-        fWorkspace.RemoveEntry(fullpath.Data());
+      else {
+        if (!method.CompareTo("POST")) {
+          fWorkspace.RemoveEntry(static_cast<int>(fWorkspace.GetEntries().size()) - 1);
+        }
       }
+    }
+
+    if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null()) {
+      json wsMessage;
+      wsMessage["event"]   = "ngnt";
+      wsMessage["payload"] = wsOut["payload"].is_null() ? json::object() : wsOut["payload"];
+
+      // loop over keys in wsOut["workspace"] and add them to workspace, overwriting existing ones if necessary
+      if (!wsOut["workspace"].is_null()) {
+        // Build workspace with order of keys same as in NGnHistoryEntry
+        json workspace;
+        for (const auto & entry : fWorkspace.GetEntries()) {
+          NLogTrace("Adding workspace entry for: %s", entry->GetName());
+          workspace[entry->GetName()] = GetWorkspace()[entry->GetName()];
+        }
+
+        for (auto it = wsOut["workspace"].begin(); it != wsOut["workspace"].end(); ++it) {
+          NLogTrace("Updating workspace entry for: %s", it.key().c_str());
+          // if value is null, skip it
+          if (it.value().is_null()) {
+            NLogTrace("Skipping null workspace entry for: %s", it.key().c_str());
+            continue;
+          }
+
+          workspace[it.key()]         = it.value();
+          workspace[it.key()]["type"] = "object";
+          GetWorkspace()[it.key()]    = it.value();
+        }
+        wsMessage["payload"]["workspace"]["schema"]["properties"] = workspace;
+      }
+
+      NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());
+      WebSocketBroadcast(wsMessage);
     }
     else {
-      if (!method.CompareTo("POST")) {
-        fWorkspace.RemoveEntry(static_cast<int>(fWorkspace.GetEntries().size()) - 1);
-      }
+      NLogTrace("Skipping WebSocket broadcast for path %s: no payload or workspace changes", fullpath.Data());
     }
   }
-
-
-  if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null()) {
-    json wsMessage;
-    wsMessage["event"]   = "ngnt";
-    wsMessage["payload"] = wsOut["payload"].is_null() ? json::object() : wsOut["payload"];
-
-    // loop over keys in wsOut["workspace"] and add them to workspace, overwriting existing ones if necessary
-    if (!wsOut["workspace"].is_null()) {
-      // Build workspace with order of keys same as in NGnHistoryEntry
-      json workspace;
-      for (const auto & entry : fWorkspace.GetEntries()) {
-        NLogTrace("Adding workspace entry for: %s", entry->GetName());
-        workspace[entry->GetName()] = GetWorkspace()[entry->GetName()];
-      }
-
-      for (auto it = wsOut["workspace"].begin(); it != wsOut["workspace"].end(); ++it) {
-        NLogTrace("Updating workspace entry for: %s", it.key().c_str());
-        // if value is null, skip it
-        if (it.value().is_null()) {
-          NLogTrace("Skipping null workspace entry for: %s", it.key().c_str());
-          continue;
-        }
-
-        workspace[it.key()]         = it.value();
-        workspace[it.key()]["type"] = "object";
-        GetWorkspace()[it.key()]    = it.value();
-      }
-      wsMessage["payload"]["workspace"]["schema"]["properties"] = workspace;
-    }
-
-    NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());
-    WebSocketBroadcast(wsMessage);
-  } else {
-    NLogTrace("Skipping WebSocket broadcast for path %s: no payload or workspace changes", fullpath.Data());
-  }
-
 
   // arg->AddHeader("X-Header", "Test");
   arg->AddHeader("Access-Control-Allow-Origin", GetCors());
