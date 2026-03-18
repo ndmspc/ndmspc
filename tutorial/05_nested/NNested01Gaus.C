@@ -106,9 +106,6 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
   // execute the processing function
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
 
-  // close the NGnTree object
-  ngnt->Close(true);
-
   // Clean up
   delete ngnt;
 }

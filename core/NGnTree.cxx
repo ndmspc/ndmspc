@@ -616,7 +616,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
     NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
     for (auto & data : threadDataVector) {
-      NLogTrace("NGnTree::Process: Result from thread %zu: ", data.GetAssignedIndex());
+      NLogTrace("NGnTree::Process: Closing file from thread %zu: ", data.GetAssignedIndex());
       data.GetHnSparseBase()->GetStorageTree()->Close(true);
     }
 
@@ -672,6 +672,9 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     fWsClient->Disconnect();
     SafeDelete(fWsClient);
   }
+
+  // Close the final output file
+  Close(true);
 
   gSystem->Exec(TString::Format("rm -fr %s", jobDir.c_str()));
   gROOT->SetBatch(batch); // Restore ROOT batch mode
@@ -803,7 +806,7 @@ bool NGnTree::Close(bool write)
   /// Close the storage tree
   ///
 
-  if (!fTreeStorage) {
+   if (!fTreeStorage) {
     NLogError("NGnTree::Close: Storage tree is not initialized in NGnTree !!!");
     return false;
   }

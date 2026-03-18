@@ -77,9 +77,6 @@ void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
   // execute the processing function
   ngnt->Process(processFunc);
 
-  // close the NGnTree object
-  ngnt->Close(true);
-
   // Clean up
   delete ngnt;
 }
