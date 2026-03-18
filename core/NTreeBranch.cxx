@@ -119,12 +119,14 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
     // TCanvas objects (stored in TList branches) are destroyed during
     // deserialization of a new entry (TCanvas::Streamer -> TObjArray::~TObjArray
     // -> RecursiveRemove).
-    Bool_t prevMustClean = gROOT->MustClean();
-    gROOT->SetMustClean(kFALSE);
+    // Bool_t prevMustClean = gROOT->MustClean();
+    // gROOT->SetMustClean(kFALSE);
 
-    if (fObject) {
+    if (fObject && fObject->InheritsFrom(TList::Class())) {
       NLogTrace("NTreeBranch::GetEntry: Deleting existing object %p for branch '%s' ...", fObject, fName.c_str());
-      NUtils::SafeDeleteObject(fObject);
+      // NUtils::SafeDeleteObject(fObject);
+      TList * lst = static_cast<TList *>(fObject);
+      NUtils::SafeDeleteTList(lst);
       fObject = nullptr;
     }
     bytes = fBranch->GetEntry(entry);
@@ -132,7 +134,7 @@ Long64_t NTreeBranch::GetEntry(TTree * tree, Long64_t entry)
     // gSystem->GetProcInfo(&info);
     // NLogDebug("NTreeBranch::GetEntry:[RSS]: %ld kB", info.fMemResident);
 
-    gROOT->SetMustClean(prevMustClean);
+    // gROOT->SetMustClean(prevMustClean);
     NLogTrace("NTreeBranch::GetEntry: Getting content from %s with size %.3f MB", fBranch->GetName(),
               (double)bytes / (1024 * 1024));
   }

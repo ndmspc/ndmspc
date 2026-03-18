@@ -152,7 +152,16 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
   NLogTrace("NGnNavigator::Reshape: Reshaping navigator for level=%d levels=%zu", level, levels.size());
   TH1::AddDirectory(kFALSE);
-
+  NTreeBranch * branch = fGnTree->GetStorageTree()->GetBranch("_outputPoint");
+  if (!branch) {
+    // fallback to old branch name for backward compatibility
+    branch = fGnTree->GetStorageTree()->GetBranch("outputPoint");
+  }
+  int outputPointStatus = 0;
+  if (branch) {
+    outputPointStatus = branch->GetBranchStatus();
+    branch->SetBranchStatus(0); // Disable the _outputPoint branch to avoid memory issues with large trees
+  }
   fNLevels = levels.size();
   fLevel   = level;
   // NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName);
@@ -194,17 +203,17 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
     NDimensionalExecutor executorBin(minsBin, maxsBin);
     auto                 loop_task_bin = [this, current, binningDef, levels, level, ranges,
-                          rangesBase](const std::vector<int> & coords) {
+                                          rangesBase](const std::vector<int> & coords) {
       NLogTrace("NGnNavigator::Reshape: [B%d] Processing coordinates: coords=%s levels=%s", level,
-                                NUtils::GetCoordsString(coords, -1).c_str(), NUtils::GetCoordsString(levels[level]).c_str());
+                NUtils::GetCoordsString(coords, -1).c_str(), NUtils::GetCoordsString(levels[level]).c_str());
       NLogTrace("NGnNavigator::Reshape: [L%d] Generating %zuD histogram %s with ranges: %s", level,
-                                levels[level].size(), NUtils::GetCoordsString(levels[level]).c_str(), ranges.size() == 0 ? "[]" : "");
+                levels[level].size(), NUtils::GetCoordsString(levels[level]).c_str(), ranges.size() == 0 ? "[]" : "");
 
       std::vector<int> axesIds = levels[level];
       ///////// Make projection histogram /////////
       // THnSparse * hns   = nullptr;
-      Int_t       nDims = axesIds.size();
-      auto        dims  = std::make_unique<Int_t[]>(nDims);
+      Int_t nDims = axesIds.size();
+      auto  dims  = std::make_unique<Int_t[]>(nDims);
       // Int_t       dims[nDims];
       for (int i = 0; i < nDims; i++) {
         dims[i] = axesIds[i];
@@ -276,7 +285,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       }
       else if (nDims == 2) {
         // TODO: Check the order of axes is really correct
-        hProj             = hnsIn->Projection(axesIds[1], axesIds[0]);
+        hProj = hnsIn->Projection(axesIds[1], axesIds[0]);
         hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
         TAxis * axisIn1   = hnsIn->GetAxis(axesIds[0]);
         TAxis * axisIn0   = hnsIn->GetAxis(axesIds[1]);
@@ -299,7 +308,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]), axisProjY->GetBinCenter(coords[1]));
       }
       else if (nDims == 3) {
-        hProj             = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
+        hProj = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
         hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
         TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
         TAxis * axisIn1   = hnsIn->GetAxis(axesIds[1]);
@@ -328,7 +337,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
           }
         }
         indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]), axisProjY->GetBinCenter(coords[1]),
-                                                        axisProjZ->GetBinCenter(coords[2]));
+                                        axisProjZ->GetBinCenter(coords[2]));
       }
       else {
         NLogError("NGnNavigator::Reshape: Cannot project THnSparse with %d dimensions", nDims);
@@ -369,7 +378,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       }
 
       NLogTrace("NGnNavigator::Reshape: [L%d] Projection histogram '%s' for coords=%s index=%d", level,
-                                hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
+                hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
       //
       // hProj->SetMinimum(0);
       // hProj->SetStats(kFALSE);
@@ -385,7 +394,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       // reuse the already-stored pointer so that `nCells` below stays valid.
       if (current->GetProjection() == nullptr) {
         current->SetProjection(hProj);
-      } else {
+      }
+      else {
         delete hProj;
         hProj = current->GetProjection();
       }
@@ -396,15 +406,15 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       for (auto & kv : rangesBaseTmp) {
         std::vector<int> range = rangesTmp[kv.first];
         NLogTrace("NGnNavigator::Reshape: [L%d]   Axis %d[%s]: rangeBase=%s range=%s", level, kv.first,
-                                  hnsIn->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
-                                  NUtils::GetCoordsString(range).c_str());
+                  hnsIn->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
+                  NUtils::GetCoordsString(range).c_str());
       }
       int minBase = 0, maxBase = 0;
       int i = 0;
       for (auto & c : coords) {
         // NLogDebug("Coordinate: %d v=%d axis=%d", i, coords[i], axes[i]);
         NUtils::GetAxisRangeInBase(hnsIn->GetAxis(axesIds[i]), c, c, binningDef->GetBinning()->GetAxes()[axesIds[i]],
-                                                   minBase, maxBase);
+                                   minBase, maxBase);
         NLogTrace("NGnNavigator::Reshape: Axis %d: minBase=%d maxBase=%d", axesIds[i], minBase, maxBase);
         rangesTmp[axesIds[i]]     = {c, c};             // Set the range for the first axis
         rangesBaseTmp[axesIds[i]] = {minBase, maxBase}; // Set the range for the first axis
@@ -422,9 +432,9 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       NGnNavigator * currentChild = current->GetChild(indexInProj);
       if (currentChild == nullptr) {
         NLogTrace("NGnNavigator::Reshape: [L%d] Creating new child for index %d nCells=%d ...", level, indexInProj,
-                                  nCells);
+                  nCells);
         std::string childName = TString::Format("%s_L%zu_C%d", GetName(), level + 1, indexInProj).Data();
-        currentChild = new NGnNavigator(childName.c_str(), childName.c_str());
+        currentChild          = new NGnNavigator(childName.c_str(), childName.c_str());
         currentChild->SetLevel(level + 1);
         currentChild->SetNLevels(levels.size());
         currentChild->SetParent(current);
@@ -447,12 +457,12 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
       if (level == levels.size() - 1) {
         NLogTrace("NGnNavigator::Reshape: [L%d] Filling projections from all branches %s for ranges:", level,
-                                  NUtils::GetCoordsString(levels[level]).c_str());
+                  NUtils::GetCoordsString(levels[level]).c_str());
         for (auto & kv : rangesBaseTmp) {
           std::vector<int> range = rangesTmp[kv.first];
           NLogTrace("NGnNavigator::Reshape: [L%d]   Axis %d ['%s']: rangeBase=%s range=%s", level, kv.first,
-                                    binningDef->GetContent()->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
-                                    NUtils::GetCoordsString(range).c_str());
+                    binningDef->GetContent()->GetAxis(kv.first)->GetName(), NUtils::GetCoordsString(kv.second).c_str(),
+                    NUtils::GetCoordsString(range).c_str());
           // rangesTmp[kv.first] = range;
         }
         // Get projectiosn histograms from all branches
@@ -478,7 +488,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         }
         //     // bool skipBin = false; // Skip bin if no bins are found
         NLogTrace("NGnNavigator::Reshape: Branch object Point coordinates: %s",
-                                  NUtils::GetCoordsString(linBins, -1).c_str());
+                  NUtils::GetCoordsString(linBins, -1).c_str());
         current->SetNCells(nCells);
 
         for (int lb : linBins) {
@@ -489,7 +499,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
               continue; // Skip disabled branches
             }
             NLogTrace("NGnNavigator::Reshape: [L%d] Processing branch '%s' with %zu objects to loop ...", level,
-                                      key.c_str(), linBins.size());
+                      key.c_str(), linBins.size());
 
             // if (obj->GetParent()->GetObjectContentMap()[key].size() != nCells)
             //   obj->GetParent()->ResizeObjectContentMap(key, nCells);
@@ -552,7 +562,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             }
             else if (className.BeginsWith("TList")) {
               NLogTrace("[L%d] Branch '%s' is a TList, getting object at index %d ...", level, key.c_str(),
-                                        indexInProj);
+                        indexInProj);
               TList * list = dynamic_cast<TList *>(val.GetObject());
               // list->Print();
               // get list of object names
@@ -565,7 +575,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
               // objNames.erase(std::remove(objNames.begin(), objNames.end(), "_params"), objNames.end());
 
               NLogTrace("[L%d] Branch '%s' TList contains %d objects: %s", level, key.c_str(), list->GetEntries(),
-                                        NUtils::GetCoordsString(objNames).c_str());
+                        NUtils::GetCoordsString(objNames).c_str());
 
               // std::vector<std::string> possibleNames = {"hPeak", "hBgNorm", "unlikepm_proj_0"};
 
@@ -575,7 +585,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                 TH1 * hProjTmp = dynamic_cast<TH1 *>(list->FindObject(name.c_str()));
                 if (hProjTmp == nullptr) {
                   NLogTrace("NGnNavigator::Reshape::Warning Branch '%s' TList does not contain '%s' as TH1 !!!",
-                                            key.c_str(), name.c_str());
+                            key.c_str(), name.c_str());
                   isValid = false;
 
                   continue;
@@ -583,7 +593,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                 if (TMath::IsNaN(hProjTmp->GetEntries()) || TMath::IsNaN(hProjTmp->GetSumOfWeights())) {
                   NLogWarning("NGnNavigator::Reshape: Branch '%s' '%s' histogram is nan !!!", key.c_str(),
 
-                                              name.c_str());
+                              name.c_str());
                   isValid = false;
                   continue;
                 }
@@ -607,7 +617,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
               }
               if (isValid == false) {
                 NLogTrace("NGnNavigator::Reshape::Warning: Branch '%s' TList does not contain any valid histograms !!!",
-                                          key.c_str());
+                          key.c_str());
                 continue;
               }
             }
@@ -619,7 +629,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                 if (hParams) {
                   // hParams->Print("all");
                   NLogTrace("[L%d] Branch '%s' Point contains '_params' histogram with %.0f entries ...", level,
-                                            key.c_str(), hParams->GetEntries());
+                            key.c_str(), hParams->GetEntries());
                   // loop over bin labels
                   for (int b = 1; b <= hParams->GetNbinsX(); b++) {
 
@@ -627,7 +637,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                     double      binValue = hParams->GetBinContent(b);
                     double      binError = hParams->GetBinError(b);
                     NLogTrace("[L%d]   Bin %d[%s] = %e indexInProj=%d", level, b, binLabel.c_str(), binValue,
-                                              indexInProj);
+                              indexInProj);
                     // // check if binlabel is "mass"
                     // if (binLabel.compare("mass") == 0) {
                     //   NLogInfo("[L%d]   Checking bin 'mass' = %f ...", level, binValue);
@@ -641,7 +651,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
                     current->SetParameter(binLabel, binValue, indexInProj);
                     current->SetParameterError(binLabel, binError, indexInProj);
                     NLogTrace("[L%d]   Stored parameter '%s' = %e +/- %e at indexInProj=%d", level, binLabel.c_str(),
-                                              binValue, binError, indexInProj);
+                              binValue, binError, indexInProj);
                   }
                 }
               }
@@ -651,7 +661,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             }
             else {
               NLogWarning("NGnNavigator::Reshape: Branch '%s' has unsupported class '%s' !!! Skipping ...", key.c_str(),
-                                          className.Data());
+                          className.Data());
             }
           }
         }
@@ -688,6 +698,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       NLogInfo("  Level %zu axes: %s", l, axesStr.c_str());
     }
   }
+
+  if (branch) branch->SetBranchStatus(outputPointStatus);
 
   // current->Print("");
 
@@ -728,7 +740,8 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
       return;
     }
     NLogInfo("Exported NGnNavigator to file: %s", filename.c_str());
-  } else if (filename.empty()) {
+  }
+  else if (filename.empty()) {
     NLogInfo("No filename provided, export to JSON only ...");
     NGnNavigator * obj = const_cast<NGnNavigator *>(this);
     ExportToJson(objJson, obj, objectNames);
@@ -768,8 +781,6 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
 
     NLogInfo("Sent: %s", message.c_str());
   }
-
-
 }
 
 void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames)
@@ -801,7 +812,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   // Store TString in a named variable: in Cling's interpreted mode, TString temporaries
   // can be destroyed before json::parse() reads the char* pointer, causing a segfault.
   TString hJsonStr = TBufferJSON::ConvertToJSON(h);
-  j = json::parse(hJsonStr.Data());
+  j                = json::parse(hJsonStr.Data());
   // loop over content map and add objects
   double entries = 0.0;
   // int    idx     = 0;
@@ -864,28 +875,31 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
       if (objContent) {
         // Runtime check: Only cast if objContent inherits from TH1
-        TH1* hist = dynamic_cast<TH1*>(objContent);
+        TH1 * hist = dynamic_cast<TH1 *>(objContent);
         if (hist) {
           // Store TString in a named variable to avoid Cling temporary lifetime issue.
           TString histJsonStr = TBufferJSON::ConvertToJSON(hist);
-          json objJson = json::parse(histJsonStr.Data());
-          double objMin, objMax;
+          json    objJson     = json::parse(histJsonStr.Data());
+          double  objMin, objMax;
           NUtils::GetTrueHistogramMinMax(hist, objMin, objMax, false);
-          min = TMath::Min(min, objMin);
-          max = TMath::Max(max, objMax);
-          entries = hist->GetEntries();
+          min            = TMath::Min(min, objMin);
+          max            = TMath::Max(max, objMax);
+          entries        = hist->GetEntries();
           j["fArray"][i] = entries;
           if (entries > 0) {
             j["children"][key].push_back(objJson);
-          } else {
+          }
+          else {
             j["children"][key].push_back(nullptr);
           }
-        } else {
+        }
+        else {
           NLogWarning("NGnNavigator::ExportJson: Object %s at index %zu is not a TH1, skipping.", key.c_str(), i);
           entries = 0.0;
           j["children"][key].push_back(nullptr);
         }
-      } else {
+      }
+      else {
         entries = 0.0;
         j["children"][key].push_back(nullptr);
       }
@@ -898,23 +912,25 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     entries    = 0.0;                                 // Reset entries for each key
 
     for (size_t i = 0; i < val.size(); i++) {
-      double param = val[i];
+      double param      = val[i];
       double paramError = 0.0;
       // Runtime check: Only call GetParameterError if index is valid
       if (i < val.size()) {
         try {
           paramError = obj->GetParameterError(key, i);
-        } catch (...) {
+        }
+        catch (...) {
           NLogWarning("NGnNavigator::ExportJson: Exception in GetParameterError for key %s index %zu", key.c_str(), i);
           paramError = 0.0;
         }
       }
       if (!std::isnan(param) && std::fabs(param) > 1e-12) {
-        min = TMath::Min(min, param);
-        max = TMath::Max(max, param);
+        min                            = TMath::Min(min, param);
+        max                            = TMath::Max(max, param);
         j["fArrays"][key]["values"][i] = param;
         j["fArrays"][key]["errors"][i] = TMath::Power(paramError, 2);
-      } else {
+      }
+      else {
         j["fArrays"][key]["values"][i] = 0.0;
         j["fArrays"][key]["errors"][i] = 0.0;
       }
@@ -950,7 +966,8 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     if (child != nullptr) {
       try {
         ExportToJson(childJson, child, objectNames);
-      } catch (...) {
+      }
+      catch (...) {
         NLogWarning("NGnNavigator::ExportJson: Exception in recursive ExportToJson for child.");
         childJson = json();
       }

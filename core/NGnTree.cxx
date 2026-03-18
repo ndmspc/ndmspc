@@ -286,14 +286,6 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
         point->SetTempObject("file", f);
       }
 
-      // Get all objects
-      // NLogDebug("Opening file '%s' to import additional objects ...", filename.c_str());
-      // TFile * f = TFile::Open(filename.c_str());
-      if (f->IsZombie()) {
-        NLogError("NGnTree::Import: Cannot open file '%s' !!!", filename.c_str());
-        return;
-      }
-
       std::string objFormatMinMax =
           cfg["objectFormatMinMax"].is_string() ? cfg["objectFormatMinMax"].get<std::string>() : "";
       std::string objFormatAxis =
@@ -316,22 +308,24 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
         // remove trailing underscore
         objPath = objPath.substr(0, objPath.size() - objFormatAxis.size());
-        objPath += cfg["objects"][objName]["sufix"].get<std::string>();
+        objPath += objCfg.contains("sufix") ? objCfg["sufix"].get<std::string>() : "";
 
+        if (point->GetEntryNumber() == 0) {
+          NLogDebug("NGnTree::Import: Retrieving object '%s' from file '%s' ...", objPath.c_str(),
+                    cfg["filename"].get<std::string>().c_str());
+        }
         TObject * obj = f->Get(objPath.c_str());
         if (!obj) {
           NLogError("NGnTree::Import: Cannot get object '%s' from file '%s' !!!", objPath.c_str(),
                     cfg["filename"].get<std::string>().c_str());
           continue;
         }
-        NLogDebug("NGnTree::Import: Retrieved object '%s' storting to '%s' ...", objPath.c_str(), objName.c_str());
 
         if (obj->InheritsFrom(TCanvas::Class())) {
           TCanvas * cObj = (TCanvas *)obj;
           cObj->SetName(objName.c_str());
         }
         outputPoint->Add(obj->Clone(objName.c_str()));
-        NLogTrace("NGnTree::Import: Added object '%s' to output point ...", objName.c_str());
       }
       // f->Close();
     }
@@ -542,15 +536,29 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     Bool_t prevMustClean = gROOT->MustClean();
     gROOT->SetMustClean(kFALSE);
 
+    // Enable batch mode during the parallel phase so that ROOT drawing calls
+    // (e.g. TH1::Fit drawing the fit function via f1->Draw) are no-ops.
+    // Without this, concurrent threads each trigger ROOT canvas creation ("c1"),
+    // the second canvas creation deletes the first → double-free / heap corruption,
+    // which then causes TPad::RecursiveRemove to crash when closing the per-thread TTree.
+    Bool_t prevBatch = gROOT->IsBatch();
+    gROOT->SetBatch(kTRUE);
+
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
     executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
 
-    // Flush deferred deletes single-threaded with MustClean still false.
+    // Restore both flags before flushing deferred deletes, so each object's destructor
+    // properly calls gROOT->RecursiveRemove and removes itself from ROOT's global lists.
+    // This prevents dangling pointers that would crash the RecursiveRemove cascade
+    // triggered by TTree::~TTree when the per-thread storage files are closed below.
+    // It is safe here because all worker threads have already finished.
+    gROOT->SetMustClean(prevMustClean);
+    gROOT->SetBatch(prevBatch);
+
+    // Flush deferred deletes single-threaded with MustClean and batch mode restored.
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].FlushDeferredDeletes();
     }
-
-    gROOT->SetMustClean(prevMustClean);
 
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].ExecuteEndFunction();
@@ -905,7 +913,7 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
     // for (int id = 0; id < GetEntries(); id++) {
     GetEntry(id);
     fBinning->GetPoint()->Print();
-    TList * l = (TList *)fTreeStorage->GetBranch("outputPoint")->GetObject();
+    TList * l = (TList *)fTreeStorage->GetBranch("_outputPoint")->GetObject();
     if (!l || l->IsEmpty()) {
       NLogWarning("NGnTree::Play: No 'outputPoint' for entry %lld !!!", id);
       continue;
@@ -1164,7 +1172,7 @@ bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
     return false;
   }
 
-  fParameters = new NParameters("results", "Results", paramNames);
+  fParameters = new NParameters(paramNames, "results", "Results");
 
   return true;
 }
@@ -1254,7 +1262,7 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
     ngnt->GetEntry(entryNumber);
 
     // // add outputPoint content to outputPoint list
-    // TList * inputOutputPoint = (TList *)ngnt->GetStorageTree()->GetBranch("outputPoint")->GetObject();
+    // TList * inputOutputPoint = (TList *)ngnt->GetStorageTree()->GetBranch("_outputPoint")->GetObject();
     // for (int i = 0; i < inputOutputPoint->GetEntries(); i++) {
     //   outputPoint->Add(inputOutputPoint->At(i));
     // }

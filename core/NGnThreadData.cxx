@@ -1,6 +1,8 @@
 #include <NGnTree.h>
 #include <NStorageTree.h>
 #include <TROOT.h>
+#include <TCanvas.h>
+#include <mutex>
 #include "THnSparse.h"
 #include "NBinningPoint.h"
 #include "NLogger.h"
@@ -85,8 +87,8 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
 
     ts->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
   }
-  b = ts->GetBranch("outputPoint");
-  if (!b) ts->AddBranch("outputPoint", nullptr, "TList");
+  b = ts->GetBranch("_outputPoint");
+  if (!b) ts->AddBranch("_outputPoint", nullptr, "TList");
 
   if (ngnt->GetParameters()) {
     NLogTrace("NGnThreadData::Init: Setting parameters branch for thread %zu", id);
@@ -142,6 +144,23 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   /// This method is called for each set of coordinates
   /// It initializes the NHnSparseTree if not already done
   TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+
+  // Ensure this thread has a current pad so that user code calling h->Fit()
+  // does not trigger the non-thread-safe TCanvas::MakeDefCanvas().
+  // gPad is thread_local in ROOT 6: each worker thread starts with nullptr.
+  // We create a minimal batch canvas (batch mode is already set by
+  // NGnTree::Process before ExecuteParallel) and serialise the one-time
+  // TCanvas::Constructor call with a static mutex.  After this block gPad is
+  // set for this thread and subsequent Fit() calls find it non-null.
+  if (!gPad) {
+    static std::mutex sPadMutex;
+    std::lock_guard<std::mutex> lk(sPadMutex);
+    // gPad is still nullptr for THIS thread even inside the lock (thread-local);
+    // the mutex only serialises concurrent TCanvas::Constructor calls.
+    TString cname = TString::Format("_ndmspc_wk%zu", GetAssignedIndex());
+    auto *  c     = new TCanvas(cname, cname, 1, 1);
+    fDeferredDeletes.push_back(c); // cleaned up by FlushDeferredDeletes
+  }
 
   fNProcessed++;
   // NThreadData::Process(coords);
@@ -228,7 +247,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
         NUtils::GetCoordsString(NUtils::ArrayToVector(point->GetCoords(), point->GetNDimensionsContent())).c_str());
 
     if (!fIsPureCopy) {
-      ts->GetBranch("outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
+      ts->GetBranch("_outputPoint")->SetAddress(outputPoint); // Set the output list as branch address
     }
     //
     // ts->Fill(point, nullptr, false, {}, false);
