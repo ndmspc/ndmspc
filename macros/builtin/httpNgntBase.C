@@ -4,6 +4,7 @@
 #include <NGnTree.h>
 #include <NGnNavigator.h>
 #include <NGnHttpServer.h>
+#include <NParameters.h>
 
 void httpNgntBase()
 {

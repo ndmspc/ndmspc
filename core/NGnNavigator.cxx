@@ -36,6 +36,17 @@ namespace Ndmspc {
 NGnNavigator::NGnNavigator(const char * name, const char * title, std::vector<std::string> objectTypes)
     : TNamed(name, title), fObjectTypes(objectTypes)
 {
+  // Force ROOT to fully initialize THStack's TClass runtime properties now,
+  // while still in the main thread. Without this, the first THStack constructed
+  // inside an HTTP handler triggers TClass::SetRuntimeProperties() lazily, which
+  // creates a temporary TObject whose ~TObject() calls TROOT::RecursiveRemove and
+  // cascades into a crash on the live TTree.
+  static bool sThStackWarmedUp = false;
+  if (!sThStackWarmedUp) {
+    THStack _warmup("_ndmspc_warmup_stack", "");
+    (void)_warmup;
+    sThStackWarmedUp = true;
+  }
 }
 NGnNavigator::~NGnNavigator()
 {
@@ -1891,7 +1902,13 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
         }
       }
       NLogTrace("Creating stack '%s' with title '%s'", stackName.c_str(), stackTitle.c_str());
-      //
+      // Delete any existing THStack with the same name to prevent a cascade crash
+      // through ROOT's RecursiveRemove when the duplicate is added to gROOT's lists.
+      // TObject * existingStack = gROOT->FindObject(stackName.c_str());
+      // if (existingStack && existingStack->IsA() == THStack::Class()) {
+      //   NLogTrace("Deleting existing THStack '%s'", stackName.c_str());
+      //   delete existingStack;
+      // }
       THStack * hStack = new THStack(stackName.c_str(), stackTitle.c_str());
       hStack->SetBit(kMustCleanup, kFALSE);
 
