@@ -47,9 +47,6 @@ void NExecutor2D(std::string outFile = "NExecutor2D.root")
   // execute the processing function
   ngnt->Process(processFunc);
 
-  // close the NGnTree object
-  ngnt->Close(true);
-
   // Clean up
   delete ngnt;
 }

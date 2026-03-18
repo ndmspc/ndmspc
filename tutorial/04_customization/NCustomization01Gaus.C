@@ -108,9 +108,6 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
   // execute the processing function
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
 
-  // close the NGnTree object
-  ngnt->Close(true);
-
   // Clean up
   delete ngnt;
 }

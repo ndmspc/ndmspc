@@ -68,6 +68,7 @@ void httpNgnt()
             // Build reshape properties based on NGnTree binning (default values and options for levels and binning
             // definitions)
             json reshapeProperties;
+
             reshapeProperties["levels"]["type"]        = "array";
             reshapeProperties["levels"]["description"] = "A nested array of integers representing levels.";
 
@@ -103,6 +104,17 @@ void httpNgnt()
             // wsOut["workspace"]["reshape"]["properties"] = reshapeProperties;
             server->GetWorkspace()["reshape"]["properties"] = reshapeProperties;
             server->GetWorkspace()["reshape"]["type"]       = "object";
+
+            std::string hint;
+
+            // Add axes info to hint
+            int idx = 0;
+            for (auto axis : ngnt->GetBinning()->GetAxes()) {
+              hint += TString::Format("[%d] %s: %d bins \n", idx++, axis->GetName(), axis->GetNbins()).Data();
+            }
+
+
+            server->GetWorkspace()["reshape"]["hint"] = hint;
           }
           wsOut["workspace"]["reshape"] = server->GetWorkspace()["reshape"];
 
@@ -269,13 +281,11 @@ void httpNgnt()
       TString listStr  = TBufferJSON::ConvertToJSON(l);
       json    listJson = json::parse(listStr.Data());
 
-
       // NLogDebug("[Server] Exporting navigator level = %d",  nav->GetLevel());
-      if (nav->GetLevel() == 0){
+      if (nav->GetLevel() == 0) {
         json nested;
-        NLogDebug("[Server] ExportToJson start: nav=%p level=%d nLevels=%d nChildren=%zu proj=%p",
-                  (void *)nav, nav->GetLevel(), nav->GetNLevels(),
-                  nav->GetChildren().size(), (void *)nav->GetProjection());
+        NLogDebug("[Server] ExportToJson start: nav=%p level=%d nLevels=%d nChildren=%zu proj=%p", (void *)nav,
+                  nav->GetLevel(), nav->GetNLevels(), nav->GetChildren().size(), (void *)nav->GetProjection());
         // nav->Print();
         nav->ExportToJson(nested, nav, std::vector<std::string>{});
         NLogDebug("[Server] ExportToJson done, nested is %s", nested.is_null() ? "null" : "valid");
@@ -377,8 +387,8 @@ void httpNgnt()
       if (level >= 0) {
         // Resize point to the specified level if needed
         // if (point.size() >= static_cast<size_t>(level)) {
-          point.resize(level);
-          // NLogTrace("[Server] PATCH spectra resized point to level %d: %s", level, json(point).dump().c_str());
+        point.resize(level);
+        // NLogTrace("[Server] PATCH spectra resized point to level %d: %s", level, json(point).dump().c_str());
         // }
       }
       // else {
@@ -551,8 +561,8 @@ void httpNgnt()
         // nav->Draw("hover");
         //
         std::vector<std::string> parameters = httpIn.contains("parameters")
-                                                     ? httpIn["parameters"].get<std::vector<std::string>>()
-                                                     : std::vector<std::string>{};
+                                                  ? httpIn["parameters"].get<std::vector<std::string>>()
+                                                  : std::vector<std::string>{};
 
         if (parameters.empty()) {
           NLogWarning("No parameter name provided for spectra !!!");
@@ -736,7 +746,8 @@ void httpNgnt()
         NLogTrace("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
 
         double minmax = 1.0;
-        if (server->GetWorkspace()["spectra"].contains("properties") && server->GetWorkspace()["spectra"]["properties"].contains("axismargin") &&
+        if (server->GetWorkspace()["spectra"].contains("properties") &&
+            server->GetWorkspace()["spectra"]["properties"].contains("axismargin") &&
             server->GetWorkspace()["spectra"]["properties"]["axismargin"].contains("default")) {
           minmax = server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"].get<double>();
         }
@@ -744,7 +755,8 @@ void httpNgnt()
           minmax = httpIn["axismargin"].get<double>();
         }
         std::string minmaxMode = "V";
-        if (server->GetWorkspace()["spectra"].contains("properties") && server->GetWorkspace()["spectra"]["properties"].contains("minmaxMode") &&
+        if (server->GetWorkspace()["spectra"].contains("properties") &&
+            server->GetWorkspace()["spectra"]["properties"].contains("minmaxMode") &&
             server->GetWorkspace()["spectra"]["properties"]["minmaxMode"].contains("default")) {
           minmaxMode = server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"].get<std::string>();
         }

@@ -62,9 +62,6 @@ void NStorage01Gaus(std::string outFile = "NStorage01Gaus.root")
   // execute the processing function
   ngnt->Process(processFunc);
 
-  // close the NGnTree object
-  ngnt->Close(true);
-
   // Clean up
   delete ngnt;
 }
