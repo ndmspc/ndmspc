@@ -189,6 +189,47 @@ void httpNgnt()
 
       if (nav) {
         server->AddInputObject("navigator", nav);
+
+        // Rebuild full reshape schema if it was wiped (e.g. after a DELETE)
+        if (!server->GetWorkspace()["reshape"].contains("type")) {
+          json reshapeProperties;
+
+          reshapeProperties["levels"]["type"]        = "array";
+          reshapeProperties["levels"]["description"] = "A nested array of integers representing levels.";
+
+          json      default_levels         = json::array();
+          size_t    nAxes                  = ngnt->GetBinning()->GetAxes().size();
+          const int MAX_ELEMENTS_PER_LEVEL = 3;
+          for (size_t i = 0; i < nAxes; i += MAX_ELEMENTS_PER_LEVEL) {
+            json level = json::array();
+            for (int j = 0; j < MAX_ELEMENTS_PER_LEVEL && (i + j) < nAxes; j++) {
+              level.push_back(static_cast<int>(i + j));
+            }
+            default_levels.push_back(level);
+          }
+          reshapeProperties["levels"]["default"]                = default_levels;
+          reshapeProperties["levels"]["items"]["type"]          = "array";
+          reshapeProperties["levels"]["items"]["items"]["type"] = "integer";
+
+          std::vector<std::string> binningNames = ngnt->GetBinning()->GetDefinitionNames();
+          reshapeProperties["binningName"]["type"]    = "string";
+          reshapeProperties["binningName"]["format"]  = "select";
+          reshapeProperties["binningName"]["enum"]    = binningNames;
+          reshapeProperties["binningName"]["default"] = binningName.empty() && !binningNames.empty()
+                                                          ? binningNames.front()
+                                                          : binningName;
+
+          std::string hint;
+          int         idx = 0;
+          for (auto axis : ngnt->GetBinning()->GetAxes()) {
+            hint += TString::Format("[%d] %s: %d bins \n", idx++, axis->GetName(), axis->GetNbins()).Data();
+          }
+
+          server->GetWorkspace()["reshape"]["properties"] = reshapeProperties;
+          server->GetWorkspace()["reshape"]["type"]       = "object";
+          server->GetWorkspace()["reshape"]["hint"]       = hint;
+        }
+
         server->GetWorkspace()["reshape"]["properties"]["levels"]["default"]      = levels;
         server->GetWorkspace()["reshape"]["properties"]["binningName"]["default"] = binningName;
         wsOut["workspace"]["reshape"]                                             = server->GetWorkspace()["reshape"];
@@ -347,7 +388,8 @@ void httpNgnt()
         spectraProperties["parameters"]["type"]          = "array";
         spectraProperties["parameters"]["format"]        = "multiselect";
         spectraProperties["parameters"]["items"]["type"] = "string";
-        auto paramNames                                  = nav->GetParameterNames();
+        Ndmspc::NParameters * nparams                    = ngnt->GetParameters();
+        auto paramNames                                  = nparams ? nparams->GetNames() : std::vector<std::string>{};
         spectraProperties["parameters"]["items"]["enum"] = paramNames;
         if (!paramNames.empty()) {
           spectraProperties["parameters"]["default"] = json::array({paramNames.front()});
@@ -523,6 +565,10 @@ void httpNgnt()
 
       httpOut["result"] = "success";
     }
+    else if (method.find("DELETE") != std::string::npos) {
+      NLogTrace("[DELETE][map] Cleaning up map state");
+      httpOut["result"] = "success";
+    }
     else {
       httpOut["error"] = "Unsupported HTTP method for map action";
     }
@@ -565,6 +611,25 @@ void httpNgnt()
                                                   : std::vector<std::string>{};
 
         if (parameters.empty()) {
+          // Fall back to workspace default parameters (same logic as PATCH handler)
+          if (server->GetWorkspace().contains("spectra") &&
+              server->GetWorkspace()["spectra"].contains("properties") &&
+              server->GetWorkspace()["spectra"]["properties"].contains("parameters") &&
+              server->GetWorkspace()["spectra"]["properties"]["parameters"].contains("default")) {
+            parameters = server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"]
+                             .get<std::vector<std::string>>();
+            NLogTrace("[Server] spectra POST: using workspace default parameters: %s", json(parameters).dump().c_str());
+          }
+        }
+
+        if (parameters.empty()) {
+          // Last resort: use all parameter names from ngnt
+          Ndmspc::NParameters * nparams = ngnt->GetParameters();
+          if (nparams) parameters = nparams->GetNames();
+          NLogTrace("[Server] spectra POST: using all ngnt parameters: %s", json(parameters).dump().c_str());
+        }
+
+        if (parameters.empty()) {
           NLogWarning("No parameter name provided for spectra !!!");
           httpOut["result"] = "missing_parameters";
           return;
@@ -579,6 +644,33 @@ void httpNgnt()
           minmaxMode = httpIn["minmaxMode"].get<std::string>();
         }
 
+        // Rebuild full spectra schema if it was wiped (e.g. after a DELETE)
+        if (!server->GetWorkspace()["spectra"].contains("type")) {
+          json spectraProperties;
+          spectraProperties["startPad"]["type"]    = "string";
+          spectraProperties["startPad"]["default"] = spectraPad;
+
+          spectraProperties["parameters"]["type"]          = "array";
+          spectraProperties["parameters"]["format"]        = "multiselect";
+          spectraProperties["parameters"]["items"]["type"] = "string";
+          Ndmspc::NParameters * nparams                    = ngnt->GetParameters();
+          auto paramNames                                  = nparams ? nparams->GetNames() : std::vector<std::string>{};
+          spectraProperties["parameters"]["items"]["enum"] = paramNames;
+          spectraProperties["parameters"]["default"]       = parameters.empty()
+                                                               ? (paramNames.empty() ? json::array() : json::array({paramNames.front()}))
+                                                               : json(parameters);
+
+          spectraProperties["minmaxMode"]["type"]         = "string";
+          spectraProperties["minmaxMode"]["default"]      = minmaxMode;
+          spectraProperties["minmaxMode"]["format"]       = "select";
+          spectraProperties["minmaxMode"]["enum"]         = {"V", "VE", "D"};
+          spectraProperties["axismargin"]["type"]         = "number";
+          spectraProperties["axismargin"]["default"]      = minmax;
+
+          server->GetWorkspace()["spectra"]["properties"] = spectraProperties;
+          server->GetWorkspace()["spectra"]["type"]       = "object";
+        }
+
         server->GetWorkspace()["spectra"]["properties"]["startPad"]["default"]   = spectraPad;
         server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = parameters;
 
@@ -586,7 +678,7 @@ void httpNgnt()
         // Only use the first element for DrawSpectra and workspace default
         server->GetWorkspace()["spectra"]["properties"]["axismargin"]["default"] = minmax;
         server->GetWorkspace()["spectra"]["properties"]["minmaxMode"]["default"] = minmaxMode;
-        wsOut["workspace"]["spectra"]                                            = server->GetWorkspace()["spectra"];
+        // wsOut["workspace"]["spectra"] is set after traversal so we can fill the parameter enum from navCurrent
 
         // Take current spectra point from server state if available, otherwise use empty point
         std::vector<int> point;
@@ -624,7 +716,20 @@ void httpNgnt()
           return;
         }
 
-        // Parse starting pad index from pad name (e.g., pad4 → 4)
+        // Update parameter enum from ngnt->GetParameters() if it is still empty
+        {
+          auto & enumRef = server->GetWorkspace()["spectra"]["properties"]["parameters"]["items"]["enum"];
+          if (enumRef.is_null() || enumRef.empty()) {
+            Ndmspc::NParameters * nparams = ngnt->GetParameters();
+            auto paramNames = nparams ? nparams->GetNames() : navCurrent->GetParameterNames();
+            NLogTrace("[Server] spectra POST: filling parameter enum: %s", json(paramNames).dump().c_str());
+            enumRef = paramNames;
+            if (server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"].empty() && !paramNames.empty()) {
+              server->GetWorkspace()["spectra"]["properties"]["parameters"]["default"] = json::array({paramNames.front()});
+            }
+          }
+        }
+        wsOut["workspace"]["spectra"] = server->GetWorkspace()["spectra"];
         int padIndex = 3;
         if (spectraPad.size() > 3 && spectraPad.substr(0, 3) == "pad") {
           try {
@@ -821,6 +926,10 @@ void httpNgnt()
 
         httpOut["result"] = "success";
       }
+    }
+    else if (method.find("DELETE") != std::string::npos) {
+      NLogTrace("[DELETE][spectra] Cleaning up spectra state");
+      httpOut["result"] = "success";
     }
     else {
       httpOut["error"] = "Unsupported HTTP method for reshape action";

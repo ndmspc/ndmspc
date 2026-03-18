@@ -138,6 +138,11 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       }
     }
 
+    // Don't broadcast workspace updates in response to DELETE requests
+    if (!method.CompareTo("DELETE")) {
+      wsOut["workspace"] = nullptr;
+    }
+
     if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null()) {
       json wsMessage;
       wsMessage["event"]   = "ngnt";

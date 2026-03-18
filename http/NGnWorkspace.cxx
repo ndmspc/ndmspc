@@ -56,9 +56,28 @@ bool NGnWorkspace::RemoveEntry(int index)
   NLogTrace("Invoking HTTP handler for DELETE on entry: %s", entry->GetName());
   fServer->GetHttpHandlers()[entry->GetName()]("DELETE", in, out, wsOut, fServer->GetObjectsMap());
 
-  // if (fWorkspace.contains(entry->GetName())) fWorkspace.erase(entry->GetName());
+  if (fWorkspace.contains(entry->GetName())) fWorkspace.erase(entry->GetName());
   delete entry;
   fEntries.erase(fEntries.begin() + index);
+
+  // Remove any workspace JSON keys that have no corresponding history entry
+  // (e.g. schema previews added by a handler that was just removed)
+  std::vector<std::string> orphanedKeys;
+  for (auto it = fWorkspace.begin(); it != fWorkspace.end(); ++it) {
+    bool hasEntry = false;
+    for (const auto & e : fEntries) {
+      if (it.key() == std::string(e->GetName())) {
+        hasEntry = true;
+        break;
+      }
+    }
+    if (!hasEntry) orphanedKeys.push_back(it.key());
+  }
+  for (const auto & key : orphanedKeys) {
+    NLogTrace("Removing orphaned workspace key: %s", key.c_str());
+    fWorkspace.erase(key);
+  }
+
   return true;
 }
 
