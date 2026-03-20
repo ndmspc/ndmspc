@@ -121,8 +121,8 @@ bool RenderSpectra(Ndmspc::NGnNavigator * navCurrent, const std::vector<std::str
         debugAction["message"]             = std::string("Debug click: ") + spectraObject["fName"].dump();
         spectraObject["handlers"]["click"] = json::array({debugAction});
       }
-      spectraObject["targetPad"]  = padName;
-      spectraObject["parameter"]  = param;
+      spectraObject["targetPad"] = padName;
+      spectraObject["parameter"] = param;
       multiSpectra.push_back(spectraObject);
     }
     else {
@@ -148,8 +148,8 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
   auto axes  = ngnt->GetBinning()->GetAxes();
   auto nAxes = axes.size();
 
-  json              defaultLevels = json::array();
-  const int         MAX_PER_LEVEL = 3;
+  json      defaultLevels = json::array();
+  const int MAX_PER_LEVEL = 3;
   for (size_t i = 0; i < nAxes; i += MAX_PER_LEVEL) {
     json level = json::array();
     for (int j = 0; j < MAX_PER_LEVEL && (i + j) < nAxes; j++) {
@@ -238,11 +238,11 @@ void httpNgnt()
   // ===========================================================================
 
   handlers[group + "/open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
-                                   std::map<std::string, TObject *> & objects) {
+                                 std::map<std::string, TObject *> & objects) {
     Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
     wsOut["group"] = "ngnt";
-    auto *                  server = ctx.Server();
-    auto *                  ngnt   = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
+    auto * server  = ctx.Server();
+    auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
 
     std::string openKey    = "open";
     std::string reshapeKey = "reshape";
@@ -260,10 +260,10 @@ void httpNgnt()
         for (auto axis : ngnt->GetBinning()->GetAxes()) {
           axisNames.push_back(axis->GetName());
         }
-        httpOut["axes"]       = axisNames;
-        httpOut["branches"]   = ngnt->GetStorageTree()->GetBrancheNames();
-        Ndmspc::NParameters * params  = ngnt->GetParameters();
-        httpOut["parameters"] = params ? params->GetNames() : std::vector<std::string>{};
+        httpOut["axes"]              = axisNames;
+        httpOut["branches"]          = ngnt->GetStorageTree()->GetBrancheNames();
+        Ndmspc::NParameters * params = ngnt->GetParameters();
+        httpOut["parameters"]        = params ? params->GetNames() : std::vector<std::string>{};
       }
       else {
         ctx.Result("not_opened");
@@ -330,11 +330,12 @@ void httpNgnt()
   // ===========================================================================
 
   handlers[group + "/reshape"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
-                                      std::map<std::string, TObject *> & objects) {
+                                    std::map<std::string, TObject *> & objects) {
     Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+
     wsOut["group"] = "ngnt";
-    auto *                  server = ctx.Server();
-    auto *                  ngnt   = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
+    auto * server  = ctx.Server();
+    auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
     if (!ngnt || ngnt->IsZombie()) {
       NLogError("NGnTree is not opened, cannot reshape");
       ctx.Result("not_opened");
@@ -408,11 +409,12 @@ void httpNgnt()
   // ===========================================================================
 
   handlers[group + "/map"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
-                                  std::map<std::string, TObject *> & objects) {
+                                std::map<std::string, TObject *> & objects) {
     Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+
     wsOut["group"] = "ngnt";
-    auto *                  server = ctx.Server();
-    auto *                  ngnt   = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
+    auto * server  = ctx.Server();
+    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
     if (!ngnt || ngnt->IsZombie()) return;
     auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>("navigator");
     if (!nav) return;
@@ -441,10 +443,7 @@ void httpNgnt()
 
       if (nav->GetLevel() == 0) {
         json nested;
-        NLogDebug("[Server] ExportToJson start: nav=%p level=%d nLevels=%d nChildren=%zu proj=%p", (void *)nav,
-                  nav->GetLevel(), nav->GetNLevels(), nav->GetChildren().size(), (void *)nav->GetProjection());
         nav->ExportToJson(nested, nav, std::vector<std::string>{});
-        NLogDebug("[Server] ExportToJson done, nested is %s", nested.is_null() ? "null" : "valid");
         listJson["nested"] = nested;
       }
 
@@ -554,7 +553,7 @@ void httpNgnt()
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
           if (outputPoint) {
             NLogTrace("Output point for bin %d:", entry);
-            std::string listStr  = TBufferJSON::ConvertToJSON(outputPoint).Data();
+            std::string listStr                      = TBufferJSON::ConvertToJSON(outputPoint).Data();
             wsOut["payload"]["content"]              = json::parse(listStr);
             wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
           }
@@ -589,11 +588,12 @@ void httpNgnt()
   // ===========================================================================
 
   handlers[group + "/spectra"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
-                                      std::map<std::string, TObject *> & objects) {
+                                    std::map<std::string, TObject *> & objects) {
     Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+
     wsOut["group"] = "ngnt";
-    auto *                  server = ctx.Server();
-    auto *                  ngnt   = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
+    auto * server  = ctx.Server();
+    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
     if (!ngnt || ngnt->IsZombie()) return;
     auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>("navigator");
     if (!nav) return;
@@ -605,6 +605,7 @@ void httpNgnt()
     }
 
     if (ctx.IsPost()) {
+
       std::string spectraPad = ctx.GetString("startPad", "pad3");
 
       std::vector<std::string> parameters = ctx.GetParam("parameters", std::vector<std::string>{});
@@ -612,13 +613,11 @@ void httpNgnt()
         json wsDef = ctx.GetWorkspaceDefault(spectraKey, "parameters");
         if (!wsDef.is_null() && wsDef.is_array()) {
           parameters = wsDef.get<std::vector<std::string>>();
-          NLogTrace("[Server] spectra POST: using workspace default parameters: %s", json(parameters).dump().c_str());
         }
       }
       if (parameters.empty()) {
         Ndmspc::NParameters * nparams = ngnt->GetParameters();
         if (nparams) parameters = nparams->GetNames();
-        NLogTrace("[Server] spectra POST: using all ngnt parameters: %s", json(parameters).dump().c_str());
       }
       if (parameters.empty()) {
         NLogWarning("No parameter name provided for spectra !!!");
@@ -646,6 +645,7 @@ void httpNgnt()
         int bin = (iLevel < point.size()) ? point[iLevel] : -1;
         if (bin == -1) {
           NLogTrace("[Server] Point does not have bin for level %zu", iLevel);
+
           ctx.Result("invalid_point");
           return;
         }
@@ -655,6 +655,7 @@ void httpNgnt()
 
       if (!navCurrent) {
         NLogTrace("No navigator found for spectra at point: %s", json(point).dump().c_str());
+
         ctx.Result("navigator_not_found");
         return;
       }
@@ -662,15 +663,16 @@ void httpNgnt()
       {
         auto & enumRef = ctx.Workspace()[spectraKey]["properties"]["parameters"]["items"]["enum"];
         if (enumRef.is_null() || enumRef.empty()) {
-          Ndmspc::NParameters *            nparams    = ngnt->GetParameters();
+          Ndmspc::NParameters *    nparams    = ngnt->GetParameters();
           std::vector<std::string> paramNames = nparams ? nparams->GetNames() : navCurrent->GetParameterNames();
-          NLogTrace("[Server] spectra POST: filling parameter enum: %s", json(paramNames).dump().c_str());
+
           enumRef = paramNames;
           if (ctx.Workspace()[spectraKey]["properties"]["parameters"]["default"].empty() && !paramNames.empty()) {
             ctx.Workspace()[spectraKey]["properties"]["parameters"]["default"] = json::array({paramNames.front()});
           }
         }
       }
+
       wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
 
       int padIndex = ParsePadIndex(spectraPad);
@@ -756,26 +758,27 @@ void httpNgnt()
   // ===========================================================================
 
   handlers[group + "/point"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
-                                    std::map<std::string, TObject *> & objects) {
+                                  std::map<std::string, TObject *> & objects) {
     Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+
     wsOut["group"] = "ngnt";
-    auto *                  ngnt = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
+    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
     if (!ngnt || ngnt->IsZombie()) return;
     auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>("navigator");
     if (!nav) return;
 
     if (ctx.IsGet()) {
-      TH1 *   proj = nav->GetProjection();
-      TString h    = TBufferJSON::ConvertToJSON(proj);
-      json    hMap = json::parse(h.Data());
+      TH1 *   proj                   = nav->GetProjection();
+      TString h                      = TBufferJSON::ConvertToJSON(proj);
+      json    hMap                   = json::parse(h.Data());
       wsOut["payload"]["map"]["obj"] = hMap;
 
       json clickAction;
-      clickAction["type"]        = "http";
-      clickAction["method"]      = "GET";
-      clickAction["contentType"] = "application/json";
-      clickAction["path"]        = "ngnt/point";
-      clickAction["payload"]     = json::object();
+      clickAction["type"]                          = "http";
+      clickAction["method"]                        = "GET";
+      clickAction["contentType"]                   = "application/json";
+      clickAction["path"]                          = "ngnt/point";
+      clickAction["payload"]                       = json::object();
       wsOut["payload"]["map"]["handlers"]["click"] = json::array({clickAction});
 
       ctx.Success();

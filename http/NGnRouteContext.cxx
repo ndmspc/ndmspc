@@ -61,6 +61,8 @@ void NGnRouteContext::SetStatePoint(const std::vector<int> & point, const std::s
   auto * srv = gNGnHttpServer;
   if (!srv) return;
   srv->GetState()[key]["point"] = point;
+  // Also send updated state to websocket output
+  fWsOut["state"] = srv->GetState();
 }
 
 // --- Response helpers ---

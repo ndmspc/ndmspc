@@ -110,7 +110,24 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     }
     NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
-    if (fHttpHandlers.find(fullpath.Data()) == fHttpHandlers.end()) {
+    // Special-case: provide an OpenAPI-compatible inspector schema endpoint
+    if (fullpath == "openapi/inspector" || fullpath == "inspector/openapi") {
+      json openapi;
+      openapi["openapi"] = "3.0.0";
+      openapi["info"]["title"] = std::string("NGn Inspector for ") + GetName();
+      openapi["info"]["version"] = "1.0.0";
+      // Put the inspector schema under components.schemas.NGn_Workspace
+      json inspectorSchema = GetInspectorSchema();
+      // If inspector contains properties, use that as the schema, otherwise include whole inspector
+      if (!inspectorSchema["inspector"]["properties"].is_null()) {
+        openapi["components"]["schemas"]["NGn_Workspace"] = inspectorSchema["inspector"]["properties"];
+      }
+      else {
+        openapi["components"]["schemas"]["NGn_Workspace"] = inspectorSchema;
+      }
+      out = openapi;
+    }
+    else if (fHttpHandlers.find(fullpath.Data()) == fHttpHandlers.end()) {
       NLogError("Unsupported action: %s", fullpath.Data());
       arg->SetContentType("application/json");
       arg->SetContent("{\"error\": \"Unsupported action\"}");
@@ -157,10 +174,14 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       wsOut["workspace"] = nullptr;
     }
 
-    if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null()) {
+    if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null() || !wsOut["state"].is_null()) {
       json wsMessage;
       wsMessage["event"]   = "ngnt";
       wsMessage["payload"] = wsOut["payload"].is_null() ? json::object() : wsOut["payload"];
+      // If state is present, include it in the same payload
+      if (!wsOut["state"].is_null()) {
+        wsMessage["payload"]["state"] = wsOut["state"];
+      }
 
       // loop over keys in wsOut["workspace"] and add them to workspace, overwriting existing ones if necessary
       if (!wsOut["workspace"].is_null()) {
