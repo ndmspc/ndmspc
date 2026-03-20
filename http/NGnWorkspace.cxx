@@ -1,4 +1,3 @@
-
 #include "NGnWorkspace.h"
 #include "NGnHttpServer.h"
 
@@ -56,7 +55,7 @@ bool NGnWorkspace::RemoveEntry(int index)
   NLogTrace("Invoking HTTP handler for DELETE on entry: %s", entry->GetName());
   fServer->GetHttpHandlers()[entry->GetName()]("DELETE", in, out, wsOut, fServer->GetObjectsMap());
 
-  if (fWorkspace.contains(entry->GetName())) fWorkspace.erase(entry->GetName());
+  // if (fWorkspace.contains(entry->GetName())) fWorkspace.erase(entry->GetName());
   delete entry;
   fEntries.erase(fEntries.begin() + index);
 
@@ -73,10 +72,10 @@ bool NGnWorkspace::RemoveEntry(int index)
     }
     if (!hasEntry) orphanedKeys.push_back(it.key());
   }
-  for (const auto & key : orphanedKeys) {
-    NLogTrace("Removing orphaned workspace key: %s", key.c_str());
-    fWorkspace.erase(key);
-  }
+  // for (const auto & key : orphanedKeys) {
+  //   NLogTrace("Removing orphaned workspace key: %s", key.c_str());
+  //   fWorkspace.erase(key);
+  // }
 
   return true;
 }
@@ -126,6 +125,57 @@ bool NGnWorkspace::ExportToFile(const std::string & filename) const
   (void)filename;
   // Implement export logic as needed
   return false;
+}
+
+json NGnWorkspace::GetInspectorSchema() const
+{
+  // Build an object that contains an OpenAPI-style `properties` section
+  // plus a simplified `history` (list of keys) and `group` for UI ordering.
+  json out = json::object();
+
+  // inspector wrapper
+  json inspector = json::object();
+
+  // Determine group prefix from first entry (if any)
+  std::string group;
+  if (!fEntries.empty()) {
+    std::string nameStr = fEntries[0]->GetName();
+    auto pos = nameStr.find('/');
+    if (pos != std::string::npos) group = nameStr.substr(0, pos);
+    else group = nameStr;
+  }
+  inspector["group"] = group.empty() ? "": group;
+
+  // Properties: build OpenAPI/JSON-Schema style properties from fWorkspace
+  inspector["properties"] = json::object();
+  for (auto it = fWorkspace.begin(); it != fWorkspace.end(); ++it) {
+    NLogDebug("Adding workspace key to inspector properties: %s", it.key().c_str());
+    inspector["properties"][it.key()] = it.value();
+    if (!inspector["properties"][it.key()].is_null() && !inspector["properties"][it.key()].contains("type")) {
+      inspector["properties"][it.key()]["type"] = "object";
+    }
+  }
+
+  // History: simplify to list of workspace keys (short names) preserving order
+  json history = json::array();
+  for (const auto & entry : fEntries) {
+    std::string name = entry->GetName();
+    std::string wsKey = name;
+    if (!group.empty()) {
+      std::string prefix = group + "/";
+      if (wsKey.rfind(prefix, 0) == 0) wsKey = wsKey.substr(prefix.size());
+    }
+    history.push_back(wsKey);
+  }
+  inspector["history"] = history;
+
+  out["inspector"] = inspector;
+
+  // Attach metadata from state if present, otherwise empty object
+  if (fState.is_object() && !fState.empty()) out["metadata"] = fState;
+  else out["metadata"] = json::object();
+
+  return out;
 }
 
 } // namespace Ndmspc

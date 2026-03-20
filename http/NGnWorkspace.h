@@ -34,6 +34,14 @@ public:
   json& GetState() { return fState; }
   const json& GetState() const { return fState; }
 
+  // Returns an array of {key, schema} objects in fEntries order for inspector
+  json GetInspectorEntries() const;
+
+  // Returns a combined inspector schema containing title, inspector (group, properties,
+  // history), and metadata (workspace state). This merges history, workspace schema and state
+  // for UI consumption.
+  json GetInspectorSchema() const;
+
   void SetServer(NGnHttpServer * server) { fServer = server; }  
 
 private:

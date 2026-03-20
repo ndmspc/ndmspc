@@ -69,29 +69,54 @@ void httpNgntBase()
   };
 
 
-  handlers["reset"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
-                         std::map<std::string, TObject *> & inputs) {
+  handlers["state"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                          std::map<std::string, TObject *> & inputs) {
     auto server = Ndmspc::gNGnHttpServer;
 
-    if (method.find("POST") != std::string::npos) {
+    if (method.find("GET") != std::string::npos) {
+      // Return current server workspaces and state, and inspector entries
+      try {
+        auto schema = server->GetInspectorSchema();
+
+        httpOut = json::object();
+        httpOut["result"] = "success";
+        httpOut["payload"]["title"] = schema["title"];
+        httpOut["payload"]["inspector"] = schema["inspector"];
+        httpOut["payload"]["metadata"] = schema["metadata"];
+        NLogInfo("State GET inspector: %s", schema["inspector"].dump().c_str());
+        // auto workspaces = server->GetOrderedWorkspace();
+        // auto inspectorEntries = server->GetInspectorEntries();
+        // auto state = server->GetState();
+        // httpOut = json::object();
+        // httpOut["result"] = "success";
+        // httpOut["workspaces"] = workspaces;
+        // httpOut["state"] = state;
+        // wsOut["payload"]["workspaces"] = workspaces;
+        // wsOut["payload"]["state"] = state;
+      } catch (const std::exception & e) {
+        NLogError("Error during state GET: %s", e.what());
+        httpOut = json::object();
+        httpOut["result"] = "failure";
+        httpOut["error"] = std::string("Error during state GET: ") + e.what();
+      }
+    }
+    else if (method.find("DELETE") != std::string::npos) {
       NLogInfo("Resetting API history and clearing all objects");
-      
       try {
         server->ResetServer();
-        
         httpOut = json::object();
         httpOut["result"] = "success";
         httpOut["message"] = "API history and objects reset successfully";
       } catch (const std::exception & e) {
-        NLogError("Error during reset: %s", e.what());
+        NLogError("Error during state reset: %s", e.what());
         httpOut = json::object();
         httpOut["result"] = "failure";
-        httpOut["error"] = std::string("Error during reset: ") + e.what();
+        httpOut["error"] = std::string("Error during state reset: ") + e.what();
       }
     }
     else {
       httpOut = json::object();
-      httpOut["error"] = "Unsupported HTTP method for reset action";
+      httpOut["error"] = "Unsupported HTTP method for state action";
       httpOut["result"] = "failure";
     }
   };

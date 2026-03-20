@@ -64,6 +64,7 @@ class NGnHttpServer : public NHttpServer {
   std::map<std::string, TObject *> &            GetObjectsMap() { return fObjectsMap; }
   json &                                        GetWorkspace() { return fWorkspace.GetWorkspace(); }
   json &                                        GetState() { return fWorkspace.GetState(); }
+  json                                          GetInspectorSchema() const { return fWorkspace.GetInspectorSchema(); }
   void                                          SetGroup(const std::string & group) { fGroup = group; }
   const std::string &                           GetGroup() const { return fGroup; }
 
