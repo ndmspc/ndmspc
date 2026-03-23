@@ -1873,10 +1873,12 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
     c->SetBit(kMustCleanup, kFALSE);
     outputList->Add(c);
-    c->DivideSquare(nPads);
+    // c->DivideSquare(nPads);
+
+    TList * stackList = new TList();
 
     for (int iPad = 0; iPad < nPads; iPad++) {
-      c->cd(iPad + 1);
+      // c->cd(iPad + 1);
 
       std::string stackName  = Form("hStack_%s_%d", posfix.c_str(), iPad);
       std::string stackTitle = parameterName + " : ";
@@ -1925,6 +1927,12 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
         if (proj.size() > 1) ranges.push_back({proj[1], p[proj[1]], p[proj[1]]});
         NUtils::SetAxisRanges(hsParam, ranges, true);
         TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {proj[0]}, option);
+        if (!hProj || hProj->GetEntries() == 0) {
+          NLogError("Failed to project THnSparse for stack %d with projection IDs: %s", iStack,
+                    NUtils::GetCoordsString(proj, -1).c_str());
+          delete hProj;
+          continue;
+        }
         if (proj.size() > 1) {
           TAxis * aStack = hsParam->GetAxis(proj[1]);
           if (aStack->IsAlphanumeric()) {
@@ -1956,12 +1964,13 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
         hProj->SetMarkerStyle(20);
         hProj->SetMarkerColor(iStack + 1);
+        // NLogDebug("Histogram '%s' entries: %lld", hProj->GetName(), hProj->GetEntries());
         TH1 * hProjClone = (TH1 *)hProj->Clone();
         // Detach clone from gDirectory to prevent TFile from owning it and causing a
         // double-free when THStack deletes it during canvas cleanup later.
         hProjClone->SetDirectory(nullptr);
         hStack->Add(hProjClone);
-        NLogTrace("Added histogram to stack: %s", hProj->GetTitle());
+        // NLogTrace("Added histogram to stack: %s", hProj->GetTitle());
         delete hProj;
       }
 
@@ -2001,20 +2010,46 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
         hStack->SetMinimum(stackMin);
         hStack->SetMaximum(stackMax);
       }
-      std::string drawOption = "nostack E";
-      drawOption += option;
-      NLogDebug("Drawing stack with option: %s in pad %d", drawOption.c_str(), iPad + 1);
 
-      hStack->Draw(drawOption.c_str());
-      hStack->GetHistogram()->GetXaxis()->SetTitle(projNames[0].c_str());
-      hStack->GetHistogram()->GetYaxis()->SetTitle(parameterName.c_str());
-      // gPad->ModifiedUpdate();
-      if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
-      c->ModifiedUpdate();
-      gSystem->ProcessEvents();
+      if (hStack->GetNhists() == 0) {
+        NLogError("No histograms were added to the stack for pad %d with projection IDs: %s", iPad,
+                  NUtils::GetCoordsString(proj, -1).c_str());
+        continue;
+      }
+
+      // std::string drawOption = "nostack E";
+      // drawOption += option;
+      // NLogDebug("Drawing stack with option: %s in pad %d %d", drawOption.c_str(), iPad + 1, hStack->GetNhists());
+      // hStack->Draw(drawOption.c_str());
+      // hStack->GetHistogram()->GetXaxis()->SetTitle(projNames[0].c_str());
+      // hStack->GetHistogram()->GetYaxis()->SetTitle(parameterName.c_str());
+      // // gPad->ModifiedUpdate();
+      // if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
+      stackList->Add(hStack);
+      // c->ModifiedUpdate();
+      // gSystem->ProcessEvents();
     }
     delete[] p;
     delete hsParam;
+
+    if (stackList->GetEntries() > 0) {
+      nPads = stackList->GetEntries();
+      c->DivideSquare(nPads);
+      for (int iPad = 0; iPad < nPads; iPad++) {
+        c->cd(iPad + 1);
+        THStack * hStack = (THStack *)stackList->At(iPad);
+        if (hStack) {
+          hStack->Draw("nostack E");
+          NLogDebug("Drawing stack with option: %s in pad %d %d", "nostack E", iPad + 1, hStack->GetNhists());
+          hStack->GetHistogram()->GetXaxis()->SetTitle(projNames[0].c_str());
+          hStack->GetHistogram()->GetYaxis()->SetTitle(parameterName.c_str());
+          if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
+        }
+      }
+    }
+
+    stackList->Clear();
+    delete stackList;
   }
 
   return outputList;
