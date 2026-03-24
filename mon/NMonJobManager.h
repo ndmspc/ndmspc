@@ -23,10 +23,13 @@ class NMonJobManager : public TNamed {
 
   std::map<std::string, NMonJob *> getfJobs() { return fJobs; }
 
-  void        AddJob(NMonJob * job);
+  bool        AddJob(NMonJob * job);
   json        ToJson() const;
   std::string GetString() const;
   bool        UpdateTask(const std::string & jobName, unsigned int taskId, const std::string & action, int errorCode);
+  bool        DeleteJob(const std::string & jobName);
+  bool        DeleteJob(NMonJob * job);
+  void        ClearFinishedJobs();
 
   private:
   std::map<std::string, NMonJob *> fJobs;
