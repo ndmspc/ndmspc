@@ -266,7 +266,7 @@ void httpNgnt()
         httpOut["parameters"]        = params ? params->GetNames() : std::vector<std::string>{};
       }
       else {
-        ctx.Result("not_opened");
+        ctx.Result("File %s not opened", ngnt ? ngnt->GetStorageTree()->GetFileName().c_str() : "unknown");
       }
       return;
     }
@@ -292,7 +292,7 @@ void httpNgnt()
       ngnt = Ndmspc::NGnTree::Open(file);
       if (!ngnt) {
         NLogError("Failed to open NGnTree from file: %s", file.c_str());
-        ctx.Result("failure");
+        ctx.Result("Failed to open NGnTree from file: %s", file.c_str());
         return;
       }
 
@@ -338,7 +338,7 @@ void httpNgnt()
     auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
     if (!ngnt || ngnt->IsZombie()) {
       NLogError("NGnTree is not opened, cannot reshape");
-      ctx.Result("not_opened");
+      ctx.Result("File %s not opened", ngnt ? ngnt->GetStorageTree()->GetFileName().c_str() : "unknown");
       return;
     }
 
@@ -353,7 +353,7 @@ void httpNgnt()
         ctx.Success();
       }
       else {
-        ctx.Result("not_available");
+        ctx.Result("File %s not opened", ngnt ? ngnt->GetStorageTree()->GetFileName().c_str() : "unknown");
       }
       return;
     }
@@ -369,7 +369,7 @@ void httpNgnt()
 
       nav = ngnt->Reshape("", levels, 0, {}, {});
       if (!nav) {
-        ctx.Result("failure");
+        ctx.Result("Failed to reshape NGnTree with provided levels [" + json(levels).dump() + "] and binning '" + binningName + "'");
         return;
       }
 
@@ -431,7 +431,7 @@ void httpNgnt()
       TH1 *   proj = nav->GetProjection();
       if (!proj) {
         NLogError("[Server] map POST: nav->GetProjection() returned nullptr for nav=%p", (void *)nav);
-        ctx.Result("projection_null");
+        ctx.Result("Failed to get projection for the current navigator level " + std::to_string(nav->GetLevel()) + ", cannot render map");
         delete l;
         return;
       }
@@ -559,13 +559,13 @@ void httpNgnt()
           }
           else {
             NLogTrace("No output point found for entry %d", entry);
-            ctx.Result("skipped");
+            ctx.Result("No output point found for entry " + std::to_string(entry));
             return;
           }
         }
         else {
           NLogTrace("[Server] No entry and no projection found, nothing sent to websocket");
-          ctx.Result("skipped");
+          ctx.Result("No entry and no projection found, nothing sent to websocket");
           return;
         }
       }
@@ -621,7 +621,7 @@ void httpNgnt()
       }
       if (parameters.empty()) {
         NLogWarning("No parameter name provided for spectra !!!");
-        ctx.Result("missing_parameters");
+        ctx.Result("No parameter name provided for spectra");
         return;
       }
 
@@ -646,7 +646,7 @@ void httpNgnt()
         if (bin == -1) {
           NLogTrace("[Server] Point does not have bin for level %zu", iLevel);
 
-          ctx.Result("invalid_point");
+          ctx.Result("Point does not have bin for level " + std::to_string(iLevel));
           return;
         }
         navCurrent = navCurrent->GetChild(bin);
@@ -656,7 +656,7 @@ void httpNgnt()
       if (!navCurrent) {
         NLogTrace("No navigator found for spectra at point: %s", json(point).dump().c_str());
 
-        ctx.Result("navigator_not_found");
+        ctx.Result("No navigator found for spectra at point: " + json(point).dump());
         return;
       }
 
@@ -690,7 +690,7 @@ void httpNgnt()
       int level = ctx.GetInt("level");
       if (level < 0) {
         NLogTrace("[Server] PATCH spectra no level specified");
-        ctx.Result("missing_level");
+        ctx.Result("Missing level for PATCH spectra");
         return;
       }
       if (point.size() > static_cast<size_t>(level)) {
@@ -708,7 +708,10 @@ void httpNgnt()
 
       Ndmspc::NGnNavigator * navCurrent = TraverseNavigator(nav, point);
       NLogTrace("[Server] Final navigator after traversal: %p", (void *)navCurrent);
-      if (!navCurrent) return;
+      if (!navCurrent) {
+        ctx.Result("No navigator found for PATCH spectra at point: " + json(point).dump());
+        return;
+      }
 
       std::vector<std::string> parameters = ctx.GetParam("parameters", std::vector<std::string>{});
       if (parameters.empty()) {

@@ -1,4 +1,8 @@
 #include <TROOT.h>
+#include <sstream>
+#include <set>
+#include <algorithm>
+#include <cctype>
 #include "NGnHttpServer.h"
 #include "NGnHistoryEntry.h"
 #include "NLogger.h"
@@ -175,24 +179,40 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     }
 
     // Check for suppression header from client: when present, avoid broadcasting
-    // workspace/state/config to websocket clients for this request.
-    bool suppressWsBroadcast = false;
+    // workspace/state/config to websocket clients for this request. For now we
+    // only support a comma-separated list of workspace keys to suppress. Do
+    // not support suppressing the entire workspace (boolean values are ignored).
+    std::set<std::string> suppressedWorkspaceKeys;
     try {
-      // New header name explicitly indicates suppressing workspace publish
       TString hdr = arg->GetRequestHeader("X-NDMSPC-Suppress-Workspace-Publish");
       if (!hdr.IsNull()) {
         std::string v = hdr.Data();
-        for (auto &c : v) c = static_cast<char>(std::tolower(c));
-        if (v == "1" || v == "true" || v == "yes") suppressWsBroadcast = true;
+        // normalize to lowercase
+        std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        // Do not support whole-workspace suppression for now; if a boolean
+        // value was provided, log and ignore it.
+        if (v == "1" || v == "true" || v == "yes") {
+          NLogDebug("Boolean workspace suppression (true/1/yes) is not supported; ignoring header value");
+        }
+
+        // parse comma-separated list of keys to suppress (if any)
+        std::stringstream ss(v);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+          // trim whitespace from token
+          auto l = token.find_first_not_of(" \t\n\r");
+          if (l == std::string::npos) continue;
+          auto r = token.find_last_not_of(" \t\n\r");
+          std::string key = token.substr(l, r - l + 1);
+          if (!key.empty() && key != "1" && key != "true" && key != "yes") suppressedWorkspaceKeys.insert(key);
+        }
       }
     } catch (...) {
-      suppressWsBroadcast = false;
+      suppressedWorkspaceKeys.clear();
     }
 
-    if (suppressWsBroadcast) {
-      // Clear workspace and state parts so they are not included in the broadcast
-      wsOut["workspace"] = nullptr;
-      NLogDebug("Suppressing workspace/state broadcast due to X-NDMSPC-Suppress-Workspace-Publish header");
+    if (!suppressedWorkspaceKeys.empty()) {
+      NLogDebug("Suppressing workspace keys from broadcast due to X-NDMSPC-Suppress-Workspace-Publish header");
     }
 
     if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null() || !wsOut["state"].is_null()) {
@@ -216,6 +236,11 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
             wsKey = entryName.substr(fGroup.size() + 1);
           }
           NLogTrace("Adding workspace entry for: %s (wsKey: %s)", entryName.c_str(), wsKey.c_str());
+          // skip suppressed keys
+          if (suppressedWorkspaceKeys.find(wsKey) != suppressedWorkspaceKeys.end()) {
+            NLogTrace("Skipping suppressed workspace entry for: %s", wsKey.c_str());
+            continue;
+          }
           if (!GetWorkspace()[wsKey].is_null()) {
             workspace[wsKey] = GetWorkspace()[wsKey];
           }
@@ -228,10 +253,15 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
             NLogTrace("Skipping null workspace entry for: %s", it.key().c_str());
             continue;
           }
+          // skip suppressed keys
+          if (suppressedWorkspaceKeys.find(it.key()) != suppressedWorkspaceKeys.end()) {
+            NLogTrace("Skipping suppressed workspace key from wsOut: %s", it.key().c_str());
+            continue;
+          }
 
-          workspace[it.key()]         = it.value();
+          workspace[it.key()]          = it.value();
           workspace[it.key()]["type"] = "object";
-          GetWorkspace()[it.key()]    = it.value();
+          GetWorkspace()[it.key()]     = it.value();
         }
         wsMessage["payload"]["workspace"]["schema"]["properties"] = workspace;
 

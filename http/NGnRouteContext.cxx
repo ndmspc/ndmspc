@@ -1,5 +1,8 @@
 #include "NGnRouteContext.h"
 #include "NGnHttpServer.h"
+#include <cstdarg>
+#include <vector>
+#include <cstdio>
 
 namespace Ndmspc {
 
@@ -71,11 +74,48 @@ void NGnRouteContext::Success() { fOut["result"] = "success"; }
 
 void NGnRouteContext::Error(const std::string & msg)
 {
-  fOut["result"] = msg;
+  fOut["error"] = msg;
   fHasError      = true;
 }
 
-void NGnRouteContext::Result(const std::string & status) { fOut["result"] = status; }
+void NGnRouteContext::Result(const std::string & status)
+{
+  // Treat Result as an indication of an error status in the HTTP output
+  fOut["error"] = status;
+  fHasError      = true;
+}
+
+void NGnRouteContext::Result(const char *fmt, ...)
+{
+  if (!fmt) {
+    Result(std::string());
+    return;
+  }
+
+  // Format the message using a growing buffer
+  va_list ap;
+  va_start(ap, fmt);
+  // attempt with a fixed buffer first
+  std::vector<char> buf(1024);
+  int needed = vsnprintf(buf.data(), buf.size(), fmt, ap);
+  va_end(ap);
+
+  if (needed < 0) {
+    // formatting error
+    Result(std::string(fmt));
+    return;
+  }
+
+  if (static_cast<size_t>(needed) >= buf.size()) {
+    // need larger buffer
+    buf.resize(static_cast<size_t>(needed) + 1);
+    va_start(ap, fmt);
+    vsnprintf(buf.data(), buf.size(), fmt, ap);
+    va_end(ap);
+  }
+
+  Result(std::string(buf.data()));
+}
 
 // --- Workspace / state shortcuts ---
 
