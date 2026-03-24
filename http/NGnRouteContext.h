@@ -82,6 +82,8 @@ public:
   void Success();
   void Error(const std::string & msg);
   void Result(const std::string & status);
+  // printf-style result formatting: Result("format %s", arg)
+  void Result(const char *fmt, ...);
 
   // --- Workspace / state shortcuts ---
   json & Workspace();
