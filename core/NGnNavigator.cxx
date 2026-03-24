@@ -1850,7 +1850,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     int nPads = dims.size() > 2 ? dimsResults[2].size() : 1;
     NLogDebug("Number of pads: %d", nPads);
     std::vector<std::string> projNames;
-    hsParam->Print("all");
+    // hsParam->Print("all");
     NLogTrace("Projection dims: %d %d %d", dims[0], dims.size() > 1 ? dims[1] : -1, dims.size() > 2 ? dims[2] : -1);
     projNames.push_back(hnsObjContent->GetAxis(dims[0])->GetName());
     if (dims.size() > 1) projNames.push_back(hnsObjContent->GetAxis(dims[1])->GetName());
@@ -2040,10 +2040,12 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
         THStack * hStack = (THStack *)stackList->At(iPad);
         if (hStack) {
           hStack->Draw("nostack E");
-          NLogDebug("Drawing stack with option: %s in pad %d %d", "nostack E", iPad + 1, hStack->GetNhists());
+          NLogTrace("Drawing stack with option: %s in pad %d %d", "nostack E", iPad + 1, hStack->GetNhists());
           hStack->GetHistogram()->GetXaxis()->SetTitle(projNames[0].c_str());
           hStack->GetHistogram()->GetYaxis()->SetTitle(parameterName.c_str());
           if (dims.size() > 1) gPad->BuildLegend(0.75, 0.75, 0.95, 0.95, "");
+          c->ModifiedUpdate();
+          // gSystem->ProcessEvents();
         }
       }
     }
