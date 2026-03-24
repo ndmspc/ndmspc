@@ -11,6 +11,7 @@ void httpNgntMon()
   handlers["jobs"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                         std::map<std::string, TObject *> &) {
     auto server = Ndmspc::gNGnHttpServer;
+    server->SetUseHistory(false);
 
     Ndmspc::NMonJobManager * jobManager = (Ndmspc::NMonJobManager *)server->GetInputObject("_jobManager");
     if (!jobManager) {
@@ -30,7 +31,7 @@ void httpNgntMon()
       json j = httpIn;
       if (jobManager->UpdateTask(j["name"], j["task"], j["action"], j["rc"])) {
 
-        httpOut["result"]           = "succes";
+        httpOut["result"] = "succes";
         // httpOut["jobList"]          = jobManager->ToJson();
         wsOut["payload"]["nJobs"]   = jobManager->getfJobs().size();
         wsOut["payload"]["jobList"] = jobManager->ToJson();
@@ -46,20 +47,55 @@ void httpNgntMon()
 
       Ndmspc::NMonJob * job = new Ndmspc::NMonJob(); // fixme need to destroy job latter to prevent memory leak
       if (job->ParseMessage(httpIn.dump())) {
-        jobManager->AddJob(job);
-        httpOut["result"]  = "success";
-        httpOut["jobList"] = jobManager->ToJson();
 
-        wsOut["payload"]["nJobs"]   = jobManager->getfJobs().size();
-        wsOut["payload"]["jobList"] = jobManager->ToJson();
+        if (jobManager->AddJob(job)) {
+          httpOut["result"]  = "success";
+          httpOut["jobList"] = jobManager->ToJson();
+
+          wsOut["payload"]["nJobs"]   = jobManager->getfJobs().size();
+          wsOut["payload"]["jobList"] = jobManager->ToJson();
+        }
+        else {
+          jobManager->DeleteJob(job);
+          httpOut["result"] = "failure";
+        }
       }
       else {
+        jobManager->DeleteJob(job);
         httpOut["result"] = "failure";
       }
     }
     else if (method.find("DELETE") != std::string::npos) {
-      httpOut["result"]  = "success";
-      httpOut["message"] = "Delete action is not implemented for jobs, but acknowledged.";
+
+      if (httpIn.is_null()) {
+        NLogWarning("Ignoring system DELETE (httpIn.is_null())");
+        httpOut["result"] = "failure";
+      }
+      json j = httpIn;
+      if (j.contains("clear")) {
+        if (j["clear"] == "finished") {
+          jobManager->ClearFinishedJobs();
+          httpOut["result"] = "success";
+        }
+        else {
+          httpOut["result"] = "failure";
+          return;
+        }
+      }
+      else if (!j.contains("name")) {
+        NLogWarning("Ignoring system DELETE (no name)");
+        httpOut["result"] = "failure";
+        return;
+      }
+
+      if (jobManager->DeleteJob(j["name"])) {
+        httpOut["result"] = "success";
+      }
+      else {
+        httpOut["result"]  = "failure";
+        httpOut["message"] = "Job not found";
+      }
+      // httpOut["message"] = "Delete action is not implemented for jobs, but acknowledged.";
     }
     else {
       httpOut["error"] = "Unsupported HTTP method for test action";

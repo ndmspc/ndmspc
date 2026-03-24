@@ -28,16 +28,21 @@ void NMonJobManager::Print(Option_t * option) const
     NLogInfo("  Number of jobs: %zu", fJobs.size());
     NLogInfo("  Jobs:");
     for (const auto & p : fJobs) {
-      //NLogInfo("    %s", p.first.c_str());
+      // NLogInfo("    %s", p.first.c_str());
       p.second->Print(option);
     }
   }
 }
 
-void NMonJobManager::AddJob(NMonJob * job)
+bool NMonJobManager::AddJob(NMonJob * job)
 {
-  fJobs[job->GetName()] = job;
+  std::string name = job->GetName();
+  if (name.empty()) {
+    return false;
+  }
+  fJobs[name] = job;
   NLogInfo("NMonJobManager::AddJob(job): job: %s", job->GetName());
+  return true;
 }
 
 json NMonJobManager::ToJson() const
@@ -67,6 +72,42 @@ bool NMonJobManager::UpdateTask(const std::string & jobName, unsigned int taskId
     return false;
   }
   return fJobs[jobName]->UpdateTask(taskId, action, errorCode); // fixme treba odhandlovat invalidne vstupy
+}
+
+bool NMonJobManager::DeleteJob(const std::string & jobName)
+{
+  auto element = fJobs.find(jobName);
+
+  if (element == fJobs.end()) {
+    NLogWarning("Job '%s' not found", jobName.c_str());
+    return false;
+  }
+
+  delete element->second;
+  fJobs.erase(element);
+
+  NLogInfo("Job '%s' removed", jobName.c_str());
+  return true;
+}
+
+bool NMonJobManager::DeleteJob(NMonJob * job)
+{
+  if (!job) return false;
+  return DeleteJob(job->GetName());
+}
+
+void NMonJobManager::ClearFinishedJobs()
+{
+  for (auto it = fJobs.begin(); it != fJobs.end();) {
+    if (it->second->IsFinished()) {
+      NLogInfo("Removing finished job '%s'", it->first.c_str());
+      delete it->second;
+      it = fJobs.erase(it);
+    }
+    else {
+      ++it;
+    }
+  }
 }
 
 } // namespace Ndmspc
