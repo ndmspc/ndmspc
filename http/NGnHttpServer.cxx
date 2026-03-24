@@ -174,6 +174,27 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       wsOut["workspace"] = nullptr;
     }
 
+    // Check for suppression header from client: when present, avoid broadcasting
+    // workspace/state/config to websocket clients for this request.
+    bool suppressWsBroadcast = false;
+    try {
+      // New header name explicitly indicates suppressing workspace publish
+      TString hdr = arg->GetRequestHeader("X-NDMSPC-Suppress-Workspace-Publish");
+      if (!hdr.IsNull()) {
+        std::string v = hdr.Data();
+        for (auto &c : v) c = static_cast<char>(std::tolower(c));
+        if (v == "1" || v == "true" || v == "yes") suppressWsBroadcast = true;
+      }
+    } catch (...) {
+      suppressWsBroadcast = false;
+    }
+
+    if (suppressWsBroadcast) {
+      // Clear workspace and state parts so they are not included in the broadcast
+      wsOut["workspace"] = nullptr;
+      NLogDebug("Suppressing workspace/state broadcast due to X-NDMSPC-Suppress-Workspace-Publish header");
+    }
+
     if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null() || !wsOut["state"].is_null()) {
       json wsMessage;
       wsMessage["event"]   = "ngnt";
