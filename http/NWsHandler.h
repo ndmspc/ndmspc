@@ -9,6 +9,7 @@
 #include <TString.h>
 #include <THttpCallArg.h>  // For THttpCallArg from ROOT
 #include "NWsClientInfo.h" // Include our client info class in the same namespace
+#include "NUtils.h"
 
 class THttpCallArg;
 class TTimer;
@@ -76,6 +77,14 @@ class NWsHandler : public THttpWSHandler {
   std::mutex                       fMutex;      ///< Mutex for thread-safe client map access
   Int_t                            fServCnt{0}; ///< Service counter
   std::chrono::system_clock::time_point fServerStartedAt; ///< Server start time
+  // network stats snapshot for computing speeds
+  json                             fPrevNetStats; ///< previous network counters snapshot
+  std::chrono::steady_clock::time_point fPrevNetTs; ///< timestamp of previous snapshot
+  bool                             fHavePrevNet{false}; ///< whether previous snapshot exists
+  // TFile IO stats snapshot for computing speeds
+  json                             fPrevFileStats; ///< previous TFile IO counters snapshot
+  std::chrono::steady_clock::time_point fPrevFileTs; ///< timestamp of previous file snapshot
+  bool                             fHavePrevFile{false}; ///< whether previous file snapshot exists
 
   /// \cond CLASSIMP
   ClassDefOverride(NWsHandler, 1);

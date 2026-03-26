@@ -11,6 +11,14 @@
 #include <TAxis.h>
 #include <THnSparse.h>
 #include <TString.h>
+#if defined(__linux__)
+#include <fstream>
+#elif defined(__APPLE__)
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#endif
 #include "NLogger.h"
 #include "NHttpRequest.h"
 #include "ndmspc.h"
@@ -1897,6 +1905,158 @@ void NUtils::SafeDeleteObject(TObject *& obj)
     delete obj;
     obj = nullptr;
   }
+}
+
+json NUtils::GetSystemStats()
+{
+  json out;
+  ProcInfo_t info;
+  gSystem->GetProcInfo(&info);
+
+  out["cpu_user"] = info.fCpuUser;
+  out["cpu_sys"]  = info.fCpuSys;
+  out["cpu_total"] = info.fCpuUser + info.fCpuSys;
+  out["mem_rss_kb"] = info.fMemResident;
+  out["mem_vsize_kb"] = info.fMemVirtual;
+
+  return out;
+}
+
+json NUtils::GetTFileIOStats()
+{
+  json out;
+  out["totalRead"] = 0LL;
+  out["totalWritten"] = 0LL;
+
+  TList * files = (TList*)gROOT->GetListOfFiles();
+  if (!files) return out;
+
+  Long64_t totalRead = 0;
+  Long64_t totalWritten = 0;
+
+  TIter next(files);
+  TObject * obj = nullptr;
+  while ((obj = next())) {
+    TFile * f = dynamic_cast<TFile *>(obj);
+    if (!f) continue;
+    json fi;
+    fi["name"] = f->GetName() ? f->GetName() : "";
+    fi["isZombie"] = (bool)f->IsZombie();
+    fi["isOpen"] = (bool)f->IsOpen();
+
+    // Try to read per-file counters if available in this ROOT build
+    Long64_t bytesRead = 0;
+    Long64_t bytesWritten = 0;
+    // Many ROOT versions expose GetBytesRead/GetBytesWritten on TFile; attempt to call them.
+    // If they are not available, these calls will fail to link — in that case, users
+    // can replace this implementation with a platform-specific /proc reader.
+#if 1
+    // Use C-style cast to call methods if they exist; rely on linker to resolve.
+    // If unavailable, these lines may need adjustment for older ROOT versions.
+    try {
+      bytesRead = f->GetBytesRead();
+      bytesWritten = f->GetBytesWritten();
+    }
+    catch (...) {
+      bytesRead = 0;
+      bytesWritten = 0;
+    }
+#endif
+
+    fi["bytesRead"] = bytesRead;
+    fi["bytesWritten"] = bytesWritten;
+
+    totalRead += bytesRead;
+    totalWritten += bytesWritten;
+
+    out["files"].push_back(fi);
+  }
+
+  out["totalRead"] = totalRead;
+  out["totalWritten"] = totalWritten;
+
+  return out;
+}
+
+json NUtils::GetNetDevStats()
+{
+  json out;
+  out["total_rx"] = 0ULL;
+  out["total_tx"] = 0ULL;
+
+#if defined(__linux__)
+  std::ifstream f("/proc/net/dev");
+  if (!f.good()) return out;
+  std::string line;
+  // skip headers
+  std::getline(f, line);
+  std::getline(f, line);
+  while (std::getline(f, line)) {
+    if (line.empty()) continue;
+    size_t colon = line.find(':');
+    if (colon == std::string::npos) continue;
+    std::string ifname = line.substr(0, colon);
+    // trim
+    auto ltrim = [](std::string & s) {
+      size_t start = s.find_first_not_of(" \t");
+      if (start != std::string::npos) s = s.substr(start);
+      else s.clear();
+    };
+    auto rtrim = [](std::string & s) {
+      size_t end = s.find_last_not_of(" \t");
+      if (end != std::string::npos) s = s.substr(0, end + 1);
+      else s.clear();
+    };
+    ltrim(ifname);
+    rtrim(ifname);
+    std::string rest = line.substr(colon + 1);
+    std::stringstream ss(rest);
+    std::vector<unsigned long long> vals;
+    std::string tok;
+    while (ss >> tok) {
+      try {
+        vals.push_back(std::stoull(tok));
+      }
+      catch (...) {
+        vals.push_back(0ULL);
+      }
+    }
+    if (vals.size() >= 9) {
+      unsigned long long rx = vals[0];
+      unsigned long long tx = vals[8];
+      json iface;
+      iface["name"] = ifname;
+      iface["rx"] = rx;
+      iface["tx"] = tx;
+      out["interfaces"].push_back(iface);
+      out["total_rx"] = static_cast<unsigned long long>(out["total_rx"].is_null() ? 0ULL : out["total_rx"].get<unsigned long long>()) + rx;
+      out["total_tx"] = static_cast<unsigned long long>(out["total_tx"].is_null() ? 0ULL : out["total_tx"].get<unsigned long long>()) + tx;
+    }
+  }
+
+#elif defined(__APPLE__)
+  struct ifaddrs *ifap = nullptr;
+  if (getifaddrs(&ifap) != 0) return out;
+  for (struct ifaddrs *ifa = ifap; ifa; ifa = ifa->ifa_next) {
+    if (!ifa->ifa_data) continue;
+    struct if_data *ifd = (struct if_data *)ifa->ifa_data;
+    if (!ifd) continue;
+    unsigned long long rx = (unsigned long long)ifd->ifi_ibytes;
+    unsigned long long tx = (unsigned long long)ifd->ifi_obytes;
+    json iface;
+    iface["name"] = ifa->ifa_name ? ifa->ifa_name : std::string();
+    iface["rx"] = rx;
+    iface["tx"] = tx;
+    out["interfaces"].push_back(iface);
+    out["total_rx"] = static_cast<unsigned long long>(out["total_rx"].is_null() ? 0ULL : out["total_rx"].get<unsigned long long>()) + rx;
+    out["total_tx"] = static_cast<unsigned long long>(out["total_tx"].is_null() ? 0ULL : out["total_tx"].get<unsigned long long>()) + tx;
+  }
+  freeifaddrs(ifap);
+#else
+  // Unsupported platform: return empty totals
+#endif
+
+  return out;
 }
 
 } // namespace Ndmspc
