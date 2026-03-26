@@ -2,6 +2,10 @@
 #define NdmspcCoreNHttpServer_H
 
 #include <THttpServer.h>
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include "NCloudEvent.h"
 #include "NWsHandler.h"
 
@@ -35,7 +39,42 @@ class NHttpServer : public THttpServer {
   NWsHandler * GetWebSocketHandler() const { return fNWsHandler; }
   bool         WebSocketBroadcast(json message);
 
+  /**
+   * @brief Set the heartbeat interval (ms). Recreates timer if running.
+   * @param ms Interval in milliseconds. If <=0, heartbeat is disabled.
+   */
+  void SetHeartbeatMs(int ms);
+  /**
+   * @brief Get the current heartbeat interval (ms).
+   */
+  int GetHeartbeatMs() const { return fHeartbeatMs; }
+
+  /**
+   * @brief Destructor stops background heartbeat thread if running.
+   */
+  virtual ~NHttpServer();
+
   protected:
+  /**
+   * @brief Start the background heartbeat thread (internal).
+   */
+  void StartHeartbeatThread();
+
+  /**
+   * @brief Stop the background heartbeat thread (internal).
+   */
+  void StopHeartbeatThread();
+
+  protected:
+  NWsHandler *      fNWsHandler{nullptr}; ///<! WebSocket handler instance
+  int               fHeartbeatMs{10000};  ///<! Heartbeat interval in milliseconds
+  std::thread *     fHeartbeatThread{nullptr};
+  std::atomic<bool> fHeartbeatRunning{false};
+  std::atomic<int> fServCnt{0};           ///<! Service counter used in heartbeat payload
+  std::mutex        fHeartbeatMutex;
+  std::condition_variable fHeartbeatCv;
+  std::mutex             fHeartbeatCvMutex;
+
   /**
    * @brief Processes an HTTP request.
    * @param arg Shared pointer to THttpCallArg containing request data.
@@ -48,9 +87,6 @@ class NHttpServer : public THttpServer {
    * @param arg Shared pointer to THttpCallArg containing request data.
    */
   virtual void ProcessNCloudEventRequest(NCloudEvent * ce, std::shared_ptr<THttpCallArg> arg);
-
-  protected:
-  NWsHandler * fNWsHandler{nullptr}; ///<! WebSocket handler instance
 
   /// \cond CLASSIMP
   ClassDef(NHttpServer, 1);
