@@ -78,11 +78,11 @@ void httpNgntBase()
       try {
         auto schema = server->GetInspectorSchema();
 
-        httpOut = json::object();
-        httpOut["result"] = "success";
+        httpOut["result"] = "success";  
         httpOut["payload"]["title"] = schema["title"];
         httpOut["payload"]["inspector"] = schema["inspector"];
         httpOut["payload"]["metadata"] = schema["metadata"];
+        httpOut["payload"]["state"]["heartbeat"] = server->GetHeartbeatMs();
         NLogInfo("State GET inspector: %s", schema["inspector"].dump().c_str());
         // auto workspaces = server->GetOrderedWorkspace();
         // auto inspectorEntries = server->GetInspectorEntries();
@@ -100,24 +100,40 @@ void httpNgntBase()
         httpOut["error"] = std::string("Error during state GET: ") + e.what();
       }
     }
+    else if (method.find("PATCH") != std::string::npos) {
+      // Allow runtime changes to server state, e.g. heartbeat timeout
+      try {
+        if (httpIn.contains("heartbeat") && httpIn["heartbeat"].is_number()) {
+          int hb = httpIn["heartbeat"].get<int>();
+          server->SetHeartbeatMs(hb);
+          httpOut["result"] = "success";
+          httpOut["heartbeat"] = hb;
+        } else {
+          httpOut["result"] = "failure";
+          httpOut["error"] = "Missing or invalid 'heartbeat' field";
+        }
+      } catch (const std::exception & e) {
+        NLogError("Error during state PATCH: %s", e.what());
+        httpOut["result"] = "failure";
+        httpOut["error"] = std::string("Error during state PATCH: ") + e.what();
+      }
+    }
     else if (method.find("DELETE") != std::string::npos) {
       NLogInfo("Resetting API history and clearing all objects");
       try {
         server->ResetServer();
-        httpOut = json::object();
         httpOut["result"] = "success";
         httpOut["message"] = "API history and objects reset successfully";
       } catch (const std::exception & e) {
         NLogError("Error during state reset: %s", e.what());
-        httpOut = json::object();
         httpOut["result"] = "failure";
         httpOut["error"] = std::string("Error during state reset: ") + e.what();
       }
     }
     else {
-      httpOut = json::object();
       httpOut["error"] = "Unsupported HTTP method for state action";
       httpOut["result"] = "failure";
     }
   };
+
 }

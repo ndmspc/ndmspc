@@ -191,9 +191,9 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         // Do not support whole-workspace suppression for now; if a boolean
         // value was provided, log and ignore it.
-        if (v == "1" || v == "true" || v == "yes") {
-          NLogDebug("Boolean workspace suppression (true/1/yes) is not supported; ignoring header value");
-        }
+        // if (v == "1" || v == "true" || v == "yes") {
+        //   NLogDebug("Boolean workspace suppression (true/1/yes) is not supported; ignoring header value");
+        // }
 
         // parse comma-separated list of keys to suppress (if any)
         std::stringstream ss(v);

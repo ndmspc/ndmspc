@@ -150,11 +150,13 @@ int main(int argc, char ** argv)
   server_ngnt->add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
   bool noHistory = false;
   server_ngnt->add_option("--no-history", noHistory, "Disable history in processing requests")->default_val("false");
+  int heartbeat_ms = 10000;
+  server_ngnt->add_option("--heartbeat", heartbeat_ms, "Heartbeat interval in milliseconds (default: 10000)");
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms]() {
     gROOT->SetBatch(batch);
 
-    Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
+    Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, heartbeat_ms);
     serv->SetUseHistory(!noHistory);
     serv->SetCors("*");
     if (!htmlDir.empty()) {
@@ -163,7 +165,7 @@ int main(int argc, char ** argv)
       serv->SetDefaultPage(TString::Format("%s/index.html", htmlDir.c_str()).Data());
     }
 
-    NLogInfo("Starting ngnt server on port %d using file '%s' ...", port, macroFilename.c_str());
+    NLogInfo("Starting ngnt server on port %d (heartbeat: %d ms) using file '%s' ...", port, heartbeat_ms, macroFilename.c_str());
 
     if (macroFilename.empty()) {
       NLogError("No macro file given, exiting ...");
