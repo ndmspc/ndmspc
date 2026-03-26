@@ -399,6 +399,25 @@ class NUtils : TObject {
   static double GetJsonDouble(json j);
 
   /**
+   * @brief Get process CPU and RSS memory statistics using ROOT's gSystem::GetProcInfo
+   * @return json object containing cpu and rss information
+   */
+  static json GetSystemStats();
+
+  /**
+   * @brief Get TFile read/write statistics by inspecting ROOT's list of open files
+   * @return json object containing per-file and aggregated IO statistics
+   */
+  static json GetTFileIOStats();
+
+  /**
+   * @brief Get system-wide network interface totals (RX/TX bytes) in a cross-platform way.
+   *        On Linux reads /proc/net/dev; on macOS uses getifaddrs() and struct if_data.
+   * @return json object containing per-interface and aggregated rx/tx bytes
+   */
+  static json GetNetDevStats();
+
+  /**
    * @brief Get JSON value as boolean.
    * @param j Input JSON.
    * @return Boolean value.
