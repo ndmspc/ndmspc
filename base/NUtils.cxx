@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <thread>
 #include <TF1.h>
 #include <TThread.h>
 #include <TAxis.h>
@@ -1918,6 +1919,10 @@ json NUtils::GetSystemStats()
   out["cpu_total"] = info.fCpuUser + info.fCpuSys;
   out["mem_rss_kb"] = info.fMemResident;
   out["mem_vsize_kb"] = info.fMemVirtual;
+
+  // Report number of logical CPUs available on the host
+  unsigned int hc = std::thread::hardware_concurrency();
+  out["cpu_count"] = (hc == 0) ? 1 : static_cast<int>(hc);
 
   return out;
 }
