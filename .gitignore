@@ -59,4 +59,5 @@ test.C
 notes
 .ipynb*
 *.gif
+*.png
 .ndmspc

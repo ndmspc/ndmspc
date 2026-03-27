@@ -91,6 +91,7 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
     }
 
     // Fill output list for the current point with the canvas containing the histogram and fit results
+    outputPoint->Add(h);
     outputPoint->Add(c);
   };
 

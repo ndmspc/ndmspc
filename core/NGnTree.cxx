@@ -806,7 +806,7 @@ bool NGnTree::Close(bool write)
   /// Close the storage tree
   ///
 
-   if (!fTreeStorage) {
+  if (!fTreeStorage) {
     NLogError("NGnTree::Close: Storage tree is not initialized in NGnTree !!!");
     return false;
   }
@@ -951,8 +951,19 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
           c1->cd(i + 2);
           TObject * obj = l->At(outputPointIds[i]);
           if (obj) {
+            if (obj->InheritsFrom(TH1::Class())) {
+              TH1 * h = (TH1 *)obj;
+              h->SetDirectory(nullptr);
+              // Draw a clone to avoid transferring ownership or modifying
+              // the original object stored in the TList (can cause
+              // TPad/TList removal during drawing and lead to crashes).
+              TH1 * hclone = (TH1 *)h->Clone();
+              if (hclone) {
+                hclone->SetDirectory(nullptr);
+                hclone->Draw();
+              }
+            }
             // obj->Print();
-            obj->Draw();
           }
           if (obj->InheritsFrom(TH1::Class()) && i == 0) {
             TH1 * h = (TH1 *)obj;
