@@ -241,8 +241,13 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
             NLogTrace("Skipping suppressed workspace entry for: %s", wsKey.c_str());
             continue;
           }
-          if (!GetWorkspace()[wsKey].is_null()) {
-            workspace[wsKey] = GetWorkspace()[wsKey];
+          // Avoid using non-const operator[] on GetWorkspace() as it would
+          // insert a null value for missing keys. Use contains()+at() instead.
+          {
+            const json & srvWs = GetWorkspace();
+            if (srvWs.contains(wsKey) && !srvWs.at(wsKey).is_null()) {
+              workspace[wsKey] = srvWs.at(wsKey);
+            }
           }
         }
 
