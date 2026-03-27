@@ -1187,10 +1187,16 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   /// Import NGnTree from mutiple files in the given path
   ///
 
-  std::vector<std::string> paths = NUtils::Find(findPath, fileName);
+  // remove trailing slash from findPath if exists
+  std::string findPathClean = findPath;
+  if (!findPathClean.empty() && findPathClean.back() == '/') {
+    findPathClean.pop_back();
+  }
+
+  std::vector<std::string> paths = NUtils::Find(findPathClean, fileName);
   NLogInfo("NGnTree::Import: Found %zu files to import ...", paths.size());
 
-  TObjArray * ngntArray = NUtils::AxesFromDirectory(paths, findPath, fileName, headers);
+  TObjArray * ngntArray = NUtils::AxesFromDirectory(paths, findPathClean, fileName, headers);
   int         nDirAxes  = ngntArray->GetEntries();
 
   NGnTree * ngntFirst = NGnTree::Open(paths[0]);
@@ -1214,7 +1220,7 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   json cfg;
-  cfg["basedir"]  = findPath;
+  cfg["basedir"]  = findPathClean;
   cfg["filename"] = fileName;
   cfg["nDirAxes"] = nDirAxes;
   cfg["headers"]  = headers;
@@ -1241,7 +1247,7 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
       if (ngnt) {
         NLogDebug("NGnTree::Import: Closing previously opened file '%s' ...",
                   ngnt->GetStorageTree()->GetFileName().c_str());
-        // ngnt->Close(false);
+        ngnt->Close(false);
         // delete ngnt;
         point->SetTempObject("file", nullptr);
       }
