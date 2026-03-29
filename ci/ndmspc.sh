@@ -14,6 +14,7 @@ build_requires:
   - ninja
   - alibuild-recipe-tools
   - "OpenSSL:(?!osx)"
+license: GPL-3.0
 source: https://gitlab.com/ndmspc/ndmspc.git
 incremental_recipe: |
   [[ $ALIBUILD_NDMSPC_TESTS ]] && CXXFLAGS="${CXXFLAGS} -Werror -Wno-error=deprecated-declarations"
