@@ -31,11 +31,120 @@
 #include "NGnNavigator.h"
 #include "NGnTree.h"
 
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NGnTree);
 /// \endcond
 
 namespace Ndmspc {
+
+std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, const NBinningPoint * point)
+{
+  std::string objPath = "";
+  if (objCfg.contains("prefix") && objCfg["prefix"].is_string()) {
+    objPath = objCfg["prefix"].get<std::string>();
+  }
+
+  std::string axisObjectDefaultFormat =
+      cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
+  std::string axisDefaultSeparator = cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
+
+  std::string lastSep;
+  for (auto & axisEntry : cfg["axes"]) {
+    std::string axisName;
+    std::string mode;
+    std::string format;
+
+    if (axisEntry.is_string()) {
+      axisName = axisEntry.get<std::string>();
+      if (axisObjectDefaultFormat.empty()) {
+        mode = "bin";
+      }
+      else {
+        mode = "minmax";
+        format = axisObjectDefaultFormat;
+      }
+    }
+    else if (axisEntry.is_object()) {
+      if (axisEntry.contains("name") && axisEntry["name"].is_string()) {
+        axisName = axisEntry["name"].get<std::string>();
+      }
+      else {
+        continue;
+      }
+      if (axisEntry.contains("mode") && axisEntry["mode"].is_string()) {
+        mode = axisEntry["mode"].get<std::string>();
+      }
+      if (axisEntry.contains("format") && axisEntry["format"].is_string()) {
+        format = axisEntry["format"].get<std::string>();
+      }
+    }
+    else {
+      continue;
+    }
+
+    if (mode.empty()) {
+      if (axisObjectDefaultFormat.empty())
+        mode = "bin";
+      else
+        mode = "minmax";
+    }
+    if (format.empty()) {
+      if (mode == "minmax")
+        format = axisObjectDefaultFormat.empty() ? "%.2f_%.2f" : axisObjectDefaultFormat;
+      else if (mode == "bin")
+        format = "%d";
+      else
+        format = "%.2f";
+    }
+
+    if (mode == "minmax") {
+      double min = point->GetBinMin(axisName);
+      double max = point->GetBinMax(axisName);
+      objPath += TString::Format(format.c_str(), min, max).Data();
+    }
+    else if (mode == "min") {
+      double min = point->GetBinMin(axisName);
+      objPath += TString::Format(format.c_str(), min).Data();
+    }
+    else if (mode == "max") {
+      double max = point->GetBinMax(axisName);
+      objPath += TString::Format(format.c_str(), max).Data();
+    }
+    else if (mode == "center") {
+      double c = point->GetBinCenter(axisName);
+      objPath += TString::Format(format.c_str(), c).Data();
+    }
+    else if (mode == "label") {
+      std::string lbl = point->GetBinLabel(axisName);
+      objPath += lbl;
+    }
+    else if (mode == "bin") {
+      objPath += std::to_string(point->GetBin(axisName));
+    }
+    else {
+      objPath += std::to_string(point->GetBin(axisName));
+    }
+
+    std::string sep = axisDefaultSeparator;
+    if (axisEntry.is_object() && axisEntry.contains("sufix") && axisEntry["sufix"].is_string()) {
+      sep = axisEntry["sufix"].get<std::string>();
+    }
+    objPath += sep;
+    lastSep = sep;
+  }
+
+  if (!lastSep.empty() && objPath.size() >= lastSep.size()) {
+    objPath = objPath.substr(0, objPath.size() - lastSep.size());
+  }
+  if (objCfg.contains("sufix") && objCfg["sufix"].is_string()) {
+    objPath += objCfg["sufix"].get<std::string>();
+  }
+
+  return objPath;
+}
 /**
  * @brief Global pointer to the HTTP handler map.
  *
@@ -230,6 +339,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     // point->Print();
     json cfg = point->GetCfg();
 
+
     NGnTree * ngntIn = point->GetInput();
     if (!ngntIn) {
       NLogError("NGnTree::Import: Input NGnTree is nullptr !!!");
@@ -286,38 +396,38 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
         point->SetTempObject("file", f);
       }
 
-      std::string objFormatMinMax =
-          cfg["objectFormatMinMax"].is_string() ? cfg["objectFormatMinMax"].get<std::string>() : "";
-      std::string objFormatAxis =
-          cfg["objectFormatAxis"].is_string() ? cfg["objectFormatAxis"].get<std::string>() : "_";
+      std::string axisObjectDefaultFormat =
+          cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
+      std::string axisDefaultSeparator =
+          cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
+      bool dryrun = false;
+      if (cfg.contains("dryrun") && cfg["dryrun"].is_boolean()) {
+        dryrun = cfg["dryrun"].get<bool>();
+      }
+
+      if (dryrun) {
+        NLogInfo("NGnTree::Import (dryrun): '%s' ...", point->GetString().c_str());
+      }
+
       // loop over all object in cfg["objects"]
       for (auto & [objName, objCfg] : cfg["objects"].items()) {
-        std::string objPath = objCfg["prefix"].get<std::string>();
+        std::string objPath = NGnTree::BuildObjectPath(cfg, objCfg, point);
 
-        for (auto & axisName : cfg["axes"]) {
-          if (objFormatMinMax.empty()) {
-            objPath += std::to_string(point->GetBin(axisName.get<std::string>()));
-          }
-          else {
-            double min = point->GetBinMin(axisName.get<std::string>());
-            double max = point->GetBinMax(axisName.get<std::string>());
-            objPath += TString::Format(objFormatMinMax.c_str(), min, max).Data();
-          }
-          objPath += objFormatAxis;
+        if (dryrun) {
+          NLogInfo("NGnTree::Import (dryrun): would retrieve object '%s'", objPath.c_str());
+          continue;
         }
 
-        // remove trailing underscore
-        objPath = objPath.substr(0, objPath.size() - objFormatAxis.size());
-        objPath += objCfg.contains("sufix") ? objCfg["sufix"].get<std::string>() : "";
-
         if (point->GetEntryNumber() == 0) {
-          NLogDebug("NGnTree::Import: Retrieving object '%s' from file '%s' ...", objPath.c_str(),
-                    cfg["filename"].get<std::string>().c_str());
+          NLogInfo("NGnTree::Import: Retrieving object '%s' from file '%s' ...", objPath.c_str(),
+                   cfg["filename"].get<std::string>().c_str());
         }
         TObject * obj = f->Get(objPath.c_str());
         if (!obj) {
-          NLogError("NGnTree::Import: Cannot get object '%s' from file '%s' !!!", objPath.c_str(),
-                    cfg["filename"].get<std::string>().c_str());
+          if (point->GetEntryNumber() == 0) {
+            NLogWarning("NGnTree::Import: Cannot get object '%s' from file '%s' !!!", objPath.c_str(),
+                        cfg["filename"].get<std::string>().c_str());
+          }
           continue;
         }
 
@@ -546,6 +656,9 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
     executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
+
+    if (!NLogger::GetConsoleOutput()) 
+      Printf("Finished processing binning definition '%s'. Post-processing results ...", name.c_str());
 
     // Restore both flags before flushing deferred deletes, so each object's destructor
     // properly calls gROOT->RecursiveRemove and removes itself from ROOT's global lists.

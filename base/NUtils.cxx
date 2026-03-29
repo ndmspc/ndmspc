@@ -31,6 +31,7 @@
 #endif
 #include "NUtils.h"
 
+
 using std::ifstream;
 
 /// \cond CLASSIMP
