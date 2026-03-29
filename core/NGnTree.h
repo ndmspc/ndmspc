@@ -375,6 +375,15 @@ class NGnTree : public TObject {
                           const std::vector<std::string> & headers,
                           const std::string &              outFileName = "/tmp/ngnt_imported.root",bool close=true);
 
+  /**
+   * @brief Helper: build object path string from configuration and a binning point.
+   * @param cfg Global configuration json (contains axes, defaults, filename, ...).
+   * @param objCfg Object-specific configuration json (contains prefix, sufix, ...).
+   * @param point Pointer to NBinningPoint providing bin/min/max/label access.
+   * @return Constructed object path string to retrieve from file.
+   */
+  static std::string BuildObjectPath(const json & cfg, const json & objCfg, const NBinningPoint * point);
+
   protected:
   NBinning *                     fBinning{nullptr};     ///< Binning object
   NStorageTree *                 fTreeStorage{nullptr}; ///< Tree storage

@@ -14,7 +14,6 @@
 using json = nlohmann::json;
 
 namespace Ndmspc {
-
 ///
 /// \class NUtils
 ///
@@ -397,6 +396,7 @@ class NUtils : TObject {
    * @return Double value.
    */
   static double GetJsonDouble(json j);
+
 
   /**
    * @brief Get process CPU and RSS memory statistics using ROOT's gSystem::GetProcInfo

@@ -272,7 +272,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
   if (write) {
 
     if (!fTree) {
-      NLogError("NStorageTree::Close: Tree is not initialized !!!");
+      // NLogError("NStorageTree::Close: Tree is not initialized !!!");
       return false;
     }
 
