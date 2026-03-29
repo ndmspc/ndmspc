@@ -11,6 +11,20 @@
 #include "NLogger.h"
 #include "ndmspc.h"
 
+static inline void EnsureServerRunning(Ndmspc::NHttpServer *serv, int port)
+{
+  if (!serv || !serv->IsAnyEngine()) {
+    NLogError("Server is not running on port %d: address may be in use.\n"
+              "Hints:\n"
+              " - Check for a process listening on the port: `lsof -i :%d` or `ss -ltnp | grep :%d`.\n"
+              " - Check other terminals or system services (systemd) that may have started the server.\n"
+              " - Check for Docker containers exposing the port: `docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' | grep :%d`.\n"
+              "If this is unexpected, stop the conflicting process or choose a different port.\n",
+              port, port, port, port);
+    exit(1);
+  }
+}
+
 std::string app_description()
 {
   size_t size = 64;
@@ -66,6 +80,7 @@ int main(int argc, char ** argv)
       NLogError("Server was not created !!!");
       exit(1);
     }
+    EnsureServerRunning(serv, port);
     serv->SetCors("*");
     // // This allows ROOT to process system signals like SIGTERM
     // int timeout = 100;
@@ -116,6 +131,11 @@ int main(int argc, char ** argv)
 
     gROOT->SetBatch(batch);
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
+    if (serv == nullptr) {
+      NLogError("Server was not created !!!");
+      exit(1);
+    }
+    EnsureServerRunning(serv, port);
     serv->SetCors("*");
     NLogInfo("Starting server on port %d ...", port);
     Ndmspc::NWsHandler * ws = serv->GetWebSocketHandler();
@@ -156,7 +176,14 @@ int main(int argc, char ** argv)
   server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms]() {
     gROOT->SetBatch(batch);
 
-    Ndmspc::NGnHttpServer * serv = new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, heartbeat_ms);
+    Ndmspc::NGnHttpServer * serv =
+        new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, heartbeat_ms);
+    if (serv == nullptr) {
+      NLogError("Server was not created !!!");
+      exit(1);
+    }
+    EnsureServerRunning(serv, port);
+
     serv->SetUseHistory(!noHistory);
     serv->SetCors("*");
     if (!htmlDir.empty()) {
@@ -165,7 +192,8 @@ int main(int argc, char ** argv)
       serv->SetDefaultPage(TString::Format("%s/index.html", htmlDir.c_str()).Data());
     }
 
-    NLogInfo("Starting ngnt server on port %d (heartbeat: %d ms) using file '%s' ...", port, heartbeat_ms, macroFilename.c_str());
+    NLogInfo("Starting ngnt server on port %d (heartbeat: %d ms) using file '%s' ...", port, heartbeat_ms,
+             macroFilename.c_str());
 
     if (macroFilename.empty()) {
       NLogError("No macro file given, exiting ...");
