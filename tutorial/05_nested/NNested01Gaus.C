@@ -9,7 +9,7 @@
 #include <TH1D.h>
 #include <TF1.h>
 
-void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
+void NNested01Gaus(std::string outFile = "NNested01Gaus.root", bool onlyOddPoints = false)
 {
   ///
   /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash
@@ -17,6 +17,7 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
   ///
 
   json cfg;
+  cfg["onlyOddPoints"] = onlyOddPoints;
 
   // Create axes
   TObjArray * axes = new TObjArray();
@@ -49,6 +50,14 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
   // Define the processing function
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
                                              int threadId) {
+    // Retrieve configuration
+    json cfg = point->GetCfg();
+
+    if (cfg["onlyOddPoints"].get<bool>() && (point->GetEntryNumber() % 2 == 0)) {
+      NLogInfo("[%d] Skipping point: %s", threadId, point->GetString().c_str());
+      return;
+    }
+
     // Create Gaussian histogram for each point
     std::string title = "Gauss " + point->GetString();
     TH1D *      h     = new TH1D("hGaus", title.c_str(), 200, -10, 10);
@@ -56,9 +65,6 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
     // Retrieve mean and sigma from the bin centers of current point
     double mean  = std::stof(point->GetBinLabel("mean"));
     double sigma = std::stof(point->GetBinLabel("sigma"));
-
-    // Retrieve configuration
-    json cfg = point->GetCfg();
 
     // Retrieve number of entries
     int nEntries = std::stoi(point->GetBinLabel("entries"));
@@ -75,7 +81,7 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root")
     TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
 
     // Create Gaussian fit function for the histogram
-    TF1 *         gausFunc  = new TF1("gausFunc", "gaus", -10, 10);
+    TF1 * gausFunc = new TF1("gausFunc", "gaus", -10, 10);
     gausFunc->AddToGlobalList(false); // prevent registration in ROOT's global list (thread-safe)
 
     // Retrieve fit results and store them in the parameters of the point
