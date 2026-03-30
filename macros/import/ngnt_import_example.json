@@ -1,0 +1,141 @@
+{
+  "id": "api-1774858378100",
+  "title": "ngnt_import_example",
+  "type": "object",
+  "inspector": {
+    "group": "ngnt",
+    "properties": {
+      "open": {
+        "properties": {
+          "file": {
+            "default": "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/import/FCPAR_ngnt.root",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "reshape": {
+        "hint": "[0] axis1-pt: 28 bins \n[1] axis2-ce: 10 bins \n",
+        "properties": {
+          "binningName": {
+            "default": "default",
+            "enum": [
+              "default"
+            ],
+            "format": "select",
+            "type": "string"
+          },
+          "levels": {
+            "default": [
+              [
+                0,
+                1
+              ]
+            ],
+            "description": "A nested array of integers representing levels.",
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "map": {
+        "properties": {
+          "contentPad": {
+            "default": "pad2",
+            "type": "string"
+          },
+          "mappingPad": {
+            "default": "pad1",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "spectra": {
+        "properties": {
+          "axismargin": {
+            "default": 1,
+            "type": "number"
+          },
+          "minmaxMode": {
+            "default": "V",
+            "enum": [
+              "V",
+              "VE",
+              "D"
+            ],
+            "format": "select",
+            "type": "string"
+          },
+          "parameters": {
+            "default": [
+              "Mean",
+              "Width"
+            ],
+            "format": "multiselect",
+            "items": {
+              "enum": [
+                "Yield_BC",
+                "Yield_Fit",
+                "Yield_BC_BinWidth_SelEv_BR_dY",
+                "Yield_Fit_BinWidth_SelEv_BR_dY",
+                "Mean",
+                "Width",
+                "Sigma",
+                "Chi2_NDF",
+                "Yield_True",
+                "Yield_Gen",
+                "Yield_True_BinWidth_SelEv_BR",
+                "Yield_Gen_BinWidth_SelEv_BR",
+                "Efficiency",
+                "Efficiency_Rec",
+                "Yield_EffCorrected",
+                "Yield_IntEffCorrected",
+                "EventLoss",
+                "EventSplitting",
+                "EventFactor",
+                "SignalLoss",
+                "Yield_ELCorrected",
+                "Yield_EFCorrected"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "startPad": {
+            "default": "pad3",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "metadata": {
+    "state": {
+      "spectra": {
+        "point": [
+          229
+        ]
+      }
+    },
+    "viewport": {
+      "layout": {
+        "gridRows": 2,
+        "gridCols": 2
+      },
+      "padTabs": {
+        "pad1": "tab-pad1-0",
+        "pad2": "tab-pad2-1",
+        "pad3": "tab-pad3-0",
+        "pad4": "tab-pad4-0"
+      }
+    }
+  }
+}
