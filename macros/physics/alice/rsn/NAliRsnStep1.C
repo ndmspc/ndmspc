@@ -16,7 +16,7 @@ void NAliRsnStep1(
   json cfg               = json::object();
   cfg["file"]            = inFile;
   cfg["objectDirecotry"] = "phianalysis-t-hn-sparse_tpctof";
-  cfg["objectNames"]     = {"unlikepm", "mixingpm", "likepp", "likemm", "rotationpm"};
+  cfg["objectNames"]     = {"unlikepm", "mixingpm", "mixingmp", "likepp", "likemm", "rotationpm", "unliketrue","unlikegen"};
   cfg["axes"]            = {"pt:axis1-pt", "ce:axis2-ce"};
   cfg["proj"]            = 0;
 
@@ -67,17 +67,28 @@ void NAliRsnStep1(
   ngnt->Print();
 
   // Define the binning for the axes
+
   std::map<std::string, std::vector<std::vector<int>>> b;
-  // b["pt"] = {{1}};
-  // b["ce"] = {{1}};
   b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
   b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
-  // b["pt"] = {{50}};
-  // b["ce"] = {{50}};
-  // b["pt"] = {{150}};
-  // b["ce"] = {{100}};
-
   ngnt->GetBinning()->AddBinningDefinition("default", b);
+
+  // std::map<std::string, std::vector<std::vector<int>>> b2;
+  // b2["pt"] = {{50}};
+  // b2["ce"] = {{50}};
+  // ngnt->GetBinning()->AddBinningDefinition("b2", b2);
+
+  // std::map<std::string, std::vector<std::vector<int>>> b3;
+  // b3["pt"] = {{100}};
+  // b3["ce"] = {{50}};
+  // ngnt->GetBinning()->AddBinningDefinition("b3", b3);
+
+  // std::map<std::string, std::vector<std::vector<int>>> b4;
+  // b4["pt"] = {{1}};
+  // b4["ce"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b4", b4);
+
+
   // ngnt->Print();
 
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
@@ -91,7 +102,7 @@ void NAliRsnStep1(
     std::vector<std::string> objectNames = cfg["objectNames"].get<std::vector<std::string>>();
     int                      invmassIdx  = cfg["proj"].get<int>();
 
-    NLogInfo("Processing file: %s", filePath.c_str());
+    // NLogInfo("Processing file: %s", filePath.c_str());
 
     TFile * f = Ndmspc::NUtils::OpenFile(filePath);
     if (!f) {
@@ -112,12 +123,12 @@ void NAliRsnStep1(
     }
 
     for (const auto & objectName : objectNames) {
-      NLogInfo("Getting object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(), filePath.c_str());
+      // NLogDebug("Getting object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(), filePath.c_str());
       THnSparse * hns =
           dynamic_cast<THnSparse *>(f->Get(TString::Format("%s/%s", objectDir.c_str(), objectName.c_str()).Data()));
       if (!hns) {
-        NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(), filePath.c_str());
-        return;
+        // NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(), filePath.c_str());
+        continue;
       }
 
       // Ndmspc::NUtils::SetAxisRanges(hns, ranges, false, true);
