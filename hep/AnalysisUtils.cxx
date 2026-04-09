@@ -32,7 +32,7 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
   }
 
   // TODO: Handle correctly skipped output list
-  int minEntries = 10000;
+  int minEntries = 1000;
   if (sigBg->Integral() < minEntries) {
     NLogWarning("Histogram 'sigBg' has only %d entries, minimum is %d", (int)sigBg->Integral(), minEntries);
     accepted = false;
@@ -55,8 +55,8 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
       accepted = false;
     }
 
-    Int_t binNormMin = hBgNorm->GetXaxis()->FindBin(cfg["norm"]["min"].get<int>());
-    Int_t binNormMax = hBgNorm->GetXaxis()->FindBin(cfg["norm"]["max"].get<int>());
+    Int_t binNormMin = hBgNorm->GetXaxis()->FindBin(cfg["norm"]["min"].get<double>());
+    Int_t binNormMax = hBgNorm->GetXaxis()->FindBin(cfg["norm"]["max"].get<double>());
 
     if (binNormMin < 1 || binNormMax > hBgNorm->GetNbinsX()) {
       NLogError("Normalization range is out of bounds: %d - %d", binNormMin, binNormMax);
@@ -107,6 +107,8 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
 
     if (fitStatus > 0) {
       TFitResultPtr fitResults = hPeak->Fit(fitFunc, "QRNS");
+      // TFitResultPtr fitResults = hPeak->Fit(fitFunc, "QRNMS");
+      // check if fit was successful
       // bool          isFitGood  = Ndmspc::AnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 2.0, 0.001, 0.8);
       fitGoodness = Ndmspc::AnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 500.0, 0.00001, 1.0);
       // fitGoodness = 0; // TEMPORARY OVERRIDE
@@ -132,13 +134,25 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
 
   if (results && accepted && fitGoodness >= 0) {
     std::vector<std::string> parameters = cfg["parameters"].get<std::vector<std::string>>();
-    for (size_t i = 0; i < 4; ++i) {
-      // for (size_t i = 0; i < parameters.size(); ++i) {
+    // for (size_t i = 0; i < 4; ++i) {
+    for (size_t i = 0; i < parameters.size(); ++i) {
       results->SetBinContent(i + 1, fitFunc->GetParameter(i));
+      // results->SetBinError(i + 1, 0.0);
+      // NLogInfo("Parameter %s: %.5f ± %.5f", parameters[i].c_str(), fitFunc->GetParameter(i),
+      // fitFunc->GetParError(i));
       results->SetBinError(i + 1, fitFunc->GetParError(i));
+
+      // if (TMath::IsNaN(fitFunc->GetParError(i)) || TMath::IsNaN(fitFunc->GetParameter(i))) {
+      //   NLogWarning("Parameter %s has NaN or Inf error, setting error to 0", parameters[i].c_str());
+      //   results->SetBinError(i + 1, 0.0);
+      //   accepted = false;
+      // }
+      // if (fitFunc->GetParError(i) > fitFunc->GetParameter(i) / 1000.) {
+      //   accepted = false;
+      // }
     }
-    results->SetBinContent(5, fitGoodness + 1);
-    results->SetBinError(5, 0.0);
+    // results->SetBinContent(5, fitGoodness + 1);
+    // results->SetBinError(5, 0.0);
   }
 
   if (output) {
@@ -146,7 +160,7 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
     if (bg) output->Add(bg);
     if (hBgNorm) output->Add(hBgNorm);
     if (hPeak) output->Add(hPeak);
-    if (results) output->Add(results);
+    // if (results) output->Add(results);
   }
 
   if (!accepted) {
