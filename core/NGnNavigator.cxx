@@ -530,8 +530,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         // loop over all bins in the sparse
 
         while ((linBin = iter->Next()) >= 0) {
-          NLogTrace("NGnNavigator::Reshape: [L%d]   Found bin %lld", level, linBin);
-          linBins.push_back(linBin);
+          NLogTrace("NGnNavigator::Reshape: [L%d]   Found bin %lld [%lld]", level, linBin, binningDef->GetId(linBin));
+          linBins.push_back(binningDef->GetId(linBin));
         }
         if (linBins.empty()) {
           NLogTrace("NGnNavigator::Reshape: [L%d] No bins found for the given ranges, skipping ...", level);

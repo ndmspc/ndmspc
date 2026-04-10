@@ -1193,7 +1193,7 @@ void NBinning::SetCurrentDefinitionName(const std::string & name)
   fCurrentDefinitionName = name;
 
   // Reset Point
-  if (fPoint != nullptr) {
+  if (fPoint == nullptr) {
     fPoint = new NBinningPoint(this);
   }
   fPoint->Reset();
