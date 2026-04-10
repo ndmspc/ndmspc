@@ -27,7 +27,6 @@
 #include "NTreeBranch.h"
 #include "NUtils.h"
 #include "NStorageTree.h"
-#include "NWsClient.h"
 #include "NGnNavigator.h"
 #include "NGnTree.h"
 
@@ -457,7 +456,6 @@ NGnTree::~NGnTree()
   SafeDelete(fBinning);
   // SafeDelete(fTreeStorage);
   // SafeDelete(fNavigator);
-  SafeDelete(fWsClient);
   SafeDelete(fParameters);
 }
 void NGnTree::Print(Option_t * option) const
@@ -545,12 +543,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
   if (nThreads < 1) nThreads = 1;
-  const char * wsUrl = gSystem->Getenv("NDMSPC_WS_URL");
-  if (!fWsClient && wsUrl) {
-    fWsClient = new NWsClient();
-    fWsClient->Connect(wsUrl);
-    NLogInfo("NGnTree::Process: Connected to WebSocket server at '%s'", wsUrl);
-  }
 
   std::vector<Ndmspc::NGnThreadData> threadDataVector(nThreads);
 
@@ -581,17 +573,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
     //                       thread_obj.GetAssignedIndex());
     // thread_obj.Print();
-    json progress;
-    progress["jobName"]  = thread_obj.GetHnSparseBase()->GetBinning()->GetCurrentDefinitionName();
-    progress["status"]   = "R";
-    progress["task"]     = coords[0];
-    NWsClient * wsClient = thread_obj.GetHnSparseBase()->GetWsClient();
-    if (wsClient) wsClient->Send(progress.dump());
-    thread_obj.Process(coords);
-    processedEntries++;
-    progress["status"] = "D";
-    if (wsClient) wsClient->Send(progress.dump());
-
     if (!NLogger::GetConsoleOutput()) {
       size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
                                                                                      : totalEntries - processedEntries;
@@ -633,18 +614,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
     }
-    json jobMon;
-    jobMon["jobName"] = name;
-    // jobMon["user"]    = gSystem->Getenv("USER");
-    // jobMon["host"]    = gSystem->HostName();
-    jobMon["pid"]    = gSystem->GetPid();
-    jobMon["status"] = "I";
-    jobMon["ntasks"] = maxs[0] + 1;
-    if (fWsClient) {
-      NLogInfo("NGnTree::Process: Sending job monitor info to WebSocket server ...");
-      fWsClient->Send(jobMon.dump());
-    }
-    /// Main execution
 
     // Disable ROOT's RecursiveRemove during the parallel phase.
     // Without this, concurrent threads' object deletions trigger RecursiveRemove
@@ -779,17 +748,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     else {
       Printf("Processing completed successfully. Output was stored in '%s'.", fTreeStorage->GetFileName().c_str());
     }
-
-    jobMon["status"] = "D";
-    if (fWsClient) {
-      fWsClient->Send(jobMon.dump());
-    }
-  }
-
-  if (fWsClient) {
-    // gSystem->Sleep(1000); // wait for messages to be sent
-    fWsClient->Disconnect();
-    SafeDelete(fWsClient);
   }
 
   // Close the final output file
