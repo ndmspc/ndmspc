@@ -92,7 +92,7 @@ int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi
 {
   if (fitResult.Get() == nullptr) {
     NLogWarning("Fit result is null");
-    return false;
+    return -9999;
   }
   int status = fitResult->Status();
 

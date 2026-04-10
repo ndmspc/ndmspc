@@ -94,7 +94,7 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
   //
   if (hPeak->Integral() > 0 && accepted) {
 
-    int nFits     = 100;
+    int nFits     = 10;
     int fitStatus = -1;
     for (int i = 0; i < nFits; ++i) {
       // NLogInfo("Fit iteration %d", i);
@@ -123,8 +123,10 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
         fitFunc->SetParError(i, 0);
       }
       fitGoodness = -1;
+      // accepted    = false;
     }
 
+    // NLogInfo("Fit goodness: %d", fitGoodness);
     fitFunc->SetLineColor(fitGoodness + 1);
     hPeak->GetListOfFunctions()->Add(fitFunc); // Add the function to the histogram's list of functions
   }
