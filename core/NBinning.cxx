@@ -543,6 +543,8 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   };
   executor.Execute(binning_task);
 
+  if (nBinsFilled != nTotalBins) Ndmspc::NUtils::ProgressBar(nTotalBins, nTotalBins, start_par, "I    ");
+
   auto                                      end_par      = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
 

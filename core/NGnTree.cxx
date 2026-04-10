@@ -49,7 +49,8 @@ std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, cons
 
   std::string axisObjectDefaultFormat =
       cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
-  std::string axisDefaultSeparator = cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
+  std::string axisDefaultSeparator =
+      cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
 
   std::string lastSep;
   for (auto & axisEntry : cfg["axes"]) {
@@ -63,7 +64,7 @@ std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, cons
         mode = "bin";
       }
       else {
-        mode = "minmax";
+        mode   = "minmax";
         format = axisObjectDefaultFormat;
       }
     }
@@ -339,7 +340,6 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     // point->Print();
     json cfg = point->GetCfg();
 
-
     NGnTree * ngntIn = point->GetInput();
     if (!ngntIn) {
       NLogError("NGnTree::Import: Input NGnTree is nullptr !!!");
@@ -598,6 +598,12 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
     }
   };
+
+  if (!NLogger::GetConsoleOutput()) {
+    size_t nRunning = 0;
+    NUtils::ProgressBar(totalEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
+  }
+
   size_t iDef   = 0;
   int    sumIds = 0;
 
@@ -657,7 +663,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
     executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
 
-    if (!NLogger::GetConsoleOutput()) 
+    if (!NLogger::GetConsoleOutput())
       Printf("Finished processing binning definition '%s'. Post-processing results ...", name.c_str());
 
     // Restore both flags before flushing deferred deletes, so each object's destructor
