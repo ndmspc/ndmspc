@@ -363,7 +363,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       hProj->SetTitle(title.c_str());
       // Increase all bin contents by 1 to avoid empty bins
       double content;
-      int dim = hProj->GetDimension();
+      int    dim = hProj->GetDimension();
       if (dim == 1) {
         for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
           content = hProj->GetBinContent(x);
@@ -389,39 +389,38 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
               content = hProj->GetBinContent(x, y, z);
               if (content > 0) {
                 hProj->SetBinContent(x, y, z, content + 1.0);
-              } 
+              }
             }
           }
         }
-        
       }
 
       // Handle special THnSparse reserved first cell without looping: use
       // GetBinContent(0, coords) which fills coords for the linear bin 0.
       {
-        Int_t nd = hnsIn->GetNdimensions();
-        Int_t *firstCoord = new Int_t[nd];
-        // Double_t firstVal = 
-        hnsIn->GetBinContent(0, firstCoord); // fills firstCoord
+        Int_t   nd         = hnsIn->GetNdimensions();
+        Int_t * firstCoord = new Int_t[nd];
+        // Double_t firstVal =
+        content = hnsIn->GetBinContent(0, firstCoord); // fills firstCoord
         // If bin 0 exists (firstVal may be 0.0), map its coordinates to projection
         // bin indices and increment that projection bin by +1.
         if (firstCoord) {
           if (nDims == 1) {
             int bx = firstCoord[axesIds[0]];
-            if (bx >= 1 && bx <= hProj->GetNbinsX())
+            if (content < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX())
               hProj->SetBinContent(bx, hProj->GetBinContent(bx) + 1.0);
           }
           else if (nDims == 2) {
             int bx = firstCoord[axesIds[0]];
             int by = firstCoord[axesIds[1]];
-            if (bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY())
+            if (content < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY())
               hProj->SetBinContent(bx, by, hProj->GetBinContent(bx, by) + 1.0);
           }
           else if (nDims == 3) {
             int bx = firstCoord[axesIds[0]];
             int by = firstCoord[axesIds[1]];
             int bz = firstCoord[axesIds[2]];
-            if (bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY() &&
+            if (content < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY() &&
                 bz >= 1 && bz <= hProj->GetNbinsZ())
               hProj->SetBinContent(bx, by, bz, hProj->GetBinContent(bx, by, bz) + 1.0);
           }
