@@ -573,6 +573,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
     //                       thread_obj.GetAssignedIndex());
     // thread_obj.Print();
+    thread_obj.Process(coords);
+    processedEntries++;
     if (!NLogger::GetConsoleOutput()) {
       size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
                                                                                      : totalEntries - processedEntries;
@@ -916,7 +918,7 @@ Int_t NGnTree::GetEntry(std::vector<std::vector<int>> /*range*/, bool checkBinni
 }
 
 void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPointIds,
-                   std::vector<std::vector<int>> ranges, Option_t * option, std::string ws)
+                   std::vector<std::vector<int>> ranges, Option_t * option)
 {
   ///
   /// Play the tree
@@ -927,17 +929,6 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   std::string annimationTempDir =
       TString::Format("%s/.ndmspc/animation/%d", gSystem->Getenv("HOME"), gSystem->GetPid()).Data();
   gSystem->Exec(TString::Format("mkdir -p %s", annimationTempDir.c_str()));
-
-  Ndmspc::NWsClient * client = nullptr;
-
-  if (!ws.empty()) {
-    client = new Ndmspc::NWsClient();
-    if (!client->Connect(ws)) {
-      NLogError("Failed to connect to '%s' !!!", ws.c_str());
-      return;
-    }
-    NLogInfo("Connected to %s", ws.c_str());
-  }
 
   if (binning.empty()) {
     binning = fBinning->GetCurrentDefinitionName();
@@ -977,14 +968,14 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   // return;
 
   TCanvas * c1 = nullptr;
-  if (!client) {
-    c1 = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("c1");
-    if (c1 == nullptr) c1 = new TCanvas("c1", "NGnTree::Play", 800, 600);
-    c1->Clear();
-    c1->cd();
-    c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() + 1 : 1);
-    gSystem->ProcessEvents();
-  }
+
+  c1 = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("c1");
+  if (c1 == nullptr) c1 = new TCanvas("c1", "NGnTree::Play", 800, 600);
+  c1->Clear();
+  c1->cd();
+  c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() + 1 : 1);
+  gSystem->ProcessEvents();
+
   binningDef->Print();
   bdContent->Reset();
 
@@ -1010,71 +1001,59 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
       }
       int n = outputPointIds.size();
 
-      if (client) {
-        std::string msg = TBufferJSON::ConvertToJSON(l).Data();
-        if (!client->Send(msg)) {
-          NLogError("Failed to send message `%s`", msg.c_str());
+      Double_t v = 1.0;
+      for (int i = 0; i < n; i++) {
+        // NLogDebug("Drawing output object id %d (list index %d) on pad %d", outputPointIds[i], i, i + 1);
+
+        c1->cd(i + 2);
+        TObject * obj = l->At(outputPointIds[i]);
+        if (obj) {
+          if (obj->InheritsFrom(TH1::Class())) {
+            TH1 * h = (TH1 *)obj;
+            h->SetDirectory(nullptr);
+            // Draw a clone to avoid transferring ownership or modifying
+            // the original object stored in the TList (can cause
+            // TPad/TList removal during drawing and lead to crashes).
+            TH1 * hclone = (TH1 *)h->Clone();
+            if (hclone) {
+              hclone->SetDirectory(nullptr);
+              hclone->Draw();
+            }
+          }
+          // obj->Print();
         }
-        else {
-          NLogTrace("Sent: %s", msg.c_str());
+        if (obj->InheritsFrom(TH1::Class()) && i == 0) {
+          TH1 * h = (TH1 *)obj;
+          v       = h->GetMean();
+          NLogDebug("Mean value from histogram [%s]: %f", h->GetName(), v);
         }
       }
+      bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), 1);
+      c1->cd(1);
+      TH1 * bdProj = (TH1 *)gROOT->FindObjectAny("bdProj");
+      if (bdProj) {
+        delete bdProj;
+        bdProj = nullptr;
+      }
+      if (bdContent->GetNdimensions() == 1) {
+        bdProj = bdContent->Projection(0, "O");
+      }
+      else if (bdContent->GetNdimensions() == 2) {
+        bdProj = bdContent->Projection(0, 1, "O");
+      }
+      else if (bdContent->GetNdimensions() == 3) {
+        bdProj = bdContent->Projection(0, 1, 2, "O");
+      }
       else {
-
-        Double_t v = 1.0;
-        for (int i = 0; i < n; i++) {
-          // NLogDebug("Drawing output object id %d (list index %d) on pad %d", outputPointIds[i], i, i + 1);
-
-          c1->cd(i + 2);
-          TObject * obj = l->At(outputPointIds[i]);
-          if (obj) {
-            if (obj->InheritsFrom(TH1::Class())) {
-              TH1 * h = (TH1 *)obj;
-              h->SetDirectory(nullptr);
-              // Draw a clone to avoid transferring ownership or modifying
-              // the original object stored in the TList (can cause
-              // TPad/TList removal during drawing and lead to crashes).
-              TH1 * hclone = (TH1 *)h->Clone();
-              if (hclone) {
-                hclone->SetDirectory(nullptr);
-                hclone->Draw();
-              }
-            }
-            // obj->Print();
-          }
-          if (obj->InheritsFrom(TH1::Class()) && i == 0) {
-            TH1 * h = (TH1 *)obj;
-            v       = h->GetMean();
-            NLogDebug("Mean value from histogram [%s]: %f", h->GetName(), v);
-          }
-        }
-        bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), 1);
-        c1->cd(1);
-        TH1 * bdProj = (TH1 *)gROOT->FindObjectAny("bdProj");
-        if (bdProj) {
-          delete bdProj;
-          bdProj = nullptr;
-        }
-        if (bdContent->GetNdimensions() == 1) {
-          bdProj = bdContent->Projection(0, "O");
-        }
-        else if (bdContent->GetNdimensions() == 2) {
-          bdProj = bdContent->Projection(0, 1, "O");
-        }
-        else if (bdContent->GetNdimensions() == 3) {
-          bdProj = bdContent->Projection(0, 1, 2, "O");
-        }
-        else {
-          NLogError("NGnTree::Play: Cannot project THnSparse with %d dimensions", bdContent->GetNdimensions());
-        }
-        if (bdProj) {
-          bdProj->SetName("bdProj");
-          bdProj->SetTitle(TString::Format("Binning '%s' content projection", binning.c_str()).Data());
-          bdProj->SetMinimum(0);
-          // bdProj->SetDirectory(nullptr);
-          bdProj->Draw("colz");
-          // c1->ModifiedUpdate();
-        }
+        NLogError("NGnTree::Play: Cannot project THnSparse with %d dimensions", bdContent->GetNdimensions());
+      }
+      if (bdProj) {
+        bdProj->SetName("bdProj");
+        bdProj->SetTitle(TString::Format("Binning '%s' content projection", binning.c_str()).Data());
+        bdProj->SetMinimum(0);
+        // bdProj->SetDirectory(nullptr);
+        bdProj->Draw("colz");
+        // c1->ModifiedUpdate();
       }
     }
     if (c1) {
@@ -1092,7 +1071,6 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   gSystem->Exec(TString::Format("rm -fr %s", annimationTempDir.c_str()));
   NLogInfo("Animation saved to ndmspc_play.gif");
 
-  if (client) client->Disconnect();
   delete bdContent;
 }
 

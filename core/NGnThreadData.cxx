@@ -126,10 +126,6 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
     fHnSparseBase->SetInput(NGnTree::Open(input->GetStorageTree()->GetFileName(), branches)); // Set the input NGnTree
   }
 
-  if (ngnt->GetWsClient()) {
-    fHnSparseBase->SetWsClient(ngnt->GetWsClient());
-  }
-
   // fHnSparseBase->GetBinning()->GetDefinition()->GetContent()->Reset();
   // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().clear();
 
