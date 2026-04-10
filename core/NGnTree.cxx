@@ -698,58 +698,59 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     iDef++;
 
     NLogDebug("NGnTree::Process: [END] ------------------------------------------------");
-    auto                                      end_par      = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
+  }
 
-    NLogInfo("NGnTree::Process: Execution completed and it took %s .",
-             NUtils::FormatTime(par_duration.count() / 1000).c_str());
+  auto                                      end_par      = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
 
-    NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
-    for (auto & data : threadDataVector) {
-      NLogTrace("NGnTree::Process: Closing file from thread %zu: ", data.GetAssignedIndex());
-      data.GetHnSparseBase()->GetStorageTree()->Close(true);
-    }
+  NLogInfo("NGnTree::Process: Execution completed and it took %s .",
+           NUtils::FormatTime(par_duration.count() / 1000).c_str());
 
-    NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
-    TList *                 mergeList  = new TList();
-    Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
-    outputData->Init(0, func, nullptr, nullptr, this, binningIn);
-    outputData->SetCfg(cfg);
-    // outputData->Init(0, func, this);
+  NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
+  for (auto & data : threadDataVector) {
+    NLogTrace("NGnTree::Process: Closing file from thread %zu: ", data.GetAssignedIndex());
+    data.GetHnSparseBase()->GetStorageTree()->Close(true);
+  }
 
-    for (auto & data : threadDataVector) {
-      NLogTrace("NGnTree::Process: Adding thread data %zu to merge list ...", data.GetAssignedIndex());
-      // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
-      mergeList->Add(&data);
-    }
+  NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
+  TList *                 mergeList  = new TList();
+  Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
+  outputData->Init(0, func, nullptr, nullptr, this, binningIn);
+  outputData->SetCfg(cfg);
+  // outputData->Init(0, func, this);
 
-    Long64_t nmerged = outputData->Merge(mergeList);
-    if (nmerged <= 0) {
-      NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
-      delete mergeList;
-      return false;
-    }
-    NLogInfo("NGnTree::Process: Merged %lld outputs successfully", nmerged);
-    // delete all temporary files
-    // for (auto & data : threadDataVector) {
-    //   std::string filename = data.GetHnSparseBase()->GetStorageTree()->GetFileName();
-    //   NLogTrace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
-    //   gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
-    // }
-    //
+  for (auto & data : threadDataVector) {
+    NLogTrace("NGnTree::Process: Adding thread data %zu to merge list ...", data.GetAssignedIndex());
+    // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
+    mergeList->Add(&data);
+  }
 
-    fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
-    fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
-    fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
-    fParameters  = outputData->GetHnSparseBase()->GetParameters();
+  Long64_t nmerged = outputData->Merge(mergeList);
+  if (nmerged <= 0) {
+    NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
+    delete mergeList;
+    return false;
+  }
+  NLogInfo("NGnTree::Process: Merged %lld outputs successfully", nmerged);
+  // delete all temporary files
+  // for (auto & data : threadDataVector) {
+  //   std::string filename = data.GetHnSparseBase()->GetStorageTree()->GetFileName();
+  //   NLogTrace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
+  //   gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
+  // }
+  //
 
-    if (NLogger::GetConsoleOutput()) {
-      NLogInfo("NGnTree::Process: Processing completed successfully. Output was stored in '%s'.",
-               fTreeStorage->GetFileName().c_str());
-    }
-    else {
-      Printf("Processing completed successfully. Output was stored in '%s'.", fTreeStorage->GetFileName().c_str());
-    }
+  fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
+  fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
+  fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
+  fParameters  = outputData->GetHnSparseBase()->GetParameters();
+
+  if (NLogger::GetConsoleOutput()) {
+    NLogInfo("NGnTree::Process: Processing completed successfully. Output was stored in '%s'.",
+             fTreeStorage->GetFileName().c_str());
+  }
+  else {
+    Printf("Processing completed successfully. Output was stored in '%s'.", fTreeStorage->GetFileName().c_str());
   }
 
   // Close the final output file
