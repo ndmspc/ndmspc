@@ -32,7 +32,7 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
   }
 
   // TODO: Handle correctly skipped output list
-  int minEntries = 10000;
+  int minEntries = cfg.contains("minEntries") ? cfg["minEntries"].get<int>() : 100;
   if (sigBg->Integral() < minEntries) {
     NLogWarning("Histogram 'sigBg' has only %d entries, minimum is %d", (int)sigBg->Integral(), minEntries);
     accepted = false;

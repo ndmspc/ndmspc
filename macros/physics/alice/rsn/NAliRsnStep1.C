@@ -88,6 +88,21 @@ void NAliRsnStep1(
   // b4["ce"] = {{1}};
   // ngnt->GetBinning()->AddBinningDefinition("b4", b4);
 
+  // std::map<std::string, std::vector<std::vector<int>>> b5;
+  // b5["pt"] = {{2}};
+  // b5["ce"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b5", b5);
+
+  // std::map<std::string, std::vector<std::vector<int>>> b6;
+  // b6["pt"] = {{1}};
+  // b6["ce"] = {{2}};
+  // ngnt->GetBinning()->AddBinningDefinition("b6", b6);
+
+  // std::map<std::string, std::vector<std::vector<int>>> b7;
+  // b7["pt"] = {{2}};
+  // b7["ce"] = {{2}};
+  // ngnt->GetBinning()->AddBinningDefinition("b7", b7);
+
 
   // ngnt->Print();
 
