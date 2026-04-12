@@ -587,7 +587,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     NUtils::ProgressBar(totalEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
   }
 
-  size_t iDef   = 0;
+  // size_t iDef   = 0;
   int    sumIds = 0;
 
   for (auto & name : defNames) {
@@ -668,34 +668,34 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
     // hnsbBinningIn->GetDefinition(name)->Print();
     // remove entries present in hnsbBinningIn from other definitions
-    for (size_t i = 0; i < defNames.size(); i++) {
+    // for (size_t i = 0; i < defNames.size(); i++) {
 
-      std::string other_name = defNames[i];
-      auto        otherDef   = binningIn->GetDefinition(other_name);
-      if (i <= iDef) {
-        continue;
-      }
-      if (!otherDef) {
-        NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
-        return false;
-      }
-      // remove entries that has value less then sumIds
-      for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
-        NLogDebug("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
-                  other_name.c_str(), sumIds);
-        if (*it < sumIds) {
-          NLogDebug("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
-          it = otherDef->GetIds().erase(it);
-        }
-        else {
-          ++it;
-        }
-      }
+    //   std::string other_name = defNames[i];
+    //   auto        otherDef   = binningIn->GetDefinition(other_name);
+    //   if (i <= iDef) {
+    //     continue;
+    //   }
+    //   if (!otherDef) {
+    //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
+    //     return false;
+    //   }
+    //   // remove entries that has value less then sumIds
+    //   for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
+    //     NLogDebug("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
+    //               other_name.c_str(), sumIds);
+    //     if (*it < sumIds) {
+    //       NLogDebug("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
+    //       it = otherDef->GetIds().erase(it);
+    //     }
+    //     else {
+    //       ++it;
+    //     }
+    //   }
 
-      binningIn->GetDefinition(other_name)->Print();
-    }
-    // hnsbBinningIn->GetDefinition(name)->Print();
-    iDef++;
+    //   binningIn->GetDefinition(other_name)->Print();
+    // }
+    // // hnsbBinningIn->GetDefinition(name)->Print();
+    // iDef++;
 
     NLogDebug("NGnTree::Process: [END] ------------------------------------------------");
   }

@@ -354,7 +354,7 @@ void NBinning::PrintContent(Option_t * option) const
   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
   while ((linBin = iter->Next()) >= 0) {
     Double_t    v         = cSparse->GetBinContent(linBin, bins);
-    Long64_t    idx       = cSparse->GetBin(bins);
+    Long64_t    idx       = cSparse->GetBin(bins,false);
     std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(bins, cSparse->GetNdimensions()), -1);
     NLogTrace("Bin %lld: %f %s idx=%lld content=%f", linBin, v, binCoords.c_str(), idx, v);
 

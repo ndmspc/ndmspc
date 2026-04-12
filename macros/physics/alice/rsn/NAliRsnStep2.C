@@ -62,7 +62,8 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
 
   std::map<std::string, std::vector<std::vector<int>>> b3;
   b3["pt"] = {{50}};
-  b3["ce"] = {{25}};
+  // b3["ce"] = {{25}};
+  b3["ce"] = {{50,1},{25}};
   b3["bg"] = {{1}};
   ngnt->GetBinning()->AddBinningDefinition("b3", b3);
 
