@@ -569,7 +569,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   size_t processedEntries = 0;
   size_t totalEntries     = 0;
   auto   start_par        = std::chrono::high_resolution_clock::now();
-  auto   start_par_job        = std::chrono::high_resolution_clock::now();
+  auto   start_par_job    = std::chrono::high_resolution_clock::now();
   auto   task             = [&](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
     // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
     //                       thread_obj.GetAssignedIndex());
@@ -604,7 +604,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     else {
       Printf("Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
     }
-    start_par   = std::chrono::high_resolution_clock::now();
+    start_par        = std::chrono::high_resolution_clock::now();
     processedEntries = 0;
     totalEntries     = maxs[0] + 1;
     if (!NLogger::GetConsoleOutput())
@@ -703,7 +703,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   if (!NLogger::GetConsoleOutput()) {
     Printf("NGnTree::Process: Execution completed and it took %s .",
-          NUtils::FormatTime(par_duration.count() / 1000).c_str());
+           NUtils::FormatTime(par_duration.count() / 1000).c_str());
   }
   else {
     NLogInfo("NGnTree::Process: Execution completed and it took %s .",
