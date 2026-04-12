@@ -569,6 +569,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   size_t processedEntries = 0;
   size_t totalEntries     = 0;
   auto   start_par        = std::chrono::high_resolution_clock::now();
+  auto   start_par_job        = std::chrono::high_resolution_clock::now();
   auto   task             = [&](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
     // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
     //                       thread_obj.GetAssignedIndex());
@@ -582,13 +583,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   };
 
-  if (!NLogger::GetConsoleOutput()) {
-    size_t nRunning = 0;
-    NUtils::ProgressBar(totalEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
-  }
-
   // size_t iDef   = 0;
-  int    sumIds = 0;
+  int sumIds = 0;
 
   for (auto & name : defNames) {
     auto binningDef = binningIn->GetDefinition(name);
@@ -608,7 +604,9 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     else {
       Printf("Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
     }
-    totalEntries = maxs[0] + 1;
+    start_par   = std::chrono::high_resolution_clock::now();
+    processedEntries = 0;
+    totalEntries     = maxs[0] + 1;
     if (!NLogger::GetConsoleOutput())
       NUtils::ProgressBar(processedEntries, totalEntries, start_par,
                           TString::Format("R%4d", (int)threadDataVector.size()).Data());
@@ -701,10 +699,16 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
 
   auto                                      end_par      = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
+  std::chrono::duration<double, std::milli> par_duration = end_par - start_par_job;
 
-  NLogInfo("NGnTree::Process: Execution completed and it took %s .",
-           NUtils::FormatTime(par_duration.count() / 1000).c_str());
+  if (!NLogger::GetConsoleOutput()) {
+    Printf("NGnTree::Process: Execution completed and it took %s .",
+          NUtils::FormatTime(par_duration.count() / 1000).c_str());
+  }
+  else {
+    NLogInfo("NGnTree::Process: Execution completed and it took %s .",
+             NUtils::FormatTime(par_duration.count() / 1000).c_str());
+  }
 
   NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
   for (auto & data : threadDataVector) {

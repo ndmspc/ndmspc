@@ -219,7 +219,7 @@ class NStorageTree : public TObject {
   std::string                        fPostfix{""};           ///< Postfix path
   std::map<std::string, NTreeBranch> fBranchesMap;           ///< Branches map
   TMap *                             fOutputs;               ///<! Output objects map
-  NBinning *                         fBinning{nullptr};      ///<-> Binning object
+  NBinning *                         fBinning{nullptr};      ///< Binning object
 
   /// \cond CLASSIMP
   ClassDef(NStorageTree, 1);

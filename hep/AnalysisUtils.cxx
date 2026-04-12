@@ -79,18 +79,18 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
     hPeak->Add(hBgNorm, -1);
   }
 
-  double minContent = hPeak->GetMinimum();
-  if (minContent < 0) {
-    Double_t offset = -minContent + 0.1; // Shift by 0.1 to ensure all bins are non-negative
-    NLogTrace("Shifting histogram 'hPeak' by %.3f to make all bins non-negative", offset);
-    for (int bin = 1; bin <= hPeak->GetNbinsX(); ++bin) {
-      Double_t content      = hPeak->GetBinContent(bin);
-      Double_t contentSigBg = sigBg->GetBinContent(bin);
-      if (TMath::Abs(contentSigBg) < 1e-5) continue;
-      // NLogDebug("Bin %d: content = %.3f", bin, content + offset);
-      hPeak->SetBinContent(bin, content + offset);
-    }
-  }
+  // double minContent = hPeak->GetMinimum();
+  // if (minContent < 0) {
+  //   Double_t offset = -minContent + 0.1; // Shift by 0.1 to ensure all bins are non-negative
+  //   NLogTrace("Shifting histogram 'hPeak' by %.3f to make all bins non-negative", offset);
+  //   for (int bin = 1; bin <= hPeak->GetNbinsX(); ++bin) {
+  //     Double_t content      = hPeak->GetBinContent(bin);
+  //     Double_t contentSigBg = sigBg->GetBinContent(bin);
+  //     if (TMath::Abs(contentSigBg) < 1e-5) continue;
+  //     // NLogDebug("Bin %d: content = %.3f", bin, content + offset);
+  //     hPeak->SetBinContent(bin, content + offset);
+  //   }
+  // }
   //
   if (hPeak->Integral() > 0 && accepted) {
 

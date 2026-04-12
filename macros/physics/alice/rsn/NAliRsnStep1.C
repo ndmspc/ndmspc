@@ -68,10 +68,10 @@ void NAliRsnStep1(
 
   // Define the binning for the axes
 
-  // std::map<std::string, std::vector<std::vector<int>>> b;
-  // b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
-  // b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
-  // ngnt->GetBinning()->AddBinningDefinition("default", b);
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
+  b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   std::map<std::string, std::vector<std::vector<int>>> b2;
   b2["pt"] = {{50}};
@@ -84,25 +84,25 @@ void NAliRsnStep1(
   b3["ce"] = {{50,1},{25}};
   ngnt->GetBinning()->AddBinningDefinition("b3", b3);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b4;
-  // b4["pt"] = {{1}};
-  // b4["ce"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b4", b4);
+  std::map<std::string, std::vector<std::vector<int>>> b4;
+  b4["pt"] = {{1}};
+  b4["ce"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b4", b4);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b5;
-  // b5["pt"] = {{2}};
-  // b5["ce"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b5", b5);
+  std::map<std::string, std::vector<std::vector<int>>> b5;
+  b5["pt"] = {{2}};
+  b5["ce"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b5", b5);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b6;
-  // b6["pt"] = {{1}};
-  // b6["ce"] = {{2}};
-  // ngnt->GetBinning()->AddBinningDefinition("b6", b6);
+  std::map<std::string, std::vector<std::vector<int>>> b6;
+  b6["pt"] = {{1}};
+  b6["ce"] = {{2}};
+  ngnt->GetBinning()->AddBinningDefinition("b6", b6);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b7;
-  // b7["pt"] = {{2}};
-  // b7["ce"] = {{2}};
-  // ngnt->GetBinning()->AddBinningDefinition("b7", b7);
+  std::map<std::string, std::vector<std::vector<int>>> b7;
+  b7["pt"] = {{2}};
+  b7["ce"] = {{2}};
+  ngnt->GetBinning()->AddBinningDefinition("b7", b7);
 
 
   // ngnt->Print();
