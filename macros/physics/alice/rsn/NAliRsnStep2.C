@@ -103,9 +103,9 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
     // return;
 
     // std::vector<int> coords = point->GetCoords().data();
-    Long64_t entry = ngntIn->GetBinning()->GetContent()->GetBinContent(point->GetCoords());
+    Long64_t entry = ngntIn->GetBinning()->GetContent()->GetBin(point->GetCoords(), false);
     NLogInfo("[%d] Getting entry %lld for point: %s", threadId, entry, point->GetString().c_str());
-    ngntIn->GetEntry(entry);
+    ngntIn->GetEntry(entry,false);
 
     TList * inputPoint = (TList *)ngntIn->GetStorageTree()->GetBranchObject("_outputPoint");
     if (!inputPoint) {
