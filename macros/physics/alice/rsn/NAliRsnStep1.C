@@ -69,8 +69,8 @@ void NAliRsnStep1(
   // Define the binning for the axes
 
   std::map<std::string, std::vector<std::vector<int>>> b0;
-  b0["pt"] = {{150}};
-  b0["ce"] = {{100}};
+  // b0["pt"] = {{150}};
+  // b0["ce"] = {{100}};
   ngnt->GetBinning()->AddBinningDefinition("b0", b0);
 
   // std::map<std::string, std::vector<std::vector<int>>> b;

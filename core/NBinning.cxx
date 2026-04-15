@@ -354,7 +354,7 @@ void NBinning::PrintContent(Option_t * option) const
   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
   while ((linBin = iter->Next()) >= 0) {
     Double_t    v         = cSparse->GetBinContent(linBin, bins);
-    Long64_t    idx       = cSparse->GetBin(bins,false);
+    Long64_t    idx       = cSparse->GetBin(bins, false);
     std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(bins, cSparse->GetNdimensions()), -1);
     NLogTrace("Bin %lld: %f %s idx=%lld content=%f", linBin, v, binCoords.c_str(), idx, v);
 
@@ -467,7 +467,7 @@ Long64_t NBinning::FillAll(NBinningDef * def)
       continue;
     }
 
-    if (content[i].size() > 1) {
+    if (content[i].size() > 0) {
       TAxis * axis  = fAxes[i];
       fAxisTypes[i] = AxisType::kVariable;
       NLogTrace("NBinning::FillAll: Axis id=%d name=%s bins=%zu", i, axis->GetName(), content[i].size());
@@ -537,7 +537,8 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     NLogTrace("NBinning::FillAll: Filled bin %lld: %lld", nBinsFilled, nTotalBins);
     int refreshRate = nTotalBins / 100;
     if (refreshRate == 0) refreshRate = nTotalBins;
-    if (nBinsFilled % (refreshRate) == 0 && nBinsFilled != nTotalBins) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par, "I    ");
+    if (nBinsFilled % (refreshRate) == 0 && nBinsFilled != nTotalBins)
+      Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par, "I    ");
     // NLogDebug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
     //                nBinsFilled);
   };
@@ -1072,13 +1073,34 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
     std::string axisName = axis->GetName();
     // NLogDebug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
     //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
+
+    // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
     if (!binning[axisName].empty()) {
+
+      // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
+      if (axis->IsAlphanumeric() && (binning[axisName].size() != 1 || binning[axisName][0][0] != 1)) {
+        NLogError("NBinning::AddBinningDefinition: Axis '%s' is alphanumeric and is binning provided in definition "
+                  "'%s'. Exiting ...",
+                  axisName.c_str(), name.c_str());
+        exit(1);
+      }
+
+
       AddBinningViaBinWidths(i + 1, binning[axisName]);
       SetAxisType(i, AxisType::kVariable);
       // GetDefinition()[axisName] = binning[axisName];
       // def->SetAxisDefinition(axisName, binning[axisName]);
     }
     else {
+
+       // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
+      if (axis->IsAlphanumeric()) {
+        NLogError("NBinning::AddBinningDefinition: Axis '%s' is alphanumeric and no binning provided in definition "
+                  "'%s'. Exiting ...",
+                  axisName.c_str(), name.c_str());
+        exit(1);
+      }
+
       AddBinning(i + 1, {axis->GetNbins(), 1, 1}, 1);
       // GetDefinition()[axisName] = {{axis->GetNbins()}};
       // def->SetAxisDefinition(axisName, {{axis->GetNbins()}});
