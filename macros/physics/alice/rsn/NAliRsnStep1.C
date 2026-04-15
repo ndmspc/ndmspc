@@ -68,15 +68,15 @@ void NAliRsnStep1(
 
   // Define the binning for the axes
 
-  // std::map<std::string, std::vector<std::vector<int>>> b0;
-  // b0["pt"] = {{150}};
-  // b0["ce"] = {{100}};
-  // ngnt->GetBinning()->AddBinningDefinition("b0", b0);
+  std::map<std::string, std::vector<std::vector<int>>> b0;
+  b0["pt"] = {{150}};
+  b0["ce"] = {{100}};
+  ngnt->GetBinning()->AddBinningDefinition("b0", b0);
 
-  std::map<std::string, std::vector<std::vector<int>>> b;
-  b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
-  b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
-  ngnt->GetBinning()->AddBinningDefinition("default", b);
+  // std::map<std::string, std::vector<std::vector<int>>> b;
+  // b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
+  // b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
+  // ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   // std::map<std::string, std::vector<std::vector<int>>> b2;
   // b2["pt"] = {{50}};
