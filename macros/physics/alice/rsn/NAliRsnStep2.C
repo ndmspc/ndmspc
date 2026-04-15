@@ -18,6 +18,9 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   cfg["norm"]["max"] = 1.07;
   cfg["minEntries"]  = 0;
   cfg["parameters"]  = {"yield", "mean", "width", "sigma", "p0", "p1", "p2"};
+  cfg["fitType"]     = "std"; // "rootfit" or "std"
+  // cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
+
   // cfg["file"]            = inFile;
   // cfg["objectDirecotry"] = "phianalysis-t-hn-sparse_tpctof";
   // cfg["objectNames"]     = {"unlikepm", "mixingpm",   "mixingmp",   "likepp",
@@ -40,6 +43,7 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
 
   TAxis * bg =
       Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"mixingpm", "mixingmp", "likepp", "likemm", "rotationpm"});
+      // Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"rotationpm"});
   axes->Add(bg);
   // delete ngntIn;
 
@@ -48,48 +52,54 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
 
   // Define the binning for the axes
 
+  // std::map<std::string, std::vector<std::vector<int>>> b0;
+  // b0["pt"] = {{150}};
+  // b0["ce"] = {{100}};
+  // b0["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b0", b0);
+
   std::map<std::string, std::vector<std::vector<int>>> b;
   b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
   b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
   b["bg"] = {{1}};
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
-  std::map<std::string, std::vector<std::vector<int>>> b2;
-  b2["pt"] = {{50}};
-  b2["ce"] = {{50}};
-  b2["bg"] = {{1}};
-  ngnt->GetBinning()->AddBinningDefinition("b2", b2);
+  // std::map<std::string, std::vector<std::vector<int>>> b2;
+  // b2["pt"] = {{50}};
+  // b2["ce"] = {{50}};
+  // b2["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b2", b2);
 
-  std::map<std::string, std::vector<std::vector<int>>> b3;
-  b3["pt"] = {{50}};
-  // b3["ce"] = {{25}};
-  b3["ce"] = {{50, 1}, {25}};
-  b3["bg"] = {{1}};
-  ngnt->GetBinning()->AddBinningDefinition("b3", b3);
+  // std::map<std::string, std::vector<std::vector<int>>> b3;
+  // b3["pt"] = {{50}};
+  // // b3["ce"] = {{25}};
+  // b3["ce"] = {{50, 1}, {25}};
+  // b3["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b3", b3);
 
-  std::map<std::string, std::vector<std::vector<int>>> b4;
-  b4["pt"] = {{1}};
-  b4["ce"] = {{1}};
-  b4["bg"] = {{1}};
-  ngnt->GetBinning()->AddBinningDefinition("b4", b4);
+  // std::map<std::string, std::vector<std::vector<int>>> b4;
+  // b4["pt"] = {{1}};
+  // b4["ce"] = {{1}};
+  // b4["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b4", b4);
 
-  std::map<std::string, std::vector<std::vector<int>>> b5;
-  b5["pt"] = {{2}};
-  b5["ce"] = {{1}};
-  b5["bg"] = {{1}};
-  ngnt->GetBinning()->AddBinningDefinition("b5", b5);
+  // std::map<std::string, std::vector<std::vector<int>>> b5;
+  // b5["pt"] = {{2}};
+  // b5["ce"] = {{1}};
+  // b5["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b5", b5);
 
-  std::map<std::string, std::vector<std::vector<int>>> b6;
-  b6["pt"] = {{1}};
-  b6["ce"] = {{2}};
-  b6["bg"] = {{1}};
-  ngnt->GetBinning()->AddBinningDefinition("b6", b6);
+  // std::map<std::string, std::vector<std::vector<int>>> b6;
+  // b6["pt"] = {{1}};
+  // b6["ce"] = {{2}};
+  // b6["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b6", b6);
 
-  std::map<std::string, std::vector<std::vector<int>>> b7;
-  b7["pt"] = {{2}};
-  b7["ce"] = {{2}};
-  b7["bg"] = {{1}};
-  ngnt->GetBinning()->AddBinningDefinition("b7", b7);
+  // std::map<std::string, std::vector<std::vector<int>>> b7;
+  // b7["pt"] = {{2}};
+  // b7["ce"] = {{2}};
+  // b7["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("b7", b7);
 
   ngnt->InitParameters(cfg["parameters"].get<std::vector<std::string>>());
 
@@ -136,11 +146,17 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
     }
     hBg->SetTitle(point->GetString().c_str());
 
-    TF1 * fVoigtPol2 = Ndmspc::AnalysisFunctions::VoigtPol2("fVoigtPol2", 0.998, 1.042);
-    fVoigtPol2->SetParameters(0.0, 1.019461, 0.00426, 0.0008, 0.0, 0.0, 0.0);
+    bool accepted = false;
+    if (cfg["fitType"] == "std") {
+      TF1 * fVoigtPol2 = Ndmspc::AnalysisFunctions::VoigtPol2("fVoigtPol2", 0.998, 1.042);
+      fVoigtPol2->SetParameters(0.0, 1.019461, 0.00426, 0.0008, 0.0, 0.0, 0.0);
+      accepted = Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, fVoigtPol2, cfg, outputPoint,
+                                                      point->GetParameters()->GetHisto());
+    }
+    else if (cfg["fitType"] == "rootfit") {
+      accepted = Ndmspc::AnalysisUtils::ExtractSignalRooFit(hSigBg, hBg, cfg, outputPoint, point->GetParameters()->GetHisto());
+    }
 
-    bool accepted = Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, fVoigtPol2, cfg, outputPoint,
-                                                         point->GetParameters()->GetHisto());
     if (!accepted) {
       NLogWarning("[%d] Point did not pass signal extraction criteria: %s", threadId, point->GetString().c_str());
       outputPoint->Delete();
