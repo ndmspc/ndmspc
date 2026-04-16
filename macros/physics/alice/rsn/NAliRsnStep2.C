@@ -17,9 +17,9 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   cfg["norm"]["min"] = 1.05;
   cfg["norm"]["max"] = 1.07;
   cfg["minEntries"]  = 0;
-  cfg["parameters"]  = {"yield", "mean", "width", "sigma", "p0", "p1", "p2"};
+  cfg["parameters"]  = {"yield", "mean", "width", "sigma", "c0", "c1", "c2"};
   cfg["fitType"]     = "std"; // "rootfit" or "std"
-  // cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
+  cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
 
   // cfg["file"]            = inFile;
   // cfg["objectDirecotry"] = "phianalysis-t-hn-sparse_tpctof";
@@ -42,8 +42,8 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   }
 
   TAxis * bg =
-      Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"mixingpm", "mixingmp", "likepp", "likemm", "rotationpm"});
-      // Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"rotationpm"});
+      // Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"mixingpm", "mixingmp", "likepp", "likemm", "rotationpm"});
+      Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"rotationpm"});
   axes->Add(bg);
   // delete ngntIn;
 
