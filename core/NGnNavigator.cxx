@@ -1764,7 +1764,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
   NBinningDef * binningDef    = fGnTree->GetBinning()->GetDefinition();
   THnSparse *   hnsObjContent = binningDef->GetContent();
-  // hnsObjContent->Print("all");
+  hnsObjContent->Print("all");
   std::vector<std::vector<int>> projections;
   if (projIds.empty()) {
     projIds.resize(fProjection->GetDimension());
@@ -1851,30 +1851,41 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     NLogTrace("Projection dims: %s", NUtils::GetCoordsString(dims, -1).c_str());
 
     // hsParam->Print("all");
+    // hsParam->Projection(0, 1, 2)->Draw("colz text");
     // return;
 
     std::vector<std::set<int>> dimsResults(3);
 
     std::vector<std::vector<int>> ranges;
-    for (int dim : dims) {
-      int nBins = hnsObjContent->GetAxis(dim)->GetNbins();
-      ranges.push_back({dim, 1, nBins}); // 1-based indexing for THnSparse
+    NUtils::SetAxisRanges(hsParam, ranges, false, false, true);
+    Int_t *                                         p      = new Int_t[hsParam->GetNdimensions()];
+    Long64_t                                        linBin = 0;
+    std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hsParam->CreateIter(true /*use axis range*/)};
+    while ((linBin = iter->Next()) >= 0) {
+
+      // NLogDebug("Linear bin: %lld", linBin);
+      hsParam->GetBinContent(linBin, p);
+      // Double_t    v         = hsParam->GetBinContent(linBin, p);
+      // Long64_t    idx       = hsParam->GetBin(p);
+      // if (idx < 0) {
+      //   NLogError("Negative bin index: %lld for bin coordinates: %s", idx,
+      //             NUtils::GetCoordsString(NUtils::ArrayToVector(p, hsParam->GetNdimensions()), -1).c_str());
+      //   continue;
+      // }
+      // std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(p, hsParam->GetNdimensions()), -1);
+      // NLogDebug("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
+      dimsResults[0].insert(p[proj[0]]);
+      if (dims.size() > 1) dimsResults[1].insert(p[proj[1]]);
+      if (dims.size() > 2) dimsResults[2].insert(p[proj[2]]);
     }
 
-    NUtils::SetAxisRanges(hnsObjContent, ranges, false, false, false);
-    Int_t *                                         p      = new Int_t[hnsObjContent->GetNdimensions()];
-    Long64_t                                        linBin = 0;
-    std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hnsObjContent->CreateIter(true /*use axis range*/)};
-    while ((linBin = iter->Next()) >= 0) {
-      // NLogDebug("Linear bin: %lld", linBin);
-      Double_t    v         = hnsObjContent->GetBinContent(linBin, p);
-      Long64_t    idx       = hnsObjContent->GetBin(p);
-      std::string binCoords = NUtils::GetCoordsString(NUtils::ArrayToVector(p, hnsObjContent->GetNdimensions()), -1);
-      NLogTrace("Bin %lld(%lld): %f %s", linBin, idx, v, binCoords.c_str());
-      dimsResults[0].insert(p[dims[0]]);
-      if (dims.size() > 1) dimsResults[1].insert(p[dims[1]]);
-      if (dims.size() > 2) dimsResults[2].insert(p[dims[2]]);
-    }
+    // // Print dinsResults for each dimension
+    // for (size_t i = 0; i < dims.size(); i++) {
+    //   NLogDebug("Dimension %d (axis %d) has %zu unique bins: ", i, dims[i], dimsResults[i].size());
+    //   for (const auto & bin : dimsResults[i]) {
+    //     NLogDebug("  Bin %d", bin);
+    //   }
+    // }
 
     if (!gROOT->IsBatch()) {
       // Ensure gClient is initialized if not already
@@ -1888,7 +1899,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     //   dims.push_back(0); // Add a dummy dimension for 2D plotting
     // }
     int nPads = dims.size() > 2 ? dimsResults[2].size() : 1;
-    NLogDebug("Number of pads: %d", nPads);
+    // NLogDebug("Number of pads: %d", nPads);
     std::vector<std::string> projNames;
     // hsParam->Print("all");
     NLogTrace("Projection dims: %d %d %d", dims[0], dims.size() > 1 ? dims[1] : -1, dims.size() > 2 ? dims[2] : -1);
@@ -1896,7 +1907,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
     if (dims.size() > 1) projNames.push_back(hnsObjContent->GetAxis(dims[1])->GetName());
     if (dims.size() > 2) projNames.push_back(hnsObjContent->GetAxis(dims[2])->GetName());
 
-    NLogDebug("Drawing %s ...", NUtils::GetCoordsString(projNames, -1).c_str());
+    NLogDebug("Drawing %s [pads=%d] ...", NUtils::GetCoordsString(projNames, -1).c_str(), nPads);
 
     std::string posfix = NUtils::Join(projNames, '-');
 
@@ -1925,7 +1936,13 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
       stackTitle += projNames[0];
       stackTitle += projNames.size() > 1 ? " vs " + projNames[1] : "";
       if (proj.size() > 2) {
-        p[proj[2]] = iPad + 1; // 1-based index for the third dimension
+        // FIXME: check if p[proj[2]] is within the axis range before using it to avoid out-of-range errors
+        // p[proj[2]] = iPad + 1; // 1-based index for the third dimension
+
+        auto it = std::next(dimsResults[2].begin(), iPad);
+        if (it != dimsResults[2].end()) {
+          p[proj[2]] = *it; // 30
+        }
 
         // print projIds[2] range
         // NLogDebug("Pad %d: Setting projection indices: %d %d %d", iPad, p[0], p[1], p[2]);
@@ -1961,11 +1978,18 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
       std::string mode = (minmaxMode == "VE" || minmaxMode == "V" || minmaxMode == "D") ? minmaxMode : "V";
       for (int iStack = 0; iStack < nStacks; iStack++) {
         p[proj[0]] = 0;
-        if (proj.size() > 1) p[proj[1]] = iStack + 1;
-        std::vector<std::vector<int>> ranges;
-        if (proj.size() > 2) ranges.push_back({proj[2], p[proj[2]], p[proj[2]]});
-        if (proj.size() > 1) ranges.push_back({proj[1], p[proj[1]], p[proj[1]]});
-        NUtils::SetAxisRanges(hsParam, ranges, true);
+        if (proj.size() > 1) {
+          auto it = std::next(dimsResults[1].begin(), iStack);
+          if (it != dimsResults[1].end()) {
+            p[proj[1]] = *it; // 30
+          }
+
+          // p[proj[1]] = dimsResults[1][(size_t)iStack] + 1;
+        }
+        std::vector<std::vector<int>> rangesTmp;
+        if (proj.size() > 2) rangesTmp.push_back({proj[2], p[proj[2]], p[proj[2]]});
+        if (proj.size() > 1) rangesTmp.push_back({proj[1], p[proj[1]], p[proj[1]]});
+        NUtils::SetAxisRanges(hsParam, rangesTmp, true);
         TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {proj[0]}, option);
         if (!hProj || hProj->GetEntries() == 0) {
           NLogError("Failed to project THnSparse for stack %d with projection IDs: %s", iStack,
