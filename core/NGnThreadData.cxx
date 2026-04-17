@@ -360,6 +360,22 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       nmerged++;
     }
   }
+
+
+  // for (const auto & name : fBiningSource->GetDefinitionNames()) {
+  //   auto binningDef = fBiningSource->GetDefinition(name);
+  //   if (!binningDef) {
+  //     NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+  //     continue;
+  //   }
+  //   // add ids from fBiningSource to binningDef
+  //   // binningDef->GetIds().insert(binningDef->GetIds().end(), fBiningSource->GetDefinition(name)->GetIds().begin(),
+  //   //                             fBiningSource->GetDefinition(name)->GetIds().end());
+  //   NLogDebug("NGnThreadData::Merge: BEFORE Final IDs in definition '%s': %s", name.c_str(),
+  //             NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
+  // }
+
+
   // FIXME: Fix this properly [it should be ok now]
   fHnSparseBase->GetBinning()->GetContent()->Reset();
   // Print hnsb binning definition ids
@@ -369,7 +385,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       NBinningPoint point(fHnSparseBase->GetBinning());
       fBiningSource->GetContent()->GetBinContent(id, point.GetCoords());
       Long64_t bin = fHnSparseBase->GetBinning()->GetContent()->GetBin(point.GetCoords());
-      NLogTrace("NGnThreadData::Merge: Adding def_id=%lld to content_bin=%lld", id, bin);
+      NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld",name.c_str(), id, bin);
       fHnSparseBase->GetBinning()->GetContent()->SetBinContent(bin, id);
 
       // fHnSparseBase->GetBinning()->GetDefinition(name)->GetContent()->SetBinContent(bin, id);
@@ -424,7 +440,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       continue;
     }
-    binningDef->Print();
+    // binningDef->Print();
     // Recalculate binningDef content based on ids
     binningDef->GetContent()->Reset();
     for (auto id : binningDef->GetIds()) {
@@ -436,10 +452,10 @@ Long64_t NGnThreadData::Merge(TCollection * list)
     }
   }
 
-  // print all definitions
-  for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-    fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
-  }
+  // // print all definitions
+  // for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
+  //   fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
+  // }
 
   if (fHnSparseBase->GetInput()) {
     fHnSparseBase->GetInput()->Close(false);

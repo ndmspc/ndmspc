@@ -583,8 +583,21 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   };
 
-  // size_t iDef   = 0;
-  int sumIds = 0;
+  size_t iDef   = 0;
+  int    sumIds = 0;
+
+  std::map<std::string, std::vector<Long64_t>>
+      defIdMapProcessedRemoved; // Map to track which ids belong to which definition
+  // for (auto & name : defNames) {
+  //   auto binningDef = binningIn->GetDefinition(name);
+  //   if (!binningDef) {
+  //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+  //     return false;
+  //   }
+  //   for (auto & id : binningDef->GetIds()) {
+  //     defIdMap[name].push_back(id);
+  //   }
+  // }
 
   for (auto & name : defNames) {
     auto binningDef = binningIn->GetDefinition(name);
@@ -592,6 +605,12 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       return false;
     }
+
+    if (binningDef->GetIds().size() == 0) {
+      NLogWarning("NGnTree::Process: Binning definition '%s' has no entries, skipping ...", name.c_str());
+      continue;
+    }
+
     std::vector<int> mins, maxs;
     mins.push_back(0);
     maxs.push_back(binningDef->GetIds().size() - 1);
@@ -666,34 +685,35 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
     // hnsbBinningIn->GetDefinition(name)->Print();
     // remove entries present in hnsbBinningIn from other definitions
-    // for (size_t i = 0; i < defNames.size(); i++) {
+    for (size_t i = 0; i < defNames.size(); i++) {
 
-    //   std::string other_name = defNames[i];
-    //   auto        otherDef   = binningIn->GetDefinition(other_name);
-    //   if (i <= iDef) {
-    //     continue;
-    //   }
-    //   if (!otherDef) {
-    //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
-    //     return false;
-    //   }
-    //   // remove entries that has value less then sumIds
-    //   for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
-    //     NLogDebug("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
-    //               other_name.c_str(), sumIds);
-    //     if (*it < sumIds) {
-    //       NLogDebug("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
-    //       it = otherDef->GetIds().erase(it);
-    //     }
-    //     else {
-    //       ++it;
-    //     }
-    //   }
+      std::string other_name = defNames[i];
+      auto        otherDef   = binningIn->GetDefinition(other_name);
+      if (i <= iDef) {
+        continue;
+      }
+      if (!otherDef) {
+        NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
+        return false;
+      }
+      // remove entries that has value less then sumIds
+      for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
+        NLogDebug("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
+                  other_name.c_str(), sumIds);
+        if (*it < sumIds) {
+          NLogDebug("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
+          defIdMapProcessedRemoved[other_name].push_back(*it);
+          it = otherDef->GetIds().erase(it);
+        }
+        else {
+          ++it;
+        }
+      }
 
-    //   binningIn->GetDefinition(other_name)->Print();
-    // }
-    // // hnsbBinningIn->GetDefinition(name)->Print();
-    // iDef++;
+      binningIn->GetDefinition(other_name)->Print();
+    }
+    // hnsbBinningIn->GetDefinition(name)->Print();
+    iDef++;
 
     NLogDebug("NGnTree::Process: [END] ------------------------------------------------");
   }
@@ -743,6 +763,39 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   //   gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
   // }
   //
+
+  // add missing entries to definitions based on defIdMapProcessedRemoved
+  for (size_t i = 0; i < defNames.size(); i++) {
+    std::string name = defNames[i];
+    auto        def  = binningIn->GetDefinition(name);
+    if (!def) {
+      NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+      return false;
+    }
+    for (auto & [other_name, removedIds] : defIdMapProcessedRemoved) {
+      if (other_name.compare(name) != 0) {
+        continue;
+      }
+      for (auto & id : removedIds) {
+        if (std::find(def->GetIds().begin(), def->GetIds().end(), id) == def->GetIds().end()) {
+          NLogTrace("NGnTree::Process: Adding missing entry %lld to definition '%s'", id, name.c_str());
+          def->GetIds().push_back(id);
+        }
+      }
+    }
+    sort(def->GetIds().begin(), def->GetIds().end());
+  }
+
+  // print final binning definitions
+  NLogDebug("NGnTree::Process: Final binning definitions after processing:");
+  for (auto & name : defNames) {
+    auto binningDef = binningIn->GetDefinition(name);
+    if (!binningDef) {
+      NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+      return false;
+    }
+    binningDef->Print();
+  }
 
   fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
   fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
