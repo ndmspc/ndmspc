@@ -27,7 +27,6 @@
 #include "NTreeBranch.h"
 #include "NUtils.h"
 #include "NStorageTree.h"
-#include "NWsClient.h"
 #include "NGnNavigator.h"
 #include "NGnTree.h"
 
@@ -49,7 +48,8 @@ std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, cons
 
   std::string axisObjectDefaultFormat =
       cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
-  std::string axisDefaultSeparator = cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
+  std::string axisDefaultSeparator =
+      cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
 
   std::string lastSep;
   for (auto & axisEntry : cfg["axes"]) {
@@ -63,7 +63,7 @@ std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, cons
         mode = "bin";
       }
       else {
-        mode = "minmax";
+        mode   = "minmax";
         format = axisObjectDefaultFormat;
       }
     }
@@ -339,7 +339,6 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     // point->Print();
     json cfg = point->GetCfg();
 
-
     NGnTree * ngntIn = point->GetInput();
     if (!ngntIn) {
       NLogError("NGnTree::Import: Input NGnTree is nullptr !!!");
@@ -457,7 +456,6 @@ NGnTree::~NGnTree()
   SafeDelete(fBinning);
   // SafeDelete(fTreeStorage);
   // SafeDelete(fNavigator);
-  SafeDelete(fWsClient);
   SafeDelete(fParameters);
 }
 void NGnTree::Print(Option_t * option) const
@@ -545,12 +543,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
   if (nThreads < 1) nThreads = 1;
-  const char * wsUrl = gSystem->Getenv("NDMSPC_WS_URL");
-  if (!fWsClient && wsUrl) {
-    fWsClient = new NWsClient();
-    fWsClient->Connect(wsUrl);
-    NLogInfo("NGnTree::Process: Connected to WebSocket server at '%s'", wsUrl);
-  }
 
   std::vector<Ndmspc::NGnThreadData> threadDataVector(nThreads);
 
@@ -577,29 +569,22 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   size_t processedEntries = 0;
   size_t totalEntries     = 0;
   auto   start_par        = std::chrono::high_resolution_clock::now();
+  auto   start_par_job    = std::chrono::high_resolution_clock::now();
   auto   task             = [&](const std::vector<int> & coords, Ndmspc::NGnThreadData & thread_obj) {
     // NLogWarning("Processing coordinates %s in thread %zu", NUtils::GetCoordsString(coords).c_str(),
     //                       thread_obj.GetAssignedIndex());
     // thread_obj.Print();
-    json progress;
-    progress["jobName"]  = thread_obj.GetHnSparseBase()->GetBinning()->GetCurrentDefinitionName();
-    progress["status"]   = "R";
-    progress["task"]     = coords[0];
-    NWsClient * wsClient = thread_obj.GetHnSparseBase()->GetWsClient();
-    if (wsClient) wsClient->Send(progress.dump());
     thread_obj.Process(coords);
     processedEntries++;
-    progress["status"] = "D";
-    if (wsClient) wsClient->Send(progress.dump());
-
     if (!NLogger::GetConsoleOutput()) {
       size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
                                                                                      : totalEntries - processedEntries;
       NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
     }
   };
-  size_t iDef   = 0;
-  int    sumIds = 0;
+
+  // size_t iDef   = 0;
+  int sumIds = 0;
 
   for (auto & name : defNames) {
     auto binningDef = binningIn->GetDefinition(name);
@@ -619,7 +604,9 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     else {
       Printf("Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
     }
-    totalEntries = maxs[0] + 1;
+    start_par        = std::chrono::high_resolution_clock::now();
+    processedEntries = 0;
+    totalEntries     = maxs[0] + 1;
     if (!NLogger::GetConsoleOutput())
       NUtils::ProgressBar(processedEntries, totalEntries, start_par,
                           TString::Format("R%4d", (int)threadDataVector.size()).Data());
@@ -627,18 +614,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
       threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
     }
-    json jobMon;
-    jobMon["jobName"] = name;
-    // jobMon["user"]    = gSystem->Getenv("USER");
-    // jobMon["host"]    = gSystem->HostName();
-    jobMon["pid"]    = gSystem->GetPid();
-    jobMon["status"] = "I";
-    jobMon["ntasks"] = maxs[0] + 1;
-    if (fWsClient) {
-      NLogInfo("NGnTree::Process: Sending job monitor info to WebSocket server ...");
-      fWsClient->Send(jobMon.dump());
-    }
-    /// Main execution
 
     // Disable ROOT's RecursiveRemove during the parallel phase.
     // Without this, concurrent threads' object deletions trigger RecursiveRemove
@@ -657,7 +632,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
     executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
 
-    if (!NLogger::GetConsoleOutput()) 
+    if (!NLogger::GetConsoleOutput())
       Printf("Finished processing binning definition '%s'. Post-processing results ...", name.c_str());
 
     // Restore both flags before flushing deferred deletes, so each object's destructor
@@ -691,99 +666,95 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
     // hnsbBinningIn->GetDefinition(name)->Print();
     // remove entries present in hnsbBinningIn from other definitions
-    for (size_t i = 0; i < defNames.size(); i++) {
+    // for (size_t i = 0; i < defNames.size(); i++) {
 
-      std::string other_name = defNames[i];
-      auto        otherDef   = binningIn->GetDefinition(other_name);
-      if (i <= iDef) {
-        continue;
-      }
-      if (!otherDef) {
-        NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
-        return false;
-      }
-      // remove entries that has value less then sumIds
-      for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
-        NLogDebug("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
-                  other_name.c_str(), sumIds);
-        if (*it < sumIds) {
-          NLogDebug("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
-          it = otherDef->GetIds().erase(it);
-        }
-        else {
-          ++it;
-        }
-      }
+    //   std::string other_name = defNames[i];
+    //   auto        otherDef   = binningIn->GetDefinition(other_name);
+    //   if (i <= iDef) {
+    //     continue;
+    //   }
+    //   if (!otherDef) {
+    //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
+    //     return false;
+    //   }
+    //   // remove entries that has value less then sumIds
+    //   for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
+    //     NLogDebug("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
+    //               other_name.c_str(), sumIds);
+    //     if (*it < sumIds) {
+    //       NLogDebug("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
+    //       it = otherDef->GetIds().erase(it);
+    //     }
+    //     else {
+    //       ++it;
+    //     }
+    //   }
 
-      binningIn->GetDefinition(other_name)->Print();
-    }
-    // hnsbBinningIn->GetDefinition(name)->Print();
-    iDef++;
+    //   binningIn->GetDefinition(other_name)->Print();
+    // }
+    // // hnsbBinningIn->GetDefinition(name)->Print();
+    // iDef++;
 
     NLogDebug("NGnTree::Process: [END] ------------------------------------------------");
-    auto                                      end_par      = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
-
-    NLogInfo("NGnTree::Process: Execution completed and it took %s .",
-             NUtils::FormatTime(par_duration.count() / 1000).c_str());
-
-    NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
-    for (auto & data : threadDataVector) {
-      NLogTrace("NGnTree::Process: Closing file from thread %zu: ", data.GetAssignedIndex());
-      data.GetHnSparseBase()->GetStorageTree()->Close(true);
-    }
-
-    NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
-    TList *                 mergeList  = new TList();
-    Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
-    outputData->Init(0, func, nullptr, nullptr, this, binningIn);
-    outputData->SetCfg(cfg);
-    // outputData->Init(0, func, this);
-
-    for (auto & data : threadDataVector) {
-      NLogTrace("NGnTree::Process: Adding thread data %zu to merge list ...", data.GetAssignedIndex());
-      // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
-      mergeList->Add(&data);
-    }
-
-    Long64_t nmerged = outputData->Merge(mergeList);
-    if (nmerged <= 0) {
-      NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
-      delete mergeList;
-      return false;
-    }
-    NLogInfo("NGnTree::Process: Merged %lld outputs successfully", nmerged);
-    // delete all temporary files
-    // for (auto & data : threadDataVector) {
-    //   std::string filename = data.GetHnSparseBase()->GetStorageTree()->GetFileName();
-    //   NLogTrace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
-    //   gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
-    // }
-    //
-
-    fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
-    fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
-    fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
-    fParameters  = outputData->GetHnSparseBase()->GetParameters();
-
-    if (NLogger::GetConsoleOutput()) {
-      NLogInfo("NGnTree::Process: Processing completed successfully. Output was stored in '%s'.",
-               fTreeStorage->GetFileName().c_str());
-    }
-    else {
-      Printf("Processing completed successfully. Output was stored in '%s'.", fTreeStorage->GetFileName().c_str());
-    }
-
-    jobMon["status"] = "D";
-    if (fWsClient) {
-      fWsClient->Send(jobMon.dump());
-    }
   }
 
-  if (fWsClient) {
-    // gSystem->Sleep(1000); // wait for messages to be sent
-    fWsClient->Disconnect();
-    SafeDelete(fWsClient);
+  auto                                      end_par      = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> par_duration = end_par - start_par_job;
+
+  if (!NLogger::GetConsoleOutput()) {
+    Printf("NGnTree::Process: Execution completed and it took %s .",
+           NUtils::FormatTime(par_duration.count() / 1000).c_str());
+  }
+  else {
+    NLogInfo("NGnTree::Process: Execution completed and it took %s .",
+             NUtils::FormatTime(par_duration.count() / 1000).c_str());
+  }
+
+  NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
+  for (auto & data : threadDataVector) {
+    NLogTrace("NGnTree::Process: Closing file from thread %zu: ", data.GetAssignedIndex());
+    data.GetHnSparseBase()->GetStorageTree()->Close(true);
+  }
+
+  NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
+  TList *                 mergeList  = new TList();
+  Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
+  outputData->Init(0, func, nullptr, nullptr, this, binningIn);
+  outputData->SetCfg(cfg);
+  // outputData->Init(0, func, this);
+
+  for (auto & data : threadDataVector) {
+    NLogTrace("NGnTree::Process: Adding thread data %zu to merge list ...", data.GetAssignedIndex());
+    // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
+    mergeList->Add(&data);
+  }
+
+  Long64_t nmerged = outputData->Merge(mergeList);
+  if (nmerged <= 0) {
+    NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
+    delete mergeList;
+    return false;
+  }
+  NLogInfo("NGnTree::Process: Merged %lld outputs successfully", nmerged);
+  // delete all temporary files
+  // for (auto & data : threadDataVector) {
+  //   std::string filename = data.GetHnSparseBase()->GetStorageTree()->GetFileName();
+  //   NLogTrace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
+  //   gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
+  // }
+  //
+
+  fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
+  fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
+  fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
+  fParameters  = outputData->GetHnSparseBase()->GetParameters();
+
+  if (NLogger::GetConsoleOutput()) {
+    NLogInfo("NGnTree::Process: Processing completed successfully. Output was stored in '%s'.",
+             fTreeStorage->GetFileName().c_str());
+  }
+  else {
+    Printf("Processing completed successfully. Output was stored in '%s'.", fTreeStorage->GetFileName().c_str());
   }
 
   // Close the final output file
@@ -952,7 +923,7 @@ Int_t NGnTree::GetEntry(std::vector<std::vector<int>> /*range*/, bool checkBinni
 }
 
 void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPointIds,
-                   std::vector<std::vector<int>> ranges, Option_t * option, std::string ws)
+                   std::vector<std::vector<int>> ranges, Option_t * option)
 {
   ///
   /// Play the tree
@@ -963,17 +934,6 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   std::string annimationTempDir =
       TString::Format("%s/.ndmspc/animation/%d", gSystem->Getenv("HOME"), gSystem->GetPid()).Data();
   gSystem->Exec(TString::Format("mkdir -p %s", annimationTempDir.c_str()));
-
-  Ndmspc::NWsClient * client = nullptr;
-
-  if (!ws.empty()) {
-    client = new Ndmspc::NWsClient();
-    if (!client->Connect(ws)) {
-      NLogError("Failed to connect to '%s' !!!", ws.c_str());
-      return;
-    }
-    NLogInfo("Connected to %s", ws.c_str());
-  }
 
   if (binning.empty()) {
     binning = fBinning->GetCurrentDefinitionName();
@@ -1013,14 +973,14 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   // return;
 
   TCanvas * c1 = nullptr;
-  if (!client) {
-    c1 = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("c1");
-    if (c1 == nullptr) c1 = new TCanvas("c1", "NGnTree::Play", 800, 600);
-    c1->Clear();
-    c1->cd();
-    c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() + 1 : 1);
-    gSystem->ProcessEvents();
-  }
+
+  c1 = (TCanvas *)gROOT->GetListOfCanvases()->FindObject("c1");
+  if (c1 == nullptr) c1 = new TCanvas("c1", "NGnTree::Play", 800, 600);
+  c1->Clear();
+  c1->cd();
+  c1->DivideSquare(outputPointIds.size() > 0 ? outputPointIds.size() + 1 : 1);
+  gSystem->ProcessEvents();
+
   binningDef->Print();
   bdContent->Reset();
 
@@ -1046,71 +1006,59 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
       }
       int n = outputPointIds.size();
 
-      if (client) {
-        std::string msg = TBufferJSON::ConvertToJSON(l).Data();
-        if (!client->Send(msg)) {
-          NLogError("Failed to send message `%s`", msg.c_str());
+      Double_t v = 1.0;
+      for (int i = 0; i < n; i++) {
+        // NLogDebug("Drawing output object id %d (list index %d) on pad %d", outputPointIds[i], i, i + 1);
+
+        c1->cd(i + 2);
+        TObject * obj = l->At(outputPointIds[i]);
+        if (obj) {
+          if (obj->InheritsFrom(TH1::Class())) {
+            TH1 * h = (TH1 *)obj;
+            h->SetDirectory(nullptr);
+            // Draw a clone to avoid transferring ownership or modifying
+            // the original object stored in the TList (can cause
+            // TPad/TList removal during drawing and lead to crashes).
+            TH1 * hclone = (TH1 *)h->Clone();
+            if (hclone) {
+              hclone->SetDirectory(nullptr);
+              hclone->Draw();
+            }
+          }
+          // obj->Print();
         }
-        else {
-          NLogTrace("Sent: %s", msg.c_str());
+        if (obj->InheritsFrom(TH1::Class()) && i == 0) {
+          TH1 * h = (TH1 *)obj;
+          v       = h->GetMean();
+          NLogDebug("Mean value from histogram [%s]: %f", h->GetName(), v);
         }
       }
+      bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), 1);
+      c1->cd(1);
+      TH1 * bdProj = (TH1 *)gROOT->FindObjectAny("bdProj");
+      if (bdProj) {
+        delete bdProj;
+        bdProj = nullptr;
+      }
+      if (bdContent->GetNdimensions() == 1) {
+        bdProj = bdContent->Projection(0, "O");
+      }
+      else if (bdContent->GetNdimensions() == 2) {
+        bdProj = bdContent->Projection(0, 1, "O");
+      }
+      else if (bdContent->GetNdimensions() == 3) {
+        bdProj = bdContent->Projection(0, 1, 2, "O");
+      }
       else {
-
-        Double_t v = 1.0;
-        for (int i = 0; i < n; i++) {
-          // NLogDebug("Drawing output object id %d (list index %d) on pad %d", outputPointIds[i], i, i + 1);
-
-          c1->cd(i + 2);
-          TObject * obj = l->At(outputPointIds[i]);
-          if (obj) {
-            if (obj->InheritsFrom(TH1::Class())) {
-              TH1 * h = (TH1 *)obj;
-              h->SetDirectory(nullptr);
-              // Draw a clone to avoid transferring ownership or modifying
-              // the original object stored in the TList (can cause
-              // TPad/TList removal during drawing and lead to crashes).
-              TH1 * hclone = (TH1 *)h->Clone();
-              if (hclone) {
-                hclone->SetDirectory(nullptr);
-                hclone->Draw();
-              }
-            }
-            // obj->Print();
-          }
-          if (obj->InheritsFrom(TH1::Class()) && i == 0) {
-            TH1 * h = (TH1 *)obj;
-            v       = h->GetMean();
-            NLogDebug("Mean value from histogram [%s]: %f", h->GetName(), v);
-          }
-        }
-        bdContent->SetBinContent(fBinning->GetPoint()->GetStorageCoords(), 1);
-        c1->cd(1);
-        TH1 * bdProj = (TH1 *)gROOT->FindObjectAny("bdProj");
-        if (bdProj) {
-          delete bdProj;
-          bdProj = nullptr;
-        }
-        if (bdContent->GetNdimensions() == 1) {
-          bdProj = bdContent->Projection(0, "O");
-        }
-        else if (bdContent->GetNdimensions() == 2) {
-          bdProj = bdContent->Projection(0, 1, "O");
-        }
-        else if (bdContent->GetNdimensions() == 3) {
-          bdProj = bdContent->Projection(0, 1, 2, "O");
-        }
-        else {
-          NLogError("NGnTree::Play: Cannot project THnSparse with %d dimensions", bdContent->GetNdimensions());
-        }
-        if (bdProj) {
-          bdProj->SetName("bdProj");
-          bdProj->SetTitle(TString::Format("Binning '%s' content projection", binning.c_str()).Data());
-          bdProj->SetMinimum(0);
-          // bdProj->SetDirectory(nullptr);
-          bdProj->Draw("colz");
-          // c1->ModifiedUpdate();
-        }
+        NLogError("NGnTree::Play: Cannot project THnSparse with %d dimensions", bdContent->GetNdimensions());
+      }
+      if (bdProj) {
+        bdProj->SetName("bdProj");
+        bdProj->SetTitle(TString::Format("Binning '%s' content projection", binning.c_str()).Data());
+        bdProj->SetMinimum(0);
+        // bdProj->SetDirectory(nullptr);
+        bdProj->Draw("colz");
+        // c1->ModifiedUpdate();
       }
     }
     if (c1) {
@@ -1128,7 +1076,6 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   gSystem->Exec(TString::Format("rm -fr %s", annimationTempDir.c_str()));
   NLogInfo("Animation saved to ndmspc_play.gif");
 
-  if (client) client->Disconnect();
   delete bdContent;
 }
 

@@ -367,7 +367,7 @@ void httpNgnt()
         nav = nullptr;
       }
 
-      nav = ngnt->Reshape("", levels, 0, {}, {});
+      nav = ngnt->Reshape(binningName, levels, 0, {}, {});
       if (!nav) {
         ctx.Result("Failed to reshape NGnTree with provided levels [" + json(levels).dump() + "] and binning '" + binningName + "'");
         return;

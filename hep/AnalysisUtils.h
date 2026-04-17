@@ -22,6 +22,10 @@ class AnalysisUtils : public TObject {
 
   static bool ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & cfg, TList * output = nullptr,
                             TH1 * results = nullptr);
+
+  static bool ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList * output = nullptr,
+                            TH1 * results = nullptr);
+
   static void ResetHistograms(TList * list);
 
   /// \cond CLASSIMP
