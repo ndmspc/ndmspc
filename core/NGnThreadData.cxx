@@ -126,10 +126,6 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
     fHnSparseBase->SetInput(NGnTree::Open(input->GetStorageTree()->GetFileName(), branches)); // Set the input NGnTree
   }
 
-  if (ngnt->GetWsClient()) {
-    fHnSparseBase->SetWsClient(ngnt->GetWsClient());
-  }
-
   // fHnSparseBase->GetBinning()->GetDefinition()->GetContent()->Reset();
   // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().clear();
 
@@ -428,7 +424,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       continue;
     }
-    // binningDef->Print();
+    binningDef->Print();
     // Recalculate binningDef content based on ids
     binningDef->GetContent()->Reset();
     for (auto id : binningDef->GetIds()) {
@@ -441,9 +437,9 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   }
 
   // print all definitions
-  // for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-  //   fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
-  // }
+  for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
+    fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
+  }
 
   if (fHnSparseBase->GetInput()) {
     fHnSparseBase->GetInput()->Close(false);

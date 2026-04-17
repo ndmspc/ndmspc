@@ -10,7 +10,6 @@
 #include "NBinning.h"
 #include "NParameters.h"
 #include "NStorageTree.h"
-#include "NWsClient.h"
 // #include "NBinningPoint.h"
 
 namespace Ndmspc {
@@ -153,7 +152,7 @@ class NGnTree : public TObject {
    * @param ws Optional workspace string.
    */
   void Play(int timeout = 0, std::string binning = "", std::vector<int> outputPointIds = {0},
-            std::vector<std::vector<int>> ranges = {}, Option_t * option = "", std::string ws = "");
+            std::vector<std::vector<int>> ranges = {}, Option_t * option = "");
 
   /**
    * @brief Get pointer to binning object.
@@ -319,18 +318,6 @@ class NGnTree : public TObject {
   NParameters * GetParameters() const { return fParameters; }
 
   /**
-   * @brief Returns the associated NWsClient instance.
-   * @return Pointer to the NWsClient object.
-   */
-  NWsClient * GetWsClient() const { return fWsClient; }
-
-  /**
-   * @brief Sets the NWsClient instance for this object.
-   * @param client Pointer to the NWsClient object to associate.
-   */
-  void SetWsClient(NWsClient * client) { fWsClient = client; }
-
-  /**
    * @brief Initializes the parameters for the tree using the provided parameter names.
    *
    * This function sets up the internal parameter structure based on the given list of parameter names.
@@ -391,7 +378,6 @@ class NGnTree : public TObject {
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing
   NGnNavigator *                 fNavigator{nullptr};   ///<! Navigator object
   NParameters *                  fParameters{nullptr};  ///< Parameters object
-  NWsClient *                    fWsClient{nullptr};    ///<! WebSocket client for communication
   bool                           fIsPureCopy{false};    ///< Flag indicating pure copy mode
 
   /// \cond CLASSIMP
