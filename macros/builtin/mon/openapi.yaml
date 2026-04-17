@@ -1,0 +1,179 @@
+openapi: 3.0.3
+info:
+  title: Monitoring API
+  description: API for managing jobs and tasks (monitoring + SLURM integration)
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080/api
+
+paths:
+  /jobs:
+    get:
+      operationId: getJobs
+      summary: Get all jobs
+      description: Returns list of all jobs with their task states
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+                    example: success
+                  jobList:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+
+    post:
+      operationId: createJob
+      summary: Create new job
+      description: Creates a job with list of tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, tasks]
+              properties:
+                name:
+                  type: string
+                  example: test_job1
+                tasks:
+                  type: array
+                  items:
+                    type: integer
+                  example: [1,2,3]
+      responses:
+        '200':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+
+    patch:
+      operationId: updateJob
+      summary: Update task state or cancel job
+      description: |
+        Update task state (start = R / done = D / skipped = S) OR cancel entire job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              oneOf:
+                - $ref: '#/components/schemas/TaskUpdate'
+                - $ref: '#/components/schemas/CancelRequest'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+
+    delete:
+      operationId: deleteJob
+      summary: Delete job
+      description: Removes job from system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: test_job1
+      responses:
+        '200':
+          description: Job deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+
+components:
+  schemas:
+
+    Job:
+      type: object
+      properties:
+        name:
+          type: string
+          example: test_job1
+        pending:
+          type: array
+          items:
+            type: integer
+          example: [1,2]
+        running:
+          type: array
+          items:
+            type: integer
+          example: [3]
+        done:
+          type: array
+          items:
+            type: integer
+          example: [4]
+        skipped:
+          type: array
+          items:
+            type: integer
+          example: [5]
+        rc:
+          type: array
+          items:
+            type: integer
+          example: [0,130]
+
+    TaskUpdate:
+      type: object
+      required: [name, task, action]
+      properties:
+        name:
+          type: string
+          example: test_job1
+        task:
+          type: integer
+          example: 1
+        action:
+          type: string
+          enum: [R, D, S, C]
+          example: S
+        rc:
+          type: integer
+          description: Optional return code (used for done/failed)
+          example: 0
+
+    CancelRequest:
+      type: object
+      required: [name, action]
+      properties:
+        name:
+          type: string
+          example: test_job1
+        action:
+          type: string
+          enum: [cancel]
+
+    GenericResponse:
+      type: object
+      properties:
+        result:
+          type: string
+          example: success
+        jobList:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
