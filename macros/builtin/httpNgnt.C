@@ -553,9 +553,10 @@ void httpNgnt()
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
           if (outputPoint) {
             NLogTrace("Output point for bin %d:", entry);
-            std::string listStr                      = TBufferJSON::ConvertToJSON(outputPoint).Data();
-            wsOut["payload"]["content"]              = json::parse(listStr);
-            wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
+            std::string listStr                      = TBufferJSON::ConvertToJSON(outputPoint, 3).Data();
+            // wsOut["payload"]["content"]       = nullptr;
+            wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad2";
+            Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "content"}, listStr);
           }
           else {
             NLogTrace("No output point found for entry %d", entry);
@@ -795,8 +796,10 @@ void httpNgnt()
         TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
         if (outputPoint) {
           NLogTrace("Output point for bin %d:", entry);
-          wsOut["payload"]["content"]["obj"]       = json::parse(TBufferJSON::ConvertToJSON(outputPoint).Data());
-          wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad3";
+          TString outputPointStr                   = TBufferJSON::ConvertToJSON(outputPoint,3);
+          // wsOut["payload"]["content"]       = nullptr;
+          wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad2";
+          Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "content"}, outputPointStr.Data());
         }
         else {
           NLogWarning("No output point found for entry %d", entry);

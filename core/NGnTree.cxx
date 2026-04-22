@@ -30,9 +30,6 @@
 #include "NGnNavigator.h"
 #include "NGnTree.h"
 
-#include <nlohmann/json.hpp>
-using json = nlohmann::json;
-
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NGnTree);
 /// \endcond

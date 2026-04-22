@@ -3,8 +3,7 @@
 #include <TObject.h>
 #include <TH1.h>
 #include <TF1.h>
-#include <nlohmann/json.hpp>
-using json = nlohmann::json;
+#include "NLogger.h"
 
 namespace Ndmspc {
 

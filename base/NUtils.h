@@ -10,8 +10,9 @@
 #include <TH2.h>
 #include <TH3.h>
 #include <THnSparse.h>
-#include <nlohmann/json.hpp>
-using json = nlohmann::json;
+#include <TBufferJSON.h>
+#include <TString.h>
+#include "NLogger.h"
 
 namespace Ndmspc {
 ///
@@ -96,6 +97,50 @@ class NUtils : TObject {
    * @return true if the file was loaded and parsed successfully, false otherwise.
    */
   static bool LoadJsonFile(json & cfg, std::string filename);
+
+  using RawJsonInjections = std::vector<std::pair<std::vector<std::string>, std::string>>;
+
+  /**
+   * Injects multiple raw JSON strings into a json object at the specified
+   * nested key paths. Each entry in the injections vector is a pair of:
+   *   - keys:    nested key path (e.g. {"data", "detector", "list"})
+   *   - rawJson: raw JSON string to inject at that path
+   *
+   * This avoids re-parsing raw JSON strings, preserving the exact output of TBufferJSON.
+   *
+   * @param json       The json object to inject into
+   * @param injections Vector of {keys, rawJson} pairs
+   * @return           The final JSON string with all raw JSONs injected
+   * @throws std::invalid_argument if any keys array is empty
+   * @throws std::runtime_error if any placeholder is not found after dump
+   */
+  static std::string InjectRawJson(json & j, const RawJsonInjections & injections);
+
+  /**
+   * @brief Add one raw JSON injection entry into metadata field.
+   *
+   * The server serializer can later collect these entries and apply InjectRawJson
+   * without each handler duplicating metadata format details.
+   *
+   * @param j JSON envelope that stores injection metadata
+   * @param path Nested key path where raw JSON should be injected
+   * @param rawJson Raw JSON string to inject
+   * @param injectionsKey Metadata key used to store injection entries
+   */
+  static void AddRawJsonInjection(json & j, const std::vector<std::string> & path, const std::string & rawJson,
+                                  const std::string & injectionsKey = "__raw_json_injections");
+
+  /**
+   * @brief Collect raw JSON injection entries from metadata field.
+   *
+   * @param j JSON envelope containing injection metadata
+   * @param injections Output vector of parsed {path, rawJson} entries
+   * @param injectionsKey Metadata key used to store injection entries
+   * @return True if metadata exists and at least one valid injection was collected
+   */
+  static bool CollectRawJsonInjections(const json & j, RawJsonInjections & injections,
+                                       const std::string & injectionsKey = "__raw_json_injections");
+
   /**
    * @brief Project a THnSparse histogram onto specified axes.
    * @param hns Input THnSparse.
@@ -397,7 +442,6 @@ class NUtils : TObject {
    */
   static double GetJsonDouble(json j);
 
-
   /**
    * @brief Get process CPU and RSS memory statistics using ROOT's gSystem::GetProcInfo
    * @return json object containing cpu and rss information
@@ -501,7 +545,6 @@ class NUtils : TObject {
    * @param obj Pointer reference to the object. Set to nullptr after deletion.
    */
   static void SafeDeleteObject(TObject *& obj);
-
 
   /**
    * @brief Create THnSparse from Parquet Taxi file.
