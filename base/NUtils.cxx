@@ -11,6 +11,9 @@
 #include <TThread.h>
 #include <TAxis.h>
 #include <THnSparse.h>
+#include <string>
+#include <vector>
+#include <stdexcept>
 #include <TString.h>
 #if defined(__linux__)
 #include <fstream>
@@ -30,7 +33,6 @@
 #include <parquet/exception.h>
 #endif
 #include "NUtils.h"
-
 
 using std::ifstream;
 
@@ -813,6 +815,108 @@ bool NUtils::LoadJsonFile(json & cfg, std::string filename)
   }
 
   return true;
+}
+
+std::string NUtils::InjectRawJson(json & j, const RawJsonInjections & injections)
+{
+  const std::string kPlaceholderBase = "##RAW_JSON_INJECT_";
+
+  // Set all placeholders with unique index suffixes
+  for (size_t i = 0; i < injections.size(); ++i) {
+    const auto & keys = injections[i].first;
+    if (keys.empty()) {
+      throw std::invalid_argument("Keys array must not be empty at injection index " + std::to_string(i));
+    }
+
+    json * current = &j;
+    for (size_t k = 0; k < keys.size() - 1; ++k) {
+      if (!current->contains(keys[k])) {
+        (*current)[keys[k]] = json::object();
+      }
+      current = &(*current)[keys[k]];
+    }
+    (*current)[keys.back()] = kPlaceholderBase + std::to_string(i) + "##";
+  }
+
+  std::string result = j.dump();
+
+  // Replace each placeholder with the corresponding raw JSON.
+  // Replace all occurrences defensively in case the placeholder appears more than once.
+  for (size_t i = 0; i < injections.size(); ++i) {
+    const std::string quotedPlaceholder = "\"" + kPlaceholderBase + std::to_string(i) + "##\"";
+
+    size_t pos = result.find(quotedPlaceholder);
+    if (pos == std::string::npos) {
+      throw std::runtime_error("Placeholder not found for key path ending in \"" + injections[i].first.back() + "\"");
+    }
+
+    while (pos != std::string::npos) {
+      result.replace(pos, quotedPlaceholder.length(), injections[i].second);
+      pos = result.find(quotedPlaceholder, pos + injections[i].second.size());
+    }
+  }
+
+  return result;
+}
+
+void NUtils::AddRawJsonInjection(json & j, const std::vector<std::string> & path, const std::string & rawJson,
+                                 const std::string & injectionsKey)
+{
+  if (path.empty()) {
+    throw std::invalid_argument("AddRawJsonInjection: path must not be empty");
+  }
+
+  // Walk to the parent of the target key and capture any existing object members so
+  // they are preserved in the final injected string (merged at string level).
+  json * current        = &j;
+  bool   pathReachable  = true;
+  for (size_t k = 0; k + 1 < path.size(); ++k) {
+    if (!current->is_object() || !current->contains(path[k])) {
+      pathReachable = false;
+      break;
+    }
+    current = &(*current)[path[k]];
+  }
+
+  std::string valueToStore = rawJson;
+  if (pathReachable && current->is_object() && current->contains(path.back())) {
+    const json & existing = (*current)[path.back()];
+    if (existing.is_object() && !existing.empty()) {
+      // Append existing key/value pairs into the raw JSON object string.
+      // Works only when rawJson is itself a JSON object (starts with '{').
+      size_t lastBrace = valueToStore.rfind('}');
+      if (lastBrace != std::string::npos) {
+        std::string extras      = existing.dump();                          // e.g. {"key":"val"}
+        std::string extraFields = extras.substr(1, extras.size() - 2);     // strip outer { }
+        if (!extraFields.empty()) {
+          valueToStore = valueToStore.substr(0, lastBrace) + "," + extraFields + "}";
+        }
+      }
+    }
+  }
+
+  if (!j.contains(injectionsKey) || !j[injectionsKey].is_array()) {
+    j[injectionsKey] = json::array();
+  }
+
+  j[injectionsKey].push_back({{"path", path}, {"value", valueToStore}});
+}
+
+bool NUtils::CollectRawJsonInjections(const json & j, RawJsonInjections & injections, const std::string & injectionsKey)
+{
+  injections.clear();
+  if (!j.contains(injectionsKey) || !j[injectionsKey].is_array()) {
+    return false;
+  }
+
+  for (const auto & entry : j[injectionsKey]) {
+    if (!entry.contains("path") || !entry["path"].is_array() || !entry.contains("value") || !entry["value"].is_string()) {
+      continue;
+    }
+    injections.emplace_back(entry["path"].get<std::vector<std::string>>(), entry["value"].get<std::string>());
+  }
+
+  return !injections.empty();
 }
 
 std::vector<std::string> NUtils::Find(std::string path, std::string filename)
@@ -1825,16 +1929,14 @@ void NUtils::SafeDeleteObjects(std::vector<TObject *> & objects)
   // Collect all pads breadth-first (top-level + nested sub-pads)
   std::vector<TPad *> pads;
   for (auto * obj : objects) {
-    if (obj && obj->InheritsFrom(TPad::Class()))
-      pads.push_back(static_cast<TPad *>(obj));
+    if (obj && obj->InheritsFrom(TPad::Class())) pads.push_back(static_cast<TPad *>(obj));
   }
   for (size_t i = 0; i < pads.size(); ++i) {
     TList * prims = pads[i]->GetListOfPrimitives();
     if (!prims || prims->IsEmpty()) continue;
     for (TObjLink * lnk = prims->FirstLink(); lnk; lnk = lnk->Next()) {
       TObject * child = lnk->GetObject();
-      if (child && child->InheritsFrom(TPad::Class()))
-        pads.push_back(static_cast<TPad *>(child));
+      if (child && child->InheritsFrom(TPad::Class())) pads.push_back(static_cast<TPad *>(child));
     }
   }
 
@@ -1850,8 +1952,7 @@ void NUtils::SafeDeleteObjects(std::vector<TObject *> & objects)
     // Collect primitives not in the input vector — they'd leak otherwise
     for (TObjLink * lnk = prims->FirstLink(); lnk; lnk = lnk->Next()) {
       TObject * child = lnk->GetObject();
-      if (child && inputSet.find(child) == inputSet.end())
-        orphans.insert(child);
+      if (child && inputSet.find(child) == inputSet.end()) orphans.insert(child);
     }
     // Disarm: no lock, non-owning, remove links only (no GarbageCollect)
     prims->UseRWLock(kFALSE);
@@ -1901,9 +2002,10 @@ void NUtils::SafeDeleteObject(TObject *& obj)
 
   if (obj->InheritsFrom(TList::Class())) {
     TList * lst = static_cast<TList *>(obj);
-    obj = nullptr;
+    obj         = nullptr;
     SafeDeleteTList(lst);
-  } else {
+  }
+  else {
     delete obj;
     obj = nullptr;
   }
@@ -1911,18 +2013,18 @@ void NUtils::SafeDeleteObject(TObject *& obj)
 
 json NUtils::GetSystemStats()
 {
-  json out;
+  json       out;
   ProcInfo_t info;
   gSystem->GetProcInfo(&info);
 
-  out["cpu_user"] = info.fCpuUser;
-  out["cpu_sys"]  = info.fCpuSys;
-  out["cpu_total"] = info.fCpuUser + info.fCpuSys;
-  out["mem_rss_kb"] = info.fMemResident;
+  out["cpu_user"]     = info.fCpuUser;
+  out["cpu_sys"]      = info.fCpuSys;
+  out["cpu_total"]    = info.fCpuUser + info.fCpuSys;
+  out["mem_rss_kb"]   = info.fMemResident;
   out["mem_vsize_kb"] = info.fMemVirtual;
 
   // Report number of logical CPUs available on the host
-  unsigned int hc = std::thread::hardware_concurrency();
+  unsigned int hc  = std::thread::hardware_concurrency();
   out["cpu_count"] = (hc == 0) ? 1 : static_cast<int>(hc);
 
   return out;
@@ -1931,27 +2033,27 @@ json NUtils::GetSystemStats()
 json NUtils::GetTFileIOStats()
 {
   json out;
-  out["totalRead"] = 0LL;
+  out["totalRead"]    = 0LL;
   out["totalWritten"] = 0LL;
 
-  TList * files = (TList*)gROOT->GetListOfFiles();
+  TList * files = (TList *)gROOT->GetListOfFiles();
   if (!files) return out;
 
-  Long64_t totalRead = 0;
+  Long64_t totalRead    = 0;
   Long64_t totalWritten = 0;
 
-  TIter next(files);
+  TIter     next(files);
   TObject * obj = nullptr;
   while ((obj = next())) {
     TFile * f = dynamic_cast<TFile *>(obj);
     if (!f) continue;
     json fi;
-    fi["name"] = f->GetName() ? f->GetName() : "";
+    fi["name"]     = f->GetName() ? f->GetName() : "";
     fi["isZombie"] = (bool)f->IsZombie();
-    fi["isOpen"] = (bool)f->IsOpen();
+    fi["isOpen"]   = (bool)f->IsOpen();
 
     // Try to read per-file counters if available in this ROOT build
-    Long64_t bytesRead = 0;
+    Long64_t bytesRead    = 0;
     Long64_t bytesWritten = 0;
     // Many ROOT versions expose GetBytesRead/GetBytesWritten on TFile; attempt to call them.
     // If they are not available, these calls will fail to link — in that case, users
@@ -1960,16 +2062,16 @@ json NUtils::GetTFileIOStats()
     // Use C-style cast to call methods if they exist; rely on linker to resolve.
     // If unavailable, these lines may need adjustment for older ROOT versions.
     try {
-      bytesRead = f->GetBytesRead();
+      bytesRead    = f->GetBytesRead();
       bytesWritten = f->GetBytesWritten();
     }
     catch (...) {
-      bytesRead = 0;
+      bytesRead    = 0;
       bytesWritten = 0;
     }
 #endif
 
-    fi["bytesRead"] = bytesRead;
+    fi["bytesRead"]    = bytesRead;
     fi["bytesWritten"] = bytesWritten;
 
     totalRead += bytesRead;
@@ -1978,7 +2080,7 @@ json NUtils::GetTFileIOStats()
     out["files"].push_back(fi);
   }
 
-  out["totalRead"] = totalRead;
+  out["totalRead"]    = totalRead;
   out["totalWritten"] = totalWritten;
 
   return out;
@@ -2005,20 +2107,24 @@ json NUtils::GetNetDevStats()
     // trim
     auto ltrim = [](std::string & s) {
       size_t start = s.find_first_not_of(" \t");
-      if (start != std::string::npos) s = s.substr(start);
-      else s.clear();
+      if (start != std::string::npos)
+        s = s.substr(start);
+      else
+        s.clear();
     };
     auto rtrim = [](std::string & s) {
       size_t end = s.find_last_not_of(" \t");
-      if (end != std::string::npos) s = s.substr(0, end + 1);
-      else s.clear();
+      if (end != std::string::npos)
+        s = s.substr(0, end + 1);
+      else
+        s.clear();
     };
     ltrim(ifname);
     rtrim(ifname);
-    std::string rest = line.substr(colon + 1);
-    std::stringstream ss(rest);
+    std::string                     rest = line.substr(colon + 1);
+    std::stringstream               ss(rest);
     std::vector<unsigned long long> vals;
-    std::string tok;
+    std::string                     tok;
     while (ss >> tok) {
       try {
         vals.push_back(std::stoull(tok));
@@ -2030,32 +2136,40 @@ json NUtils::GetNetDevStats()
     if (vals.size() >= 9) {
       unsigned long long rx = vals[0];
       unsigned long long tx = vals[8];
-      json iface;
+      json               iface;
       iface["name"] = ifname;
-      iface["rx"] = rx;
-      iface["tx"] = tx;
+      iface["rx"]   = rx;
+      iface["tx"]   = tx;
       out["interfaces"].push_back(iface);
-      out["total_rx"] = static_cast<unsigned long long>(out["total_rx"].is_null() ? 0ULL : out["total_rx"].get<unsigned long long>()) + rx;
-      out["total_tx"] = static_cast<unsigned long long>(out["total_tx"].is_null() ? 0ULL : out["total_tx"].get<unsigned long long>()) + tx;
+      out["total_rx"] = static_cast<unsigned long long>(
+                            out["total_rx"].is_null() ? 0ULL : out["total_rx"].get<unsigned long long>()) +
+                        rx;
+      out["total_tx"] = static_cast<unsigned long long>(
+                            out["total_tx"].is_null() ? 0ULL : out["total_tx"].get<unsigned long long>()) +
+                        tx;
     }
   }
 
 #elif defined(__APPLE__)
-  struct ifaddrs *ifap = nullptr;
+  struct ifaddrs * ifap = nullptr;
   if (getifaddrs(&ifap) != 0) return out;
-  for (struct ifaddrs *ifa = ifap; ifa; ifa = ifa->ifa_next) {
+  for (struct ifaddrs * ifa = ifap; ifa; ifa = ifa->ifa_next) {
     if (!ifa->ifa_data) continue;
-    struct if_data *ifd = (struct if_data *)ifa->ifa_data;
+    struct if_data * ifd = (struct if_data *)ifa->ifa_data;
     if (!ifd) continue;
     unsigned long long rx = (unsigned long long)ifd->ifi_ibytes;
     unsigned long long tx = (unsigned long long)ifd->ifi_obytes;
-    json iface;
+    json               iface;
     iface["name"] = ifa->ifa_name ? ifa->ifa_name : std::string();
-    iface["rx"] = rx;
-    iface["tx"] = tx;
+    iface["rx"]   = rx;
+    iface["tx"]   = tx;
     out["interfaces"].push_back(iface);
-    out["total_rx"] = static_cast<unsigned long long>(out["total_rx"].is_null() ? 0ULL : out["total_rx"].get<unsigned long long>()) + rx;
-    out["total_tx"] = static_cast<unsigned long long>(out["total_tx"].is_null() ? 0ULL : out["total_tx"].get<unsigned long long>()) + tx;
+    out["total_rx"] =
+        static_cast<unsigned long long>(out["total_rx"].is_null() ? 0ULL : out["total_rx"].get<unsigned long long>()) +
+        rx;
+    out["total_tx"] =
+        static_cast<unsigned long long>(out["total_tx"].is_null() ? 0ULL : out["total_tx"].get<unsigned long long>()) +
+        tx;
   }
   freeifaddrs(ifap);
 #else

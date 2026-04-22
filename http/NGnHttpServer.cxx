@@ -279,8 +279,18 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         }
       }
 
-      NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());
-      WebSocketBroadcast(wsMessage);
+      NUtils::RawJsonInjections injections;
+      if (NUtils::CollectRawJsonInjections(wsOut, injections)) {
+        std::string wsMessageStr = NUtils::InjectRawJson(wsMessage, injections);
+        NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessageStr.c_str());
+        if (fNWsHandler) {
+          fNWsHandler->BroadcastUnsafe(wsMessageStr);
+        }
+      }
+      else {
+        NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());
+        WebSocketBroadcast(wsMessage);
+      }
     }
     else {
       NLogTrace("Skipping WebSocket broadcast for path %s: no payload or workspace changes", fullpath.Data());

@@ -1,7 +1,6 @@
 #include "NMonJobManager.h"
 #include "NUtils.h"
-#include "NLogger.h"
-using json = nlohmann::json;
+
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NMonJobManager);

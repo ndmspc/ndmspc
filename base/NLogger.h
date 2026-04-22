@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <fstream>
 #include <thread>
+#include <nlohmann/json.hpp>
+using json = nlohmann::ordered_json;
 
 /**
  * @def NLog

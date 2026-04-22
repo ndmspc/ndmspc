@@ -1,10 +1,9 @@
 #ifndef Ndmspc_NMonJob_H
 #define Ndmspc_NMonJob_H
 #include <TNamed.h>
-#include <nlohmann/json.hpp>
+#include "NLogger.h"
 
 namespace Ndmspc {
-using json = nlohmann::json;
 
 ///
 /// \class NMonJob

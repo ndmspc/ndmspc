@@ -16,7 +16,7 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   ///   e.g. export ROOT_MAX_THREADS=4
   ///
 
-  gErrorIgnoreLevel = kError; 
+  gErrorIgnoreLevel = kError;
 
   json cfg;
   cfg["onlyOddPoints"] = onlyOddPoints;
@@ -34,13 +34,12 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   axes->Add(a2);
 
   TAxis * a3 =
-      // Ndmspc::NUtils::CreateAxisFromLabels("entries", "Entries", {"10", "100", "1000", "10000", "100000", "1000000"});
-      Ndmspc::NUtils::CreateAxisFromLabels("entries", "Entries", {"10"});
+      Ndmspc::NUtils::CreateAxisFromLabels("entries", "Entries", {"10", "100", "1000", "10000", "100000", "1000000"});
+  // Ndmspc::NUtils::CreateAxisFromLabels("entries", "Entries", {"10"});
   axes->Add(a3);
 
   // Create an NGnTree from the list of axes
   Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(axes, outFile);
-
 
   // // Define the binning for the axes
   // std::map<std::string, std::vector<std::vector<int>>> b0x;
@@ -51,7 +50,6 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   // // Create the binning definition with name "b0" in the NGnTree
   // ngnt->GetBinning()->AddBinningDefinition("b0x", b0x);
 
-
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b0;
   // Set binning for axis1 (rebin to 1 bin)
@@ -61,16 +59,15 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   // Create the binning definition with name "b0" in the NGnTree
   ngnt->GetBinning()->AddBinningDefinition("b0", b0);
 
-    // Define the binning for the axes
+  // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b0_;
   // Set binning for axis1 (rebin to 1 bin)
-  b0_["mean"]    = {{50,1}, {25}};
+  b0_["mean"] = {{50, 1}, {25}};
   // b0_["mean"]    = {{50}};
   b0_["sigma"]   = {{50}};
   b0_["entries"] = {{1}};
   // Create the binning definition with name "b0" in the NGnTree
   ngnt->GetBinning()->AddBinningDefinition("b0_", b0_);
-
 
   // // Define the binning for the axes
   // std::map<std::string, std::vector<std::vector<int>>> b1;
@@ -88,7 +85,6 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   // // Create the binning definition with name "b2" in the NGnTree
   // ngnt->GetBinning()->AddBinningDefinition("b2", b2);
 
-
   // std::map<std::string, std::vector<std::vector<int>>> b3;
   // // b3["mean"]    = {{5,2}, {10}};
   // b3["mean"]    = {{10}};
@@ -96,11 +92,6 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   // b3["entries"] = {{1}};
   // // Create the binning definition with name "b3" in the NGnTree
   // ngnt->GetBinning()->AddBinningDefinition("b3", b3);
-
-
-  
-
-
 
   ngnt->InitParameters({"meanFit", "sigmaFit"});
 

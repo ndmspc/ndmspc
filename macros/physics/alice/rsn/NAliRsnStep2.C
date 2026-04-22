@@ -18,7 +18,7 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   cfg["norm"]["max"] = 1.07;
   cfg["minEntries"]  = 0;
   cfg["parameters"]  = {"yield", "mean", "width", "sigma", "c0", "c1", "c2"};
-  cfg["fitType"]     = "std"; // "rootfit" or "std"
+  cfg["fitType"]     = "std";     // "rootfit" or "std"
   cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
 
   // cfg["file"]            = inFile;
@@ -43,7 +43,7 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
 
   TAxis * bg =
       Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"mixingpm", "mixingmp", "likepp", "likemm", "rotationpm"});
-      // Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"rotationpm"});
+  // Ndmspc::NUtils::CreateAxisFromLabels("bg", "bg", {"rotationpm"});
   axes->Add(bg);
   // delete ngntIn;
 
@@ -52,13 +52,11 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
 
   // Define the binning for the axes
 
-
-
-  std::map<std::string, std::vector<std::vector<int>>> b;
-  b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
-  b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
-  b["bg"] = {{1}};
-  ngnt->GetBinning()->AddBinningDefinition("default", b);
+  // std::map<std::string, std::vector<std::vector<int>>> b;
+  // b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
+  // b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
+  // b["bg"] = {{1}};
+  // ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   std::map<std::string, std::vector<std::vector<int>>> b0;
   // b0["pt"] = {{150}};
@@ -156,7 +154,8 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
                                                       point->GetParameters()->GetHisto());
     }
     else if (cfg["fitType"] == "rootfit") {
-      accepted = Ndmspc::AnalysisUtils::ExtractSignalRooFit(hSigBg, hBg, cfg, outputPoint, point->GetParameters()->GetHisto());
+      accepted =
+          Ndmspc::AnalysisUtils::ExtractSignalRooFit(hSigBg, hBg, cfg, outputPoint, point->GetParameters()->GetHisto());
     }
 
     if (!accepted) {

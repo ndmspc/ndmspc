@@ -1,8 +1,9 @@
 #include <TFitResult.h>
 #include <TList.h>
-#include <NLogger.h>
-#include <NUtils.h>
 #include <cmath>
+#include <TGraph.h>
+#include <TCanvas.h>
+#include <TMath.h>
 #include <TH1.h>
 
 #include <RooRealVar.h>
@@ -15,9 +16,8 @@
 #include <RooHistPdf.h>
 #include <RooChebychev.h>
 
-#include <TGraph.h>
-#include <TCanvas.h>
-#include <TMath.h>
+#include "NUtils.h"
+
 #include "AnalysisFunctions.h"
 #include "AnalysisUtils.h"
 

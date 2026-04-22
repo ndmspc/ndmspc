@@ -1,10 +1,8 @@
 #ifndef Ndmspc_NBinningPoint_H
 #define Ndmspc_NBinningPoint_H
 #include <TObject.h>
-#include <nlohmann/json.hpp>
+#include "NLogger.h"
 #include "NParameters.h"
-
-using json = nlohmann::json;
 
 namespace Ndmspc {
 

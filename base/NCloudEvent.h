@@ -2,9 +2,7 @@
 #define NdmspcHttpNCloudEvent_H
 
 #include <TObject.h>
-#include <nlohmann/json.hpp>
-#include <string>
-using json = nlohmann::json;
+#include "NLogger.h"
 
 class THttpCallArg;
 namespace Ndmspc {
