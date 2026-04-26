@@ -10,7 +10,8 @@
 #include <fstream>
 #include <thread>
 #include <nlohmann/json.hpp>
-using json = nlohmann::ordered_json;
+using json = nlohmann::json;
+// using json = nlohmann::ordered_json;
 
 /**
  * @def NLog

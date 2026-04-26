@@ -142,6 +142,18 @@ class NUtils : TObject {
                                        const std::string & injectionsKey = "__raw_json_injections");
 
   /**
+   * @brief Merge raw JSON string with metadata fields.
+   *
+   * Parses the raw JSON string and merges in metadata fields. Metadata fields
+   * at the top level are added/merged directly; nested paths are not supported.
+   *
+   * @param rawJson Raw JSON string to merge into
+   * @param metadata JSON object with fields to merge
+   * @return Merged JSON string
+   */
+  static std::string MergeRawJsonWithMetadata(const std::string & rawJson, const json & metadata);
+
+  /**
    * @brief Project a THnSparse histogram onto specified axes.
    * @param hns Input THnSparse.
    * @param axes Axes to project.
