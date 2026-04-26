@@ -919,6 +919,28 @@ bool NUtils::CollectRawJsonInjections(const json & j, RawJsonInjections & inject
   return !injections.empty();
 }
 
+std::string NUtils::MergeRawJsonWithMetadata(const std::string & rawJson, const json & metadata)
+{
+  ///
+  /// Merge raw JSON string with metadata fields
+  ///
+
+  try {
+    json obj = json::parse(rawJson);
+    
+    // Merge metadata fields into the parsed object
+    for (const auto & [key, val] : metadata.items()) {
+      obj[key] = val;
+    }
+    
+    return obj.dump();
+  }
+  catch (const std::exception & e) {
+    NLogError("NUtils::MergeRawJsonWithMetadata: Failed to parse raw JSON: %s", e.what());
+    return rawJson;  // Return original if parsing fails
+  }
+}
+
 std::vector<std::string> NUtils::Find(std::string path, std::string filename)
 {
   ///

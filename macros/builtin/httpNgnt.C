@@ -40,6 +40,7 @@
 #include <NGnTree.h>
 #include <NGnNavigator.h>
 #include <NParameters.h>
+#include <NUtils.h>
 #include <TBufferJSON.h>
 #include <TH1.h>
 #include <TList.h>
@@ -102,7 +103,8 @@ bool RenderSpectra(Ndmspc::NGnNavigator * navCurrent, const std::vector<std::str
                    const std::string & minmaxMode, int startPadIndex, json & wsOut, bool addDebugAction = false)
 {
   int               padIndex = startPadIndex;
-  std::vector<json> multiSpectra;
+  std::string       objsArrayJson = "[";  // Build array as raw JSON string
+  bool              first = true;
 
   for (const auto & param : parameters) {
     NLogTrace("[Server] Obtaining spectra for parameter '%s' at navigator level %d", param.c_str(),
@@ -111,28 +113,41 @@ bool RenderSpectra(Ndmspc::NGnNavigator * navCurrent, const std::vector<std::str
     TList *     spectra = navCurrent->DrawSpectraAll(param, {axismargin}, minmaxMode, "");
     if (spectra) {
       NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
-      json spectraObject = json::parse(TBufferJSON::ConvertToJSON(spectra).Data());
+      std::string rawJson = TBufferJSON::ConvertToJSON(spectra).Data();
       spectra->SetOwner(kTRUE);
       delete spectra;
 
+      // Build metadata to merge with raw JSON
+      json metadata;
+      metadata["targetPad"] = padName;
+      metadata["parameter"] = param;
+      
       if (addDebugAction) {
         json debugAction;
-        debugAction["type"]                = "debug";
-        debugAction["message"]             = std::string("Debug click: ") + spectraObject["fName"].dump();
-        spectraObject["handlers"]["click"] = json::array({debugAction});
+        debugAction["type"]           = "debug";
+        debugAction["message"]        = "Debug click";
+        metadata["handlers"]["click"] = json::array({debugAction});
       }
-      spectraObject["targetPad"] = padName;
-      spectraObject["parameter"] = param;
-      multiSpectra.push_back(spectraObject);
+
+      // Merge raw JSON with metadata (returns string)
+      std::string merged = Ndmspc::NUtils::MergeRawJsonWithMetadata(rawJson, metadata);
+      
+      // Append to array string
+      if (!first) objsArrayJson += ",";
+      objsArrayJson += merged;
+      first = false;
     }
     else {
       NLogWarning("No spectra found for parameter '%s'", param.c_str());
     }
     padIndex++;
   }
+  
+  objsArrayJson += "]";
 
-  if (!multiSpectra.empty()) {
-    wsOut["payload"]["spectra"]["objs"]       = multiSpectra;
+  if (!objsArrayJson.empty() && objsArrayJson != "[]") {
+    // Inject the entire array as raw JSON
+    Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "spectra", "objs"}, objsArrayJson);
     wsOut["payload"]["spectra"]["parameters"] = parameters;
     wsOut["payload"]["spectra"]["multipad"]   = true;
   }
@@ -140,7 +155,7 @@ bool RenderSpectra(Ndmspc::NGnNavigator * navCurrent, const std::vector<std::str
   if (!minmaxMode.empty()) {
     wsOut["payload"]["spectra"]["minmaxMode"] = minmaxMode;
   }
-  return !multiSpectra.empty();
+  return !objsArrayJson.empty() && objsArrayJson != "[]";
 }
 
 json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
@@ -773,9 +788,8 @@ void httpNgnt()
 
     if (ctx.IsGet()) {
       TH1 *   proj                   = nav->GetProjection();
-      TString h                      = TBufferJSON::ConvertToJSON(proj);
-      json    hMap                   = json::parse(h.Data());
-      wsOut["payload"]["map"]["obj"] = hMap;
+      std::string h                  = TBufferJSON::ConvertToJSON(proj,3).Data();
+      Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "map", "obj"}, h);
 
       json clickAction;
       clickAction["type"]                          = "http";
