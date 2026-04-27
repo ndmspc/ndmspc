@@ -1,4 +1,6 @@
-#pragma once
+#ifndef NdmspcCoreNLogger_H
+#define NdmspcCoreNLogger_H
+
 #include <memory>
 #include <mutex>
 #include <string>
@@ -590,3 +592,5 @@ class NLogger {
   /// \endcond;
 };
 } // namespace Ndmspc
+
+#endif // NdmspcCoreNLogger_H
