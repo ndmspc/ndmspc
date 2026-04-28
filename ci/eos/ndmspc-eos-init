@@ -13,4 +13,3 @@ eos_css_scripts:
 EOF
 
 ansible-playbook -i inventory/eos-local playbooks/eos.yml --tags install -e eos_css_script_directory=${NDMSPC_INIT_DIR}/ci/eos/css_plugin/scripts -e @vars.yml
-
