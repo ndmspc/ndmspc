@@ -1,7 +1,7 @@
 FROM registry.gitlab.com/ndmspc/user/al9:base
 RUN dnf -y install gcc-c++ clang make cmake git doxygen \
   openssl-devel libcurl-devel libuv-devel \
-  libwebsockets-devel protobuf-devel json-devel \
+  libwebsockets-devel protobuf-devel json-devel zeromq-devel\
   root root-net-http root-net-httpsniff \
   dnf clean all
 # opentelemetry-cpp-devel parquet-libs-devel

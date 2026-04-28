@@ -16,7 +16,8 @@ void NAliRsnStep1(
   json cfg               = json::object();
   cfg["file"]            = inFile;
   cfg["objectDirecotry"] = "phianalysis-t-hn-sparse_tpctof";
-  cfg["objectNames"]     = {"unlikepm", "mixingpm", "mixingmp", "likepp", "likemm", "rotationpm", "unliketrue","unlikegen"};
+  cfg["objectNames"]     = {"unlikepm", "mixingpm",   "mixingmp",   "likepp",
+                            "likemm",   "rotationpm", "unliketrue", "unlikegen"};
   cfg["axes"]            = {"pt:axis1-pt", "ce:axis2-ce"};
   cfg["proj"]            = 0;
 
@@ -68,8 +69,6 @@ void NAliRsnStep1(
 
   // Define the binning for the axes
 
-
-
   std::map<std::string, std::vector<std::vector<int>>> b;
   b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
   b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
@@ -111,8 +110,9 @@ void NAliRsnStep1(
   // b7["ce"] = {{2}};
   // ngnt->GetBinning()->AddBinningDefinition("b7", b7);
 
-
   // ngnt->Print();
+
+  ngnt->InitParameters(cfg["objectNames"].get<std::vector<std::string>>());
 
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                              int threadId) {
@@ -150,7 +150,8 @@ void NAliRsnStep1(
       THnSparse * hns =
           dynamic_cast<THnSparse *>(f->Get(TString::Format("%s/%s", objectDir.c_str(), objectName.c_str()).Data()));
       if (!hns) {
-        // NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(), filePath.c_str());
+        // NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(),
+        // filePath.c_str());
         continue;
       }
 
@@ -161,6 +162,13 @@ void NAliRsnStep1(
       proj->SetName(objectName.c_str());
       proj->SetTitle(TString::Format("%s %s", objectName.c_str(), point->GetString().c_str()).Data());
       outputPoint->Add(proj);
+
+      Ndmspc::NParameters * pointParams = point->GetParameters();
+      if (pointParams) {
+        pointParams->SetParameter(TString::Format("%s", objectName.c_str()).Data(), proj->GetEntries(),
+                                  TMath::Sqrt(proj->GetEntries()));
+      }
+
       delete hns;
     }
 
