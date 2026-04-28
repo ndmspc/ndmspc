@@ -14,6 +14,9 @@
 #include <stdexcept>
 #include <utility>
 #include <exception>
+#include <memory>
+#include <string>
+#include <Rtypes.h>
 #include <THnSparse.h>
 #include "NLogger.h"
 #include "NThreadData.h"
@@ -41,6 +44,10 @@ class NDimensionalExecutor {
    */
   NDimensionalExecutor(THnSparse * hist, bool onlyfilled = false);
 
+  ~NDimensionalExecutor();
+
+  void SetBounds(const std::vector<int> & minBounds, const std::vector<int> & maxBounds);
+
   /**
    * @brief Execute a function over all coordinates in the N-dimensional space.
    * @param func Function to execute, taking coordinates as argument.
@@ -56,6 +63,19 @@ class NDimensionalExecutor {
   template <typename TObject>
   void ExecuteParallel(const std::function<void(const std::vector<int> & coords, TObject & thread_object)> & func,
                        std::vector<TObject> & thread_objects);
+
+  /**
+   * @brief Execute fixed-contract processing in multiple child processes over IPC.
+   * @param workerObjects Worker objects (NThreadData-derived) used by child processes.
+   * @param processCount Number of worker processes to use.
+   * @return Number of processed tasks acknowledged by workers.
+   */
+  size_t ExecuteParallelProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount);
+  void   StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount);
+  size_t ExecuteCurrentBoundsProcessIpc(const std::string & definitionName = "",
+                                        const std::vector<Long64_t> * definitionIds = nullptr,
+                                        const std::function<void(size_t, size_t)> & progressCallback = nullptr);
+  void   FinishProcessIpc();
 
   /**
    * @brief Returns the number of dimensions.
@@ -86,185 +106,12 @@ class NDimensionalExecutor {
    * @return True if increment was successful, false if end reached.
    */
   bool Increment();
+
+  struct IpcSession;
+  std::unique_ptr<IpcSession> fIpcSession;
 };
 
-// --- Template Implementation for ExecuteParallel ---
-/**
- * @brief Execute a function in parallel over all coordinates, using thread-local objects.
- *        Handles task distribution, synchronization, and exception propagation.
- *
- * @throws std::exception If any worker thread throws, the first exception is rethrown after joining.
- */
-template <typename TObject>
-void NDimensionalExecutor::ExecuteParallel(
-    const std::function<void(const std::vector<int> & coords, TObject & thread_object)> & func,
-    std::vector<TObject> &                                                                thread_objects)
-{
-  if (fNumDimensions == 0) {
-    return;
-  }
-  size_t threads_to_use = thread_objects.size();
-  if (threads_to_use == 0) {
-    throw std::invalid_argument("Thread objects vector cannot be empty.");
-  }
 
-  std::vector<std::thread>                   workers;
-  std::queue<std::function<void(TObject &)>> tasks;
-  std::mutex                                 queue_mutex;
-  std::condition_variable                    condition_producer;
-  std::condition_variable                    condition_consumer;
-  std::atomic<size_t>                        active_tasks = 0;
-  std::atomic<bool>                          stop_pool    = false;
-  // Optional: Store first exception encountered in workers
-  std::exception_ptr first_exception = nullptr;
-  std::mutex         exception_mutex;
-
-  // Worker thread logic: fetch and execute tasks, handle exceptions, signal completion.
-  auto worker_logic = [&](TObject & my_object) {
-    NThreadData * md = (NThreadData *)&my_object;
-
-    std::ostringstream oss;
-    oss << "wk_" << std::setw(3) << std::setfill('0') << md->GetAssignedIndex();
-
-    NLogger::SetThreadName(oss.str());
-    while (true) {
-      std::function<void(TObject &)> task_payload;
-      bool                           task_acquired = false; // Track if we actually got a task this iteration
-
-      try {
-        { // Lock scope for queue access
-          std::unique_lock<std::mutex> lock(queue_mutex);
-          condition_producer.wait(lock, [&] { return stop_pool || !tasks.empty(); });
-
-          // Check stop condition *after* waking up
-          if (stop_pool && tasks.empty()) {
-            break; // Exit the while loop normally
-          }
-          // If stopping but tasks remain, continue processing them
-
-          // Only proceed if not stopping or if tasks are still present
-          if (!tasks.empty()) {
-            task_payload = std::move(tasks.front());
-            tasks.pop();
-            task_acquired = true; // We got a task
-          }
-          else {
-            // Spurious wakeup or stop_pool=true with empty queue
-            continue; // Go back to wait
-          }
-        } // Mutex unlocked
-
-        // Execute the task if we acquired one
-        if (task_acquired) {
-          task_payload(my_object); // Execute task with assigned object
-        }
-      }
-      catch (...) {
-        // --- Exception Handling ---
-        { // Lock to safely store the first exception
-          std::lock_guard<std::mutex> lock(exception_mutex);
-          if (!first_exception) {
-            first_exception = std::current_exception(); // Store it
-          }
-        }
-        // Signal pool to stop immediately on any error
-        {
-          std::unique_lock<std::mutex> lock(queue_mutex);
-          stop_pool = true;
-        }
-        condition_producer.notify_all(); // Wake all threads to check stop flag
-
-        // *** Crucial Fix: Decrement active_tasks even on exception ***
-        // Check if we actually acquired a task before decrementing
-        if (task_acquired) {
-          if (--active_tasks == 0 && stop_pool) {
-            // Also notify consumer here in case this was the last task
-            condition_consumer.notify_one();
-          }
-        }
-        // Decide whether to exit the worker or try processing remaining tasks
-        // For simplicity, let's exit the worker on error.
-        return; // Exit worker thread immediately on error
-      }
-
-      // --- Normal Task Completion ---
-      // Decrement active task count *after* successful execution
-      // Check if we actually acquired and processed a task
-      if (task_acquired) {
-        if (--active_tasks == 0 && stop_pool) {
-          condition_consumer.notify_one();
-        }
-      }
-    } // End of while loop
-  }; // End of worker_logic lambda
-
-  // --- Start Worker Threads ---
-  workers.reserve(threads_to_use);
-  for (size_t i = 0; i < threads_to_use; ++i) {
-    workers.emplace_back(worker_logic, std::ref(thread_objects[i]));
-  }
-
-  // --- Main Thread: Iterate and Enqueue Tasks ---
-  try {
-    fCurrentCoords = fMinBounds;
-    do {
-      // Check if pool was stopped prematurely (e.g., by an exception in a worker)
-      // Lock needed to safely check stop_pool
-      {
-        std::unique_lock<std::mutex> lock(queue_mutex);
-        if (stop_pool) break;
-      }
-
-      std::vector<int> coords_copy = fCurrentCoords;
-      {
-        std::unique_lock<std::mutex> lock(queue_mutex);
-        // Double check stop_pool after acquiring lock
-        if (stop_pool) break;
-
-        active_tasks++;
-        tasks.emplace([func, coords_copy](TObject & obj) { func(coords_copy, obj); });
-      }
-      condition_producer.notify_one();
-    } while (Increment());
-  }
-  catch (...) {
-    // Exception during iteration/enqueueing
-    {
-      std::unique_lock<std::mutex> lock(queue_mutex);
-      stop_pool = true;       // Signal workers to stop
-      if (!first_exception) { // Store exception if none from workers yet
-        first_exception = std::current_exception();
-      }
-    }
-    condition_producer.notify_all();
-    // Proceed to join threads
-  }
-
-  // --- Signal Workers to Stop (if not already stopped by error) ---
-  {
-    std::unique_lock<std::mutex> lock(queue_mutex);
-    stop_pool = true;
-  }
-  condition_producer.notify_all();
-
-  // --- Wait for Tasks to Complete ---
-  {
-    std::unique_lock<std::mutex> lock(queue_mutex);
-    condition_consumer.wait(lock, [&] { return stop_pool && active_tasks == 0; });
-  }
-
-  // --- Join Worker Threads ---
-  for (std::thread & worker : workers) {
-    if (worker.joinable()) {
-      worker.join();
-    }
-  }
-
-  // --- Check for and rethrow exception from workers ---
-  if (first_exception) {
-    std::rethrow_exception(first_exception);
-  }
-}
 
 } // namespace Ndmspc
 

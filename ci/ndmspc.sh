@@ -8,6 +8,7 @@ requires:
   - libwebsockets
   - curl
   - libuv
+  - ZeroMQ
 #  - arrow
 build_requires:
   - CMake

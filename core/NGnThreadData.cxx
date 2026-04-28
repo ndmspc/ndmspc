@@ -292,6 +292,31 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   }
 }
 
+void NGnThreadData::SetCurrentDefinitionName(const std::string & name)
+{
+  if (fHnSparseBase && fHnSparseBase->GetBinning()) {
+    fHnSparseBase->GetBinning()->SetCurrentDefinitionName(name);
+  }
+  if (fBiningSource) {
+    fBiningSource->SetCurrentDefinitionName(name);
+  }
+}
+
+void NGnThreadData::SyncCurrentDefinitionIds(const std::vector<Long64_t> & ids)
+{
+  if (fHnSparseBase && fHnSparseBase->GetBinning()) {
+    if (auto * def = fHnSparseBase->GetBinning()->GetDefinition()) {
+      def->GetIds() = ids;
+    }
+  }
+
+  if (fBiningSource) {
+    if (auto * def = fBiningSource->GetDefinition()) {
+      def->GetIds() = ids;
+    }
+  }
+}
+
 Long64_t NGnThreadData::Merge(TCollection * list)
 {
   ///

@@ -260,8 +260,8 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
 
     // hPeak->Add(hBgNorm, -1);
 
-    std::cout << "peak  integral: " << hPeak->Integral() << std::endl;
-    std::cout << "peak  mean    : " << hPeak->GetMean() << std::endl;
+    // std::cout << "peak  integral: " << hPeak->Integral() << std::endl;
+    // std::cout << "peak  mean    : " << hPeak->GetMean() << std::endl;
 
     Double_t min = hPeak->GetXaxis()->GetXmin();
     Double_t max = hPeak->GetXaxis()->GetXmax();
@@ -309,12 +309,12 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
     // minFit = 1.000;
     // maxFit = 1.040;
 
-    std::cout << "hSigBg integral (fit range): "
-              << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
-    std::cout << "hBgNorm integral (fit range): "
-              << hBgNorm->Integral(hBgNorm->GetXaxis()->FindBin(minFit), hBgNorm->GetXaxis()->FindBin(maxFit))
-              << std::endl;
-    std::cout << "BG scale factor: " << scaleFactor << std::endl;
+    // std::cout << "hSigBg integral (fit range): "
+    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
+    // std::cout << "hBgNorm integral (fit range): "
+    //           << hBgNorm->Integral(hBgNorm->GetXaxis()->FindBin(minFit), hBgNorm->GetXaxis()->FindBin(maxFit))
+    //           << std::endl;
+    // std::cout << "BG scale factor: " << scaleFactor << std::endl;
 
     // TH1 * hBgScaled = (TH1 *)hBgNorm->Clone("hBgScaled");
     hBgNorm->Scale(scaleFactor);
@@ -330,11 +330,11 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
     // RooDataHist data("data", "dataset with x", x, (TH1 *)hPeak->Clone());
     RooDataHist data("data", "dataset with x", x, hPeak);
 
-    std::cout << "hBgNorm integral AFTER scale, fit range: "
-              << hBgNorm->Integral(hBgNorm->GetXaxis()->FindBin(minFit), hBgNorm->GetXaxis()->FindBin(maxFit))
-              << std::endl;
-    std::cout << "hPeak   integral, fit range: "
-              << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
+    // std::cout << "hBgNorm integral AFTER scale, fit range: "
+    //           << hBgNorm->Integral(hBgNorm->GetXaxis()->FindBin(minFit), hBgNorm->GetXaxis()->FindBin(maxFit))
+    //           << std::endl;
+    // std::cout << "hPeak   integral, fit range: "
+    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
 
     // Use hBgNorm directly as background shape PDF
     RooDataHist bgHist("bgHist", "background histogram", x, hBgNorm);
@@ -348,9 +348,9 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
     sigmaV.setConstant(kTRUE);
     RooVoigtian sig("voigtian", "Voigtian", x, meanV, widthV, sigmaV);
 
-    RooRealVar c0("c0", "coefficient #0", 1.0, -10., 10.);
-    RooRealVar c1("c1", "coefficient #1", 0.1, -10., 10.);
-    RooRealVar c2("c2", "coefficient #2", -0.1, -10., 10.);
+    // RooRealVar c0("c0", "coefficient #0", 1.0, -10., 10.);
+    // RooRealVar c1("c1", "coefficient #1", 0.1, -10., 10.);
+    // RooRealVar c2("c2", "coefficient #2", -0.1, -10., 10.);
     // RooPolynomial bgPdf("bgPdf", "background p.d.f.", x, RooArgList(c0, c1));
     // RooPolynomial bgPdf("bgPdf", "background p.d.f.", x, RooArgList(c0, c1, c2));
     // //	RooChebychev bgPdf("bgPdf","background p.d.f.",x,RooArgList(c0,c1)) ;
@@ -376,9 +376,9 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
     RooRealVar nbkg("nbkg", "#background events", bgEvents, 0., totalEvents * 2);
     RooAddPdf  model("model", "sig+bg", RooArgList(sig, bgPdf), RooArgList(nsig, nbkg));
 
-    std::cout << "peak integral in fit range: "
-              << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
-    std::cout << "=======================" << std::endl;
+    // std::cout << "peak integral in fit range: "
+    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
+    // std::cout << "=======================" << std::endl;
 
     RooFitResult * fitResult = 0;
 
@@ -398,7 +398,7 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
       // static std::mutex           fitMutex;
       // std::lock_guard<std::mutex> lock(fitMutex);
       NLogInfo("RooFit fit status: %d, cov. matrix status: %d", fitResult->status(), fitResult->covQual());
-      fitResult->Print();
+      // fitResult->Print();
     }
 
     std::vector<std::string> parameters = cfg["parameters"].get<std::vector<std::string>>();

@@ -121,7 +121,7 @@ class NThreadData : public TObject {
    * @brief Process method for thread data.
    * @param coords Vector of coordinates to process.
    */
-  void Process(const std::vector<int> & coords);
+  virtual void Process(const std::vector<int> & coords);
 
   /**
    * @brief Print method override.

@@ -19,7 +19,7 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   cfg["minEntries"]  = 0;
   cfg["parameters"]  = {"yield", "mean", "width", "sigma", "c0", "c1", "c2"};
   cfg["fitType"]     = "std";     // "rootfit" or "std"
-  cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
+  // cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
 
   // cfg["file"]            = inFile;
   // cfg["objectDirecotry"] = "phianalysis-t-hn-sparse_tpctof";
@@ -52,11 +52,11 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
 
   // Define the binning for the axes
 
-  // std::map<std::string, std::vector<std::vector<int>>> b;
-  // b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
-  // b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
-  // b["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("default", b);
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
+  b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
+  b["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
 
   std::map<std::string, std::vector<std::vector<int>>> b0;
   // b0["pt"] = {{150}};

@@ -541,7 +541,57 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
   if (nThreads < 1) nThreads = 1;
 
-  std::vector<Ndmspc::NGnThreadData> threadDataVector(nThreads);
+  std::string executionMode = "thread";
+  const char * envMode      = gSystem->Getenv("NDMSPC_EXECUTION_MODE");
+  if (envMode) {
+    executionMode = envMode;
+  }
+
+  bool   useProcessIpc = (executionMode == "process" || executionMode == "ipc");
+  size_t nProcesses    = static_cast<size_t>(nThreads);
+  bool   ndmspcNProcExplicit = false;
+
+  if (const char * envNdmspcNProc = gSystem->Getenv("NDMSPC_MAX_PROCESSES")) {
+    ndmspcNProcExplicit = true;
+    try {
+      nProcesses = std::max<size_t>(1, static_cast<size_t>(std::stoll(envNdmspcNProc)));
+    }
+    catch (...) {
+      NLogWarning("NGnTree::Process: Invalid NDMSPC_MAX_PROCESSES='%s', using default=%zu", envNdmspcNProc,
+                  nProcesses);
+    }
+  }
+  else if (const char * envNProc = gSystem->Getenv("ROOT_MAX_THREADS")) {
+    // Backward-compatible fallback when NDMSPC_MAX_PROCESSES is not set.
+    try {
+      nProcesses = std::max<size_t>(1, static_cast<size_t>(std::stoll(envNProc)));
+    }
+    catch (...) {
+      NLogWarning("NGnTree::Process: Invalid ROOT_MAX_THREADS='%s', using default=%zu", envNProc, nProcesses);
+    }
+  }
+
+  // Keep explicit NDMSPC_EXECUTION_MODE settings authoritative, but default to
+  // process IPC when running with multiple workers.
+  if (ndmspcNProcExplicit && executionMode != "thread") {
+    // If user explicitly requested NDMSPC_MAX_PROCESSES, prefer IPC unless they force thread mode.
+    useProcessIpc = (nProcesses > 1);
+  }
+  else if (!envMode && nProcesses > 1) {
+    useProcessIpc = true;
+  }
+
+  if (ndmspcNProcExplicit && executionMode == "thread" && nProcesses > 1) {
+    NLogWarning("NGnTree::Process: NDMSPC_MAX_PROCESSES=%zu is set, but NDMSPC_EXECUTION_MODE=thread disables IPC.",
+                nProcesses);
+  }
+
+  const size_t workerObjectCount = useProcessIpc ? std::max(static_cast<size_t>(nThreads), nProcesses)
+                                                 : static_cast<size_t>(nThreads);
+  std::vector<Ndmspc::NGnThreadData> threadDataVector(workerObjectCount);
+
+  NLogInfo("NGnTree::Process: executionMode='%s', useProcessIpc=%d, ROOT threads=%d, ipcProcesses=%zu, workerObjects=%zu",
+           executionMode.c_str(), useProcessIpc ? 1 : 0, nThreads, nProcesses, workerObjectCount);
 
   const char * tmpDirEnv = gSystem->Getenv("NDMSPC_TMP_DIR");
   std::string  tmpDir    = tmpDirEnv ? tmpDirEnv : "/tmp";
@@ -583,6 +633,17 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   size_t iDef   = 0;
   int    sumIds = 0;
 
+  std::vector<Ndmspc::NThreadData *>            processWorkers;
+  std::unique_ptr<Ndmspc::NDimensionalExecutor> ipcExecutor;
+  if (useProcessIpc) {
+    processWorkers.reserve(threadDataVector.size());
+    for (size_t i = 0; i < threadDataVector.size(); ++i) {
+      processWorkers.push_back(&threadDataVector[i]);
+    }
+    ipcExecutor = std::make_unique<Ndmspc::NDimensionalExecutor>(std::vector<int>{0}, std::vector<int>{0});
+    ipcExecutor->StartProcessIpc(processWorkers, nProcesses);
+  }
+
   std::map<std::string, std::vector<Long64_t>>
       defIdMapProcessedRemoved; // Map to track which ids belong to which definition
   // for (auto & name : defNames) {
@@ -596,7 +657,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   //   }
   // }
 
-  for (auto & name : defNames) {
+  try {
+    for (auto & name : defNames) {
     auto binningDef = binningIn->GetDefinition(name);
     if (!binningDef) {
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
@@ -607,6 +669,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       NLogWarning("NGnTree::Process: Binning definition '%s' has no entries, skipping ...", name.c_str());
       continue;
     }
+
+    const std::vector<Long64_t> originalDefinitionIds = binningDef->GetIds();
 
     std::vector<int> mins, maxs;
     mins.push_back(0);
@@ -623,50 +687,95 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     start_par        = std::chrono::high_resolution_clock::now();
     processedEntries = 0;
     totalEntries     = maxs[0] + 1;
+    const size_t activeWorkers = useProcessIpc ? std::max<size_t>(1, std::min(nProcesses, processWorkers.size()))
+                                               : threadDataVector.size();
     if (!NLogger::GetConsoleOutput())
       NUtils::ProgressBar(processedEntries, totalEntries, start_par,
-                          TString::Format("R%4d", (int)threadDataVector.size()).Data());
+                          TString::Format("R%4zu", activeWorkers).Data());
 
+    // binningIn->SetCurrentDefinitionName(name);
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
+      // threadDataVector[i].SetCurrentDefinitionName(name);
       threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
     }
 
-    // Disable ROOT's RecursiveRemove during the parallel phase.
-    // Without this, concurrent threads' object deletions trigger RecursiveRemove
-    // which iterates pad->fPrimitives without per-object locks → TObjLink corruption.
-    Bool_t prevMustClean = gROOT->MustClean();
-    gROOT->SetMustClean(kFALSE);
-
-    // Enable batch mode during the parallel phase so that ROOT drawing calls
-    // (e.g. TH1::Fit drawing the fit function via f1->Draw) are no-ops.
-    // Without this, concurrent threads each trigger ROOT canvas creation ("c1"),
-    // the second canvas creation deletes the first → double-free / heap corruption,
-    // which then causes TPad::RecursiveRemove to crash when closing the per-thread TTree.
-    Bool_t prevBatch = gROOT->IsBatch();
-    gROOT->SetBatch(kTRUE);
-
     Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
-    executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
+
+    if (!useProcessIpc) {
+      // Disable ROOT's RecursiveRemove during the parallel phase.
+      // Without this, concurrent threads' object deletions trigger RecursiveRemove
+      // which iterates pad->fPrimitives without per-object locks → TObjLink corruption.
+      Bool_t prevMustClean = gROOT->MustClean();
+      gROOT->SetMustClean(kFALSE);
+
+      // Enable batch mode during the parallel phase so that ROOT drawing calls
+      // (e.g. TH1::Fit drawing the fit function via f1->Draw) are no-ops.
+      // Without this, concurrent threads each trigger ROOT canvas creation ("c1"),
+      // the second canvas creation deletes the first → double-free / heap corruption,
+      // which then causes TPad::RecursiveRemove to crash when closing the per-thread TTree.
+      Bool_t prevBatch = gROOT->IsBatch();
+      gROOT->SetBatch(kTRUE);
+
+      executorMT.ExecuteParallel<Ndmspc::NGnThreadData>(task, threadDataVector);
+
+      // Restore both flags before flushing deferred deletes, so each object's destructor
+      // properly calls gROOT->RecursiveRemove and removes itself from ROOT's global lists.
+      // This prevents dangling pointers that would crash the RecursiveRemove cascade
+      // triggered by TTree::~TTree when the per-thread storage files are closed below.
+      // It is safe here because all worker threads have already finished.
+      gROOT->SetMustClean(prevMustClean);
+      gROOT->SetBatch(prevBatch);
+
+      // Flush deferred deletes single-threaded with MustClean and batch mode restored.
+      for (size_t i = 0; i < threadDataVector.size(); ++i) {
+        threadDataVector[i].FlushDeferredDeletes();
+      }
+
+      for (size_t i = 0; i < threadDataVector.size(); ++i) {
+        threadDataVector[i].ExecuteEndFunction();
+      }
+    }
+    else {
+      ipcExecutor->SetBounds(mins, maxs);
+      size_t acked     = ipcExecutor->ExecuteCurrentBoundsProcessIpc(
+          name, &originalDefinitionIds, [&, activeWorkers](size_t ackCount, size_t activeWorkersNow) {
+            processedEntries = ackCount;
+            if (!NLogger::GetConsoleOutput()) {
+              size_t nRunning = std::min(activeWorkersNow, activeWorkers);
+              NUtils::ProgressBar(processedEntries, totalEntries, start_par,
+                                  TString::Format("R%4zu", nRunning).Data());
+            }
+          });
+      processedEntries = acked;
+
+      // Child processes update their own worker-object copies. Rebuild parent-side
+      // per-worker counters and processed-id vectors deterministically from task assignment.
+      const size_t processesToUse = std::max<size_t>(1, std::min(nProcesses, processWorkers.size()));
+      for (size_t i = 0; i < threadDataVector.size(); ++i) {
+        threadDataVector[i].SetNProcessed(0);
+        auto * workerDef = threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name);
+        if (workerDef) {
+          workerDef->GetIds().clear();
+        }
+      }
+
+      for (size_t taskIndex = 0; taskIndex < originalDefinitionIds.size(); ++taskIndex) {
+        const size_t workerIndex = taskIndex % processesToUse;
+        threadDataVector[workerIndex].SetNProcessed(threadDataVector[workerIndex].GetNProcessed() + 1);
+
+        auto * workerDef = threadDataVector[workerIndex].GetHnSparseBase()->GetBinning()->GetDefinition(name);
+        if (workerDef) {
+          workerDef->GetIds().push_back(originalDefinitionIds[taskIndex]);
+        }
+      }
+
+      if (!NLogger::GetConsoleOutput() && processedEntries < totalEntries) {
+        NUtils::ProgressBar(processedEntries, totalEntries, start_par, "R   0");
+      }
+    }
 
     if (!NLogger::GetConsoleOutput())
       Printf("Finished processing binning definition '%s'. Post-processing results ...", name.c_str());
-
-    // Restore both flags before flushing deferred deletes, so each object's destructor
-    // properly calls gROOT->RecursiveRemove and removes itself from ROOT's global lists.
-    // This prevents dangling pointers that would crash the RecursiveRemove cascade
-    // triggered by TTree::~TTree when the per-thread storage files are closed below.
-    // It is safe here because all worker threads have already finished.
-    gROOT->SetMustClean(prevMustClean);
-    gROOT->SetBatch(prevBatch);
-
-    // Flush deferred deletes single-threaded with MustClean and batch mode restored.
-    for (size_t i = 0; i < threadDataVector.size(); ++i) {
-      threadDataVector[i].FlushDeferredDeletes();
-    }
-
-    for (size_t i = 0; i < threadDataVector.size(); ++i) {
-      threadDataVector[i].ExecuteEndFunction();
-    }
     // Update hnsbBinningIn with the processed ids
     NLogDebug("NGnTree::Process: [BEGIN] ------------------------------------------------");
     sumIds += binningIn->GetDefinition(name)->GetIds().size();
@@ -695,10 +804,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
       // remove entries that has value less then sumIds
       for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
-        NLogDebug("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
+        NLogTrace("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
                   other_name.c_str(), sumIds);
         if (*it < sumIds) {
-          NLogDebug("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
+          NLogTrace("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
           defIdMapProcessedRemoved[other_name].push_back(*it);
           it = otherDef->GetIds().erase(it);
         }
@@ -712,11 +821,36 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     // hnsbBinningIn->GetDefinition(name)->Print();
     iDef++;
 
-    NLogDebug("NGnTree::Process: [END] ------------------------------------------------");
+      NLogDebug("NGnTree::Process: [END] ------------------------------------------------");
+    }
   }
+  catch (const std::exception & ex) {
+    if (ipcExecutor) {
+      ipcExecutor->FinishProcessIpc();
+      ipcExecutor.reset();
+    }
+
+    TString what(ex.what());
+    if (what.Contains("Interrupted by user")) {
+      if (gROOT) {
+        gROOT->SetInterrupt(kFALSE);
+      }
+      NLogWarning("NGnTree::Process: Interrupted by user, stopping processing.");
+    }
+    else {
+      NLogError("NGnTree::Process: Processing failed: %s", ex.what());
+    }
+    return false;
+  }
+
+  // return true; // For testing, skip merging and post-processing
 
   auto                                      end_par      = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> par_duration = end_par - start_par_job;
+
+  if (ipcExecutor) {
+    ipcExecutor->FinishProcessIpc();
+  }
 
   if (!NLogger::GetConsoleOutput()) {
     Printf("NGnTree::Process: Execution completed and it took %s .",
@@ -729,8 +863,15 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   NLogInfo("NGnTree::Process: Post processing %zu results ...", threadDataVector.size());
   for (auto & data : threadDataVector) {
-    NLogTrace("NGnTree::Process: Closing file from thread %zu: ", data.GetAssignedIndex());
-    data.GetHnSparseBase()->GetStorageTree()->Close(true);
+    if (useProcessIpc) {
+      NLogTrace("NGnTree::Process: Releasing parent handle for worker %zu file without writing",
+                data.GetAssignedIndex());
+      // data.GetHnSparseBase()->GetStorageTree()->Close(false);
+    }
+    else {
+      NLogTrace("NGnTree::Process: Closing file from thread %zu with write", data.GetAssignedIndex());
+      data.GetHnSparseBase()->GetStorageTree()->Close(true);
+    }
   }
 
   NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
@@ -761,10 +902,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   // }
   //
 
+  // binningIn= outputData->GetHnSparseBase()->GetBinning();
+
   // add missing entries to definitions based on defIdMapProcessedRemoved
   for (size_t i = 0; i < defNames.size(); i++) {
     std::string name = defNames[i];
-    auto        def  = binningIn->GetDefinition(name);
+    // auto        def  = binningIn->GetDefinition(name);
+    auto def = outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name);
     if (!def) {
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       return false;
@@ -781,12 +925,25 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
     }
     sort(def->GetIds().begin(), def->GetIds().end());
+    // outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds() = def->GetIds();
+
+    // Modify content in binning definitions based on def->GetIds()
+    def->GetContent()->Reset();
+    for (auto id : def->GetIds()) {
+      NBinningPoint point(def->GetBinning());
+      def->GetBinning()->GetContent()->GetBinContent(id, point.GetCoords());
+      point.RecalculateStorageCoords();
+      Long64_t bin = def->GetContent()->GetBin(point.GetStorageCoords());
+      NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
+      def->GetContent()->SetBinContent(bin, id);
+    }
   }
 
   // print final binning definitions
   NLogDebug("NGnTree::Process: Final binning definitions after processing:");
   for (auto & name : defNames) {
-    auto binningDef = binningIn->GetDefinition(name);
+    // auto binningDef = binningIn->GetDefinition(name);
+    auto binningDef = outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name);
     if (!binningDef) {
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       return false;
@@ -808,12 +965,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
 
   // Close the final output file
-  Close(true);
+  outputData->GetHnSparseBase()->Close(true);
 
   gSystem->Exec(TString::Format("rm -fr %s", jobDir.c_str()));
   gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
 }
+
 TList * NGnTree::GetOutput(std::string name)
 {
   ///

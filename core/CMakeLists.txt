@@ -15,6 +15,9 @@ set(MY_EXTERNAL_LIBS
   #  nlohmann_json::nlohmann_json
   NdmspcBase
 )
+list(APPEND MY_INCLUDE_DIRS ${ZEROMQ_INCLUDE_DIRS})
+list(APPEND MY_EXTERNAL_LIBS ${ZEROMQ_LIBRARIES})
+
 include_directories(${MY_INCLUDE_DIRS})
 RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
 

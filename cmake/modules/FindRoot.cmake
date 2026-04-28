@@ -84,7 +84,7 @@ mark_as_advanced(ROOT_CONFIG_EXECUTABLE)
 include(CMakeParseArguments)
 find_program(ROOTCINT_EXECUTABLE rootcint HINTS $ENV{ROOTSYS}/bin)
 find_program(GENREFLEX_EXECUTABLE genreflex HINTS $ENV{ROOTSYS}/bin)
-find_package(GCCXML)
+find_program(GCCXML gccxml)
 
 #----------------------------------------------------------------------------
 # function ROOT_GENERATE_DICTIONARY( dictionary

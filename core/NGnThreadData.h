@@ -71,6 +71,12 @@ class NGnThreadData : public NThreadData {
   Long64_t GetNProcessed() const { return fNProcessed; }
 
   /**
+   * @brief Set number of processed entries.
+   * @param n Number of processed entries.
+   */
+  void SetNProcessed(Long64_t n) { fNProcessed = n; }
+
+  /**
    * @brief Set configuration JSON object.
    * @param cfg JSON configuration.
    */
@@ -99,6 +105,9 @@ class NGnThreadData : public NThreadData {
    * @param coords Vector of coordinates.
    */
   virtual void Process(const std::vector<int> & coords);
+
+  void SetCurrentDefinitionName(const std::string & name);
+  void SyncCurrentDefinitionIds(const std::vector<Long64_t> & ids);
 
   void ExecuteBeginFunction();
   void ExecuteEndFunction();
