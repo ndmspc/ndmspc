@@ -56,7 +56,8 @@ class NUtils : TObject {
    * @param destination Destination file path.
    * @return Status code (0 for success).
    */
-  static int Cp(std::string source, std::string destination);
+  static int Cp(std::string source, std::string destination,Bool_t progressbar = kTRUE);
+  static bool CreateDirectory(const std::string & path);
 
   /**
    * @brief Open a ROOT file.

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <thread>
 #include <TF1.h>
+#include <TFile.h>
 #include <TThread.h>
 #include <TAxis.h>
 #include <THnSparse.h>
@@ -151,7 +152,7 @@ bool NUtils::AccessPathName(std::string path)
   return false;
 }
 
-int NUtils::Cp(std::string source, std::string destination)
+int NUtils::Cp(std::string source, std::string destination, Bool_t progressbar )
 {
   ///
   /// Copy file
@@ -177,7 +178,7 @@ int NUtils::Cp(std::string source, std::string destination)
   }
 
   NLogInfo("Copying file from '%s' to '%s' ...", source.c_str(), destination.c_str());
-  // rc = TFile::Cp(source, destination);
+  rc = TFile::Cp(source.c_str(), destination.c_str(), progressbar);
   return rc;
 }
 
@@ -684,6 +685,37 @@ void NUtils::GetTrueHistogramMinMax(const TH1 * h, double & min_val, double & ma
   }
 }
 
+bool NUtils::CreateDirectory(const std::string & path)
+{
+  ///
+  /// Create a directory (and all parents) for local paths.
+  /// Remote paths (containing "://", except "file://") are silently ignored
+  /// as the remote protocol is expected to handle directory creation itself.
+  ///
+
+  if (path.empty()) return false;
+
+  TString dir(path.c_str());
+  bool    isLocalFile = dir.BeginsWith("file://");
+  if (isLocalFile) {
+    dir.ReplaceAll("file://", "");
+  } else {
+    isLocalFile = !dir.Contains("://");
+  }
+
+  if (!isLocalFile) return true; // remote path — nothing to do locally
+
+  std::string pwd = gSystem->pwd();
+  if (dir[0] != '/') dir = (pwd + "/" + std::string(dir.Data())).c_str();
+  dir.ReplaceAll("?remote=1&", "?");
+  dir.ReplaceAll("?remote=1", "");
+  dir.ReplaceAll("&remote=1", "");
+  TUrl url(dir.Data());
+
+  const std::string localDir = url.GetFile();
+  return gSystem->mkdir(localDir.c_str(), kTRUE) == 0;
+}
+
 TFile * NUtils::OpenFile(std::string filename, std::string mode, bool createLocalDir)
 {
   ///
@@ -692,32 +724,9 @@ TFile * NUtils::OpenFile(std::string filename, std::string mode, bool createLoca
 
   filename = gSystem->ExpandPathName(filename.c_str());
   if (createLocalDir) {
-    // Printf("%s", filename.c_str());
     if (!mode.compare("RECREATE") || !mode.compare("UPDATE") || !mode.compare("WRITE")) {
-
-      TString filenameT(filename.c_str());
-      bool    isLocalFile = filenameT.BeginsWith("file://");
-      if (isLocalFile) {
-        // Remove file:// prefix
-        filenameT.ReplaceAll("file://", "");
-      }
-      else {
-        isLocalFile = !filenameT.Contains("://");
-      }
-
-      if (isLocalFile) {
-
-        std::string pwd = gSystem->pwd();
-        if (filenameT[0] != '/') filenameT = pwd + "/" + filenameT;
-        filenameT.ReplaceAll("?remote=1&", "?");
-        filenameT.ReplaceAll("?remote=1", "");
-        filenameT.ReplaceAll("&remote=1", "");
-        TUrl url(filenameT.Data());
-
-        std::string filenameLocal = gSystem->GetDirName(url.GetFile()).Data();
-        // Printf("Ndmspc::NUtils::OpenRootFile: Creating directory '%s' ...", filenameLocal.c_str());
-        gSystem->mkdir(filenameLocal.c_str(), kTRUE);
-      }
+      const std::string dir = gSystem->GetDirName(filename.c_str()).Data();
+      CreateDirectory(dir);
     }
   }
   return TFile::Open(filename.c_str(), mode.c_str());
@@ -772,14 +781,24 @@ bool NUtils::SaveRawFile(std::string filename, std::string content)
 TMacro * NUtils::OpenMacro(std::string filename)
 {
   ///
-  /// Open macro
+  /// Open macro - supports local files and http/https URLs
   ///
 
-  std::string content = OpenRawFile(filename);
-  if (content.empty()) {
-
-    Printf("Error: Problem opening macro '%s' ...", filename.c_str());
-    return nullptr;
+  std::string content;
+  if (filename.find("http://") == 0 || filename.find("https://") == 0) {
+    NHttpRequest request;
+    content = request.get(filename);
+    if (content.empty()) {
+      Printf("Error: Problem fetching macro from '%s' ...", filename.c_str());
+      return nullptr;
+    }
+  }
+  else {
+    content = OpenRawFile(filename);
+    if (content.empty()) {
+      Printf("Error: Problem opening macro '%s' ...", filename.c_str());
+      return nullptr;
+    }
   }
   Printf("Using macro '%s' ...", filename.c_str());
   TUrl        url(filename.c_str());

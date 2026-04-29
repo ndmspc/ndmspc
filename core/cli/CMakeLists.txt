@@ -1,25 +1,25 @@
-set(MODULE Core)
-set(PACKAGE Ndmspc${MODULE})
-file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
 set(MY_INCLUDE_DIRS
   ${CURL_INCLUDE_DIRS}
   ${OpenSSL_INCLUDE_DIRS}
-  ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/base
+  ${CMAKE_SOURCE_DIR}/core
+  ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
 set(MY_EXTERNAL_LIBS
   ${CURL_LIBRARIES}
   ${OpenSSL_LIBRARIES}
-  ${LIBWEBSOCKETS_LIBRARIES}
-  #  nlohmann_json::nlohmann_json
   NdmspcBase
+  NdmspcCore
 )
+
 list(APPEND MY_INCLUDE_DIRS ${ZEROMQ_INCLUDE_DIRS})
 list(APPEND MY_EXTERNAL_LIBS ${ZEROMQ_LIBRARIES})
 
 include_directories(${MY_INCLUDE_DIRS})
-RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
-
-add_subdirectory(cli)
-
+file(GLOB EXEC_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.cxx")
+string(REPLACE ".cxx" "" EXECS "${EXEC_SRCS}")
+foreach(t ${EXECS})
+  RootBin(${t} "${t}.cxx" "${MY_EXTERNAL_LIBS}")
+endforeach(t)

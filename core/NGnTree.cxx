@@ -1,6 +1,8 @@
+#include <chrono>
 #include <cstddef>
 #include <ctime>
 #include <numbers>
+#include <set>
 #include <string>
 #include <vector>
 #include "TAxis.h"
@@ -17,11 +19,13 @@
 #include <TTree.h>
 #include <TBufferJSON.h>
 #include <sys/poll.h>
+#include <zmq.h>
 #include "NParameters.h"
 #include "NStorageTree.h"
 #include "NBinning.h"
 #include "NBinningDef.h"
 #include "NDimensionalExecutor.h"
+#include "NDimensionalIpcRunner.h"
 #include "NGnThreadData.h"
 #include "NLogger.h"
 #include "NTreeBranch.h"
@@ -218,7 +222,8 @@ NGnTree::NGnTree(NGnTree * ngnt, std::string filename, std::string treename) : T
   fNavigator->SetGnTree(this);
 }
 
-NGnTree::NGnTree(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTreeStorage(s), fInput(nullptr)
+NGnTree::NGnTree(NBinning * b, NStorageTree * s)
+  : TObject(), fBinning(b), fTreeStorage(s), fInput(nullptr), fOwnsBinning(false), fOwnsTreeStorage(false)
 {
   ///
   /// Constructor
@@ -230,6 +235,7 @@ NGnTree::NGnTree(NBinning * b, NStorageTree * s) : TObject(), fBinning(b), fTree
   if (s == nullptr) {
     fTreeStorage = new NStorageTree(fBinning);
     fTreeStorage->InitTree("", "ngnt");
+    fOwnsTreeStorage = true;
   }
 
   if (fTreeStorage == nullptr) {
@@ -450,9 +456,13 @@ NGnTree::~NGnTree()
   /// Destructor
   ///
 
-  SafeDelete(fBinning);
-  // SafeDelete(fTreeStorage);
-  // SafeDelete(fNavigator);
+  if (fOwnsBinning) {
+    SafeDelete(fBinning);
+  }
+  if (fOwnsTreeStorage) {
+    SafeDelete(fTreeStorage);
+  }
+  SafeDelete(fNavigator);
   SafeDelete(fParameters);
 }
 void NGnTree::Print(Option_t * option) const
@@ -536,6 +546,110 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   gROOT->SetBatch(kTRUE);
   TH1::AddDirectory(kFALSE);
 
+  // --- Worker mode: run as a remote TCP worker ---
+  if (const char * workerEndpoint = gSystem->Getenv("NDMSPC_WORKER_ENDPOINT")) {
+    size_t workerIndex = 0;
+    if (const char * envIdx = gSystem->Getenv("NDMSPC_WORKER_INDEX")) {
+      try { workerIndex = static_cast<size_t>(std::stoul(envIdx)); } catch (...) {}
+    }
+    NLogInfo("NGnTree::Process: Worker mode — connecting to %s as worker %zu", workerEndpoint, workerIndex);
+
+    const char * tmpDirEnv  = gSystem->Getenv("NDMSPC_TMP_DIR");
+    std::string  workerBase = tmpDirEnv ? tmpDirEnv : "/tmp";
+    // jobDir and treeName will be received from master via INIT
+    // For now init NGnThreadData with a placeholder filename; Init() will be called with real paths
+    Ndmspc::NGnThreadData workerData;
+
+    void * ctx    = zmq_ctx_new();
+    void * dealer = zmq_socket(ctx, ZMQ_DEALER);
+    const std::string identity = Ndmspc::NDimensionalIpcRunner::BuildWorkerIdentity(workerIndex);
+    zmq_setsockopt(dealer, ZMQ_IDENTITY, identity.data(), identity.size());
+    int timeoutMs = 1000;
+    zmq_setsockopt(dealer, ZMQ_RCVTIMEO, &timeoutMs, sizeof(timeoutMs));
+    zmq_connect(dealer, workerEndpoint);
+    Ndmspc::NDimensionalIpcRunner::SendFrames(dealer, {"READY"});
+
+    // Wait for INIT
+    const auto initDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    bool initOk = false;
+    while (!initOk) {
+      std::vector<std::string> frames;
+      if (!Ndmspc::NDimensionalIpcRunner::ReceiveFrames(dealer, frames)) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          if (std::chrono::steady_clock::now() > initDeadline) break;
+          continue;
+        }
+        break;
+      }
+      // INIT frames: "INIT", workerIdx, sessionId, resultsDir, treeName[, tmpDir, tmpResultsDir]
+      if (frames.size() >= 1 && frames[0] == "STOP") {
+        NLogPrint("NGnTree::Process: Worker received STOP before INIT — session already finished, exiting.");
+        zmq_close(dealer);
+        zmq_ctx_term(ctx);
+        gROOT->SetBatch(batch);
+        return true;
+      }
+      if (frames.size() >= 5 && frames[0] == "INIT") {
+        workerIndex                       = static_cast<size_t>(std::stoul(frames[1]));
+        const std::string & sessionId     = frames[2];
+        const std::string & initResultsDir = frames[3];
+        const std::string & initTreeName  = frames[4];
+
+        // Apply env vars sent by supervisor — these override the worker's inherited environment
+        if (frames.size() >= 7) {
+          if (!frames[5].empty())
+            gSystem->Setenv("NDMSPC_TMP_DIR", frames[5].c_str());
+          if (!frames[6].empty())
+            gSystem->Setenv("NDMSPC_TMP_RESULTS_DIR", frames[6].c_str());
+        }
+        // Fallback: if NDMSPC_TMP_RESULTS_DIR is still unset/empty, use NDMSPC_TMP_DIR
+        if (!gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") || gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR")[0] == '\0') {
+          const char * tmpDirEnv = gSystem->Getenv("NDMSPC_TMP_DIR");
+          if (tmpDirEnv && tmpDirEnv[0] != '\0')
+            gSystem->Setenv("NDMSPC_TMP_RESULTS_DIR", tmpDirEnv);
+        }
+
+        // Local work file — always on this machine's NDMSPC_TMP_DIR
+        const char *      localTmpEnv = gSystem->Getenv("NDMSPC_TMP_DIR");
+        const std::string localBase   = localTmpEnv ? localTmpEnv : "/tmp";
+        const std::string localFile   = localBase + "/.ndmspc/tmp/" + sessionId + "/" +
+                                        std::to_string(workerIndex) + "/" + fTreeStorage->GetPostfix();
+
+        // Results file — on shared FS; supervisor reads from here to merge
+        const std::string resultsFile = initResultsDir + "/" + std::to_string(workerIndex) + "/" +
+                                        fTreeStorage->GetPostfix();
+
+        bool rc = workerData.Init(workerIndex, func, beginFunc, endFunc, this, binningIn, fInput, localFile, initTreeName);
+        if (!rc) {
+          NLogError("NGnTree::Process: Worker failed to initialize NGnThreadData");
+          zmq_close(dealer);
+          zmq_ctx_term(ctx);
+          return false;
+        }
+        // If results dir differs from local dir, tell TaskLoop to copy after Close(true)
+        if (resultsFile != localFile) {
+          workerData.SetResultsFilename(resultsFile);
+        }
+        workerData.SetCfg(cfg);
+        Ndmspc::NDimensionalIpcRunner::SendFrames(dealer, {"ACK"});
+        initOk = true;
+      }
+    }
+    if (!initOk) {
+      NLogError("NGnTree::Process: Worker did not receive INIT from supervisor");
+      zmq_close(dealer);
+      zmq_ctx_term(ctx);
+      return false;
+    }
+
+    Ndmspc::NDimensionalIpcRunner::TaskLoop(dealer, workerIndex, &workerData);
+    zmq_close(dealer);
+    zmq_ctx_term(ctx);
+    gROOT->SetBatch(batch);
+    return true;
+  }
+  // --- End worker mode ---
+
   NUtils::EnableMT();
 
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
@@ -543,11 +657,18 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   std::string executionMode = "thread";
   const char * envMode      = gSystem->Getenv("NDMSPC_EXECUTION_MODE");
-  if (envMode) {
+  const bool   modeExplicit = (envMode && envMode[0] != '\0');
+  if (modeExplicit) {
     executionMode = envMode;
   }
 
-  bool   useProcessIpc = (executionMode == "process" || executionMode == "ipc");
+  std::string normalizedMode = executionMode;
+  std::transform(normalizedMode.begin(), normalizedMode.end(), normalizedMode.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (normalizedMode == "process") normalizedMode = "ipc";
+
+  bool   useProcessIpc = (normalizedMode == "ipc" || normalizedMode == "tcp");
+  bool   useTcp        = (normalizedMode == "tcp");
   size_t nProcesses    = static_cast<size_t>(nThreads);
   bool   ndmspcNProcExplicit = false;
 
@@ -571,17 +692,36 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   }
 
-  // Keep explicit NDMSPC_EXECUTION_MODE settings authoritative, but default to
-  // process IPC when running with multiple workers.
-  if (ndmspcNProcExplicit && executionMode != "thread") {
-    // If user explicitly requested NDMSPC_MAX_PROCESSES, prefer IPC unless they force thread mode.
-    useProcessIpc = (nProcesses > 1);
+  // Keep explicit NDMSPC_EXECUTION_MODE settings authoritative.
+  // If mode is not explicitly set, default to local IPC for multi-process runs.
+  if (modeExplicit) {
+    if (normalizedMode == "thread") {
+      useProcessIpc = false;
+      useTcp        = false;
+    }
+    else if (normalizedMode == "tcp") {
+      useProcessIpc = true;
+      useTcp        = true;
+    }
+    else if (normalizedMode == "ipc") {
+      useProcessIpc = true;
+      useTcp        = false;
+    }
+    else {
+      NLogWarning("NGnTree::Process: Unknown NDMSPC_EXECUTION_MODE='%s', falling back to auto mode selection.",
+                  executionMode.c_str());
+      useProcessIpc = (nProcesses > 1);
+      useTcp        = false;
+    }
   }
-  else if (!envMode && nProcesses > 1) {
-    useProcessIpc = true;
+  else if (nProcesses > 1) {
+    useProcessIpc   = true;
+    useTcp          = false;
+    executionMode   = "ipc";
+    normalizedMode  = "ipc";
   }
 
-  if (ndmspcNProcExplicit && executionMode == "thread" && nProcesses > 1) {
+  if (ndmspcNProcExplicit && normalizedMode == "thread" && nProcesses > 1) {
     NLogWarning("NGnTree::Process: NDMSPC_MAX_PROCESSES=%zu is set, but NDMSPC_EXECUTION_MODE=thread disables IPC.",
                 nProcesses);
   }
@@ -594,14 +734,29 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
            executionMode.c_str(), useProcessIpc ? 1 : 0, nThreads, nProcesses, workerObjectCount);
 
   const char * tmpDirEnv = gSystem->Getenv("NDMSPC_TMP_DIR");
-  std::string  tmpDir    = tmpDirEnv ? tmpDirEnv : "/tmp";
-  TString      tmpDirStr = fTreeStorage->GetPrefix();
-  // check if tmpDir starts with root:// or http:// or https://
-  if (!(tmpDirStr.BeginsWith("root://") || tmpDirStr.BeginsWith("http://") || tmpDirStr.BeginsWith("https://"))) {
-    tmpDir = tmpDirStr.Data();
+  std::string  tmpDir;
+  if (tmpDirEnv && tmpDirEnv[0] != '\0') {
+    tmpDir = tmpDirEnv;
+  } else {
+    TString tmpDirPrefix = fTreeStorage->GetPrefix();
+    // Use storage prefix only if it is a local path (not a remote URL)
+    if (!(tmpDirPrefix.BeginsWith("root://") || tmpDirPrefix.BeginsWith("http://") ||
+          tmpDirPrefix.BeginsWith("https://"))) {
+      tmpDir = tmpDirPrefix.Data();
+    }
+    if (tmpDir.empty()) tmpDir = "/tmp";
   }
 
-  std::string jobDir     = tmpDir + "/.ndmspc/tmp/" + std::to_string(gSystem->GetPid());
+  std::string jobDir = tmpDir + "/.ndmspc/tmp/" + std::to_string(gSystem->GetPid());
+
+  // Results dir: when NDMSPC_TMP_RESULTS_DIR equals NDMSPC_TMP_DIR (or is unset),
+  // reuse jobDir so that localTmpFile == resultsFilename — no copy or delete needed.
+  const char * resultsDirEnv = gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR");
+  const bool   sameDir       = !resultsDirEnv || std::string(resultsDirEnv) == tmpDir;
+  std::string  resultsDir    = sameDir ? jobDir
+                                       : (std::string(resultsDirEnv) + "/" +
+                                          std::to_string(gSystem->GetPid()));
+
   std::string filePrefix = jobDir;
   for (size_t i = 0; i < threadDataVector.size(); ++i) {
     std::string filename = filePrefix + "/" + std::to_string(i) + "/" + fTreeStorage->GetPostfix();
@@ -612,6 +767,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       return false;
     }
     threadDataVector[i].SetCfg(cfg); // Set configuration to binning point
+    if (useTcp) {
+      // Tell the merge step where workers will deposit their finished files.
+      // When resultsDir == jobDir (NDMSPC_TMP_RESULTS_DIR unset) the paths are
+      // identical so no copy or delete is needed — handled in TaskLoop.
+      std::string resultsFile = resultsDir + "/" + std::to_string(i) + "/" + fTreeStorage->GetPostfix();
+      threadDataVector[i].SetResultsFilename(resultsFile);
+    }
   }
   size_t processedEntries = 0;
   size_t totalEntries     = 0;
@@ -641,7 +803,22 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       processWorkers.push_back(&threadDataVector[i]);
     }
     ipcExecutor = std::make_unique<Ndmspc::NDimensionalExecutor>(std::vector<int>{0}, std::vector<int>{0});
-    ipcExecutor->StartProcessIpc(processWorkers, nProcesses);
+    if (useTcp) {
+      const char * tcpPort    = gSystem->Getenv("NDMSPC_TCP_PORT");
+      std::string  tcpEndpoint = std::string("tcp://0.0.0.0:") + (tcpPort ? tcpPort : "5555");
+      const char * resultsDirBase = gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR");
+      // Auto-detect the macro to send to workers: explicit SetWorkerMacro() takes
+      // priority; otherwise fall back to NDMSPC_MACRO set by ndmspc-run.
+      std::string workerMacro = fWorkerMacroList;
+      if (workerMacro.empty()) {
+        if (const char * envMacro = gSystem->Getenv("NDMSPC_MACRO")) workerMacro = envMacro;
+      }
+      ipcExecutor->StartProcessIpc(processWorkers, nProcesses, tcpEndpoint, resultsDir,
+                                   fTreeStorage->GetTree()->GetName(), workerMacro, tmpDir,
+                                   resultsDirBase ? resultsDirBase : "");
+    } else {
+      ipcExecutor->StartProcessIpc(processWorkers, nProcesses);
+    }
   }
 
   std::map<std::string, std::vector<Long64_t>>
@@ -826,7 +1003,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
   catch (const std::exception & ex) {
     if (ipcExecutor) {
-      ipcExecutor->FinishProcessIpc();
+      ipcExecutor->FinishProcessIpc(/*abort=*/true);
       ipcExecutor.reset();
     }
 
@@ -852,6 +1029,12 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     ipcExecutor->FinishProcessIpc();
   }
 
+  // For TCP mode, only merge results from workers that actually connected.
+  // For IPC/fork and thread modes, all indices are valid.
+  const std::set<size_t> registeredWorkers =
+    (ipcExecutor && useTcp) ? ipcExecutor->GetRegisteredWorkerIndices() : std::set<size_t>{};
+  const bool filterByRegistered = !registeredWorkers.empty();
+
   if (!NLogger::GetConsoleOutput()) {
     Printf("NGnTree::Process: Execution completed and it took %s .",
            NUtils::FormatTime(par_duration.count() / 1000).c_str());
@@ -875,6 +1058,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
 
   NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
+  if (!NLogger::GetConsoleOutput()) {
+    Printf("NGnTree::Process: [phase] merge start (%zu workers)", threadDataVector.size());
+  }
+  const auto mergeStart = std::chrono::high_resolution_clock::now();
   TList *                 mergeList  = new TList();
   Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
   outputData->Init(0, func, nullptr, nullptr, this, binningIn);
@@ -882,12 +1069,20 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   // outputData->Init(0, func, this);
 
   for (auto & data : threadDataVector) {
+    if (filterByRegistered && registeredWorkers.find(data.GetAssignedIndex()) == registeredWorkers.end()) {
+      NLogInfo("NGnTree::Process: Skipping worker %zu — never connected", data.GetAssignedIndex());
+      continue;
+    }
     NLogTrace("NGnTree::Process: Adding thread data %zu to merge list ...", data.GetAssignedIndex());
-    // data.GetHnSparseBase()->GetBinning()->GetPoint()->SetCfg(cfg);
     mergeList->Add(&data);
   }
 
   Long64_t nmerged = outputData->Merge(mergeList);
+  const auto mergeEnd = std::chrono::high_resolution_clock::now();
+  if (!NLogger::GetConsoleOutput()) {
+    const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
+    Printf("NGnTree::Process: [phase] merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
+  }
   if (nmerged <= 0) {
     NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
     delete mergeList;
@@ -965,9 +1160,28 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
 
   // Close the final output file
+  if (!NLogger::GetConsoleOutput()) {
+    Printf("NGnTree::Process: [phase] final close start (%s)",
+           outputData->GetHnSparseBase()->GetStorageTree()->GetFileName().c_str());
+  }
+  const auto closeStart = std::chrono::high_resolution_clock::now();
   outputData->GetHnSparseBase()->Close(true);
+  const auto closeEnd = std::chrono::high_resolution_clock::now();
+  if (!NLogger::GetConsoleOutput()) {
+    const auto closeSec = std::chrono::duration_cast<std::chrono::duration<double>>(closeEnd - closeStart).count();
+    Printf("NGnTree::Process: [phase] final close done (%.2f s)", closeSec);
+  }
 
+  if (!NLogger::GetConsoleOutput()) {
+    Printf("NGnTree::Process: [phase] cleanup start (%s)", jobDir.c_str());
+  }
+  const auto cleanupStart = std::chrono::high_resolution_clock::now();
   gSystem->Exec(TString::Format("rm -fr %s", jobDir.c_str()));
+  const auto cleanupEnd = std::chrono::high_resolution_clock::now();
+  if (!NLogger::GetConsoleOutput()) {
+    const auto cleanupSec = std::chrono::duration_cast<std::chrono::duration<double>>(cleanupEnd - cleanupStart).count();
+    Printf("NGnTree::Process: [phase] cleanup done (%.2f s)", cleanupSec);
+  }
   gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
 }
