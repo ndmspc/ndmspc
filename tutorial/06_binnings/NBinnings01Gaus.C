@@ -157,6 +157,7 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     // NLogInfo("Finished processing ...");
   };
+
   // execute the processing function
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
 

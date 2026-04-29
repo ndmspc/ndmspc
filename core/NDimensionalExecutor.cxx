@@ -1,5 +1,6 @@
 #include <string>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cerrno>
 #include <csignal>
@@ -75,12 +76,27 @@ void RestoreIpcSigIntHandler(const struct sigaction & oldAction, bool hasOldActi
 struct NDimensionalExecutor::IpcSession {
   void * ctx{nullptr};
   void * router{nullptr};
+  bool   isTcp{false};
   std::string endpointPath;
   std::string endpoint;
   std::vector<pid_t> childPids;
   std::unordered_map<std::string, size_t> identityToWorker;
+  std::vector<std::string> workerIdentityVec; // ordered list for round-robin
+  // TCP late-joiner support: stored so new workers can be initialised mid-run
+  std::string                jobDir;
+  std::string                treeName;
+  std::vector<NThreadData *> * workerObjects{nullptr};
+  size_t                     maxWorkers{0};
+  std::string                currentDefName;
+  std::vector<Long64_t>      currentDefIds;
+  bool                       hasCurrentDefIds{false};
   struct sigaction oldSigIntAction{};
   bool             hasOldSigIntAction{false};
+  // Bootstrap configuration sent to workers on first contact
+  std::string macroList;       // comma-separated macro paths to load on worker
+  std::string tmpDir;          // supervisor's NDMSPC_TMP_DIR (fallback for workers)
+  std::string tmpResultsDir;   // supervisor's NDMSPC_TMP_RESULTS_DIR
+  size_t      bootstrapNextIdx{0}; // auto-assigned index counter for BOOTSTRAP
 };
 
 // --- Private Increment Logic ---
@@ -389,7 +405,87 @@ size_t NDimensionalExecutor::ExecuteParallelProcessIpc(std::vector<NThreadData *
   }
 }
 
-void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount)
+bool NDimensionalExecutor::InitTcpWorker(const std::string & identity)
+{
+  // Extract worker index from identity string (e.g. "wk_001")
+  // Derive the prefix by stripping trailing digits from a sample identity
+  const std::string sample   = NDimensionalIpcRunner::BuildWorkerIdentity(0);
+  size_t            numLen   = 0;
+  while (numLen < sample.size() && std::isdigit((unsigned char)sample[sample.size() - 1 - numLen]))
+    ++numLen;
+  const size_t      prefixLen = sample.size() - numLen; // e.g. strlen("wk_") == 3
+  if (identity.size() <= prefixLen) return false;
+  size_t workerIdx = 0;
+  try {
+    workerIdx = std::stoul(identity.substr(prefixLen));
+  }
+  catch (...) {
+    NLogWarning("NDimensionalExecutor::InitTcpWorker: cannot parse index from identity '%s'", identity.c_str());
+    return false;
+  }
+  if (workerIdx >= fIpcSession->maxWorkers) {
+    NLogWarning("NDimensionalExecutor::InitTcpWorker: worker index %zu >= maxWorkers %zu, ignoring",
+                workerIdx, fIpcSession->maxWorkers);
+    return false;
+  }
+  if (fIpcSession->identityToWorker.count(identity)) {
+    NLogWarning("NDimensionalExecutor::InitTcpWorker: worker '%s' already registered, ignoring duplicate READY",
+                identity.c_str());
+    return false;
+  }
+
+  const std::string sessionId = std::to_string(getpid());
+  if (!NDimensionalIpcRunner::SendFrames(fIpcSession->router,
+                                         {identity, "INIT", std::to_string(workerIdx), sessionId,
+                                          fIpcSession->jobDir, fIpcSession->treeName,
+                                          fIpcSession->tmpDir, fIpcSession->tmpResultsDir})) {
+    NLogError("NDimensionalExecutor::InitTcpWorker: failed to send INIT to '%s'", identity.c_str());
+    return false;
+  }
+
+  const auto initDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  bool       acked        = false;
+  while (!acked) {
+    std::vector<std::string> ackFrames;
+    if (!NDimensionalIpcRunner::ReceiveFrames(fIpcSession->router, ackFrames)) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (std::chrono::steady_clock::now() > initDeadline) break;
+        continue;
+      }
+      break;
+    }
+    if (ackFrames.size() >= 2 && ackFrames[0] == identity && ackFrames[1] == "ACK") {
+      acked = true;
+    }
+  }
+  if (!acked) {
+    NLogError("NDimensionalExecutor::InitTcpWorker: worker '%s' did not ACK INIT", identity.c_str());
+    return false;
+  }
+
+  fIpcSession->identityToWorker[identity] = workerIdx;
+  fIpcSession->workerIdentityVec.push_back(identity);
+  NLogInfo("NDimensionalExecutor::InitTcpWorker: worker '%s' (idx=%zu) joined [total: %zu]",
+           identity.c_str(), workerIdx, fIpcSession->workerIdentityVec.size());
+  return true;
+}
+
+bool NDimensionalExecutor::HandleBootstrap(const std::string & identity)
+{
+  if (!fIpcSession || !fIpcSession->isTcp) return false;
+  const size_t assignedIdx = fIpcSession->bootstrapNextIdx++;
+  NLogDebug("NDimensionalExecutor::HandleBootstrap: assigning index %zu to worker '%s'", assignedIdx,
+            identity.c_str());
+  return NDimensionalIpcRunner::SendFrames(fIpcSession->router,
+                                           {identity, "CONFIG", std::to_string(assignedIdx),
+                                            fIpcSession->macroList, fIpcSession->tmpDir,
+                                            fIpcSession->tmpResultsDir});
+}
+
+void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount,
+                                           const std::string & tcpBindEndpoint, const std::string & jobDir,
+                                           const std::string & treeName, const std::string & macroList,
+                                           const std::string & tmpDir, const std::string & tmpResultsDir)
 {
   if (workerObjects.empty()) {
     throw std::invalid_argument("Worker objects vector cannot be empty.");
@@ -405,10 +501,18 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
                      std::chrono::high_resolution_clock::now().time_since_epoch())
                      .count();
   fIpcSession = std::make_unique<IpcSession>();
-  fIpcSession->endpointPath = "/tmp/ndmspc_ipc_" + std::to_string(getpid()) + "_" + std::to_string(nowNs) + ".sock";
-  fIpcSession->endpoint = "ipc://" + fIpcSession->endpointPath;
 
-  ::unlink(fIpcSession->endpointPath.c_str());
+  const bool isTcp = !tcpBindEndpoint.empty();
+  fIpcSession->isTcp = isTcp;
+
+  if (isTcp) {
+    fIpcSession->endpoint = tcpBindEndpoint;
+    fIpcSession->endpointPath.clear();
+  } else {
+    fIpcSession->endpointPath = "/tmp/ndmspc_ipc_" + std::to_string(getpid()) + "_" + std::to_string(nowNs) + ".sock";
+    fIpcSession->endpoint = "ipc://" + fIpcSession->endpointPath;
+    ::unlink(fIpcSession->endpointPath.c_str());
+  }
 
   fIpcSession->ctx = zmq_ctx_new();
   if (!fIpcSession->ctx) {
@@ -430,67 +534,126 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
     const std::string err = zmq_strerror(zmq_errno());
     zmq_close(fIpcSession->router);
     zmq_ctx_term(fIpcSession->ctx);
-    ::unlink(fIpcSession->endpointPath.c_str());
+    if (!isTcp) ::unlink(fIpcSession->endpointPath.c_str());
     fIpcSession.reset();
-    throw std::runtime_error("Failed to bind IPC endpoint '" + fIpcSession->endpoint + "': " + err);
+    throw std::runtime_error("Failed to bind endpoint '" + fIpcSession->endpoint + "': " + err);
   }
 
-  fIpcSession->childPids.assign(processesToUse, -1);
   fIpcSession->identityToWorker.clear();
   fIpcSession->identityToWorker.reserve(processesToUse);
+  fIpcSession->workerIdentityVec.clear();
 
-  for (size_t i = 0; i < processesToUse; ++i) {
-    fIpcSession->identityToWorker[NDimensionalIpcRunner::BuildWorkerIdentity(i)] = i;
-    pid_t pid = fork();
-    if (pid < 0) {
-      NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
-      zmq_close(fIpcSession->router);
-      zmq_ctx_term(fIpcSession->ctx);
-      ::unlink(fIpcSession->endpointPath.c_str());
-      fIpcSession.reset();
-      throw std::runtime_error("Failed to fork worker process.");
+  if (!isTcp) {
+    // IPC/fork mode: pre-seed the map as before so WorkerLoop identities match
+    for (size_t i = 0; i < processesToUse; ++i) {
+      fIpcSession->identityToWorker[NDimensionalIpcRunner::BuildWorkerIdentity(i)] = i;
     }
-    if (pid == 0) {
-      zmq_close(fIpcSession->router);
-      zmq_ctx_term(fIpcSession->ctx);
-      const int rc = NDimensionalIpcRunner::WorkerLoop(fIpcSession->endpoint, i, workerObjects[i]);
-      _exit(rc == 0 ? 0 : 1);
-    }
-    fIpcSession->childPids[i] = pid;
+  } else {
+    // TCP mode: store context for late-joining workers
+    fIpcSession->jobDir       = jobDir;
+    fIpcSession->treeName     = treeName;
+    fIpcSession->workerObjects = &workerObjects;
+    fIpcSession->maxWorkers   = processesToUse;
+    fIpcSession->macroList    = macroList;
+    fIpcSession->tmpDir       = tmpDir;
+    fIpcSession->tmpResultsDir = tmpResultsDir;
   }
 
-  std::set<std::string> readyWorkers;
-  const auto            readyDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-  while (readyWorkers.size() < processesToUse) {
+  if (!isTcp) {
+    fIpcSession->childPids.assign(processesToUse, -1);
+    for (size_t i = 0; i < processesToUse; ++i) {
+      pid_t pid = fork();
+      if (pid < 0) {
+        NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
+        zmq_close(fIpcSession->router);
+        zmq_ctx_term(fIpcSession->ctx);
+        ::unlink(fIpcSession->endpointPath.c_str());
+        fIpcSession.reset();
+        throw std::runtime_error("Failed to fork worker process.");
+      }
+      if (pid == 0) {
+        zmq_close(fIpcSession->router);
+        zmq_ctx_term(fIpcSession->ctx);
+        const int rc = NDimensionalIpcRunner::WorkerLoop(fIpcSession->endpoint, i, workerObjects[i]);
+        _exit(rc == 0 ? 0 : 1);
+      }
+      fIpcSession->childPids[i] = pid;
+    }
+  }
+
+  // --- Wait for initial workers ---
+  // IPC (fork): wait for all; TCP: wait until at least one connects or timeout.
+  int readyTimeoutSec = isTcp ? 300 : 30;
+  if (isTcp) {
+    if (const char * env = gSystem->Getenv("NDMSPC_WORKER_TIMEOUT")) {
+      try { readyTimeoutSec = std::stoi(env); } catch (...) {}
+    }
+    NLogInfo("NDimensionalExecutor::StartProcessIpc: waiting up to %d s for TCP workers (max %zu) ...",
+             readyTimeoutSec, processesToUse);
+  }
+  const auto readyDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(readyTimeoutSec);
+
+  // For IPC we need all processesToUse; for TCP we need at least 1.
+  const size_t readyTarget = isTcp ? 1 : processesToUse;
+
+  while (fIpcSession->workerIdentityVec.size() < readyTarget) {
     std::vector<std::string> frames;
     if (!NDimensionalIpcRunner::ReceiveFrames(fIpcSession->router, frames)) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         if (std::chrono::steady_clock::now() > readyDeadline) {
-          NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
+          if (!isTcp) {
+            NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
+            zmq_close(fIpcSession->router);
+            zmq_ctx_term(fIpcSession->ctx);
+            ::unlink(fIpcSession->endpointPath.c_str());
+            fIpcSession.reset();
+            throw std::runtime_error("Timeout while waiting for IPC workers to become ready.");
+          }
           zmq_close(fIpcSession->router);
           zmq_ctx_term(fIpcSession->ctx);
-          ::unlink(fIpcSession->endpointPath.c_str());
           fIpcSession.reset();
-          throw std::runtime_error("Timeout while waiting for IPC workers to become ready.");
+          throw std::runtime_error("Timeout: no TCP workers connected.");
         }
         continue;
       }
-      NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
+      if (!isTcp) NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
       zmq_close(fIpcSession->router);
       zmq_ctx_term(fIpcSession->ctx);
-      ::unlink(fIpcSession->endpointPath.c_str());
+      if (!isTcp) ::unlink(fIpcSession->endpointPath.c_str());
       fIpcSession.reset();
       throw std::runtime_error("Failed to receive READY message from worker.");
     }
     if (frames.size() < 2) continue;
     const std::string & identity = frames[0];
     const std::string & cmd      = frames[1];
-    if (cmd == "READY" && fIpcSession->identityToWorker.find(identity) != fIpcSession->identityToWorker.end()) {
-      readyWorkers.insert(identity);
+    if (isTcp && cmd == "BOOTSTRAP") {
+      HandleBootstrap(identity);
+      continue;
+    }
+    if (cmd != "READY") continue;
+
+    if (isTcp) {
+      InitTcpWorker(identity);
+    } else {
+      // IPC/fork: just register (already pre-seeded)
+      if (fIpcSession->identityToWorker.count(identity)) {
+        if (std::find(fIpcSession->workerIdentityVec.begin(), fIpcSession->workerIdentityVec.end(), identity)
+            == fIpcSession->workerIdentityVec.end()) {
+          fIpcSession->workerIdentityVec.push_back(identity);
+          NLogInfo("NDimensionalExecutor::StartProcessIpc: worker '%s' ready (%zu / %zu)", identity.c_str(),
+                   fIpcSession->workerIdentityVec.size(), processesToUse);
+        }
+      }
     }
   }
 
-  InstallIpcSigIntHandler(fIpcSession->childPids, fIpcSession->oldSigIntAction, fIpcSession->hasOldSigIntAction);
+  if (!isTcp) {
+    InstallIpcSigIntHandler(fIpcSession->childPids, fIpcSession->oldSigIntAction, fIpcSession->hasOldSigIntAction);
+  } else {
+    // TCP mode: install handler with no child PIDs — just sets gIpcSigIntRequested
+    // so the dispatch loop can break cleanly and FinishProcessIpc sends STOP to workers.
+    InstallIpcSigIntHandler({}, fIpcSession->oldSigIntAction, fIpcSession->hasOldSigIntAction);
+  }
 }
 
 size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & definitionName,
@@ -504,22 +667,26 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
     return 0;
   }
 
+  // Save current definition so late-joining workers can catch up
+  fIpcSession->currentDefName    = definitionName;
+  fIpcSession->currentDefIds     = definitionIds ? *definitionIds : std::vector<Long64_t>{};
+  fIpcSession->hasCurrentDefIds  = (definitionIds != nullptr);
+
   if (!definitionName.empty()) {
-    for (const auto & it : fIpcSession->identityToWorker) {
-      if (!NDimensionalIpcRunner::SendFrames(fIpcSession->router, {it.first, "SETDEF", definitionName})) {
-        throw std::runtime_error("Failed to send IPC SETDEF message to worker '" + it.first + "'.");
+    for (const auto & identity : fIpcSession->workerIdentityVec) {
+      if (!NDimensionalIpcRunner::SendFrames(fIpcSession->router, {identity, "SETDEF", definitionName})) {
+        throw std::runtime_error("Failed to send IPC SETDEF message to worker '" + identity + "'.");
       }
       if (definitionIds != nullptr) {
         if (!NDimensionalIpcRunner::SendFrames(
-                fIpcSession->router, {it.first, "SETIDS", NDimensionalIpcRunner::SerializeIds(*definitionIds)})) {
-          throw std::runtime_error("Failed to send IPC SETIDS message to worker '" + it.first + "'.");
+                fIpcSession->router, {identity, "SETIDS", NDimensionalIpcRunner::SerializeIds(*definitionIds)})) {
+          throw std::runtime_error("Failed to send IPC SETIDS message to worker '" + identity + "'.");
         }
       }
     }
   }
 
-  const size_t processesToUse = fIpcSession->childPids.size();
-  size_t       ipcBatchSize   = 1;
+  size_t ipcBatchSize = 1;
   if (const char * envBatchSize = gSystem->Getenv("NDMSPC_IPC_BATCH_SIZE")) {
     try {
       ipcBatchSize = std::max<size_t>(1, static_cast<size_t>(std::stoll(envBatchSize)));
@@ -530,11 +697,11 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
     }
   }
 
-  size_t            nextTaskId = 0;
+  size_t            nextTaskId        = 0;
   size_t            dispatchMessageId = 0;
-  size_t            outstanding = 0;
+  size_t            outstanding       = 0;
   size_t            outstandingMessages = 0;
-  size_t            acked = 0;
+  size_t            acked             = 0;
   size_t            nextSchedulerLogAck = 200;
   std::string       firstError;
   std::set<size_t>  pendingTasks;
@@ -542,16 +709,24 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
   fCurrentCoords = fMinBounds;
   bool hasMore = true;
 
-  const size_t maxInFlightMessages = std::max<size_t>(processesToUse * 8, 8);
+  // maxInFlightMessages is recalculated dynamically as workers join
   size_t       totalTasks = 1;
   for (size_t i = 0; i < fNumDimensions; ++i) {
     totalTasks *= static_cast<size_t>(fMaxBounds[i] - fMinBounds[i] + 1);
   }
-  auto         isUserInterrupted = []() {
-    if (gIpcSigIntRequested != 0) {
-      return true;
-    }
+  auto isUserInterrupted = []() {
+    if (gIpcSigIntRequested != 0) return true;
     return (gROOT && gROOT->IsInterrupted());
+  };
+  // Helper: send SETDEF/SETIDS catchup to a newly-joined worker
+  auto sendCatchup = [&](const std::string & identity) {
+    if (!fIpcSession->currentDefName.empty()) {
+      NDimensionalIpcRunner::SendFrames(fIpcSession->router, {identity, "SETDEF", fIpcSession->currentDefName});
+      if (fIpcSession->hasCurrentDefIds) {
+        NDimensionalIpcRunner::SendFrames(
+          fIpcSession->router, {identity, "SETIDS", NDimensionalIpcRunner::SerializeIds(fIpcSession->currentDefIds)});
+      }
+    }
   };
 
   while ((hasMore || outstanding > 0) && firstError.empty()) {
@@ -560,13 +735,18 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
       break;
     }
 
+    const size_t currentWorkers      = fIpcSession->workerIdentityVec.size();
+    const size_t maxInFlightMessages = std::max<size_t>(currentWorkers * 8, 8);
+
     while (hasMore && outstandingMessages < maxInFlightMessages && firstError.empty()) {
-      const size_t      workerIndex = dispatchMessageId % processesToUse;
-      const std::string identity    = NDimensionalIpcRunner::BuildWorkerIdentity(workerIndex);
+      if (fIpcSession->workerIdentityVec.empty()) break; // no workers yet — wait
+      const size_t      workerSlot = dispatchMessageId % fIpcSession->workerIdentityVec.size();
+      const std::string identity   = fIpcSession->workerIdentityVec[workerSlot];
       std::vector<std::pair<size_t, std::string>> batchTasks;
-      const size_t remainingTasks = (nextTaskId < totalTasks) ? (totalTasks - nextTaskId) : 0;
+      const size_t nw              = fIpcSession->workerIdentityVec.size();
+      const size_t remainingTasks  = (nextTaskId < totalTasks) ? (totalTasks - nextTaskId) : 0;
       const size_t adaptiveBatchSize = std::max<size_t>(
-          1, std::min(ipcBatchSize, std::max<size_t>(1, (remainingTasks + processesToUse - 1) / processesToUse)));
+          1, std::min(ipcBatchSize, std::max<size_t>(1, (remainingTasks + nw - 1) / nw)));
       batchTasks.reserve(adaptiveBatchSize);
 
       while (hasMore && outstanding < maxInFlightMessages * ipcBatchSize && batchTasks.size() < adaptiveBatchSize) {
@@ -616,10 +796,15 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
       ++outstandingMessages;
     }
 
-    if (outstanding == 0) continue;
+    if (outstanding == 0 && fIpcSession->workerIdentityVec.empty()) continue;
+    if (outstanding == 0 && !hasMore) continue;
 
     std::vector<std::string> frames;
     if (!NDimensionalIpcRunner::ReceiveFrames(fIpcSession->router, frames)) {
+      if (errno == EINTR || isUserInterrupted()) {
+        firstError = "Interrupted by user";
+        break;
+      }
       if (errno != EAGAIN && errno != EWOULDBLOCK) {
         firstError = "Failed to receive IPC ACK/ERR from worker.";
         break;
@@ -633,6 +818,22 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
           break;
         }
       }
+      continue;
+    }
+
+    if (frames.size() < 2) continue;
+
+    // Handle late-joining TCP worker
+    if (fIpcSession->isTcp && frames.size() >= 2 && frames[1] == "READY") {
+      if (InitTcpWorker(frames[0])) {
+        sendCatchup(frames[0]);
+      }
+      continue;
+    }
+
+    // Handle bootstrapping worker requesting config
+    if (fIpcSession->isTcp && frames.size() >= 2 && frames[1] == "BOOTSTRAP") {
+      HandleBootstrap(frames[0]);
       continue;
     }
 
@@ -669,7 +870,7 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
       --outstanding;
       --outstandingMessages;
       ++acked;
-      const size_t activeWorkersNow = std::min(processesToUse, outstandingMessages);
+      const size_t activeWorkersNow = std::min(fIpcSession->workerIdentityVec.size(), outstandingMessages);
       if (progressCallback) {
         progressCallback(acked, activeWorkersNow);
       }
@@ -718,7 +919,7 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
         }
         --outstanding;
         ++acked;
-        const size_t activeWorkersNow = std::min(processesToUse, outstandingMessages);
+        const size_t activeWorkersNow = std::min(fIpcSession->workerIdentityVec.size(), outstandingMessages);
         if (progressCallback) {
           progressCallback(acked, activeWorkersNow);
         }
@@ -765,18 +966,66 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
   return acked;
 }
 
-void NDimensionalExecutor::FinishProcessIpc()
+void NDimensionalExecutor::FinishProcessIpc(bool abort)
 {
   if (!fIpcSession) {
     return;
   }
 
+  const std::string stopReason = abort ? "abort" : "ok";
   for (const auto & it : fIpcSession->identityToWorker) {
-    NDimensionalIpcRunner::SendFrames(fIpcSession->router, {it.first, "STOP"});
+    NDimensionalIpcRunner::SendFrames(fIpcSession->router, {it.first, "STOP", stopReason});
   }
-  const bool exitedCleanly = NDimensionalIpcRunner::WaitForChildProcesses(fIpcSession->childPids, 1500);
-  if (!exitedCleanly) {
-    NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
+
+  if (!fIpcSession->isTcp) {
+    const bool exitedCleanly = NDimensionalIpcRunner::WaitForChildProcesses(fIpcSession->childPids, 1500);
+    if (!exitedCleanly) {
+      NDimensionalIpcRunner::CleanupChildProcesses(fIpcSession->childPids);
+    }
+  } else if (!abort) {
+    // TCP mode normal finish: wait for DONE from all workers before merging
+    const size_t      nWorkers    = fIpcSession->identityToWorker.size();
+    std::set<std::string> doneWorkers;
+    const auto        doneDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (doneWorkers.size() < nWorkers) {
+      const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(doneDeadline - std::chrono::steady_clock::now()).count();
+      if (remaining <= 0) {
+        NLogWarning("NDimensionalExecutor::FinishProcessIpc: Timeout waiting for DONE from TCP workers (%zu/%zu received)",
+                    doneWorkers.size(), nWorkers);
+        break;
+      }
+      zmq_pollitem_t item = {fIpcSession->router, 0, ZMQ_POLLIN, 0};
+      const int      rc   = zmq_poll(&item, 1, static_cast<long>(remaining));
+      if (rc <= 0) {
+        NLogWarning("NDimensionalExecutor::FinishProcessIpc: Timeout waiting for DONE from TCP workers (%zu/%zu received)",
+                    doneWorkers.size(), nWorkers);
+        break;
+      }
+      std::vector<std::string> frames;
+      if (!NDimensionalIpcRunner::ReceiveFrames(fIpcSession->router, frames) || frames.size() < 2) continue;
+      if (frames[1] == "DONE") {
+        doneWorkers.insert(frames[0]);
+        NLogDebug("NDimensionalExecutor::FinishProcessIpc: Worker '%s' sent DONE (%zu/%zu)", frames[0].c_str(),
+                  doneWorkers.size(), nWorkers);
+      } else if (frames[1] == "READY") {
+        // Worker arrived after all tasks were dispatched — send STOP immediately.
+        NLogInfo("NDimensionalExecutor::FinishProcessIpc: Late worker '%s' arrived, sending STOP", frames[0].c_str());
+        NDimensionalIpcRunner::SendFrames(fIpcSession->router, {frames[0], "STOP", "ok"});
+      } else if (frames[1] == "BOOTSTRAP") {
+        // Worker is still bootstrapping — reply with CONFIG and a STOP will follow via READY.
+        HandleBootstrap(frames[0]);
+      }
+    }
+  }
+  // Bound socket close time to avoid hangs at process end when peers disappear
+  // or when STOP/DONE frames are still queued.
+  if (fIpcSession->router) {
+    int lingerMs = 0;
+    if (fIpcSession->isTcp && abort) {
+      // In TCP abort, allow a short grace period to flush STOP frames.
+      lingerMs = 2000;
+    }
+    zmq_setsockopt(fIpcSession->router, ZMQ_LINGER, &lingerMs, sizeof(lingerMs));
   }
 
   if (fIpcSession->router) {
@@ -785,8 +1034,15 @@ void NDimensionalExecutor::FinishProcessIpc()
   if (fIpcSession->ctx) {
     zmq_ctx_term(fIpcSession->ctx);
   }
-  if (!fIpcSession->endpointPath.empty()) {
+  if (!fIpcSession->isTcp && !fIpcSession->endpointPath.empty()) {
     ::unlink(fIpcSession->endpointPath.c_str());
+  }
+  // Capture registered worker indices before releasing the session.
+  fRegisteredWorkerIndices.clear();
+  if (fIpcSession) {
+    for (const auto & kv : fIpcSession->identityToWorker) {
+      fRegisteredWorkerIndices.insert(kv.second);
+    }
   }
   RestoreIpcSigIntHandler(fIpcSession->oldSigIntAction, fIpcSession->hasOldSigIntAction);
   fIpcSession.reset();

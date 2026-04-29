@@ -281,6 +281,17 @@ class NGnTree : public TObject {
                NBinning * binningIn = nullptr, NGnBeginFuncPtr beginFunc = nullptr, NGnEndFuncPtr endFunc = nullptr);
 
   /**
+   * @brief Set the macro(s) that TCP workers should load when bootstrapping.
+   *
+   * Call this before Process() on the supervisor side. The macro list is sent
+   * to each worker via the CONFIG bootstrap message so workers do not need to
+   * be started with \c --macro on the command line.
+   *
+   * @param macroList Comma-separated list of macro file paths or URLs.
+   */
+  void SetWorkerMacro(const std::string & macroList) { fWorkerMacroList = macroList; }
+
+  /**
    * @brief Project tree data using configuration and binning name.
    * @param cfg JSON configuration object.
    * @param binningName Binning name.
@@ -378,7 +389,10 @@ class NGnTree : public TObject {
   NGnTree *                      fInput{nullptr};       ///< Input NGnTree for processing
   NGnNavigator *                 fNavigator{nullptr};   ///<! Navigator object
   NParameters *                  fParameters{nullptr};  ///< Parameters object
+  bool                           fOwnsBinning{true};    ///< True when fBinning is owned by this instance
+  bool                           fOwnsTreeStorage{true};///< True when fTreeStorage is owned by this instance
   bool                           fIsPureCopy{false};    ///< Flag indicating pure copy mode
+  std::string                    fWorkerMacroList;      ///< Comma-separated macro paths sent to TCP workers
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnTree, 1);

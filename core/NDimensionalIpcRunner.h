@@ -20,6 +20,7 @@ class NDimensionalIpcRunner {
   static std::string SerializeIds(const std::vector<Long64_t> & ids);
 
   static int  WorkerLoop(const std::string & endpoint, size_t workerIndex, NThreadData * worker);
+  static int  TaskLoop(void * dealer, size_t workerIndex, NThreadData * worker);
   static bool WaitForChildProcesses(const std::vector<pid_t> & pids, int timeoutMs = -1);
   static void CleanupChildProcesses(const std::vector<pid_t> & pids);
 

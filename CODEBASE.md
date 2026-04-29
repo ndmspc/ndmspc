@@ -77,6 +77,114 @@ Web-based interface and visualization:
 - Efficient binning and navigation algorithms
 - Parallel execution capabilities
 
+### Execution Modes
+
+`NGnTree::Process` supports three execution modes — see the
+[Execution Modes](https://ndmspc.gitlab.io/docs/ndmspc/core/execution-modes/)
+documentation for full details.
+
+- **thread** (default) — ROOT IMT thread pool, single process
+- **ipc / process** — fork-based local multi-process via ZeroMQ IPC
+- **tcp** — distributed workers on separate machines via ZeroMQ TCP; workers
+  are started with the `ndmspc-worker` binary
+
+### Distributed TCP Processing
+
+The `tcp` mode allows analysis to be spread across workers on different
+machines.  Two binaries are involved:
+
+| Binary | Role |
+|---|---|
+| `ndmspc-run` | Loads and runs a macro (supervisor). Sets execution mode, directories, and port via CLI flags. |
+| `ndmspc-worker` | Connects to the supervisor, receives its configuration automatically, and processes tasks. |
+
+#### Quick start
+
+**Supervisor machine:**
+```bash
+ndmspc-run --mode tcp -n 4 \
+  --tcp-port 5555 \
+  --tmp-dir /tmp \
+  --results-dir /shared/results \
+  myanalysis.C
+```
+
+**Supervisor machine (auto-spawn local workers):**
+```bash
+ndmspc-run --mode tcp -n 4 \
+  --spawn-workers 4 \
+  --tcp-port 5555 \
+  --tmp-dir /tmp \
+  --results-dir /shared/results \
+  myanalysis.C
+```
+
+**Worker machine(s)** — no extra configuration needed:
+```bash
+ndmspc-worker -e tcp://supervisor-host:5555
+```
+
+**Worker machine (spawn N local workers on that machine):**
+```bash
+ndmspc-worker -e tcp://supervisor-host:5555 --spawn-workers 8
+```
+
+Workers connect, send a `BOOTSTRAP` message, and receive their assigned index,
+macro URL, and directory paths from the supervisor automatically.
+
+#### `ndmspc-run` options
+
+| Flag | Env var set | Description |
+|---|---|---|
+| `macro` (positional) | `NDMSPC_MACRO` | Macro file(s) or URL(s) to run (comma-separated) |
+| `--mode` | `NDMSPC_EXECUTION_MODE` | `ipc`, `tcp`, or `thread` |
+| `-n / --processes` | `NDMSPC_MAX_PROCESSES` | Number of worker processes/slots |
+| `--tcp-port` | `NDMSPC_TCP_PORT` | TCP port the supervisor binds (default: 5555) |
+| `--spawn-workers` | — | In TCP mode, spawn N local `ndmspc-worker` processes |
+| `--worker-bin` | — | Worker executable for `--spawn-workers` (default: `ndmspc-worker`) |
+| `--worker-endpoint` | — | Endpoint used by spawned workers (default: `tcp://localhost:<tcp-port>`) |
+| `--tmp-dir` | `NDMSPC_TMP_DIR` | Local scratch directory for temporary files |
+| `--results-dir` | `NDMSPC_TMP_RESULTS_DIR` | Shared directory where workers deposit finished files |
+| `-v / --verbose` | — | Enable verbose console logging |
+
+All flags set the corresponding environment variable only if it is not already
+present in the shell environment, so existing exports take priority.
+
+#### `ndmspc-worker` options
+
+| Flag | Description |
+|---|---|
+| `-e / --endpoint` (required) | Supervisor ZeroMQ endpoint, e.g. `tcp://host:5555` |
+| `-i / --index` | Worker index (auto-assigned by supervisor when omitted) |
+| `-m / --macro` | Macro to run (sent by supervisor via bootstrap when omitted) |
+| `--spawn-workers` | Spawn N local worker processes from this host (spawner mode) |
+| `--worker-bin` | Worker executable used by spawner mode (default: current executable) |
+| `-v / --verbose` | Enable verbose console logging |
+
+#### Bootstrap protocol
+
+When a worker starts without `--index` or `--macro` it sends a `BOOTSTRAP`
+message to the supervisor.  The supervisor replies with a `CONFIG` frame
+containing the assigned worker index, macro list, `NDMSPC_TMP_DIR`, and
+`NDMSPC_TMP_RESULTS_DIR`.  The worker applies these before loading the macro,
+so it requires zero manual configuration beyond the endpoint.
+
+#### Using `SetWorkerMacro()` for custom macro paths
+
+By default the supervisor forwards the same macro it is running.  If workers
+should load a different macro (e.g. a pre-installed path on each worker node),
+call `SetWorkerMacro()` before `Process()` inside the supervisor macro:
+
+```cpp
+// myanalysis.C
+void myanalysis() {
+  auto * tree = NGnTree::Open("input.root");
+  // Workers will load this path instead of myanalysis.C
+  tree->SetWorkerMacro("/opt/analysis/worker.C");
+  tree->Process(MyFunc);
+}
+```
+
 ### Thread Safety
 
 - Thread-safe data structures
@@ -121,7 +229,7 @@ Web-based interface and visualization:
 - `scripts/make.sh` - Build automation
 - `scripts/env.sh` - Environment setup
 - `scripts/gen.sh` - Code generation utilities
-- `scripts/ndmspc-run` - Runtime launcher
+- `scripts/ndmspc-run` - Legacy shell wrapper (sets ROOT_INCLUDE_PATH before running a command)
 
 ## Testing
 

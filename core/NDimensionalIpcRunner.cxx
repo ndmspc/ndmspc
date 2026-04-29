@@ -7,6 +7,8 @@
 #include <thread>
 #include <unistd.h>
 #include <zmq.h>
+#include "NUtils.h"
+#include <TSystem.h>
 #include "NDimensionalIpcRunner.h"
 #include "NGnThreadData.h"
 #include "NThreadData.h"
@@ -144,7 +146,42 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
     return 1;
   }
 
-  bool finishedOk = true;
+  int rc = TaskLoop(dealer, workerIndex, worker);
+
+  zmq_close(dealer);
+  zmq_ctx_term(ctx);
+  return rc;
+}
+
+int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadData * worker)
+{
+  bool   finishedOk    = true;
+  bool   aborted       = false;
+  size_t tasksProcessed = 0;
+  const bool showWorkerProgress = []() {
+    const char * env = gSystem->Getenv("NDMSPC_WORKER_PROGRESS");
+    if (!env || env[0] == '\0') return false;
+    std::string value(env);
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return (value == "1" || value == "true" || value == "yes" || value == "on");
+  }();
+
+  // Non-blocking check: poll the socket and consume a STOP frame if present.
+  // Used between sub-tasks in a batch to react to supervisor abort quickly.
+  auto checkAbort = [&]() -> bool {
+    zmq_pollitem_t item = {dealer, 0, ZMQ_POLLIN, 0};
+    if (zmq_poll(&item, 1, 0) <= 0) return false;
+    std::vector<std::string> peek;
+    if (!ReceiveFrames(dealer, peek)) return false;
+    if (!peek.empty() && peek[0] == "STOP") {
+      aborted = (peek.size() >= 2 && peek[1] == "abort");
+      if (aborted) NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
+      return true;
+    }
+    return false; // unexpected frame — ignore, will be handled in main loop
+  };
+
   while (true) {
     std::vector<std::string> frames;
     if (!ReceiveFrames(dealer, frames)) {
@@ -156,6 +193,11 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
 
     const std::string & cmd = frames[0];
     if (cmd == "STOP") {
+      if (showWorkerProgress && tasksProcessed > 0) { fprintf(stdout, "\n"); fflush(stdout); }
+      aborted = (frames.size() >= 2 && frames[1] == "abort");
+      if (aborted) {
+        NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
+      }
       break;
     }
     if (cmd == "SETDEF") {
@@ -198,6 +240,11 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
         const std::string taskId = frames[1];
         errTaskId = taskId;
         std::vector<int> coords = ParseCoords(frames[2]);
+        ++tasksProcessed;
+        if (showWorkerProgress) {
+          fprintf(stdout, "\rWorker %zu: processing tasks [done: %zu]   ", workerIndex, tasksProcessed);
+          fflush(stdout);
+        }
         worker->Process(coords);
         if (!SendFrames(dealer, {"ACK", taskId})) {
           finishedOk = false;
@@ -218,11 +265,18 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
 
         std::vector<std::string> ackedTaskIds;
         ackedTaskIds.reserve(batchTasks.size());
+        tasksProcessed += batchTasks.size();
+        if (showWorkerProgress) {
+          fprintf(stdout, "\rWorker %zu: processing tasks [done: %zu]   ", workerIndex, tasksProcessed);
+          fflush(stdout);
+        }
         for (const auto & task : batchTasks) {
+          if (checkAbort()) { finishedOk = false; break; }
           errTaskId = task.first;
           worker->Process(task.second);
           ackedTaskIds.push_back(task.first);
         }
+        if (aborted) break;
 
         if (!SendFrames(dealer, {"ACKB", SerializeTaskIds(ackedTaskIds)})) {
           finishedOk = false;
@@ -243,15 +297,65 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
   }
 
   if (auto * gnWorker = dynamic_cast<NGnThreadData *>(worker)) {
-    NLogDebug("Worker %zu finished processing, executing end function and closing file if open ...", workerIndex);
-    gnWorker->ExecuteEndFunction();
-    if (gnWorker->GetHnSparseBase()) {
-      gnWorker->GetHnSparseBase()->Close(true);
+    // Capture local tmp file path before closing (storage object path is cleared after Close).
+    std::string localTmpFile;
+    if (gnWorker->GetHnSparseBase() && gnWorker->GetHnSparseBase()->GetStorageTree()) {
+      localTmpFile = gnWorker->GetHnSparseBase()->GetStorageTree()->GetFileName();
+    }
+
+    if (aborted) {
+      // Supervisor aborted — skip end function and copy, but close the file handle
+      // so we can delete it cleanly.
+      NLogPrint("Worker %zu: aborting, skipping post-processing.", workerIndex);
+      if (gnWorker->GetHnSparseBase()) {
+        gnWorker->GetHnSparseBase()->Close(false); // false = don't save
+      }
+    } else {
+      NLogDebug("Worker %zu finished processing, executing end function and closing file if open ...", workerIndex);
+      gnWorker->ExecuteEndFunction();
+      if (gnWorker->GetHnSparseBase()) {
+        gnWorker->GetHnSparseBase()->Close(true);
+      }
+
+      // TCP mode: copy local result file to shared results dir so supervisor can merge.
+      const std::string & resultsFilename = gnWorker->GetResultsFilename();
+      if (!resultsFilename.empty()) {
+        if (!localTmpFile.empty() && localTmpFile != resultsFilename) {
+          const std::string resultsDir = std::string(gSystem->GetDirName(resultsFilename.c_str()));
+          NUtils::CreateDirectory(resultsDir);
+          NLogPrint("Worker %zu copying '%s' -> '%s' ...", workerIndex, localTmpFile.c_str(), resultsFilename.c_str());
+          if (!NUtils::Cp(localTmpFile, resultsFilename, kFALSE)) {
+            NLogError("Worker %zu: failed to copy '%s' to '%s'", workerIndex, localTmpFile.c_str(),
+                      resultsFilename.c_str());
+          }
+        }
+      }
+    }
+
+    // Delete the local tmp file only when a distinct results file was set.
+    // An empty resultsFilename means localTmpFile IS the results file (same path),
+    // so it must be kept for the supervisor to merge.
+    const std::string & resultsFilenameForDelete = gnWorker->GetResultsFilename();
+    const bool hasDistinctResultsFile = !resultsFilenameForDelete.empty() && resultsFilenameForDelete != localTmpFile;
+    if (!localTmpFile.empty() && hasDistinctResultsFile) {
+      NLogPrint("Worker %zu: removing local tmp file '%s'", workerIndex, localTmpFile.c_str());
+      gSystem->Unlink(localTmpFile.c_str());
     }
   }
 
-  zmq_close(dealer);
-  zmq_ctx_term(ctx);
+  if (!aborted) {
+    // Signal master that this worker has finished writing its file.
+    // For TCP mode, master waits for this DONE before starting to merge.
+    // For IPC (fork) mode, master uses WaitForChildProcesses instead; the DONE
+    // message stays unread in the ZMQ buffer which is harmless.
+    SendFrames(dealer, {"DONE"});
+  }
+
+  // Drop any unsent/undelivered messages immediately so zmq_close/zmq_ctx_term
+  // do not hang at shutdown.
+  int linger = 0;
+  zmq_setsockopt(dealer, ZMQ_LINGER, &linger, sizeof(linger));
+
   return finishedOk ? 0 : 1;
 }
 
@@ -316,7 +420,18 @@ void NDimensionalIpcRunner::CleanupChildProcesses(const std::vector<pid_t> & pid
 
     if (!WaitForChildProcesses({pid}, 1500)) {
       kill(pid, SIGKILL);
-      waitpid(pid, &status, 0);
+
+      // Never block indefinitely here: if a child is stuck in uninterruptible I/O
+      // state, waitpid(..., 0) can hang forever and stall process shutdown.
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+      while (std::chrono::steady_clock::now() < deadline) {
+        rc = waitpid(pid, &status, WNOHANG);
+        if (rc == pid || rc < 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      if (rc == 0) {
+        NLogWarning("NDimensionalIpcRunner::CleanupChildProcesses: child pid=%d did not exit after SIGKILL; continuing shutdown", pid);
+      }
     }
   }
 }

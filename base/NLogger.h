@@ -80,6 +80,16 @@ using json = nlohmann::json;
 #define NLogFatal(format, ...) \
   Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kFatal, format, ##__VA_ARGS__)
 
+/**
+ * @def NLogPrint
+ * @brief Prints a message directly to stdout, bypassing the logging system.
+ *        Use for progress output that must always be visible (e.g. worker status),
+ *        even when NDMSPC_LOG_CONSOLE=0.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogPrint(format, ...) fprintf(stdout, format "\n", ##__VA_ARGS__)
+
 namespace Ndmspc {
 
 namespace logs {

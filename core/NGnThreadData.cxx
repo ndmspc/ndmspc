@@ -370,9 +370,11 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       //   listOut->Add(hnsttd->GetOutput());
       // }
 
-      NGnTree * hnsb = NGnTree::Open(ts->GetFileName());
+      const std::string mergeFilename =
+        hnsttd->GetResultsFilename().empty() ? ts->GetFileName() : hnsttd->GetResultsFilename();
+      NGnTree * hnsb = NGnTree::Open(mergeFilename);
       if (!hnsb) {
-        NLogError("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", ts->GetFileName().c_str());
+        NLogError("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", mergeFilename.c_str());
         continue;
       }
 

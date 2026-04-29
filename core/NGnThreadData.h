@@ -89,6 +89,21 @@ class NGnThreadData : public NThreadData {
   json GetCfg() const { return fCfg; }
 
   /**
+   * @brief Set the results filename for TCP mode (shared filesystem path).
+   *
+   * When set, TaskLoop will copy the locally-written file to this path after
+   * Close(true) before sending DONE to the supervisor.
+   * @param filename Shared-filesystem path where results should be deposited.
+   */
+  void SetResultsFilename(const std::string & filename) { fResultsFilename = filename; }
+
+  /**
+   * @brief Get the results filename for TCP mode.
+   * @return Shared-filesystem path, or empty string if not set.
+   */
+  const std::string & GetResultsFilename() const { return fResultsFilename; }
+
+  /**
    * @brief Checks if the object is a pure copy.
    * @return True if the object is a pure copy, false otherwise.
    */
@@ -133,6 +148,7 @@ class NGnThreadData : public NThreadData {
   NBinning *                 fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
   json                       fCfg{};                 ///< Configuration object
   bool                       fIsPureCopy{false};     ///< Flag indicating pure copy mode
+  std::string                fResultsFilename{};     ///< Shared-FS path to copy result to after Close(true) (TCP mode)
   std::vector<TObject *>     fDeferredDeletes;       //!< Objects deferred for single-threaded deletion
 
   /// \cond CLASSIMP

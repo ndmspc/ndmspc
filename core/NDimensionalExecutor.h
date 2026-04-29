@@ -3,6 +3,7 @@
 
 #include <iomanip>
 #include <sstream>
+#include <set>
 #include <vector>
 #include <functional>
 #include <cstddef>
@@ -71,11 +72,16 @@ class NDimensionalExecutor {
    * @return Number of processed tasks acknowledged by workers.
    */
   size_t ExecuteParallelProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount);
-  void   StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount);
+  void   StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount,
+                         const std::string & tcpBindEndpoint = "", const std::string & jobDir = "",
+                         const std::string & treeName = "ngnt", const std::string & macroList = "",
+                         const std::string & tmpDir = "", const std::string & tmpResultsDir = "");
   size_t ExecuteCurrentBoundsProcessIpc(const std::string & definitionName = "",
                                         const std::vector<Long64_t> * definitionIds = nullptr,
                                         const std::function<void(size_t, size_t)> & progressCallback = nullptr);
-  void   FinishProcessIpc();
+  void   FinishProcessIpc(bool abort = false);
+
+  std::set<size_t> GetRegisteredWorkerIndices() const { return fRegisteredWorkerIndices; }
 
   /**
    * @brief Returns the number of dimensions.
@@ -107,8 +113,17 @@ class NDimensionalExecutor {
    */
   bool Increment();
 
+  /// Sends INIT to a newly-connected TCP worker, waits for ACK, and registers
+  /// it in identityToWorker / workerIdentityVec.
+  bool InitTcpWorker(const std::string & identity);
+
+  /// Handles a BOOTSTRAP message from a worker: assigns the next sequential
+  /// index and replies with a CONFIG frame containing the macro list and env vars.
+  bool HandleBootstrap(const std::string & identity);
+
   struct IpcSession;
   std::unique_ptr<IpcSession> fIpcSession;
+  std::set<size_t>            fRegisteredWorkerIndices; ///< Worker indices that completed registration (TCP mode)
 };
 
 
