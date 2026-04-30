@@ -75,7 +75,8 @@ class NDimensionalExecutor {
   void   StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount,
                          const std::string & tcpBindEndpoint = "", const std::string & jobDir = "",
                          const std::string & treeName = "ngnt", const std::string & macroList = "",
-                         const std::string & tmpDir = "", const std::string & tmpResultsDir = "");
+                         const std::string & tmpDir = "", const std::string & tmpResultsDir = "",
+                         const std::string & macroParams = "");
   size_t ExecuteCurrentBoundsProcessIpc(const std::string & definitionName = "",
                                         const std::vector<Long64_t> * definitionIds = nullptr,
                                         const std::function<void(size_t, size_t)> & progressCallback = nullptr);
@@ -118,7 +119,8 @@ class NDimensionalExecutor {
   bool InitTcpWorker(const std::string & identity);
 
   /// Handles a BOOTSTRAP message from a worker: assigns the next sequential
-  /// index and replies with a CONFIG frame containing the macro list and env vars.
+  /// index and replies with a CONFIG frame containing macro list, macro params,
+  /// and env vars.
   bool HandleBootstrap(const std::string & identity);
 
   struct IpcSession;

@@ -137,6 +137,7 @@ macro URL, and directory paths from the supervisor automatically.
 | Flag | Env var set | Description |
 |---|---|---|
 | `macro` (positional) | `NDMSPC_MACRO` | Macro file(s) or URL(s) to run (comma-separated) |
+| `--macro-params` | `NDMSPC_MACRO_PARAMS` | Parameter list forwarded to `TMacro::Exec(params)` |
 | `--mode` | `NDMSPC_EXECUTION_MODE` | `ipc`, `tcp`, or `thread` |
 | `-n / --processes` | `NDMSPC_MAX_PROCESSES` | Number of worker processes/slots |
 | `--tcp-port` | `NDMSPC_TCP_PORT` | TCP port the supervisor binds (default: 5555) |
@@ -157,6 +158,7 @@ present in the shell environment, so existing exports take priority.
 | `-e / --endpoint` (required) | Supervisor ZeroMQ endpoint, e.g. `tcp://host:5555` |
 | `-i / --index` | Worker index (auto-assigned by supervisor when omitted) |
 | `-m / --macro` | Macro to run (sent by supervisor via bootstrap when omitted) |
+| `--macro-params` | Parameter list forwarded to `TMacro::Exec(params)` |
 | `--spawn-workers` | Spawn N local worker processes from this host (spawner mode) |
 | `--worker-bin` | Worker executable used by spawner mode (default: current executable) |
 | `-v / --verbose` | Enable verbose console logging |

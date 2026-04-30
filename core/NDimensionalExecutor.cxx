@@ -94,6 +94,7 @@ struct NDimensionalExecutor::IpcSession {
   bool             hasOldSigIntAction{false};
   // Bootstrap configuration sent to workers on first contact
   std::string macroList;       // comma-separated macro paths to load on worker
+  std::string macroParams;     // parameter list forwarded to TMacro::Exec on worker
   std::string tmpDir;          // supervisor's NDMSPC_TMP_DIR (fallback for workers)
   std::string tmpResultsDir;   // supervisor's NDMSPC_TMP_RESULTS_DIR
   size_t      bootstrapNextIdx{0}; // auto-assigned index counter for BOOTSTRAP
@@ -502,13 +503,15 @@ bool NDimensionalExecutor::HandleBootstrap(const std::string & identity)
   return NDimensionalIpcRunner::SendFrames(fIpcSession->router,
                                            {identity, "CONFIG", std::to_string(assignedIdx),
                                             fIpcSession->macroList, fIpcSession->tmpDir,
-                                            fIpcSession->tmpResultsDir});
+                                            fIpcSession->tmpResultsDir,
+                                            fIpcSession->macroParams});
 }
 
 void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount,
                                            const std::string & tcpBindEndpoint, const std::string & jobDir,
                                            const std::string & treeName, const std::string & macroList,
-                                           const std::string & tmpDir, const std::string & tmpResultsDir)
+                                           const std::string & tmpDir, const std::string & tmpResultsDir,
+                                           const std::string & macroParams)
 {
   if (workerObjects.empty()) {
     throw std::invalid_argument("Worker objects vector cannot be empty.");
@@ -581,6 +584,7 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
     fIpcSession->macroList    = macroList;
     fIpcSession->tmpDir       = tmpDir;
     fIpcSession->tmpResultsDir = tmpResultsDir;
+    fIpcSession->macroParams  = macroParams;
   }
 
   if (!isTcp) {

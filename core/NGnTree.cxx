@@ -546,6 +546,17 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   gROOT->SetBatch(kTRUE);
   TH1::AddDirectory(kFALSE);
 
+  std::string storagePostfix = fTreeStorage ? fTreeStorage->GetPostfix() : "";
+  if (storagePostfix.empty() && fTreeStorage) {
+    const std::string storageFileName = fTreeStorage->GetFileName();
+    if (!storageFileName.empty()) {
+      storagePostfix = gSystem->BaseName(storageFileName.c_str());
+    }
+  }
+  if (storagePostfix.empty()) {
+    storagePostfix = "ndmspc.root";
+  }
+
   // --- Worker mode: run as a remote TCP worker ---
   if (const char * workerEndpoint = gSystem->Getenv("NDMSPC_WORKER_ENDPOINT")) {
     size_t workerIndex = 0;
@@ -554,8 +565,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
     NLogInfo("NGnTree::Process: Worker mode — connecting to %s as worker %zu", workerEndpoint, workerIndex);
 
-    const char * tmpDirEnv  = gSystem->Getenv("NDMSPC_TMP_DIR");
-    std::string  workerBase = tmpDirEnv ? tmpDirEnv : "/tmp";
+    // const char * tmpDirEnv  = gSystem->Getenv("NDMSPC_TMP_DIR");
     // jobDir and treeName will be received from master via INIT
     // For now init NGnThreadData with a placeholder filename; Init() will be called with real paths
     Ndmspc::NGnThreadData workerData;
@@ -613,11 +623,11 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
         const char *      localTmpEnv = gSystem->Getenv("NDMSPC_TMP_DIR");
         const std::string localBase   = localTmpEnv ? localTmpEnv : "/tmp";
         const std::string localFile   = localBase + "/.ndmspc/tmp/" + sessionId + "/" +
-                                        std::to_string(workerIndex) + "/" + fTreeStorage->GetPostfix();
+                                        std::to_string(workerIndex) + "/" + storagePostfix;
 
         // Results file — on shared FS; supervisor reads from here to merge
         const std::string resultsFile = initResultsDir + "/" + std::to_string(workerIndex) + "/" +
-                                        fTreeStorage->GetPostfix();
+                                        storagePostfix;
 
         bool rc = workerData.Init(workerIndex, func, beginFunc, endFunc, this, binningIn, fInput, localFile, initTreeName);
         if (!rc) {
@@ -759,7 +769,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   std::string filePrefix = jobDir;
   for (size_t i = 0; i < threadDataVector.size(); ++i) {
-    std::string filename = filePrefix + "/" + std::to_string(i) + "/" + fTreeStorage->GetPostfix();
+    std::string filename = filePrefix + "/" + std::to_string(i) + "/" + storagePostfix;
     bool        rc       = threadDataVector[i].Init(i, func, beginFunc, endFunc, this, binningIn, fInput, filename,
                                                     fTreeStorage->GetTree()->GetName());
     if (!rc) {
@@ -771,7 +781,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       // Tell the merge step where workers will deposit their finished files.
       // When resultsDir == jobDir (NDMSPC_TMP_RESULTS_DIR unset) the paths are
       // identical so no copy or delete is needed — handled in TaskLoop.
-      std::string resultsFile = resultsDir + "/" + std::to_string(i) + "/" + fTreeStorage->GetPostfix();
+      std::string resultsFile = resultsDir + "/" + std::to_string(i) + "/" + storagePostfix;
       threadDataVector[i].SetResultsFilename(resultsFile);
     }
   }
@@ -807,6 +817,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       const char * tcpPort    = gSystem->Getenv("NDMSPC_TCP_PORT");
       std::string  tcpEndpoint = std::string("tcp://0.0.0.0:") + (tcpPort ? tcpPort : "5555");
       const char * resultsDirBase = gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR");
+      const char * macroParams   = gSystem->Getenv("NDMSPC_MACRO_PARAMS");
       // Auto-detect the macro to send to workers: explicit SetWorkerMacro() takes
       // priority; otherwise fall back to NDMSPC_MACRO set by ndmspc-run.
       std::string workerMacro = fWorkerMacroList;
@@ -815,7 +826,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
       ipcExecutor->StartProcessIpc(processWorkers, nProcesses, tcpEndpoint, resultsDir,
                                    fTreeStorage->GetTree()->GetName(), workerMacro, tmpDir,
-                                   resultsDirBase ? resultsDirBase : "");
+                                   resultsDirBase ? resultsDirBase : "",
+                                   macroParams ? macroParams : "");
     } else {
       ipcExecutor->StartProcessIpc(processWorkers, nProcesses);
     }

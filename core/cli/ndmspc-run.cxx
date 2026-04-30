@@ -69,14 +69,24 @@ static std::string app_description()
   return std::string(buf.get(), size);
 }
 
+static std::string app_version()
+{
+  size_t size = 128;
+  auto   buf  = std::make_unique<char[]>(size);
+  size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
+  return std::string(buf.get(), size);
+}
+
 int main(int argc, char ** argv)
 {
   TApplication rootApp("ndmspc-run", 0, nullptr);
   gROOT->SetBatch(kTRUE);
 
   CLI::App app{app_description()};
+  app.set_version_flag("--version", app_version(), "Print version information and exit");
 
   std::string macroList;
+  std::string macroParams;
   std::string mode;          // ipc | tcp | thread (maps to NDMSPC_EXECUTION_MODE)
   size_t      nProcesses = 0; // 0 = not set
   std::string tcpPort;
@@ -90,6 +100,8 @@ int main(int argc, char ** argv)
   app.add_option("macro", macroList,
                  "Comma-separated list of macro file(s) or URLs to execute")
      ->required();
+  app.add_option("--macro-params", macroParams,
+                 "Parameter list forwarded to TMacro::Exec(params), e.g. '42,\"sample\"'");
   app.add_option("--mode", mode,
                  "Execution mode: ipc/process (forked local processes), tcp (remote workers), thread")
      ->check(CLI::IsMember({"ipc", "process", "tcp", "thread"}));
@@ -141,9 +153,12 @@ int main(int argc, char ** argv)
 
   if (nProcesses > 0 && !gSystem->Getenv("NDMSPC_MAX_PROCESSES"))
     gSystem->Setenv("NDMSPC_MAX_PROCESSES", std::to_string(nProcesses).c_str());
+  setenvIfEmpty("NDMSPC_MACRO_PARAMS", macroParams);
   setenvIfEmpty("NDMSPC_TCP_PORT", tcpPort);
   setenvIfEmpty("NDMSPC_TMP_DIR", tmpDir);
   setenvIfEmpty("NDMSPC_TMP_RESULTS_DIR", tmpResultsDir);
+
+  const std::string effectiveMacroParams = gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "";
 
   if (workerBin.empty()) workerBin = "ndmspc-worker";
 
@@ -183,14 +198,18 @@ int main(int argc, char ** argv)
 
   std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');
   for (const auto & macro : macros) {
-    NLogInfo("ndmspc-run: executing macro '%s'", macro.c_str());
+    if (effectiveMacroParams.empty()) {
+      NLogInfo("ndmspc-run: executing macro '%s'", macro.c_str());
+    } else {
+      NLogInfo("ndmspc-run: executing macro '%s' with params '%s'", macro.c_str(), effectiveMacroParams.c_str());
+    }
     TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
     if (!m) {
       NLogError("ndmspc-run: failed to open macro '%s', exiting", macro.c_str());
       cleanupSpawnedWorkers();
       return 1;
     }
-    m->Exec();
+    m->Exec(effectiveMacroParams.empty() ? nullptr : effectiveMacroParams.c_str());
     delete m;
   }
 

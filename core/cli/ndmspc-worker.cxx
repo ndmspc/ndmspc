@@ -24,6 +24,14 @@ static std::string app_description()
   return std::string(buf.get(), size);
 }
 
+static std::string app_version()
+{
+  size_t size = 128;
+  auto   buf  = std::make_unique<char[]>(size);
+  size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
+  return std::string(buf.get(), size);
+}
+
 namespace {
 
 volatile sig_atomic_t gTerminateRequested = 0;
@@ -34,7 +42,7 @@ void handle_signal(int)
 }
 
 pid_t spawn_worker_process(const std::string & workerBin, const std::string & endpoint, const std::string & mode,
-                           const std::string & macroList, bool verbose)
+                           const std::string & macroList, const std::string & macroParams, bool verbose)
 {
   pid_t pid = fork();
   if (pid < 0) return -1;
@@ -51,6 +59,10 @@ pid_t spawn_worker_process(const std::string & workerBin, const std::string & en
     if (!macroList.empty()) {
       args.emplace_back("--macro");
       args.emplace_back(macroList);
+    }
+    if (!macroParams.empty()) {
+      args.emplace_back("--macro-params");
+      args.emplace_back(macroParams);
     }
     if (verbose) args.emplace_back("--verbose");
 
@@ -130,10 +142,12 @@ int main(int argc, char ** argv)
   TApplication rootApp("ndmspc-worker", 0, nullptr);
 
   CLI::App app{app_description()};
+  app.set_version_flag("--version", app_version(), "Print version information and exit");
 
   std::string endpoint;
   size_t      workerIndex = std::numeric_limits<size_t>::max(); // sentinel: not set
   std::string macroList;
+  std::string macroParams;
   std::string mode; // ipc | process | tcp | thread (optional override)
   std::string workerBin;
   size_t      spawnWorkers = 0;
@@ -142,6 +156,8 @@ int main(int argc, char ** argv)
   app.add_option("-e,--endpoint", endpoint, "Master endpoint (e.g. tcp://host:5555)")->required();
   app.add_option("-i,--index", workerIndex, "Worker index (default: auto-assigned by supervisor)");
   app.add_option("-m,--macro", macroList, "Comma-separated list of macro file(s) or URLs to execute");
+  app.add_option("--macro-params", macroParams,
+                 "Parameter list forwarded to TMacro::Exec(params), e.g. '42,\"sample\"'");
   app.add_option("--mode", mode,
                  "Execution mode override: ipc/process (local), tcp (remote), thread")
      ->check(CLI::IsMember({"ipc", "process", "tcp", "thread"}));
@@ -169,6 +185,9 @@ int main(int argc, char ** argv)
   if (!mode.empty() && !gSystem->Getenv("NDMSPC_EXECUTION_MODE")) {
     gSystem->Setenv("NDMSPC_EXECUTION_MODE", mode.c_str());
   }
+  if (!macroParams.empty() && !gSystem->Getenv("NDMSPC_MACRO_PARAMS")) {
+    gSystem->Setenv("NDMSPC_MACRO_PARAMS", macroParams.c_str());
+  }
 
   if (spawnWorkers > 0) {
     if (workerIndex != std::numeric_limits<size_t>::max()) {
@@ -184,7 +203,7 @@ int main(int argc, char ** argv)
     std::vector<pid_t> workerPids;
     workerPids.reserve(spawnWorkers);
     for (size_t i = 0; i < spawnWorkers; ++i) {
-      const pid_t pid = spawn_worker_process(workerBin, endpoint, mode, macroList, verbose);
+      const pid_t pid = spawn_worker_process(workerBin, endpoint, mode, macroList, macroParams, verbose);
       if (pid < 0) {
         NLogError("ndmspc-worker: failed to spawn worker %zu", i);
         terminate_workers(workerPids, SIGTERM);
@@ -224,7 +243,8 @@ int main(int argc, char ** argv)
         }
         break;
       }
-      // CONFIG frames: "CONFIG", workerIdx, macroList, NDMSPC_TMP_DIR, NDMSPC_TMP_RESULTS_DIR
+      // CONFIG frames: "CONFIG", workerIdx, macroList, NDMSPC_TMP_DIR,
+      // NDMSPC_TMP_RESULTS_DIR, [optional] NDMSPC_MACRO_PARAMS
       if (frames.size() >= 5 && frames[0] == "CONFIG") {
         if (workerIndex == std::numeric_limits<size_t>::max())
           workerIndex = static_cast<size_t>(std::stoul(frames[1]));
@@ -234,6 +254,8 @@ int main(int argc, char ** argv)
           gSystem->Setenv("NDMSPC_TMP_DIR", frames[3].c_str());
         if (!frames[4].empty())
           gSystem->Setenv("NDMSPC_TMP_RESULTS_DIR", frames[4].c_str());
+        if (frames.size() >= 6 && !frames[5].empty() && !gSystem->Getenv("NDMSPC_MACRO_PARAMS"))
+          gSystem->Setenv("NDMSPC_MACRO_PARAMS", frames[5].c_str());
         configOk = true;
       }
     }
@@ -268,17 +290,23 @@ int main(int argc, char ** argv)
   fprintf(stdout, "  NDMSPC_TMP_DIR         = %s\n", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");
   fprintf(stdout, "  NDMSPC_TMP_RESULTS_DIR = %s\n", gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") ? gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") : "(not set)");
   fprintf(stdout, "  NDMSPC_EXECUTION_MODE  = %s\n", gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "(not set)");
+  fprintf(stdout, "  NDMSPC_MACRO_PARAMS    = %s\n", gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "(not set)");
   fflush(stdout);
 
+  const std::string effectiveMacroParams = gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "";
   std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');
   for (const auto & macro : macros) {
-    NLogInfo("ndmspc-worker: executing macro '%s'", macro.c_str());
+    if (effectiveMacroParams.empty()) {
+      NLogInfo("ndmspc-worker: executing macro '%s'", macro.c_str());
+    } else {
+      NLogInfo("ndmspc-worker: executing macro '%s' with params '%s'", macro.c_str(), effectiveMacroParams.c_str());
+    }
     TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
     if (!m) {
       NLogError("ndmspc-worker: failed to open macro '%s', exiting", macro.c_str());
       return 1;
     }
-    m->Exec();
+    m->Exec(effectiveMacroParams.empty() ? nullptr : effectiveMacroParams.c_str());
     delete m;
   }
 

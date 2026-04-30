@@ -33,6 +33,20 @@ std::string app_description()
   size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
   return std::string(buf.get(), size);
 }
+
+std::string app_version()
+{
+  size_t size = 128;
+  auto   buf  = std::make_unique<char[]>(size);
+  size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
+  return std::string(buf.get(), size);
+}
+
+void log_server_version(const char * mode, int port)
+{
+  NLogInfo("Starting %s server on port %d with %s", mode, port, app_version().c_str());
+}
+
 void handle_sigterm(int sig)
 {
   std::cout << ">>> SIGNAL RECEIVED: " << sig << " <<<" << std::endl;
@@ -61,6 +75,7 @@ int main(int argc, char ** argv)
   }
   bool     batch = true;
   CLI::App app{app_description()};
+  app.set_version_flag("--version", app_version(), "Print version information and exit");
   app.require_subcommand(1); // 1 or more
   argv = app.ensure_utf8(argv);
   app.set_help_all_flag("--help-all", "Expand all help");
@@ -82,6 +97,7 @@ int main(int argc, char ** argv)
     }
     EnsureServerRunning(serv, port);
     serv->SetCors("*");
+    log_server_version("default", port);
     // // This allows ROOT to process system signals like SIGTERM
     // int timeout = 100;
     // // serv->SetTimer(0, kTRUE);
@@ -137,7 +153,7 @@ int main(int argc, char ** argv)
     }
     EnsureServerRunning(serv, port);
     serv->SetCors("*");
-    NLogInfo("Starting server on port %d ...", port);
+    log_server_version("stress", port);
     Ndmspc::NWsHandler * ws = serv->GetWebSocketHandler();
     // This allows ROOT to process system signals like SIGTERM
     // gSystem->AddSignalHandler(new TSignalHandler(kSigTermination, kTRUE));
@@ -182,6 +198,7 @@ int main(int argc, char ** argv)
       exit(1);
     }
     EnsureServerRunning(serv, port);
+    log_server_version("ngnt", port);
 
     serv->SetUseHistory(!noHistory);
     serv->SetCors("*");
@@ -200,7 +217,7 @@ int main(int argc, char ** argv)
       NLogInfo("No macro file given, using default NGNT macros: '%s'", macroFilename.c_str());
     }
 
-    NLogInfo("Starting ngnt server on port %d (heartbeat: %d ms) using file '%s' ...", port, heartbeat_ms,
+    NLogInfo("NGNT server heartbeat: %d ms, macro file '%s'", heartbeat_ms,
              macroFilename.c_str());
 
     // Your local map
