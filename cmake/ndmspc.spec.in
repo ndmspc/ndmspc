@@ -123,6 +123,8 @@ make install DESTDIR=%{buildroot}
 %exclude %{_includedir}/ndmspc/NNumcalManager.h
 %{_libdir}/*
 %{_bindir}/ndmspc-server
+%{_bindir}/ndmspc-run
+%{_bindir}/ndmspc-worker
 %{_includedir}/*
 %{_datadir}/%{name}/*
 %{_sysconfdir}/systemd/user/ndmspc-http@.service

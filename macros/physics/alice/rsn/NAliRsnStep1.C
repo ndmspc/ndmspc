@@ -79,36 +79,36 @@ void NAliRsnStep1(
   // b0["ce"] = {{100}};
   ngnt->GetBinning()->AddBinningDefinition("b0", b0);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b2;
-  // b2["pt"] = {{50}};
-  // b2["ce"] = {{50}};
-  // ngnt->GetBinning()->AddBinningDefinition("b2", b2);
+  std::map<std::string, std::vector<std::vector<int>>> b2;
+  b2["pt"] = {{50}};
+  b2["ce"] = {{50}};
+  ngnt->GetBinning()->AddBinningDefinition("b2", b2);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b3;
-  // b3["pt"] = {{50}};
-  // // b3["ce"] = {{25}};
-  // b3["ce"] = {{50,1},{25}};
-  // ngnt->GetBinning()->AddBinningDefinition("b3", b3);
+  std::map<std::string, std::vector<std::vector<int>>> b3;
+  b3["pt"] = {{50}};
+  // b3["ce"] = {{25}};
+  b3["ce"] = {{50,1},{25}};
+  ngnt->GetBinning()->AddBinningDefinition("b3", b3);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b4;
-  // b4["pt"] = {{1}};
-  // b4["ce"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b4", b4);
+  std::map<std::string, std::vector<std::vector<int>>> b4;
+  b4["pt"] = {{1}};
+  b4["ce"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b4", b4);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b5;
-  // b5["pt"] = {{2}};
-  // b5["ce"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b5", b5);
+  std::map<std::string, std::vector<std::vector<int>>> b5;
+  b5["pt"] = {{2}};
+  b5["ce"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b5", b5);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b6;
-  // b6["pt"] = {{1}};
-  // b6["ce"] = {{2}};
-  // ngnt->GetBinning()->AddBinningDefinition("b6", b6);
+  std::map<std::string, std::vector<std::vector<int>>> b6;
+  b6["pt"] = {{1}};
+  b6["ce"] = {{2}};
+  ngnt->GetBinning()->AddBinningDefinition("b6", b6);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b7;
-  // b7["pt"] = {{2}};
-  // b7["ce"] = {{2}};
-  // ngnt->GetBinning()->AddBinningDefinition("b7", b7);
+  std::map<std::string, std::vector<std::vector<int>>> b7;
+  b7["pt"] = {{2}};
+  b7["ce"] = {{2}};
+  ngnt->GetBinning()->AddBinningDefinition("b7", b7);
 
   // ngnt->Print();
 
@@ -127,10 +127,35 @@ void NAliRsnStep1(
 
     // NLogInfo("Processing file: %s", filePath.c_str());
 
-    TFile * f = Ndmspc::NUtils::OpenFile(filePath);
-    if (!f) {
-      NLogError("Failed to open file: %s", filePath.c_str());
-      return;
+    TFile * f = (TFile *)point->GetTempObject("file");
+    if (!f || f->IsZombie()) {
+      if (f) {
+        NLogWarning("File was previously opened but is not valid anymore: %s", filePath.c_str());
+        for (const auto & objectName : objectNames) {
+          // NLogDebug("Caching object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(), filePath.c_str());
+          TObject * obj = point->GetTempObject(objectName.c_str());
+          if (obj) {
+            // NLogWarning("Object was previously cached but is not valid anymore: %s/%s from file: %s",
+            // objectDir.c_str(),
+            //             objectName.c_str(), filePath.c_str());
+            delete obj;
+            point->SetTempObject(objectName, nullptr);
+          }
+        }
+
+        f->Close();
+        delete f;
+      }
+      NLogInfo("Opening file: %s", filePath.c_str());
+      f = Ndmspc::NUtils::OpenFile(filePath);
+      if (!f || f->IsZombie()) {
+        NLogError("Failed to open file: %s", filePath.c_str());
+        return;
+      }
+      point->SetTempObject("file", f);
+    }
+    else {
+      // NLogInfo("Reusing opened file: %s", filePath.c_str());
     }
 
     std::map<int, std::vector<int>> ranges;
@@ -147,13 +172,21 @@ void NAliRsnStep1(
 
     for (const auto & objectName : objectNames) {
       // NLogDebug("Getting object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(), filePath.c_str());
-      THnSparse * hns =
-          dynamic_cast<THnSparse *>(f->Get(TString::Format("%s/%s", objectDir.c_str(), objectName.c_str()).Data()));
+
+      THnSparse * hns = (THnSparse *)point->GetTempObject(objectName.c_str());
+      // NLogDebug("hns: %p, object: %s/%s from file: %s", hns, objectDir.c_str(), objectName.c_str(),
+      // filePath.c_str());
       if (!hns) {
-        // NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(),
-        // filePath.c_str());
-        continue;
+        hns = dynamic_cast<THnSparse *>(f->Get(TString::Format("%s/%s", objectDir.c_str(), objectName.c_str()).Data()));
+        if (!hns) {
+          NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectName.c_str(),
+                    filePath.c_str());
+          continue;
+        }
+        point->SetTempObject(objectName, hns);
       }
+      // NLogDebug("2 hns: %p, object: %s/%s from file: %s", hns, objectDir.c_str(), objectName.c_str(),
+      // filePath.c_str()); hns->Print("A");
 
       // Ndmspc::NUtils::SetAxisRanges(hns, ranges, false, true);
       Ndmspc::NUtils::SetAxisRanges(hns, ranges);
@@ -169,11 +202,11 @@ void NAliRsnStep1(
                                   TMath::Sqrt(proj->GetEntries()));
       }
 
-      delete hns;
+      // delete hns;
     }
 
-    f->Close();
-    delete f;
+    // f->Close();
+    // delete f;
   };
 
   // Define the begin function which is executed before processing all points
@@ -183,8 +216,14 @@ void NAliRsnStep1(
   };
 
   // Define the end function which is executed after processing all points
-  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * point, int /*threadId*/) {
     // NLogInfo("Finished processing ...");
+    TFile * f = (TFile *)point->GetTempObject("file");
+    if (f) {
+      f->Close();
+      delete f;
+      point->SetTempObject("file", nullptr);
+    }
   };
   // execute the processing function
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);

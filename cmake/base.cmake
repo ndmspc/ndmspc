@@ -82,7 +82,7 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 )
 
 set(CPACK_SOURCE_IGNORE_FILES
-"/build/;/.git/;/.vscode/;/bin/;/lib/;lib64/;/tmp/;~$;${CPACK_SOURCE_IGNORE_FILES}"
+"/build/;/.git/;/.vscode/;/bin/;/lib/;lib64/;/tmp/;/.cache/;/.ndmspc/;~$;.*\\.root$;${CPACK_SOURCE_IGNORE_FILES}"
 )
 add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
 include(CPack)
