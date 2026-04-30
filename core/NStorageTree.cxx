@@ -525,6 +525,7 @@ Long64_t NStorageTree::Merge(TCollection * list)
         // point->Print();
         // // FIXME: check why ids are not filled correctly when merging
         found = false;
+        std::vector<NBinningDef *> matchedDefinitions;
         NLogTrace("NHnSparseTree::Merge: Looping over all binning definitions to fill ids ...");
         for (auto & name : fBinning->GetDefinitionNames()) {
           // check if id
@@ -549,23 +550,10 @@ Long64_t NStorageTree::Merge(TCollection * list)
               found = true;
             }
 
-            //
-            // // binningDefIn->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
-            // // binningDefIn->GetContent()->Print();
-            // // NLogDebug("  IDs before: %s", NUtils::GetCoordsString(kv.second->GetIds(), -1).c_str());
             NBinningDef * def = fBinning->GetDefinition(name);
-            // binningDefIn->Print();
-            // def->Print();
-            def->GetIds().push_back(linBin);
-            // Long64_t xxx = def->GetContent()->GetBin(point->GetStorageCoords(), false);
-            // NLogDebug("  xxx = %lld", xxx);
-            // if (xxx >= 0) {
-            //   // def->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
-            //   def->GetIds().push_back(point->GetEntryNumber());
-            //   def->Print();
-            //   NLogInfo("***** NHnSparseTree::Merge: Found %lld", point->GetEntryNumber());
-            //   found = true;
-            // }
+            if (def) {
+              matchedDefinitions.push_back(def);
+            }
           }
         }
         if (found == false) {
@@ -602,6 +590,9 @@ Long64_t NStorageTree::Merge(TCollection * list)
         // SaveEntry();
         // fBinning->SetPoint(obj->GetBinning()->GetPoint());
         Fill(point, obj, true, {}, false);
+        for (auto * def : matchedDefinitions) {
+          def->GetIds().push_back(point->GetEntryNumber());
+        }
         NLogTrace("NHnSparseTree::Merge: Filling point %s linBin=%d idx=%d entry_number=%d...", binCoordsStr.c_str(),
                   linBin, idx, point->GetEntryNumber());
       }

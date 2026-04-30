@@ -97,6 +97,7 @@ struct NDimensionalExecutor::IpcSession {
   std::string tmpDir;          // supervisor's NDMSPC_TMP_DIR (fallback for workers)
   std::string tmpResultsDir;   // supervisor's NDMSPC_TMP_RESULTS_DIR
   size_t      bootstrapNextIdx{0}; // auto-assigned index counter for BOOTSTRAP
+  std::vector<std::string> pendingReadyIdentities; // READY messages consumed while waiting for ACK
 };
 
 // --- Private Increment Logic ---
@@ -443,7 +444,17 @@ bool NDimensionalExecutor::InitTcpWorker(const std::string & identity)
     return false;
   }
 
-  const auto initDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  int initTimeoutSec = 30;
+  if (const char * env = gSystem->Getenv("NDMSPC_WORKER_TIMEOUT")) {
+    try {
+      initTimeoutSec = std::max(1, std::stoi(env));
+    }
+    catch (...) {
+      NLogWarning("NDimensionalExecutor::InitTcpWorker: Invalid NDMSPC_WORKER_TIMEOUT='%s', using default=%d", env,
+                  initTimeoutSec);
+    }
+  }
+  const auto initDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(initTimeoutSec);
   bool       acked        = false;
   while (!acked) {
     std::vector<std::string> ackFrames;
@@ -453,6 +464,18 @@ bool NDimensionalExecutor::InitTcpWorker(const std::string & identity)
         continue;
       }
       break;
+    }
+    if (ackFrames.size() >= 2 && ackFrames[1] == "BOOTSTRAP") {
+      HandleBootstrap(ackFrames[0]);
+      continue;
+    }
+    if (ackFrames.size() >= 2 && ackFrames[1] == "READY" && ackFrames[0] != identity) {
+      if (!fIpcSession->identityToWorker.count(ackFrames[0]) &&
+          std::find(fIpcSession->pendingReadyIdentities.begin(), fIpcSession->pendingReadyIdentities.end(),
+                    ackFrames[0]) == fIpcSession->pendingReadyIdentities.end()) {
+        fIpcSession->pendingReadyIdentities.push_back(ackFrames[0]);
+      }
+      continue;
     }
     if (ackFrames.size() >= 2 && ackFrames[0] == identity && ackFrames[1] == "ACK") {
       acked = true;
@@ -542,6 +565,7 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
   fIpcSession->identityToWorker.clear();
   fIpcSession->identityToWorker.reserve(processesToUse);
   fIpcSession->workerIdentityVec.clear();
+  fIpcSession->pendingReadyIdentities.clear();
 
   if (!isTcp) {
     // IPC/fork mode: pre-seed the map as before so WorkerLoop identities match
@@ -593,10 +617,19 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
   }
   const auto readyDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(readyTimeoutSec);
 
-  // For IPC we need all processesToUse; for TCP we need at least 1.
-  const size_t readyTarget = isTcp ? 1 : processesToUse;
+  // Processing and merge assume a fixed worker set. In TCP mode, starting after
+  // only one READY leaves late workers partially initialised and produces
+  // incomplete or corrupt merge inputs.
+  const size_t readyTarget = processesToUse;
 
   while (fIpcSession->workerIdentityVec.size() < readyTarget) {
+    if (isTcp && !fIpcSession->pendingReadyIdentities.empty()) {
+      const std::string identity = fIpcSession->pendingReadyIdentities.front();
+      fIpcSession->pendingReadyIdentities.erase(fIpcSession->pendingReadyIdentities.begin());
+      InitTcpWorker(identity);
+      continue;
+    }
+
     std::vector<std::string> frames;
     if (!NDimensionalIpcRunner::ReceiveFrames(fIpcSession->router, frames)) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -705,6 +738,18 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
   size_t            nextSchedulerLogAck = 200;
   std::string       firstError;
   std::set<size_t>  pendingTasks;
+
+  int stallTimeoutSec = 120;
+  if (const char * envStallTimeout = gSystem->Getenv("NDMSPC_IPC_STALL_TIMEOUT")) {
+    try {
+      stallTimeoutSec = std::max(5, std::stoi(envStallTimeout));
+    }
+    catch (...) {
+      NLogWarning("NGnTree::Process: Invalid NDMSPC_IPC_STALL_TIMEOUT='%s', using default=%d", envStallTimeout,
+                  stallTimeoutSec);
+    }
+  }
+  auto lastProgress = std::chrono::steady_clock::now();
 
   fCurrentCoords = fMinBounds;
   bool hasMore = true;
@@ -818,6 +863,14 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
           break;
         }
       }
+      if (firstError.empty() && outstanding > 0 && stallTimeoutSec > 0) {
+        const auto now       = std::chrono::steady_clock::now();
+        const auto stallSecs = std::chrono::duration_cast<std::chrono::seconds>(now - lastProgress).count();
+        if (stallSecs >= stallTimeoutSec) {
+          firstError = "No IPC/TCP ACK progress for " + std::to_string(stallSecs) + "s with " +
+                       std::to_string(outstanding) + " pending tasks.";
+        }
+      }
       continue;
     }
 
@@ -827,6 +880,7 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
     if (fIpcSession->isTcp && frames.size() >= 2 && frames[1] == "READY") {
       if (InitTcpWorker(frames[0])) {
         sendCatchup(frames[0]);
+        lastProgress = std::chrono::steady_clock::now();
       }
       continue;
     }
@@ -834,6 +888,7 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
     // Handle bootstrapping worker requesting config
     if (fIpcSession->isTcp && frames.size() >= 2 && frames[1] == "BOOTSTRAP") {
       HandleBootstrap(frames[0]);
+      lastProgress = std::chrono::steady_clock::now();
       continue;
     }
 
@@ -870,6 +925,7 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
       --outstanding;
       --outstandingMessages;
       ++acked;
+      lastProgress = std::chrono::steady_clock::now();
       const size_t activeWorkersNow = std::min(fIpcSession->workerIdentityVec.size(), outstandingMessages);
       if (progressCallback) {
         progressCallback(acked, activeWorkersNow);
@@ -919,6 +975,7 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
         }
         --outstanding;
         ++acked;
+        lastProgress = std::chrono::steady_clock::now();
         const size_t activeWorkersNow = std::min(fIpcSession->workerIdentityVec.size(), outstandingMessages);
         if (progressCallback) {
           progressCallback(acked, activeWorkersNow);

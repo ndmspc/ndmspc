@@ -45,13 +45,44 @@ foreach(src ${SRCS})
   target_include_directories(${testname} PRIVATE ${MY_INCLUDE_DIRS})
   target_link_directories(${testname} PRIVATE ${ROOT_LIBRARY_DIR})
   target_link_libraries(${testname} gtest_main ${MY_EXTERNAL_LIBS})
-  if(src MATCHES "^test_0[1-5]_")
-    # Single-threaded test
-    add_test(NAME ${testname}_st COMMAND ${testname})
-    set_tests_properties(${testname}_st PROPERTIES ENVIRONMENT "ROOT_MAX_THREADS=1")
-    # Multi-threaded test (4 threads)
-    add_test(NAME ${testname}_mt4 COMMAND ${testname})
-    set_tests_properties(${testname}_mt4 PROPERTIES ENVIRONMENT "ROOT_MAX_THREADS=4")
+  if(src MATCHES "^test_06_")
+    # NBinnings mode matrix: thread1, thread4, ipc4, tcp4 x onlyOdd false/true
+    add_test(NAME ${testname}_thread1_all COMMAND ${testname})
+    set_tests_properties(${testname}_thread1_all PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread1;NDMSPC_TEST_ONLY_ODD=0")
+
+    add_test(NAME ${testname}_thread1_odd COMMAND ${testname})
+    set_tests_properties(${testname}_thread1_odd PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread1;NDMSPC_TEST_ONLY_ODD=1")
+
+    add_test(NAME ${testname}_thread4_all COMMAND ${testname})
+    set_tests_properties(${testname}_thread4_all PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread4;NDMSPC_TEST_ONLY_ODD=0")
+
+    add_test(NAME ${testname}_thread4_odd COMMAND ${testname})
+    set_tests_properties(${testname}_thread4_odd PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread4;NDMSPC_TEST_ONLY_ODD=1")
+
+    add_test(NAME ${testname}_ipc4_all COMMAND ${testname})
+    set_tests_properties(${testname}_ipc4_all PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=ipc4;NDMSPC_TEST_ONLY_ODD=0")
+
+    add_test(NAME ${testname}_ipc4_odd COMMAND ${testname})
+    set_tests_properties(${testname}_ipc4_odd PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=ipc4;NDMSPC_TEST_ONLY_ODD=1")
+
+    add_test(NAME ${testname}_tcp4_all COMMAND ${testname})
+    set_tests_properties(${testname}_tcp4_all PROPERTIES
+      ENVIRONMENT "NDMSPC_TEST_SCENARIO=tcp4;NDMSPC_TEST_ONLY_ODD=0"
+      TIMEOUT 20)
+
+    add_test(NAME ${testname}_tcp4_odd COMMAND ${testname})
+    set_tests_properties(${testname}_tcp4_odd PROPERTIES
+      ENVIRONMENT "NDMSPC_TEST_SCENARIO=tcp4;NDMSPC_TEST_ONLY_ODD=1"
+      TIMEOUT 20)
+  elseif(src MATCHES "^test_0[1-5]_")
+    add_test(NAME ${testname}_thread1 COMMAND ${testname})
+    set_tests_properties(${testname}_thread1 PROPERTIES ENVIRONMENT "NDMSPC_EXECUTION_MODE=thread;ROOT_MAX_THREADS=1")
+
+    add_test(NAME ${testname}_thread4 COMMAND ${testname})
+    set_tests_properties(${testname}_thread4 PROPERTIES ENVIRONMENT "NDMSPC_EXECUTION_MODE=thread;ROOT_MAX_THREADS=4")
+
+    add_test(NAME ${testname}_ipc4 COMMAND ${testname})
+    set_tests_properties(${testname}_ipc4 PROPERTIES ENVIRONMENT "NDMSPC_EXECUTION_MODE=ipc;ROOT_MAX_THREADS=4;NDMSPC_MAX_PROCESSES=4")
   else()
     add_test(NAME ${testname} COMMAND ${testname})
   endif()

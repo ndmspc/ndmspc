@@ -27,15 +27,17 @@ BuildRequires: gcc-c++, cmake
 BuildRequires: doxygen
 BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
 # BuildRequires: protobuf-devel
-BuildRequires: json-devel
+BuildRequires: json-devel zeromq-devel
 %if %{with_parquet}
 BuildRequires: parquet-libs-devel
 %endif
 BuildRequires: root, root-net-http, root-net-httpsniff
+BuildRequires: root-roofit root-roofit-more 
 %if %{with_numcal}
 BuildRequires: ginac-devel, cuba-devel
 %endif
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
+Requires: root-roofit root-roofit-more 
 Requires:      libwebsockets-devel, json-devel
 
 %description
