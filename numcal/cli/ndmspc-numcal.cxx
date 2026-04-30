@@ -22,6 +22,14 @@ std::string app_description()
   return std::string(buf.get(), size);
 }
 
+std::string app_version()
+{
+  size_t size = 128;
+  auto   buf  = std::make_unique<char[]>(size);
+  size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
+  return std::string(buf.get(), size);
+}
+
 // Generate header-only file with imported functions and labels
 std::string generateHeaderFile(const std::vector<std::string>& expressions,
                               int ndim,
@@ -111,6 +119,7 @@ int main(int argc, char ** argv)
 {
 
   CLI::App app{app_description()};
+  app.set_version_flag("--version", app_version(), "Print version information and exit");
   app.require_subcommand(0); // 0 or more - allow running without subcommands to show help
   argv = app.ensure_utf8(argv);
   app.set_help_all_flag("--help-all", "Expand all help");
