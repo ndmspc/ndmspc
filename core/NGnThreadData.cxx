@@ -304,12 +304,17 @@ void NGnThreadData::SetCurrentDefinitionName(const std::string & name)
 
 void NGnThreadData::SyncCurrentDefinitionIds(const std::vector<Long64_t> & ids)
 {
+  // fHnSparseBase tracks only the entries actually written by this worker.
+  // Clear it so Process() builds the list from scratch (same as thread mode via Init).
+  // Do NOT assign the full 'ids' list here — that would include unprocessed entries
+  // (e.g., even-indexed entries when onlyOddPoints=true) and corrupt the merge step.
   if (fHnSparseBase && fHnSparseBase->GetBinning()) {
     if (auto * def = fHnSparseBase->GetBinning()->GetDefinition()) {
-      def->GetIds() = ids;
+      def->GetIds().clear();
     }
   }
 
+  // fBiningSource is used for GetId() coordinate lookups — it needs the full list.
   if (fBiningSource) {
     if (auto * def = fBiningSource->GetDefinition()) {
       def->GetIds() = ids;
@@ -408,15 +413,15 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   // Print hnsb binning definition ids
   for (const auto & name : fBiningSource->GetDefinitionNames()) {
     NBinningDef * targetBinningDef = fBiningSource->GetDefinition(name);
+    if (auto * mergedDef = fHnSparseBase->GetBinning()->GetDefinition(name)) {
+      mergedDef->GetIds().clear();
+    }
     for (auto id : targetBinningDef->GetIds()) {
       NBinningPoint point(fHnSparseBase->GetBinning());
       fBiningSource->GetContent()->GetBinContent(id, point.GetCoords());
       Long64_t bin = fHnSparseBase->GetBinning()->GetContent()->GetBin(point.GetCoords());
       NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld",name.c_str(), id, bin);
       fHnSparseBase->GetBinning()->GetContent()->SetBinContent(bin, id);
-
-      // fHnSparseBase->GetBinning()->GetDefinition(name)->GetContent()->SetBinContent(bin, id);
-      fHnSparseBase->GetBinning()->GetDefinition(name)->GetIds().push_back(id);
     }
     // fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
   }
@@ -475,7 +480,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       Long64_t bin = binningDef->GetContent()->GetBin(fHnSparseBase->GetBinning()->GetPoint()->GetStorageCoords());
       binningDef->GetContent()->SetBinContent(bin, id);
       // binningDef->GetIds().push_back(id);
-      NLogDebug("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
+      NLogTrace("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
     }
   }
 
