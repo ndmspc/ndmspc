@@ -197,13 +197,13 @@ int main(int argc, char ** argv)
   cleanupSpawnedWorkers();
   NLogInfo("ndmspc-run: done");
 
-  // Workaround: ROOT teardown can intermittently hang at process exit in IPC
-  // batch mode after all useful work has already completed.
-  const std::string effectiveMode = gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "";
-  if (effectiveMode == "ipc") {
-    std::fflush(nullptr);
-    _exit(0);
-  }
+  // // Workaround: ROOT teardown can intermittently hang at process exit in IPC
+  // // batch mode after all useful work has already completed.
+  // const std::string effectiveMode = gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "";
+  // if (effectiveMode == "ipc") {
+  //   std::fflush(nullptr);
+  //   _exit(0);
+  // }
 
   return 0;
 }

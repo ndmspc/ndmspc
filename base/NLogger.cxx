@@ -7,6 +7,9 @@
 #include <cstdarg>
 #include <unistd.h>
 
+#include <Rtypes.h>
+#include <TError.h>
+
 #include "NLogger.h"
 
 namespace Ndmspc {
@@ -69,6 +72,7 @@ void NLogger::Init()
     std::string value(env_console_output);
     if (value == "0" || value == "false" || value == "FALSE") {
       fgConsoleOutput = false;
+      gErrorIgnoreLevel = kFatal;
     }
     else if (value == "1" || value == "true" || value == "TRUE") {
       fgConsoleOutput = true;
