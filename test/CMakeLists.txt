@@ -45,7 +45,36 @@ foreach(src ${SRCS})
   target_include_directories(${testname} PRIVATE ${MY_INCLUDE_DIRS})
   target_link_directories(${testname} PRIVATE ${ROOT_LIBRARY_DIR})
   target_link_libraries(${testname} gtest_main ${MY_EXTERNAL_LIBS})
-  if(src MATCHES "^test_0[1-5]_")
+  if(src MATCHES "^test_06_")
+    # NBinnings mode matrix: single-thread, mt4, ipc4, tcp4 x onlyOdd false/true
+    add_test(NAME ${testname}_thread1_all COMMAND ${testname})
+    set_tests_properties(${testname}_thread1_all PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread1;NDMSPC_TEST_ONLY_ODD=0")
+
+    add_test(NAME ${testname}_thread1_odd COMMAND ${testname})
+    set_tests_properties(${testname}_thread1_odd PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread1;NDMSPC_TEST_ONLY_ODD=1")
+
+    add_test(NAME ${testname}_thread4_all COMMAND ${testname})
+    set_tests_properties(${testname}_thread4_all PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread4;NDMSPC_TEST_ONLY_ODD=0")
+
+    add_test(NAME ${testname}_thread4_odd COMMAND ${testname})
+    set_tests_properties(${testname}_thread4_odd PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=thread4;NDMSPC_TEST_ONLY_ODD=1")
+
+    add_test(NAME ${testname}_ipc4_all COMMAND ${testname})
+    set_tests_properties(${testname}_ipc4_all PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=ipc4;NDMSPC_TEST_ONLY_ODD=0")
+
+    add_test(NAME ${testname}_ipc4_odd COMMAND ${testname})
+    set_tests_properties(${testname}_ipc4_odd PROPERTIES ENVIRONMENT "NDMSPC_TEST_SCENARIO=ipc4;NDMSPC_TEST_ONLY_ODD=1")
+
+    add_test(NAME ${testname}_tcp4_all COMMAND ${testname})
+    set_tests_properties(${testname}_tcp4_all PROPERTIES
+      ENVIRONMENT "NDMSPC_TEST_SCENARIO=tcp4;NDMSPC_TEST_ONLY_ODD=0"
+      TIMEOUT 20)
+
+    add_test(NAME ${testname}_tcp4_odd COMMAND ${testname})
+    set_tests_properties(${testname}_tcp4_odd PROPERTIES
+      ENVIRONMENT "NDMSPC_TEST_SCENARIO=tcp4;NDMSPC_TEST_ONLY_ODD=1"
+      TIMEOUT 20)
+  elseif(src MATCHES "^test_0[1-5]_")
     # Single-threaded test
     add_test(NAME ${testname}_st COMMAND ${testname})
     set_tests_properties(${testname}_st PROPERTIES ENVIRONMENT "ROOT_MAX_THREADS=1")

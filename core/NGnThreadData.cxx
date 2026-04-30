@@ -475,7 +475,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       Long64_t bin = binningDef->GetContent()->GetBin(fHnSparseBase->GetBinning()->GetPoint()->GetStorageCoords());
       binningDef->GetContent()->SetBinContent(bin, id);
       // binningDef->GetIds().push_back(id);
-      NLogTrace("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
+      NLogDebug("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
     }
   }
 
