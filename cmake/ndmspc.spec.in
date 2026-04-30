@@ -27,7 +27,7 @@ BuildRequires: gcc-c++, cmake
 BuildRequires: doxygen
 BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
 # BuildRequires: protobuf-devel
-BuildRequires: json-devel
+BuildRequires: json-devel zeromq-devel
 %if %{with_parquet}
 BuildRequires: parquet-libs-devel
 %endif
