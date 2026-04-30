@@ -163,8 +163,7 @@ int main(int argc, char ** argv)
   // add file url option
   std::string macroFilename;
   server_ngnt->add_option("-m,--macro", macroFilename,
-                          "Macro path (default: "
-                          ")");
+                          "Macro path list separated by commas (default: auto-load $NDMSPC_DIR/macros/builtin/httpNgntBase.C,$NDMSPC_DIR/macros/builtin/httpNgnt.C)");
   server_ngnt->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
   server_ngnt->add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
@@ -192,13 +191,17 @@ int main(int argc, char ** argv)
       serv->SetDefaultPage(TString::Format("%s/index.html", htmlDir.c_str()).Data());
     }
 
+    if (macroFilename.empty()) {
+      const char * ndmspcDir = gSystem->Getenv("NDMSPC_DIR");
+      std::string  baseDir   = (ndmspcDir && *ndmspcDir) ? ndmspcDir : "/usr/share/ndmspc";
+      macroFilename = TString::Format("%s/macros/builtin/httpNgntBase.C,%s/macros/builtin/httpNgnt.C", baseDir.c_str(),
+                                       baseDir.c_str())
+                          .Data();
+      NLogInfo("No macro file given, using default NGNT macros: '%s'", macroFilename.c_str());
+    }
+
     NLogInfo("Starting ngnt server on port %d (heartbeat: %d ms) using file '%s' ...", port, heartbeat_ms,
              macroFilename.c_str());
-
-    if (macroFilename.empty()) {
-      NLogError("No macro file given, exiting ...");
-      exit(1);
-    }
 
     // Your local map
     std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
