@@ -929,7 +929,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       // per-worker counters and processed-id vectors deterministically from task assignment.
       const size_t processesToUse = std::max<size_t>(1, std::min(nProcesses, processWorkers.size()));
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
-        threadDataVector[i].SetNProcessed(0);
         auto * workerDef = threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name);
         if (workerDef) {
           workerDef->GetIds().clear();
@@ -1099,11 +1098,15 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   // binningIn= outputData->GetHnSparseBase()->GetBinning();
 
+  auto * mergedBinning = outputData->GetHnSparseBase()->GetBinning();
+  std::set<Long64_t> mergedContentIds;
+  std::vector<std::pair<Long64_t, std::vector<int>>> mergedContentCoords;
+
   // add missing entries to definitions based on defIdMapProcessedRemoved
   for (size_t i = 0; i < defNames.size(); i++) {
     std::string name = defNames[i];
     // auto        def  = binningIn->GetDefinition(name);
-    auto def = outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name);
+    auto def = mergedBinning->GetDefinition(name);
     if (!def) {
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       return false;
@@ -1131,7 +1134,21 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       Long64_t bin = def->GetContent()->GetBin(point.GetStorageCoords());
       NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
       def->GetContent()->SetBinContent(bin, id);
+
+      if (mergedContentIds.insert(id).second) {
+        mergedContentCoords.emplace_back(
+            id, NUtils::ArrayToVector(point.GetCoords(), point.GetNDimensionsContent()));
+      }
     }
+  }
+
+  // Rebuild the merged top-level content from final definition ids. In IPC/TCP mode
+  // the merge setup may still carry sparse source-bin content; resetting here keeps
+  // only the bins that correspond to actual merged tree entries.
+  mergedBinning->GetContent()->Reset();
+  for (const auto & entry : mergedContentCoords) {
+    Long64_t bin = mergedBinning->GetContent()->GetBin(entry.second.data());
+    mergedBinning->GetContent()->SetBinContent(bin, entry.first);
   }
 
   // print final binning definitions

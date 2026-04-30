@@ -3,6 +3,7 @@ RUN dnf -y install gcc-c++ clang make cmake git doxygen \
   openssl-devel libcurl-devel libuv-devel \
   libwebsockets-devel protobuf-devel json-devel zeromq-devel\
   root root-net-http root-net-httpsniff \
+  root-roofit root-roofit-more \
   dnf clean all
 # opentelemetry-cpp-devel parquet-libs-devel
 
