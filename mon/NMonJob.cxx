@@ -1,7 +1,6 @@
 #include "NMonJob.h"
 #include "NUtils.h"
 
-
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NMonJob);
 /// \endcond
@@ -85,36 +84,37 @@ json NMonJob::ToJson() const
   return j;
 }
 
+enum class TaskAction { Start, Done, Skipped, Cancel, Unknown };
+
+TaskAction ParseAction(const std::string & action)
+{
+  if (action == "R") return TaskAction::Start;
+  if (action == "D") return TaskAction::Done;
+  if (action == "S") return TaskAction::Skipped;
+  if (action == "C") return TaskAction::Cancel;
+  return TaskAction::Unknown;
+}
+
 bool NMonJob::UpdateTask(unsigned int taskId, const std::string & action, int errorCode)
 {
-  if (action == "R" /*"start"*/) {
-    if (MoveTask(taskId, fPendingTasks, fRunningTasks)) {
-      return true;
-    }
-    return false;
-  }
-  else if (action == "D" /*"done"*/) {
+  switch (ParseAction(action)) {
+
+  case TaskAction::Start: return MoveTask(taskId, fPendingTasks, fRunningTasks);
+
+  case TaskAction::Done:
     if (MoveTask(taskId, fRunningTasks, fDoneTasks)) {
       fErrorCodes.push_back(errorCode);
       return true;
     }
     return false;
-  }
-  else if (action == "S" /*"skipped"*/) {
-    if (MoveTask(taskId, fPendingTasks, fSkippedTasks)) {
-      return true;
-    }
-    return false;
-  }
-  else if (action == "C" /*"cancel"*/) {
-    CancelJob();
-    return true;
-  }
-  else {
-    return false;
-  }
 
-  return true;
+  case TaskAction::Skipped: return MoveTask(taskId, fPendingTasks, fSkippedTasks);
+
+  case TaskAction::Cancel: CancelJob(); return true;
+
+  case TaskAction::Unknown:
+  default: return false;
+  }
 }
 
 bool NMonJob::MoveTask(const unsigned int taskId, std::vector<unsigned int> & from, std::vector<unsigned int> & to)
