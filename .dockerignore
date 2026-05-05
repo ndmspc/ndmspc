@@ -1,0 +1,21 @@
+.ndmspc/
+*.root
+# Ignore node_modules
+node_modules/
+
+# Ignore log files
+*.log
+
+# Ignore specific file
+secrets.env
+
+# Ignore a directory
+dist/
+build/
+lib/
+bin/
+share/
+
+# Ignore all .tmp files recursively
+**/*.tmp
+

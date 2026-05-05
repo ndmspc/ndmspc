@@ -321,7 +321,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         // Report progress at configured interval for visibility
         // Always show first task to confirm worker is actively processing
         if (tasksProcessed == 1 || tasksProcessed - lastReportedProgress >= progressReportInterval) {
-          NLogPrint("Worker %zu: processed %zu tasks", workerIndex, tasksProcessed);
+          // NLogPrint("Worker %zu: processed %zu tasks", workerIndex, tasksProcessed);
           lastReportedProgress = tasksProcessed;
         }
         worker->Process(coords);
@@ -351,7 +351,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         // Report progress at configured interval for visibility
         // Always show first task to confirm worker is actively processing
         if (tasksProcessed == 1 || tasksProcessed - lastReportedProgress >= progressReportInterval) {
-          NLogPrint("Worker %zu: processed %zu tasks", workerIndex, tasksProcessed);
+          // NLogPrint("Worker %zu: processed %zu tasks", workerIndex, tasksProcessed);
           lastReportedProgress = tasksProcessed;
         }
         for (const auto & task : batchTasks) {
