@@ -926,11 +926,17 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
     else {
       ipcExecutor->SetBounds(mins, maxs);
-      size_t acked     = ipcExecutor->ExecuteCurrentBoundsProcessIpc(
-          name, &originalDefinitionIds, [&, activeWorkers](size_t ackCount, size_t activeWorkersNow) {
-            processedEntries = ackCount;
+      // Capture final active worker count reported by the IPC executor so
+      // we can deterministically rebuild per-worker counters for only the
+      // workers that actually connected.
+      size_t finalActiveWorkers = 0;
+      size_t acked = ipcExecutor->ExecuteCurrentBoundsProcessIpc(
+          name, &originalDefinitionIds,
+          [&, activeWorkers](const ExecutionProgress& progress) {
+            processedEntries = progress.tasksAcked;
+            finalActiveWorkers = progress.activeWorkers;
             if (!NLogger::GetConsoleOutput()) {
-              size_t nRunning = std::min(activeWorkersNow, activeWorkers);
+              size_t nRunning = std::min(progress.activeWorkers, activeWorkers);
               NUtils::ProgressBar(processedEntries, totalEntries, start_par,
                                   TString::Format("R%4zu", nRunning).Data());
             }
@@ -939,7 +945,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
       // Child processes update their own worker-object copies. Rebuild parent-side
       // per-worker counters and processed-id vectors deterministically from task assignment.
-      const size_t processesToUse = std::max<size_t>(1, std::min(nProcesses, processWorkers.size()));
+      // Use the number of workers that actually connected (finalActiveWorkers) if available;
+      // otherwise fall back to the configured process count / processWorkers size.
+      size_t connected = finalActiveWorkers > 0 ? finalActiveWorkers : std::min(nProcesses, processWorkers.size());
+      const size_t processesToUse = std::max<size_t>(1, std::min(nProcesses, connected));
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
         auto * workerDef = threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name);
         if (workerDef) {

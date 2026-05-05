@@ -1,5 +1,6 @@
 #include <cerrno>
 #include <chrono>
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 #include <signal.h>
@@ -16,6 +17,14 @@
 namespace Ndmspc {
 
 namespace {
+// Worker signal handler for Ctrl+C
+volatile sig_atomic_t gWorkerInterrupted = 0;
+
+void WorkerSigIntHandler(int)
+{
+  gWorkerInterrupted = 1;
+}
+
 std::string SerializeTaskIds(const std::vector<std::string> & taskIds)
 {
   std::ostringstream oss;
@@ -85,7 +94,7 @@ bool NDimensionalIpcRunner::ReceiveFrames(void * socket, std::vector<std::string
 std::string NDimensionalIpcRunner::BuildWorkerIdentity(size_t workerIndex)
 {
   std::ostringstream oss;
-  oss << "wk_" << std::setw(3) << std::setfill('0') << workerIndex;
+  oss << "wk_" << std::setw(6) << std::setfill('0') << workerIndex;
   return oss.str();
 }
 
@@ -112,11 +121,13 @@ std::string NDimensionalIpcRunner::SerializeIds(const std::vector<Long64_t> & id
 int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t workerIndex, NThreadData * worker)
 {
   std::ostringstream threadName;
-  threadName << "ipc_" << std::setw(3) << std::setfill('0') << workerIndex;
+  threadName << "ipc_" << std::setw(6) << std::setfill('0') << workerIndex;
   NLogger::SetThreadName(threadName.str());
 
   void * ctx = zmq_ctx_new();
-  if (!ctx) return 1;
+  if (!ctx) {
+    return 1;
+  }
 
   void * dealer = zmq_socket(ctx, ZMQ_DEALER);
   if (!dealer) {
@@ -146,6 +157,8 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
     return 1;
   }
 
+  NLogPrint("Worker %zu: connected to %s, ready for tasks", workerIndex, endpoint.c_str());
+
   int rc = TaskLoop(dealer, workerIndex, worker);
 
   zmq_close(dealer);
@@ -155,9 +168,21 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
 
 int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadData * worker)
 {
+  // Install signal handler for Ctrl+C
+  gWorkerInterrupted = 0;
+  struct sigaction sa;
+  struct sigaction oldSa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = WorkerSigIntHandler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sigaction(SIGINT, &sa, &oldSa);
+
   bool   finishedOk    = true;
   bool   aborted       = false;
+  bool   wasInterrupted = false;
   size_t tasksProcessed = 0;
+  size_t lastReportedProgress = 0;
   const bool showWorkerProgress = []() {
     const char * env = gSystem->Getenv("NDMSPC_WORKER_PROGRESS");
     if (!env || env[0] == '\0') return false;
@@ -166,10 +191,30 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return (value == "1" || value == "true" || value == "yes" || value == "on");
   }();
+  
+  const size_t progressReportInterval = []() -> size_t {
+    const char * env = gSystem->Getenv("NDMSPC_WORKER_PROGRESS_INTERVAL");
+    if (!env || env[0] == '\0') return 50UL; // default: report every 50 tasks
+    try {
+      int val = std::stoi(env);
+      return (val > 0) ? static_cast<size_t>(val) : 50UL;
+    } catch (...) {
+      return 50UL;
+    }
+  }();
 
   // Non-blocking check: poll the socket and consume a STOP frame if present.
   // Used between sub-tasks in a batch to react to supervisor abort quickly.
   auto checkAbort = [&]() -> bool {
+    // Check for Ctrl+C first
+    if (gWorkerInterrupted) {
+      if (!aborted) {
+        // Send shutdown notification on first detection
+        SendFrames(dealer, {"SHUTDOWN", "interrupted", std::to_string(tasksProcessed)});
+      }
+      aborted = true;
+      return true;
+    }
     zmq_pollitem_t item = {dealer, 0, ZMQ_POLLIN, 0};
     if (zmq_poll(&item, 1, 0) <= 0) return false;
     std::vector<std::string> peek;
@@ -183,9 +228,36 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
   };
 
   while (true) {
+    // Check for Ctrl+C
+    if (gWorkerInterrupted) {
+      if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
+      NLogPrint("Worker %zu: interrupted by user (Ctrl+C), exiting ...", workerIndex);
+      NLogPrint("Worker %zu: interrupted by user (Ctrl+C) after processing %zu tasks, shutting down...", workerIndex, tasksProcessed);
+      // Notify supervisor before exiting
+      SendFrames(dealer, {"SHUTDOWN", "interrupted", std::to_string(tasksProcessed)});
+      aborted = true;
+      wasInterrupted = true;
+      finishedOk = false;
+      break;
+    }
+
     std::vector<std::string> frames;
     if (!ReceiveFrames(dealer, frames)) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        // Check for interruption on timeout
+        if (gWorkerInterrupted) {
+          if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
+          NLogPrint("Worker %zu: interrupted by user (Ctrl+C), exiting ...", workerIndex);
+          NLogPrint("Worker %zu: interrupted by user (Ctrl+C) after processing %zu tasks, shutting down...", workerIndex, tasksProcessed);
+          // Notify supervisor before exiting
+          SendFrames(dealer, {"SHUTDOWN", "interrupted", std::to_string(tasksProcessed)});
+          aborted = true;
+          wasInterrupted = true;
+          finishedOk = false;
+          break;
+        }
+        continue;
+      }
       finishedOk = false;
       break;
     }
@@ -193,10 +265,12 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
 
     const std::string & cmd = frames[0];
     if (cmd == "STOP") {
-      if (showWorkerProgress && tasksProcessed > 0) { fprintf(stdout, "\n"); fflush(stdout); }
+      if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
       aborted = (frames.size() >= 2 && frames[1] == "abort");
       if (aborted) {
         NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
+      } else {
+        // NLogPrint("Worker %zu: received STOP, processed %zu tasks total", workerIndex, tasksProcessed);
       }
       break;
     }
@@ -242,8 +316,13 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         std::vector<int> coords = ParseCoords(frames[2]);
         ++tasksProcessed;
         if (showWorkerProgress) {
-          fprintf(stdout, "\rWorker %zu: processing tasks [done: %zu]   ", workerIndex, tasksProcessed);
-          fflush(stdout);
+          NLogPrint("Worker %zu: processing tasks [done: %zu]", workerIndex, tasksProcessed);
+        }
+        // Report progress at configured interval for visibility
+        // Always show first task to confirm worker is actively processing
+        if (tasksProcessed == 1 || tasksProcessed - lastReportedProgress >= progressReportInterval) {
+          NLogPrint("Worker %zu: processed %zu tasks", workerIndex, tasksProcessed);
+          lastReportedProgress = tasksProcessed;
         }
         worker->Process(coords);
         if (!SendFrames(dealer, {"ACK", taskId})) {
@@ -267,8 +346,13 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         ackedTaskIds.reserve(batchTasks.size());
         tasksProcessed += batchTasks.size();
         if (showWorkerProgress) {
-          fprintf(stdout, "\rWorker %zu: processing tasks [done: %zu]   ", workerIndex, tasksProcessed);
-          fflush(stdout);
+          NLogPrint("Worker %zu: processing tasks [done: %zu]", workerIndex, tasksProcessed);
+        }
+        // Report progress at configured interval for visibility
+        // Always show first task to confirm worker is actively processing
+        if (tasksProcessed == 1 || tasksProcessed - lastReportedProgress >= progressReportInterval) {
+          NLogPrint("Worker %zu: processed %zu tasks", workerIndex, tasksProcessed);
+          lastReportedProgress = tasksProcessed;
         }
         for (const auto & task : batchTasks) {
           if (checkAbort()) { finishedOk = false; break; }
@@ -285,11 +369,13 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
       }
     }
     catch (const std::exception & ex) {
+      NLogPrint("Worker %zu: ERROR processing task %s: %s", workerIndex, errTaskId.c_str(), ex.what());
       SendFrames(dealer, {"ERR", errTaskId.empty() ? "0" : errTaskId, ex.what()});
       finishedOk = false;
       break;
     }
     catch (...) {
+      NLogPrint("Worker %zu: ERROR processing task %s: unknown exception", workerIndex, errTaskId.c_str());
       SendFrames(dealer, {"ERR", errTaskId.empty() ? "0" : errTaskId, "unknown worker exception"});
       finishedOk = false;
       break;
@@ -349,12 +435,20 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     // For IPC (fork) mode, master uses WaitForChildProcesses instead; the DONE
     // message stays unread in the ZMQ buffer which is harmless.
     SendFrames(dealer, {"DONE"});
+    NLogPrint("Worker %zu: completed successfully, processed %zu tasks total", workerIndex, tasksProcessed);
+  } else if (wasInterrupted) {
+    // Interrupted by Ctrl+C - already printed message above, don't print duplicate
+  } else if (!finishedOk) {
+    NLogPrint("Worker %zu: exited with error after processing %zu tasks", workerIndex, tasksProcessed);
   }
 
   // Drop any unsent/undelivered messages immediately so zmq_close/zmq_ctx_term
   // do not hang at shutdown.
   int linger = 0;
   zmq_setsockopt(dealer, ZMQ_LINGER, &linger, sizeof(linger));
+
+  // Restore original signal handler
+  sigaction(SIGINT, &oldSa, nullptr);
 
   return finishedOk ? 0 : 1;
 }

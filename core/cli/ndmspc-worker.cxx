@@ -234,6 +234,7 @@ int main(int argc, char ** argv)
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(300);
     bool       configOk = false;
+    bool       rejectedBySupervisor = false;
     while (!configOk) {
       std::vector<std::string> frames;
       if (!Ndmspc::NDimensionalIpcRunner::ReceiveFrames(dealer, frames)) {
@@ -257,10 +258,19 @@ int main(int argc, char ** argv)
         if (frames.size() >= 6 && !frames[5].empty() && !gSystem->Getenv("NDMSPC_MACRO_PARAMS"))
           gSystem->Setenv("NDMSPC_MACRO_PARAMS", frames[5].c_str());
         configOk = true;
+      } else if (frames.size() >= 1 && frames[0] == "REJECT") {
+        const std::string reason = (frames.size() >= 2) ? frames[1] : "unspecified";
+        NLogWarning("ndmspc-worker: bootstrap rejected by supervisor (%s), exiting", reason.c_str());
+        rejectedBySupervisor = true;
+        break;
       }
     }
     zmq_close(dealer);
     zmq_ctx_term(ctx);
+
+    if (rejectedBySupervisor) {
+      return 0;
+    }
 
     if (!configOk) {
       NLogError("ndmspc-worker: failed to receive CONFIG from supervisor at %s, exiting", endpoint.c_str());
@@ -285,13 +295,12 @@ int main(int argc, char ** argv)
   gSystem->Setenv("NDMSPC_WORKER_ENDPOINT", endpoint.c_str());
   gSystem->Setenv("NDMSPC_WORKER_INDEX", std::to_string(workerIndex).c_str());
 
-  fprintf(stdout, "ndmspc-worker: starting — index=%zu endpoint=%s\n", workerIndex, endpoint.c_str());
-  fprintf(stdout, "  macro                  = %s\n", macroList.c_str());
-  fprintf(stdout, "  NDMSPC_TMP_DIR         = %s\n", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");
-  fprintf(stdout, "  NDMSPC_TMP_RESULTS_DIR = %s\n", gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") ? gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") : "(not set)");
-  fprintf(stdout, "  NDMSPC_EXECUTION_MODE  = %s\n", gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "(not set)");
-  fprintf(stdout, "  NDMSPC_MACRO_PARAMS    = %s\n", gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "(not set)");
-  fflush(stdout);
+  NLogPrint("ndmspc-worker: starting — index=%zu endpoint=%s", workerIndex, endpoint.c_str());
+  NLogPrint("  macro                  = %s", macroList.c_str());
+  NLogPrint("  NDMSPC_TMP_DIR         = %s", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");
+  NLogPrint("  NDMSPC_TMP_RESULTS_DIR = %s", gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") ? gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") : "(not set)");
+  NLogPrint("  NDMSPC_EXECUTION_MODE  = %s", gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "(not set)");
+  NLogPrint("  NDMSPC_MACRO_PARAMS    = %s", gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "(not set)");
 
   const std::string effectiveMacroParams = gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "";
   std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');

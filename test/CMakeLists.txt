@@ -32,6 +32,16 @@ endif()
 file(COPY ${CMAKE_SOURCE_DIR}/macros/root/cernstaff/cernstaff.root
 DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
 )
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/NTcpTest.C
+DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+# Add a ctest entry to run the NTcpTest ROOT macro with arguments
+add_test(NAME NTcpTest COMMAND /bin/sh -c "root -b -q '${CMAKE_SOURCE_DIR}/test/NTcpTest.C(\"NTcpTest.root\",\"10,5\",100)'")
+set_tests_properties(NTcpTest PROPERTIES
+  TIMEOUT 30
+  ENVIRONMENT "ROOT_INCLUDE_PATH=${CMAKE_SOURCE_DIR}/base:${CMAKE_SOURCE_DIR}/core;LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/base:${CMAKE_BINARY_DIR}/core:$ENV{LD_LIBRARY_PATH}"
+)
 
 file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
 
@@ -74,6 +84,21 @@ foreach(src ${SRCS})
     set_tests_properties(${testname}_tcp4_odd PROPERTIES
       ENVIRONMENT "NDMSPC_TEST_SCENARIO=tcp4;NDMSPC_TEST_ONLY_ODD=1"
       TIMEOUT 20)
+  elseif(src MATCHES "^test_08_")
+    add_test(NAME ${testname}_supervisor_first COMMAND ${testname} --gtest_filter=TcpLazyJoinTest.WorkersJoinAfterSupervisorStart)
+    set_tests_properties(${testname}_supervisor_first PROPERTIES TIMEOUT 60 ENVIRONMENT "NDMSPC_LOG_CONSOLE=0")
+
+    add_test(NAME ${testname}_workers_first COMMAND ${testname} --gtest_filter=TcpLazyJoinTest.SupervisorStartsAfterWorkers)
+    set_tests_properties(${testname}_workers_first PROPERTIES TIMEOUT 60 ENVIRONMENT "NDMSPC_LOG_CONSOLE=0")
+
+    add_test(NAME ${testname}_worker_interrupt COMMAND ${testname} --gtest_filter=TcpLazyJoinTest.WorkerInterruptionRedistributesTasks)
+    set_tests_properties(${testname}_worker_interrupt PROPERTIES TIMEOUT 60 ENVIRONMENT "NDMSPC_LOG_CONSOLE=0")
+
+    add_test(NAME ${testname}_thread1 COMMAND ${testname} --gtest_filter=TcpLazyJoinTest.SingleThreadProcessesMacro)
+    set_tests_properties(${testname}_thread1 PROPERTIES TIMEOUT 60 ENVIRONMENT "NDMSPC_LOG_CONSOLE=0")
+
+    add_test(NAME ${testname}_ipc4 COMMAND ${testname} --gtest_filter=TcpLazyJoinTest.IpcProcessesMacro)
+    set_tests_properties(${testname}_ipc4 PROPERTIES TIMEOUT 60 ENVIRONMENT "NDMSPC_LOG_CONSOLE=0")
   elseif(src MATCHES "^test_0[1-5]_")
     add_test(NAME ${testname}_thread1 COMMAND ${testname})
     set_tests_properties(${testname}_thread1 PROPERTIES ENVIRONMENT "NDMSPC_EXECUTION_MODE=thread;ROOT_MAX_THREADS=1")
