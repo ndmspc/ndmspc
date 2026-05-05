@@ -188,14 +188,12 @@ void NGnThreadData::Process(const std::vector<int> & coords)
 
   Long64_t entry = fBiningSource->GetDefinition()->GetId(coords[0]);
 
-  if (entry < fHnSparseBase->GetBinning()->GetContent()->GetNbins()) {
-    fHnSparseBase->GetBinning()->GetDefinition()->GetIds().push_back(entry);
-    // entry = binningDef->GetContent()->GetBinContent(entry);
-    // point->SetEntryNumber(entry);
+  if (fProcessedBinIds.count(entry)) {
     NLogDebug("NGnThreadData::Process: [%zu] Skipping entry=%lld, because it was already process !!!",
               GetAssignedIndex(), entry);
     return;
   }
+  fProcessedBinIds.insert(entry);
 
   if (fResourceMonitor == nullptr) {
     fResourceMonitor = new NResourceMonitor();

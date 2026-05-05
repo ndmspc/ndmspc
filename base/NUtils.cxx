@@ -794,6 +794,10 @@ TMacro * NUtils::OpenMacro(std::string filename)
     }
   }
   else {
+    // process's environment before the ?filetype=raw suffix is appended.
+    TString expanded(filename.c_str());
+    gSystem->ExpandPathName(expanded);
+    filename = expanded.Data();
     content = OpenRawFile(filename);
     if (content.empty()) {
       Printf("Error: Problem opening macro '%s' ...", filename.c_str());

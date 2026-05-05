@@ -21,8 +21,18 @@
 #include <THnSparse.h>
 #include "NLogger.h"
 #include "NThreadData.h"
+#include "NTaskStateManager.h"
 
 namespace Ndmspc {
+
+/// @brief Execution progress metrics for IPC-based distributed processing
+struct ExecutionProgress {
+  size_t tasksAcked{0};     ///< Tasks completed and ACKed by workers
+  size_t tasksPending{0};   ///< Tasks waiting to be dispatched
+  size_t tasksRunning{0};   ///< Tasks currently assigned to workers  
+  size_t tasksDone{0};      ///< Tasks completed locally (state machine)
+  size_t activeWorkers{0};  ///< Number of workers currently active
+};
 
 ///
 /// \class NDimensionalExecutor
@@ -79,7 +89,7 @@ class NDimensionalExecutor {
                          const std::string & macroParams = "");
   size_t ExecuteCurrentBoundsProcessIpc(const std::string & definitionName = "",
                                         const std::vector<Long64_t> * definitionIds = nullptr,
-                                        const std::function<void(size_t, size_t)> & progressCallback = nullptr);
+                                        const std::function<void(const ExecutionProgress&)> & progressCallback = nullptr);
   void   FinishProcessIpc(bool abort = false);
 
   std::set<size_t> GetRegisteredWorkerIndices() const { return fRegisteredWorkerIndices; }
@@ -122,6 +132,13 @@ class NDimensionalExecutor {
   /// index and replies with a CONFIG frame containing macro list, macro params,
   /// and env vars.
   bool HandleBootstrap(const std::string & identity);
+
+  /// Centralized worker failure handling: recovers tasks, removes worker, updates state.
+  /// Returns the count of tasks redistributed to the pending queue.
+  size_t HandleWorkerFailure(const std::string & failedIdentity,
+                             const std::string & failureReason,
+                             size_t & outstanding,
+                             size_t & acked);
 
   struct IpcSession;
   std::unique_ptr<IpcSession> fIpcSession;
