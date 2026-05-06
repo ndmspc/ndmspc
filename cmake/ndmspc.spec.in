@@ -9,6 +9,7 @@ Group:		System Environment/Libraries
 License:	LGPL v3+
 Source0:    %{name}-%{version}.tar.gz
 
+%global with_jupyroot 0
 %if 0%{?rhel} == 10 || 0%{?almalinux} == 10
 %global with_numcal 0
 %global with_parquet 0
@@ -24,7 +25,6 @@ Source0:    %{name}-%{version}.tar.gz
 
 BuildRequires: systemd-rpm-macros
 BuildRequires: gcc-c++, cmake
-BuildRequires: doxygen
 BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
 # BuildRequires: protobuf-devel
 BuildRequires: json-devel zeromq-devel
@@ -37,21 +37,14 @@ BuildRequires: root-roofit root-roofit-more
 BuildRequires: ginac-devel, cuba-devel
 %endif
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
-Requires: root-roofit root-roofit-more 
+Requires:      root-roofit root-roofit-more 
 Requires:      libwebsockets-devel, json-devel
 
 %description
 @PROJECT_DESCRIPTION@
 Obsoletes: ndmspc-server < %{version}
 
-%package doc
-Summary:  Documentation
-Group:    Documentation
-Requires: %{name} = %{version}-%{release}, pkgconfig
-
-%description doc
-This package contains @PROJECT_NAME@ documentation.
-
+%if %{with_jupyroot}
 %package jupyroot
 Summary:  Jupyroot bindings for @PROJECT_NAME@
 Group:    Additional Packages
@@ -60,6 +53,7 @@ Requires: python3-jupyroot, root-gui-browserv7-v7
 
 %description jupyroot
 This package contains Jupyroot bindings for @PROJECT_NAME@.
+%endif
 
 %if %{with_numcal}
 %package numcal
@@ -81,8 +75,13 @@ cd build
 cmake ../ \
 -DCMAKE_INSTALL_PREFIX=/usr \
 -DCMAKE_BUILD_TYPE=Release \
--DBUILD_DOCUMENTATION=on \
+-DBUILD_DOCUMENTATION=OFF \
 -DWITH_TEST=OFF \
+%if %{with_jupyroot}
+-DWITH_JUPYROOT=ON \
+%else
+-DWITH_JUPYROOT=OFF \
+%endif
 %if %{with_parquet}
 -DWITH_PARQUET=ON \
 %else
@@ -111,14 +110,14 @@ make install DESTDIR=%{buildroot}
 %postun
 %systemd_postun ndmspc-http@*.service
 
+%if %{with_jupyroot}
 %preun jupyroot
 %systemd_preun ndmspc-notebook@*.service
-
 %postun jupyroot
 %systemd_postun ndmspc-notebook@*.service
-
 %post jupyroot
 %systemd_post ndmspc-notebook@*.service
+%endif
 
 %files
 %exclude %{_libdir}/libNdmspcNumcal*
@@ -134,9 +133,6 @@ make install DESTDIR=%{buildroot}
 %{_sysconfdir}/profile.d/*
 %{_unitdir}/ndmspc-http@.service
 
-%files doc
-%doc /usr/share/doc/%{name}/
-
 %if %{with_numcal}
 %files numcal
 %{_libdir}/libNdmspcNumcal*
@@ -144,8 +140,10 @@ make install DESTDIR=%{buildroot}
 %{_bindir}/ndmspc-numcal
 %endif
 
+%if %{with_jupyroot}
 %files jupyroot
 %{_unitdir}/ndmspc-notebook@.service
 %{_sysconfdir}/systemd/user/ndmspc-notebook@.service
+%endif
 
 %changelog

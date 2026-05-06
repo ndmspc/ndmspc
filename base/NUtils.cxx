@@ -1,5 +1,8 @@
 #include <cstddef>
 #include <iostream>
+#include <mutex>
+#include <unordered_map>
+#include <chrono>
 #include <TSystem.h>
 #include <TROOT.h>
 #include <TPad.h>
@@ -42,6 +45,21 @@ ClassImp(Ndmspc::NUtils);
 /// \endcond
 
 namespace Ndmspc {
+
+// Progress bar throttle: per-callsite last print time
+static std::mutex gProgressThrottleMutex;
+static std::unordered_map<void *, std::chrono::high_resolution_clock::time_point> gLastProgressTime;
+static double gProgressThrottleSeconds = []() {
+  const char * env = gSystem->Getenv("NDMSPC_PROGRESS_THROTTLE_SEC");
+  if (env) {
+    try {
+      return std::stod(std::string(env));
+    } catch (...) {
+      return 1.0;
+    }
+  }
+  return 1.0; // default 1 second
+}();
 
 bool NUtils::EnableMT(Int_t numthreads)
 {
@@ -1682,6 +1700,20 @@ void NUtils::ProgressBar(int current, int total, std::string prefix, std::string
   ///
   if (total == 0) return; // Avoid division by zero
 
+  // Throttle updates per callsite to avoid flooding the terminal.
+  {
+    bool forcePrint = (current == total);
+    void * caller = __builtin_return_address(0);
+    auto now = std::chrono::high_resolution_clock::now();
+    std::lock_guard<std::mutex> plock(gProgressThrottleMutex);
+    auto it = gLastProgressTime.find(caller);
+    if (it != gLastProgressTime.end() && !forcePrint) {
+      double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - it->second).count();
+      if (elapsed < gProgressThrottleSeconds) return; // too soon
+    }
+    gLastProgressTime[caller] = now;
+  }
+
   // Let's do protection against any log to be written during progress bar
   std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
 
@@ -1714,6 +1746,20 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   if (total == 0) return; // Avoid division by zero
   std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
   if (current > total) current = total; // Cap current to total for safety
+
+  // Throttle updates per callsite to avoid flooding the terminal.
+  {
+    bool forcePrint = (current == total);
+    void * caller = __builtin_return_address(0);
+    auto now = std::chrono::high_resolution_clock::now();
+    std::lock_guard<std::mutex> plock(gProgressThrottleMutex);
+    auto it = gLastProgressTime.find(caller);
+    if (it != gLastProgressTime.end() && !forcePrint) {
+      double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - it->second).count();
+      if (elapsed < gProgressThrottleSeconds) return; // too soon
+    }
+    gLastProgressTime[caller] = now;
+  }
 
   float percentage = static_cast<float>(current) / total;
   int   numChars   = static_cast<int>(percentage * barWidth);

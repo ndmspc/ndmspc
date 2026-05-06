@@ -18,8 +18,8 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   cfg["norm"]["max"] = 1.07;
   cfg["minEntries"]  = 0;
   cfg["parameters"]  = {"yield", "mean", "width", "sigma", "c0", "c1", "c2"};
-  cfg["fitType"]     = "std";     // "rootfit" or "std"
-  // cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
+  // cfg["fitType"]     = "std";     // "rootfit" or "std"
+  cfg["fitType"]     = "rootfit"; // "rootfit" or "std"
 
   // cfg["file"]            = inFile;
   // cfg["objectDirecotry"] = "phianalysis-t-hn-sparse_tpctof";
@@ -58,48 +58,48 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   b["bg"] = {{1}};
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b0;
-  // // b0["pt"] = {{150}};
-  // // b0["ce"] = {{100}};
-  // b0["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b0", b0);
+  std::map<std::string, std::vector<std::vector<int>>> b0;
+  // b0["pt"] = {{150}};
+  // b0["ce"] = {{100}};
+  b0["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b0", b0);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b2;
-  // b2["pt"] = {{50}};
-  // b2["ce"] = {{50}};
-  // b2["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b2", b2);
+  std::map<std::string, std::vector<std::vector<int>>> b2;
+  b2["pt"] = {{50}};
+  b2["ce"] = {{50}};
+  b2["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b2", b2);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b3;
-  // b3["pt"] = {{50}};
-  // // b3["ce"] = {{25}};
-  // b3["ce"] = {{50, 1}, {25}};
-  // b3["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b3", b3);
+  std::map<std::string, std::vector<std::vector<int>>> b3;
+  b3["pt"] = {{50}};
+  // b3["ce"] = {{25}};
+  b3["ce"] = {{50, 1}, {25}};
+  b3["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b3", b3);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b4;
-  // b4["pt"] = {{1}};
-  // b4["ce"] = {{1}};
-  // b4["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b4", b4);
+  std::map<std::string, std::vector<std::vector<int>>> b4;
+  b4["pt"] = {{1}};
+  b4["ce"] = {{1}};
+  b4["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b4", b4);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b5;
-  // b5["pt"] = {{2}};
-  // b5["ce"] = {{1}};
-  // b5["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b5", b5);
+  std::map<std::string, std::vector<std::vector<int>>> b5;
+  b5["pt"] = {{2}};
+  b5["ce"] = {{1}};
+  b5["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b5", b5);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b6;
-  // b6["pt"] = {{1}};
-  // b6["ce"] = {{2}};
-  // b6["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b6", b6);
+  std::map<std::string, std::vector<std::vector<int>>> b6;
+  b6["pt"] = {{1}};
+  b6["ce"] = {{2}};
+  b6["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b6", b6);
 
-  // std::map<std::string, std::vector<std::vector<int>>> b7;
-  // b7["pt"] = {{2}};
-  // b7["ce"] = {{2}};
-  // b7["bg"] = {{1}};
-  // ngnt->GetBinning()->AddBinningDefinition("b7", b7);
+  std::map<std::string, std::vector<std::vector<int>>> b7;
+  b7["pt"] = {{2}};
+  b7["ce"] = {{2}};
+  b7["bg"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("b7", b7);
 
   ngnt->InitParameters(cfg["parameters"].get<std::vector<std::string>>());
 

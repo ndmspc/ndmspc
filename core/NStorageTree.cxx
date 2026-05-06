@@ -115,6 +115,39 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
     return false;
   }
 
+  // Configure TTree IO / buffering from environment variables (tuned for large remote filesystems)
+  // NDMSPC_TTREE_BASKET_SIZE: bytes per branch (default 1MB)
+  // NDMSPC_TTREE_AUTOFLUSH: entries to flush (negative value means entries, default -100)
+  // NDMSPC_TTREE_AUTOSAVE: autosave frequency (negative value means entries, default -500)
+  const char * envBasket = gSystem->Getenv("NDMSPC_TTREE_BASKET_SIZE");
+  const char * envAutoFlush = gSystem->Getenv("NDMSPC_TTREE_AUTOFLUSH");
+  const char * envAutoSave = gSystem->Getenv("NDMSPC_TTREE_AUTOSAVE");
+
+  // ROOT defaults
+  Long64_t basketSize = 32000LL;          // 32 KB per branch (ROOT default)
+  Long64_t autoFlush  = -30000000LL;      // 30 MB (ROOT default)
+  Long64_t autoSave   = -300000000LL;     // 300 MB (ROOT default)
+
+  try {
+    if (envBasket) basketSize = std::stoll(std::string(envBasket));
+  } catch (...) { NLogWarning("NDMSPC_TTREE_BASKET_SIZE invalid: '%s'", envBasket ? envBasket : "(null)"); }
+  try {
+    if (envAutoFlush) autoFlush = std::stoll(std::string(envAutoFlush));
+  } catch (...) { NLogWarning("NDMSPC_TTREE_AUTOFLUSH invalid: '%s'", envAutoFlush ? envAutoFlush : "(null)"); }
+  try {
+    if (envAutoSave) autoSave = std::stoll(std::string(envAutoSave));
+  } catch (...) { NLogWarning("NDMSPC_TTREE_AUTOSAVE invalid: '%s'", envAutoSave ? envAutoSave : "(null)"); }
+
+  // Apply settings
+  if (basketSize > 0) {
+    fTree->SetBasketSize("*", basketSize);
+    NLogInfo("NStorageTree::InitTree: SetBasketSize(*, %lld)", (long long)basketSize);
+  }
+  fTree->SetAutoFlush(autoFlush);
+  NLogInfo("NStorageTree::InitTree: SetAutoFlush(%lld)", (long long)autoFlush);
+  fTree->SetAutoSave(autoSave);
+  NLogInfo("NStorageTree::InitTree: SetAutoSave(%lld)", (long long)autoSave);
+
   return true;
 }
 bool NStorageTree::SetFileTree(TFile * file, TTree * tree)
