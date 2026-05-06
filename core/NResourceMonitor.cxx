@@ -1,3 +1,5 @@
+#include <cmath>
+#include <limits>
 #include <THnSparse.h>
 #include <TROOT.h>
 #include "NLogger.h"
@@ -39,24 +41,24 @@ void NResourceMonitor::Print(Option_t * /*option*/) const
   // NLogInfo(" Major faults: %ld", fUsageEnd.ru_majflt - fUsageStart.ru_majflt);
 }
 
-THnSparse * NResourceMonitor::Initialize(THnSparse * hns)
+THnSparse * NResourceMonitor::Initialize(THnSparse * hns, int nWorkers)
 {
   ///
   /// Initialize resource monitor with THnSparse object
   ///
   std::vector<TAxis *> axes;
-  int                  nThreads = ROOT::GetThreadPoolSize();
+  int                  nThreads = nWorkers > 0 ? nWorkers : ROOT::GetThreadPoolSize();
   if (nThreads <= 0) nThreads = 1;
 
-  NLogTrace("NResourceMonitor::Initialize: Initializing resource monitor for %d threads", nThreads);
+  NLogTrace("NResourceMonitor::Initialize: Initializing resource monitor for %d workers", nThreads);
 
-  TAxis * threadAxis = new TAxis(nThreads, 0, nThreads);
-  threadAxis->SetNameTitle("thread", "Thread");
-  // set labels for thread axis
+  TAxis * workerAxis = new TAxis(nThreads, 0, nThreads);
+  workerAxis->SetNameTitle("worker", "Worker");
+  // set labels for worker axis
   for (int i = 0; i < nThreads; ++i) {
-    threadAxis->SetBinLabel(i + 1, TString::Format("%d", i).Data());
+    workerAxis->SetBinLabel(i + 1, TString::Format("%d", i).Data());
   }
-  axes.push_back(threadAxis);
+  axes.push_back(workerAxis);
   TAxis * aStat = NUtils::CreateAxisFromLabels("stat", "Stat", fNames);
   axes.push_back(aStat);
 
@@ -65,7 +67,19 @@ THnSparse * NResourceMonitor::Initialize(THnSparse * hns)
     SafeDelete(fHnSparse);
   }
 
-  fHnSparse = NUtils::ReshapeSparseAxes(hns, {}, axes);
+  // Build order so that the worker axis comes first, then the original binning
+  // axes, and finally the stat axis.
+  // New axes are appended after original hns dims in ReshapeSparseAxes, so:
+  //   workerAxis index = hns->GetNdimensions()  (first new axis)
+  //   statAxis   index = hns->GetNdimensions()+1 (second new axis)
+  int              origDims = hns->GetNdimensions();
+  std::vector<int> order;
+  order.reserve(origDims + 2);
+  order.push_back(origDims);            // worker first
+  for (int i = 0; i < origDims; ++i) order.push_back(i); // original binning axes
+  order.push_back(origDims + 1);        // stat last
+
+  fHnSparse = NUtils::ReshapeSparseAxes(hns, order, axes);
   fHnSparse->SetNameTitle("resource_monitor", "Resource Monitor");
 
   return fHnSparse;
@@ -78,29 +92,38 @@ void NResourceMonitor::Fill(Int_t * coords, int threadId)
   ///
   ///
   auto statBinCoords = std::make_unique<Int_t[]>(fHnSparse->GetNdimensions());
-  // Int_t statBinCoords[fHnSparse->GetNdimensions()];
-  // set statBinCoords from statHnSparse
+  // Axis layout: [worker, binning_axes..., stat]
+  // worker is axis 0; original binning axes follow; stat is the last axis.
+  statBinCoords[0] = threadId + 1;
   for (Int_t i = 0; i < fHnSparse->GetNdimensions() - 2; ++i) {
-    statBinCoords[i] = coords[i];
+    statBinCoords[i + 1] = coords[i];
   }
   Long64_t statBin;
 
-  // Set thread id coordinate
-  statBinCoords[fHnSparse->GetNdimensions() - 2] = threadId + 1;
+  constexpr double kTinyError = std::numeric_limits<double>::min();
 
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 1;
   statBin                                        = fHnSparse->GetBin(statBinCoords.get());
   fHnSparse->SetBinContent(statBin, GetTimeDiffInSeconds());
+  fHnSparse->SetBinError(statBin, kTinyError);
 
-  // Set CPU usage
+  // Set CPU usage — guard against NaN/Inf when wall time is near-zero
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 2;
   statBin                                        = fHnSparse->GetBin(statBinCoords.get());
-  fHnSparse->SetBinContent(statBin, GetCpuUsage());
+  {
+    double cpu = GetCpuUsage();
+    if (!std::isfinite(cpu)) cpu = 0.0;
+    fHnSparse->SetBinContent(statBin, cpu);
+    fHnSparse->SetBinError(statBin, kTinyError);
+  }
 
-  // Set Memory usage
+  // Set Memory usage — store absolute max RSS (KB) at end of processing so the
+  // bin is always non-zero; ru_maxrss tracks peak RSS and the diff is often 0,
+  // which would silently remove the sparse bin.
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 3;
   statBin                                        = fHnSparse->GetBin(statBinCoords.get());
-  fHnSparse->SetBinContent(statBin, GetMemoryUsageDiff());
+  fHnSparse->SetBinContent(statBin, static_cast<double>(fUsageEnd.ru_maxrss));
+  fHnSparse->SetBinError(statBin, kTinyError);
 }
 
 void NResourceMonitor::Start()
