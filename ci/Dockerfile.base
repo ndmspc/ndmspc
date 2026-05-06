@@ -19,14 +19,14 @@ RUN git clone https://gitlab.com/ndmspc/ndmspc-ui.git && \
   rm -rf node_modules ~/.npm /tmp/*
 
 FROM docker.io/library/almalinux:10
-# FROM registry.gitlab.com/ndmspc/user/al9:base
+COPY --from=builder /builder/build/RPMS/x86_64/ndmspc*.rpm /
+COPY --from=builder /builder/ndmspc-ui/dist /usr/share/ndmspc/ndmspc-ui
 RUN dnf install epel-release 'dnf-command(config-manager)' 'dnf-command(copr)' -y && \
   dnf config-manager --set-enabled crb && \
   dnf copr enable ndmspc/stable -y && \
   dnf update -y && \
   rm -rf /var/cache/dnf/*
 
-COPY --from=builder /builder/build/RPMS/x86_64/ndmspc*.rpm /
 RUN dnf install -y ndmspc*.rpm && \
   dnf clean all && \
   rm -rf /var/cache/dnf/* && \
@@ -50,6 +50,6 @@ RUN root -b -q /usr/share/ndmspc/tutorial/02_storage/NStorage01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C'("NBinnings01Gaus_odd.root",true)'
 
 # Copy only the React build from Stage 1
-COPY --from=builder /builder/ndmspc-ui/dist /usr/share/ndmspc/ndmspc-ui
+
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD [ "/bin/bash","-c","ndmspc-server start ngnt -m /usr/share/ndmspc/macros/builtin/httpNgntBase.C,/usr/share/ndmspc/macros/builtin/httpNgnt.C --html /usr/share/ndmspc/ndmspc-ui" ]
