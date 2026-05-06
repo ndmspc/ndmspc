@@ -196,8 +196,13 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   fProcessedBinIds.insert(entry);
 
   if (fResourceMonitor == nullptr) {
+    int monitorWorkers = 0;
+    if (fCfg.contains("_ndmspc") && fCfg["_ndmspc"].is_object() && fCfg["_ndmspc"].contains("workerCount") &&
+        fCfg["_ndmspc"]["workerCount"].is_number_integer()) {
+      monitorWorkers = fCfg["_ndmspc"]["workerCount"].get<int>();
+    }
     fResourceMonitor = new NResourceMonitor();
-    fResourceMonitor->Initialize(binningDef->GetContent());
+    fResourceMonitor->Initialize(binningDef->GetContent(), monitorWorkers);
     fHnSparseBase->GetOutput()->Add(fResourceMonitor->GetHnSparse());
   }
 
@@ -333,6 +338,23 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   NStorageTree *                 ts = nullptr;
   std::map<std::string, TList *> listOutputs;
 
+  auto queueOutputListForMerge = [this, &listOutputs](const std::string & key, TList * src) {
+    if (!src || src->IsEmpty()) return;
+
+    NLogTrace("NGnThreadData::Merge: Queuing output list '%s' with %d objects", key.c_str(), src->GetEntries());
+    if (listOutputs.find(key) == listOutputs.end()) {
+      listOutputs[key] = new TList();
+    }
+
+    if (fHnSparseBase->GetOutput(key)->IsEmpty()) {
+      // Seed merged output once; remaining contributor lists are merged below.
+      fHnSparseBase->GetOutput(key)->AddAll(src);
+    }
+    else {
+      listOutputs[key]->Add(src);
+    }
+  };
+
   // TList * listOut         = new TList();
   TList * listTreeStorage = new TList();
 
@@ -349,21 +371,9 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       // hnsttd->Print();
 
       for (auto & kv : hnsttd->GetHnSparseBase()->GetOutputs()) {
-        NLogTrace("NGnThreadData::Merge: Found output list '%s' with %d objects", kv.first.c_str(),
+        NLogTrace("NGnThreadData::Merge: Found in-memory output list '%s' with %d objects", kv.first.c_str(),
                   kv.second ? kv.second->GetEntries() : 0);
-        if (kv.second && !kv.second->IsEmpty()) {
-          NLogTrace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
-                    kv.second->GetEntries());
-          if (listOutputs.find(kv.first) == listOutputs.end()) {
-            if (fHnSparseBase->GetOutput(kv.first)->IsEmpty()) {
-              listOutputs[kv.first] = new TList();
-              fHnSparseBase->GetOutput(kv.first)->AddAll(kv.second);
-            }
-          }
-          else {
-            listOutputs[kv.first]->Add(kv.second);
-          }
-        }
+        queueOutputListForMerge(kv.first, kv.second);
       }
 
       // if (fOutput == nullptr) {
@@ -379,6 +389,14 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       if (!hnsb) {
         NLogError("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", mergeFilename.c_str());
         continue;
+      }
+
+      // In IPC/process mode worker-side output lists live in the worker files,
+      // not in parent in-memory worker objects. Merge these lists explicitly.
+      for (auto & kv : hnsb->GetOutputs()) {
+        NLogTrace("NGnThreadData::Merge: Found file output list '%s' with %d objects from '%s'", kv.first.c_str(),
+                  kv.second ? kv.second->GetEntries() : 0, mergeFilename.c_str());
+        queueOutputListForMerge(kv.first, kv.second);
       }
 
       // hnsb->Print();
@@ -454,11 +472,62 @@ Long64_t NGnThreadData::Merge(TCollection * list)
 
   // loop over all output lists and merge them
   for (auto & kv : listOutputs) {
+    // Diagnostics: print object names already present in the seeded target list.
+    {
+      std::vector<std::string> targetNames;
+      TList *                  targetOut = fHnSparseBase->GetOutput(kv.first);
+      if (targetOut) {
+        TObject * o = nullptr;
+        TIter     nextTarget(targetOut);
+        while ((o = nextTarget())) {
+          targetNames.push_back(o->GetName() ? o->GetName() : "");
+        }
+      }
+      NLogDebug("NGnThreadData::Merge: Output '%s' target has %zu object(s) before merge: %s", kv.first.c_str(),
+                targetNames.size(), NUtils::GetCoordsString(targetNames).c_str());
+    }
+
+    // Diagnostics: summarize every contributor list for this binning.
+    {
+      std::vector<std::string> contributorSummary;
+      if (kv.second) {
+        TIter nextList(kv.second);
+        while (auto * obj = nextList()) {
+          TList * src = dynamic_cast<TList *>(obj);
+          if (!src) continue;
+          std::vector<std::string> srcNames;
+          TIter                    nextObj(src);
+          while (auto * so = nextObj()) {
+            srcNames.push_back(so->GetName() ? so->GetName() : "");
+          }
+          contributorSummary.push_back(
+              TString::Format("[%d]%s", src->GetEntries(), NUtils::GetCoordsString(srcNames).c_str()).Data());
+        }
+      }
+      NLogDebug("NGnThreadData::Merge: Output '%s' has %zu contributor list(s): %s", kv.first.c_str(),
+                contributorSummary.size(), NUtils::GetCoordsString(contributorSummary).c_str());
+    }
+
     if (kv.second && !kv.second->IsEmpty()) {
       NLogTrace("NGnThreadData::Merge: Merging output list '%s' with %d objects", kv.first.c_str(),
                 kv.second->GetEntries() + 1);
       fHnSparseBase->GetOutput(kv.first)->Merge(kv.second);
       // fHnSparseBase->GetOutput(kv.first)->Print();
+    }
+
+    // Diagnostics: print final merged object names per binning.
+    {
+      std::vector<std::string> mergedNames;
+      TList *                  mergedOut = fHnSparseBase->GetOutput(kv.first);
+      if (mergedOut) {
+        TObject * o = nullptr;
+        TIter     nextMerged(mergedOut);
+        while ((o = nextMerged())) {
+          mergedNames.push_back(o->GetName() ? o->GetName() : "");
+        }
+      }
+      NLogInfo("NGnThreadData::Merge: Output '%s' merged to %zu object(s): %s", kv.first.c_str(), mergedNames.size(),
+               NUtils::GetCoordsString(mergedNames).c_str());
     }
   }
 

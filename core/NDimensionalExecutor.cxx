@@ -307,8 +307,21 @@ void NDimensionalExecutor::ExecuteParallel(
         {
           std::unique_lock<std::mutex> lock(queue_mutex);
           stop_pool = true;
+
+          // Drain not-yet-executed tasks from the queue and decrement their
+          // active counter contribution. Without this, active_tasks can remain
+          // non-zero forever and the consumer wait below deadlocks.
+          size_t dropped = 0;
+          while (!tasks.empty()) {
+            tasks.pop();
+            ++dropped;
+          }
+          if (dropped > 0) {
+            active_tasks.fetch_sub(dropped);
+          }
         }
         condition_producer.notify_all(); // Wake all threads to check stop flag
+        condition_consumer.notify_one(); // Wake consumer in case queue drain reached zero
 
         // *** Crucial Fix: Decrement active_tasks even on exception ***
         // Check if we actually acquired a task before decrementing

@@ -310,10 +310,15 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
   std::string tmpDir;
 
-  if (!tmpDirStr || tmpDir.empty()) {
+  if (tmpDirStr && std::strlen(tmpDirStr) > 0) {
+    tmpDir = tmpDirStr;
+  }
+  else {
     tmpDir = "/tmp";
   }
-  std::string tmpFilename = tmpDir + "/ngnt_imported_input" + std::to_string(gSystem->GetPid()) + ".root";
+  // Use a unique file per import call to avoid collisions on repeated runs.
+  std::string tmpFilename = tmpDir + "/ngnt_imported_input" + std::to_string(gSystem->GetPid()) + "_" +
+                            std::to_string(static_cast<long long>(gSystem->Now())) + ".root";
   NGnTree *   ngntIn      = new NGnTree(axes, tmpFilename);
   if (ngntIn->IsZombie()) {
     NLogError("NGnTree::Import: Failed to create NGnTree for input !!!");
@@ -329,8 +334,6 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   // delete ngntIn;
 
   ngnt->SetInput(NGnTree::Open(tmpFilename)); // Set input to self
-
-  ngnt->GetInput()->Print();
 
   ngnt->GetBinning()->AddBinningDefinition("default", b);
   ngnt->InitParameters(cfg["_labels"].get<std::vector<std::string>>());
@@ -381,6 +384,14 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       }
       // outputPoint->Add(hParams);
       outputPoint->Add(h);
+
+      // For resource-monitor/stat import, cfg may only contain _parameterAxis
+      // and _labels. In that mode, we only need the projected histogram above.
+      // Skip optional external-object import when filename/objects are absent.
+      if (!cfg.contains("filename") || !cfg["filename"].is_string() || !cfg.contains("objects") ||
+          !cfg["objects"].is_object()) {
+        return;
+      }
 
       std::string filename = cfg["filename"].get<std::string>();
       TFile *     f        = (TFile *)point->GetTempObject("file");
@@ -446,6 +457,18 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
   ngnt->Process(processFunc, cfg);
   ngnt->Close(true);
+
+  // Release transient objects created for this import call. Keeping them
+  // alive across repeated imports can accumulate ROOT state and lead to
+  // hangs on subsequent calls.
+  if (ngnt->GetInput()) {
+    ngnt->GetInput()->Close(false);
+    delete ngnt->GetInput();
+    ngnt->SetInput(nullptr);
+  }
+  delete ngntIn;
+  delete ngnt;
+
   // Remove tmp file
   gSystem->Exec(TString::Format("rm -f %s", tmpFilename.c_str()));
 }
@@ -740,6 +763,26 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
                                                  : static_cast<size_t>(nThreads);
   std::vector<Ndmspc::NGnThreadData> threadDataVector(workerObjectCount);
 
+  json cfgRuntime = cfg;
+  int  monitorWorkerCount = static_cast<int>(workerObjectCount);
+  if (const char * envNdmspcNProc = gSystem->Getenv("NDMSPC_MAX_PROCESSES")) {
+    try {
+      long long parsed = std::stoll(envNdmspcNProc);
+      if (parsed > 0) {
+        monitorWorkerCount = static_cast<int>(parsed);
+      }
+      else {
+        NLogWarning("NGnTree::Process: NDMSPC_MAX_PROCESSES='%s' is not > 0; using workerObjectCount=%d for resource monitor axis.",
+                    envNdmspcNProc, monitorWorkerCount);
+      }
+    }
+    catch (...) {
+      NLogWarning("NGnTree::Process: Invalid NDMSPC_MAX_PROCESSES='%s'; using workerObjectCount=%d for resource monitor axis.",
+                  envNdmspcNProc, monitorWorkerCount);
+    }
+  }
+  cfgRuntime["_ndmspc"]["workerCount"] = monitorWorkerCount;
+
   NLogInfo("NGnTree::Process: executionMode='%s', useProcessIpc=%d, ROOT threads=%d, ipcProcesses=%zu, workerObjects=%zu",
            executionMode.c_str(), useProcessIpc ? 1 : 0, nThreads, nProcesses, workerObjectCount);
 
@@ -776,7 +819,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       NLogError("Failed to initialize thread data %zu, exiting ...", i);
       return false;
     }
-    threadDataVector[i].SetCfg(cfg); // Set configuration to binning point
+    threadDataVector[i].SetCfg(cfgRuntime); // Set configuration to binning point
     if (useTcp) {
       // Tell the merge step where workers will deposit their finished files.
       // When resultsDir == jobDir (NDMSPC_TMP_RESULTS_DIR unset) the paths are
@@ -1085,7 +1128,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   TList *                 mergeList  = new TList();
   Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
   outputData->Init(0, func, nullptr, nullptr, this, binningIn);
-  outputData->SetCfg(cfg);
+  outputData->SetCfg(cfgRuntime);
   // outputData->Init(0, func, this);
 
   for (auto & data : threadDataVector) {
@@ -1654,12 +1697,12 @@ NGnNavigator * NGnTree::Reshape(std::string binningName, std::vector<std::vector
   return navigator.Reshape(binningName, levels, level, ranges, rangesBase);
 }
 
-NGnNavigator * NGnTree::GetResourceStatisticsNavigator(std::string binningName, std::vector<std::vector<int>> levels,
-                                                       int level, std::map<int, std::vector<int>> ranges,
-                                                       std::map<int, std::vector<int>> rangesBase)
+std::string NGnTree::ExportResourceStatistics(std::string binningName)
 {
   ///
-  /// Get resource statistics navigator
+  /// Export the resource_monitor THnSparse for the given binning into a
+  /// temporary NGnTree file and return the filename.  Repeated calls with the
+  /// same state return the cached filename without re-importing.
   ///
 
   if (binningName.empty()) {
@@ -1668,26 +1711,56 @@ NGnNavigator * NGnTree::GetResourceStatisticsNavigator(std::string binningName, 
 
   THnSparse * hns = (THnSparse *)fOutputs[binningName]->FindObject("resource_monitor");
   if (!hns) {
-    NLogError("NGnTree::Draw: Resource monitor THnSparse not found in outputs !!!");
-    return nullptr;
+    NLogError("NGnTree::ExportResourceStatistics: Resource monitor THnSparse not found in outputs for binning '%s' !!!",
+              binningName.c_str());
+    return {};
   }
   hns->Print("all");
-  // return nullptr;
 
-  auto ngnt = new NGnTree(hns, "stat", "/tmp/hnst_imported_for_drawing.root");
+  // Cache: repeated calls with the same tree/binning/hns state reuse the file.
+  static std::map<std::string, std::string> sResourceNavImportCache;
+  const std::string cacheKey =
+      TString::Format("%p|%s|%p|%.0f", (void *)this, binningName.c_str(), (void *)hns, hns->GetEntries()).Data();
+
+  auto it = sResourceNavImportCache.find(cacheKey);
+  if (it != sResourceNavImportCache.end() && gSystem->AccessPathName(it->second.c_str(), kFileExists) == kFALSE) {
+    NLogTrace("NGnTree::ExportResourceStatistics: Reusing cached export '%s'", it->second.c_str());
+    return it->second;
+  }
+
+  std::string tmpOut = "/tmp/hnst_imported_for_drawing_" + std::to_string(gSystem->GetPid()) + "_" +
+                       std::to_string(static_cast<long long>(gSystem->Now())) + ".root";
+
+  auto ngnt = new NGnTree(hns, "stat", tmpOut);
   if (ngnt->IsZombie()) {
-    NLogError("NGnTree::GetResourceStatisticsNavigator: Failed to import resource monitor THnSparse !!!");
+    NLogError("NGnTree::ExportResourceStatistics: Failed to import resource monitor THnSparse !!!");
+    delete ngnt;
+    return {};
+  }
+  delete ngnt;
+
+  sResourceNavImportCache[cacheKey] = tmpOut;
+  NLogTrace("NGnTree::ExportResourceStatistics: Exported to '%s'", tmpOut.c_str());
+  return tmpOut;
+}
+
+NGnNavigator * NGnTree::GetResourceStatisticsNavigator(std::string binningName, std::vector<std::vector<int>> levels,
+                                                       int level, std::map<int, std::vector<int>> ranges,
+                                                       std::map<int, std::vector<int>> rangesBase)
+{
+  ///
+  /// Get resource statistics navigator
+  ///
+
+  const std::string tmpOut = ExportResourceStatistics(binningName);
+  if (tmpOut.empty()) return nullptr;
+
+  auto ngnt2 = NGnTree::Open(tmpOut);
+  if (!ngnt2) {
+    NLogError("NGnTree::GetResourceStatisticsNavigator: Failed to open exported file '%s'", tmpOut.c_str());
     return nullptr;
   }
-  ngnt->Print();
-  ngnt->Close();
-
-  // return nullptr;
-  auto ngnt2 = NGnTree::Open("/tmp/hnst_imported_for_drawing.root");
-  auto nav   = ngnt2->Reshape("default", levels, level, ranges, rangesBase);
-  // // nav->Export("/tmp/hnst_imported_for_drawing.json", {}, "ws://localhost:8080/ws/root.websocket");
-  // // nav->Draw();
-  return nav;
+  return ngnt2->Reshape("default", levels, level, ranges, rangesBase);
 }
 
 bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)

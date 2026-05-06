@@ -310,7 +310,23 @@ class NGnTree : public TObject {
   NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {});
   /**
+   * @brief Exports the resource_monitor statistics for the given binning into a
+   *        temporary NGnTree ROOT file and returns the file path.
+   *
+   * Repeated calls with the same tree/binning/histogram state return the cached
+   * file path without re-importing.  The returned NGnTree file can be opened
+   * with NGnTree::Open() for further analysis.
+   *
+   * @param binningName Name of the binning whose resource_monitor is exported.
+   *        If empty, the current definition name is used.
+   * @return Full path to the exported ROOT file, or an empty string on failure.
+   */
+  std::string ExportResourceStatistics(std::string binningName = "");
+
+  /**
    * @brief Returns a navigator for resource statistics based on binning and levels.
+   *
+   * Calls ExportResourceStatistics() internally and opens the resulting file.
    *
    * @param binningName Name of the binning scheme to use.
    * @param levels A vector of vectors specifying the levels for binning.

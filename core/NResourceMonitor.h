@@ -38,9 +38,11 @@ class NResourceMonitor : public TObject {
   /**
    * @brief Initializes the THnSparse histogram for resource data.
    * @param hns Pointer to THnSparse to initialize.
+    * @param nWorkers Number of worker slots to reserve on the thread axis.
+    *        If <= 0, falls back to ROOT::GetThreadPoolSize() (min 1).
    * @return Pointer to initialized THnSparse.
    */
-  THnSparse * Initialize(THnSparse * hns);
+    THnSparse * Initialize(THnSparse * hns, int nWorkers = 0);
 
   /**
    * @brief Fills resource usage data into the histogram.
@@ -80,6 +82,12 @@ class NResourceMonitor : public TObject {
    * @brief Returns the difference in memory usage (in kilobytes) between Start and End.
    */
   long GetMemoryUsageDiff() const { return fUsageEnd.ru_maxrss - fUsageStart.ru_maxrss; }
+
+  /**
+   * @brief Returns the absolute peak RSS (in kilobytes) recorded at End.
+   *        This is always non-zero and is what the "mem" stat bin stores in the histogram.
+   */
+  long GetMemoryUsageEnd() const { return fUsageEnd.ru_maxrss; }
 
   /**
    * @brief Records the starting resource usage and wall time.
