@@ -37,15 +37,17 @@ RUN dnf install -y ndmspc*.rpm && \
 ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
 ARG MY_USER=user
 RUN groupadd -g 1000 ${MY_USER} && \
-  useradd -u 1000 -g ${MY_USER} -m -s /bin/bash ${MY_USER}
-RUN mkdir -p /ndmspc && \
+  useradd -u 1000 -g ${MY_USER} -m -s /bin/bash ${MY_USER} && \
+  mkdir -p /ndmspc && \
   chown -R ${MY_USER}:${MY_USER} /ndmspc
 USER 1000
 WORKDIR /ndmspc
 RUN root -b -q /usr/share/ndmspc/tutorial/02_storage/NStorage01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/03_parameter/NParameter01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/04_customization/NCustomization01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/05_nested/NNested01Gaus.C
+  root -b -q /usr/share/ndmspc/tutorial/05_nested/NNested01Gaus.C && \
+  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C && \
+  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C'("NBinnings01Gaus_odd.root",true)'
 
 # Copy only the React build from Stage 1
 COPY --from=builder /builder/ndmspc-ui/dist /usr/share/ndmspc/ndmspc-ui
