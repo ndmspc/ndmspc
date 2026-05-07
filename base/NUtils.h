@@ -497,6 +497,14 @@ class NUtils : TObject {
   static std::string FormatTime(long long seconds);
 
   /**
+   * @brief Format byte size to human-readable binary units (B, KiB, MiB, ...).
+   * @param bytes Size in bytes.
+   * @param precision Decimal precision for units above bytes.
+   * @return Formatted byte size string.
+   */
+  static std::string FormatBytes(long long bytes, int precision = 1);
+
+  /**
    * @brief Display progress bar.
    * @param current Current progress.
    * @param total Total value.

@@ -46,7 +46,34 @@ std::string ResolveNTcpTestMacroPath()
   return "";
 }
 
-bool ExecuteNTcpTestMacro(const std::string & outFile, int timeoutMs, std::string * error = nullptr)
+std::string ResolveCliBinary(const std::string & name)
+{
+  const std::string exeDir = gSystem->DirName(gExecutablePath.c_str());
+  const std::vector<std::string> candidates = {
+    exeDir + std::string("/../core/cli/") + name,
+    exeDir + std::string("/") + name,
+    name,
+  };
+
+  for (const auto & path : candidates) {
+    if (::access(path.c_str(), X_OK) == 0) return path;
+  }
+  return "";
+}
+
+Long64_t ExpectedEntriesFromBins(const std::string & bins)
+{
+  std::stringstream ss(bins);
+  std::string       item;
+  Long64_t          total = 1;
+  while (std::getline(ss, item, ',')) {
+    total *= std::stoll(item);
+  }
+  return total;
+}
+
+bool ExecuteNTcpTestMacro(const std::string & outFile, int timeoutMs, std::string * error = nullptr,
+                          const std::string & bins = "10,10,5,5")
 {
   const std::string macroPath = ResolveNTcpTestMacroPath();
   if (macroPath.empty()) {
@@ -61,7 +88,7 @@ bool ExecuteNTcpTestMacro(const std::string & outFile, int timeoutMs, std::strin
   }
 
   std::ostringstream params;
-  params << '"' << outFile << "\",\"10,10,5,5\"," << timeoutMs;
+  params << '"' << outFile << "\",\"" << bins << "\"," << timeoutMs;
   macro->Exec(params.str().c_str());
   delete macro;
   return true;
@@ -96,10 +123,27 @@ int ReserveFreeTcpPort()
   return port;
 }
 
+std::vector<pid_t> GetChildPids(pid_t parentPid)
+{
+  std::vector<pid_t> children;
+#ifdef __linux__
+  const std::string path = "/proc/" + std::to_string(parentPid) + "/task/" + std::to_string(parentPid) + "/children";
+  std::ifstream in(path);
+  pid_t childPid = 0;
+  while (in >> childPid) {
+    if (childPid > 0) children.push_back(childPid);
+  }
+#else
+  (void)parentPid;
+#endif
+  return children;
+}
+
 // Spawn this binary as a TCP worker.
-// argv layout (worker re-entry): exe --ndmspc-tcp-worker endpoint idx outfile timeout_ms startup_delay_ms
+// argv layout (worker re-entry):
+// exe --ndmspc-tcp-worker endpoint idx outfile timeout_ms bins [startup_delay_ms]
 pid_t SpawnTcpWorker(const std::string & endpoint, size_t idx, const std::string & outFile,
-                     int timeoutMs, int startupDelayMs = 0)
+                     int timeoutMs, const std::string & bins = "10,10,5,5", int startupDelayMs = 0)
 {
   const pid_t pid = ::fork();
   if (pid != 0) return pid;
@@ -110,6 +154,7 @@ pid_t SpawnTcpWorker(const std::string & endpoint, size_t idx, const std::string
           std::to_string(idx).c_str(),
           outFile.c_str(),
           std::to_string(timeoutMs).c_str(),
+          bins.c_str(),
           std::to_string(startupDelayMs).c_str(),
           nullptr);
   _exit(127);
@@ -132,10 +177,11 @@ void CleanupWorkers(const std::vector<pid_t> & pids)
 // in worker mode (NDMSPC_WORKER_ENDPOINT drives TCP dispatch).
 bool RunAsTcpWorkerIfRequested(int argc, char ** argv)
 {
-  // Expected: exe --ndmspc-tcp-worker endpoint idx outfile timeout_ms [startup_delay_ms]
+  // Expected: exe --ndmspc-tcp-worker endpoint idx outfile timeout_ms bins [startup_delay_ms]
   if (argc < 7) return false;
   if (std::string(argv[1]) != "--ndmspc-tcp-worker") return false;
 
+  const std::string bins = argv[6];
   const int startupDelayMs = (argc >= 8) ? std::atoi(argv[7]) : 0;
   if (startupDelayMs > 0)
     std::this_thread::sleep_for(std::chrono::milliseconds(startupDelayMs));
@@ -152,7 +198,7 @@ bool RunAsTcpWorkerIfRequested(int argc, char ** argv)
   const std::string outFile   = workerDir + "/" + argv[4];
   const int         timeoutMs = std::atoi(argv[5]);
   std::string error;
-  if (!ExecuteNTcpTestMacro(outFile, timeoutMs, &error)) {
+  if (!ExecuteNTcpTestMacro(outFile, timeoutMs, &error, bins)) {
     NLogPrint("worker failed to execute NTcpTest.C: %s", error.c_str());
     _exit(2);
   }
@@ -176,7 +222,11 @@ private:
   bool        fHadValue{false};
 };
 
-void AssertOutputTreeIsValid(const std::string & testFile)
+constexpr Long64_t kExpectedNTcpTestEntries = 10 * 10 * 5 * 5;
+constexpr const char * kInterruptTestBins   = "8,8,4,4";
+
+void AssertOutputTreeIsValid(const std::string & testFile,
+                             Long64_t            expectedEntries = kExpectedNTcpTestEntries)
 {
   std::ifstream out(testFile);
   EXPECT_TRUE(out.good()) << "Output file was not created: " << testFile;
@@ -187,7 +237,12 @@ void AssertOutputTreeIsValid(const std::string & testFile)
   Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(testFile);
   ASSERT_TRUE(ngnt != nullptr);
   ASSERT_FALSE(ngnt->IsZombie());
-  EXPECT_GT(ngnt->GetEntries(), 0) << "Expected no entries because process function does not fill output";
+  EXPECT_EQ(ngnt->GetEntries(), expectedEntries)
+      << "Unexpected number of processed points in output tree";
+  ASSERT_TRUE(ngnt->GetBinning() != nullptr);
+  ASSERT_TRUE(ngnt->GetBinning()->GetContent() != nullptr);
+  EXPECT_EQ(ngnt->GetBinning()->GetContent()->GetNbins(), expectedEntries)
+      << "Binning content does not contain the full expected point set";
   ngnt->Close();
 }
 
@@ -223,7 +278,7 @@ TEST(TcpLazyJoinTest, WorkersJoinAfterSupervisorStart)
   const int        lazyDelayMs = 2000;
   std::vector<pid_t> workerPids;
   for (size_t i = 0; i < 4; ++i) {
-    const pid_t pid = SpawnTcpWorker(endpoint, i, testFile, perPointMs, lazyDelayMs);
+    const pid_t pid = SpawnTcpWorker(endpoint, i, testFile, perPointMs, "10,10,5,5", lazyDelayMs);
     ASSERT_GT(pid, 0) << "Failed to spawn TCP worker " << i;
     workerPids.push_back(pid);
   }
@@ -309,7 +364,7 @@ TEST(TcpLazyJoinTest, WorkerInterruptionRedistributesTasks)
   
   // Spawn 2 workers
   for (size_t i = 0; i < 2; ++i) {
-    const pid_t pid = SpawnTcpWorker(endpoint, i, testFile, perPointMs);
+    const pid_t pid = SpawnTcpWorker(endpoint, i, testFile, perPointMs, kInterruptTestBins);
     ASSERT_GT(pid, 0) << "Failed to spawn TCP worker " << i;
     workerPids.push_back(pid);
   }
@@ -322,7 +377,7 @@ TEST(TcpLazyJoinTest, WorkerInterruptionRedistributesTasks)
   std::thread supervisorThread([&]() {
     try {
       std::string error;
-      bool success = ExecuteNTcpTestMacro(testFile, perPointMs, &error);
+      bool success = ExecuteNTcpTestMacro(testFile, perPointMs, &error, kInterruptTestBins);
       if (!success) {
         supervisorError = error;
         supervisorFailed = true;
@@ -356,8 +411,71 @@ TEST(TcpLazyJoinTest, WorkerInterruptionRedistributesTasks)
 
   EXPECT_TRUE(supervisorCompleted) << "Supervisor should complete after worker interruption";
   EXPECT_FALSE(supervisorFailed) << supervisorError;
-  AssertOutputTreeIsValid(testFile);
+  AssertOutputTreeIsValid(testFile, ExpectedEntriesFromBins(kInterruptTestBins));
 
+  std::remove(testFile.c_str());
+}
+
+TEST(TcpLazyJoinTest, SpawnWorkersWorkerInterruptionRedistributesTasks)
+{
+  const std::string runBin = ResolveCliBinary("ndmspc-run");
+  const std::string workerBin = ResolveCliBinary("ndmspc-worker");
+  const std::string macroPath = ResolveNTcpTestMacroPath();
+  ASSERT_FALSE(runBin.empty()) << "Could not locate ndmspc-run binary";
+  ASSERT_FALSE(workerBin.empty()) << "Could not locate ndmspc-worker binary";
+  ASSERT_FALSE(macroPath.empty()) << "Could not locate NTcpTest.C";
+
+  const int port = ReserveFreeTcpPort();
+  ASSERT_GT(port, 0) << "Failed to reserve a free TCP port";
+  const std::string testFile = "test_NTcpTest_spawn_worker_interrupt.root";
+  std::remove(testFile.c_str());
+
+  ScopedEnv scopedLogConsole("NDMSPC_LOG_CONSOLE");
+  ScopedEnv scopedWorkerTimeout("NDMSPC_WORKER_TIMEOUT");
+  ScopedEnv scopedStallTimeout("NDMSPC_IPC_STALL_TIMEOUT");
+  ScopedEnv scopedTcpWorkerTimeout("NDMSPC_TCP_WORKER_TIMEOUT");
+
+  const std::string macroParams = std::string("\"") + testFile + "\",\"" + kInterruptTestBins + "\",10";
+
+  const pid_t supervisorPid = ::fork();
+  ASSERT_GE(supervisorPid, 0) << "Failed to fork ndmspc-run supervisor";
+
+  if (supervisorPid == 0) {
+    gSystem->Setenv("NDMSPC_LOG_CONSOLE", "0");
+    gSystem->Setenv("NDMSPC_WORKER_TIMEOUT", "5");
+    gSystem->Setenv("NDMSPC_IPC_STALL_TIMEOUT", "10");
+    gSystem->Setenv("NDMSPC_TCP_WORKER_TIMEOUT", "5");
+
+    ::execl(runBin.c_str(), runBin.c_str(),
+            macroPath.c_str(),
+            "--mode", "tcp",
+            "--tcp-port", std::to_string(port).c_str(),
+            "--spawn-workers", "2",
+            "--worker-bin", workerBin.c_str(),
+            "--macro-params", macroParams.c_str(),
+            nullptr);
+    _exit(127);
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  const auto childPids = GetChildPids(supervisorPid);
+  ASSERT_GE(childPids.size(), 2u) << "Expected ndmspc-run to spawn at least 2 workers";
+
+  // Let the supervisor finish the initial READY/INIT handshake and start
+  // dispatching real work before interrupting one spawned worker.
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  ::kill(childPids.front(), SIGINT);
+  ::waitpid(childPids.front(), nullptr, 0);
+
+  int status = 0;
+  ASSERT_EQ(::waitpid(supervisorPid, &status, 0), supervisorPid) << "Failed waiting for ndmspc-run supervisor";
+  ASSERT_TRUE(WIFEXITED(status)) << "ndmspc-run terminated abnormally";
+  ASSERT_EQ(WEXITSTATUS(status), 0) << "ndmspc-run exited with non-zero status";
+
+  CleanupWorkers(childPids);
+  AssertOutputTreeIsValid(testFile, ExpectedEntriesFromBins(kInterruptTestBins));
   std::remove(testFile.c_str());
 }
 

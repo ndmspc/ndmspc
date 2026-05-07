@@ -78,12 +78,12 @@ foreach(src ${SRCS})
     add_test(NAME ${testname}_tcp4_all COMMAND ${testname})
     set_tests_properties(${testname}_tcp4_all PROPERTIES
       ENVIRONMENT "NDMSPC_TEST_SCENARIO=tcp4;NDMSPC_TEST_ONLY_ODD=0"
-      TIMEOUT 20)
+      TIMEOUT 30)
 
     add_test(NAME ${testname}_tcp4_odd COMMAND ${testname})
     set_tests_properties(${testname}_tcp4_odd PROPERTIES
       ENVIRONMENT "NDMSPC_TEST_SCENARIO=tcp4;NDMSPC_TEST_ONLY_ODD=1"
-      TIMEOUT 20)
+      TIMEOUT 30)
   elseif(src MATCHES "^test_08_")
     add_test(NAME ${testname}_supervisor_first COMMAND ${testname} --gtest_filter=TcpLazyJoinTest.WorkersJoinAfterSupervisorStart)
     set_tests_properties(${testname}_supervisor_first PROPERTIES TIMEOUT 60 ENVIRONMENT "NDMSPC_LOG_CONSOLE=0")

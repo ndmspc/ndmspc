@@ -7,6 +7,7 @@
 #include <vector>
 #include <cstdio>
 #include <unistd.h>
+#include <cstdlib>
 #include "TROOT.h"
 #include "TApplication.h"
 #include "TSystem.h"
@@ -22,6 +23,18 @@ pid_t spawn_worker_process(const std::string & workerBin, const std::string & en
   if (pid < 0) return -1;
 
   if (pid == 0) {
+    // Keep auto-spawned workers out of the supervisor's foreground process
+    // group so a terminal Ctrl+C aimed at the supervisor does not also hit
+    // every spawned worker.
+    setpgid(0, 0);
+
+    // Ensure spawned local workers terminate when this supervisor process dies.
+    setenv("NDMSPC_EXIT_ON_PARENT_DEATH", "1", 1);
+    
+    // Child process spawned by --spawn-workers: suppress verbose startup detail
+    // block so it is not duplicated N times.
+    setenv("NDMSPC_SUPPRESS_STARTUP_DETAILS", "1", 1);
+
     if (verbose) {
       execlp(workerBin.c_str(), workerBin.c_str(), "--endpoint", endpoint.c_str(), "--verbose", nullptr);
     } else {
@@ -171,6 +184,16 @@ int main(int argc, char ** argv)
       NLogError("ndmspc-run: --spawn-workers is supported only with --mode tcp (effective mode: '%s')",
                 effectiveMode.c_str());
       return 1;
+    }
+
+    // In local auto-spawn mode, wait for all requested workers before task
+    // dispatch to avoid late workers executing macros and then receiving
+    // STOP-before-INIT near shutdown.
+    if (!gSystem->Getenv("NDMSPC_TCP_WAIT_ALL_WORKERS")) {
+      gSystem->Setenv("NDMSPC_TCP_WAIT_ALL_WORKERS", "1");
+    }
+    if (!gSystem->Getenv("NDMSPC_TCP_WAIT_ALL_WORKERS_TARGET")) {
+      gSystem->Setenv("NDMSPC_TCP_WAIT_ALL_WORKERS_TARGET", std::to_string(spawnWorkers).c_str());
     }
 
     if (workerEndpoint.empty()) {

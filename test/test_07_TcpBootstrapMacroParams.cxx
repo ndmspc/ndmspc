@@ -120,14 +120,17 @@ TEST(TcpBootstrapMacroParamsTest, WorkerReceivesAndExecutesBootstrapMacroParams)
 
   const std::string macroPath = testDir + "/bootstrap_macro.C";
   const std::string outPath   = testDir + "/bootstrap_macro.out";
-  std::remove(outPath.c_str());
+  const char *      cwdC      = gSystem->WorkingDirectory();
+  ASSERT_TRUE(cwdC && cwdC[0] != '\0') << "Failed to determine working directory";
+  const std::string outPathAbs = std::string(cwdC) + "/" + outPath;
+  std::remove(outPathAbs.c_str());
 
   {
     std::ofstream macroFile(macroPath);
     ASSERT_TRUE(macroFile.good()) << "Failed to create macro file at " << macroPath;
     macroFile << "#include <fstream>\n";
     macroFile << "void bootstrap_macro(int v, const char* tag) {\n";
-    macroFile << "  std::ofstream out(\"" << outPath << "\");\n";
+    macroFile << "  std::ofstream out(\"" << outPathAbs << "\");\n";
     macroFile << "  out << v << ':' << (tag ? tag : \"\");\n";
     macroFile << "}\n";
   }
@@ -194,14 +197,14 @@ TEST(TcpBootstrapMacroParamsTest, WorkerReceivesAndExecutesBootstrapMacroParams)
   ASSERT_TRUE(WIFEXITED(status)) << "Worker terminated abnormally";
   ASSERT_EQ(WEXITSTATUS(status), 0) << "Worker exited with non-zero status";
 
-  std::ifstream outFile(outPath);
-  ASSERT_TRUE(outFile.good()) << "Macro output file missing: " << outPath;
+  std::ifstream outFile(outPathAbs);
+  ASSERT_TRUE(outFile.good()) << "Macro output file missing: " << outPathAbs;
 
   std::string content;
   std::getline(outFile, content);
   ASSERT_EQ(content, "123:tcp_boot") << "Macro did not receive bootstrap macro params correctly";
 
-  std::remove(outPath.c_str());
+  std::remove(outPathAbs.c_str());
   std::remove(macroPath.c_str());
 }
 
@@ -219,14 +222,17 @@ TEST(TcpBootstrapMacroParamsTest, WorkerCliMacroParamsOverrideBootstrapConfig)
 
   const std::string macroPath = testDir + "/bootstrap_override_macro.C";
   const std::string outPath   = testDir + "/bootstrap_override_macro.out";
-  std::remove(outPath.c_str());
+  const char *      cwdC      = gSystem->WorkingDirectory();
+  ASSERT_TRUE(cwdC && cwdC[0] != '\0') << "Failed to determine working directory";
+  const std::string outPathAbs = std::string(cwdC) + "/" + outPath;
+  std::remove(outPathAbs.c_str());
 
   {
     std::ofstream macroFile(macroPath);
     ASSERT_TRUE(macroFile.good()) << "Failed to create macro file at " << macroPath;
     macroFile << "#include <fstream>\n";
     macroFile << "void bootstrap_override_macro(int v, const char* tag) {\n";
-    macroFile << "  std::ofstream out(\"" << outPath << "\");\n";
+    macroFile << "  std::ofstream out(\"" << outPathAbs << "\");\n";
     macroFile << "  out << v << ':' << (tag ? tag : \"\");\n";
     macroFile << "}\n";
   }
@@ -293,15 +299,15 @@ TEST(TcpBootstrapMacroParamsTest, WorkerCliMacroParamsOverrideBootstrapConfig)
   ASSERT_TRUE(WIFEXITED(status)) << "Worker terminated abnormally";
   ASSERT_EQ(WEXITSTATUS(status), 0) << "Worker exited with non-zero status";
 
-  std::ifstream outFile(outPath);
-  ASSERT_TRUE(outFile.good()) << "Macro output file missing: " << outPath;
+  std::ifstream outFile(outPathAbs);
+  ASSERT_TRUE(outFile.good()) << "Macro output file missing: " << outPathAbs;
 
   std::string content;
   std::getline(outFile, content);
   ASSERT_EQ(content, "999:cli_override")
       << "CLI macro params should override bootstrap CONFIG macro params";
 
-  std::remove(outPath.c_str());
+  std::remove(outPathAbs.c_str());
   std::remove(macroPath.c_str());
 }
 
