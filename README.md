@@ -1,49 +1,11 @@
-# NDMSPC - N-Dimensional Space Analysis Framework
+# NDMSPC
 
-## Overview
+A ROOT framework extension for N-dimensional storage, analysis, and visualization of high-dimensional data — designed for HEP, applicable to any domain.
 
-**NDMSPC** (n-dimensional space) is a sophisticated C++ framework designed for multi-dimensional data analysis, built on top of CERN's ROOT data analysis toolkit. The project is particularly focused on High-Energy Physics (HEP) applications, providing tools for parallel execution, web-based visualization, and n-dimensional histogram operations.
+## Documentation
 
-Read more about codebase [here](https://gitlab.com/ndmspc/ndmspc/-/blob/develop/CODEBASE.md).
+The main documentation is hosted at:
 
-## Running ndmspc via docker/podman
+<https://ndmspc.gitlab.io/docs/>
 
-> One can use `next` tag instead of `latest` to get the latest stable development version.
-
-Run ndmspc with host networking
-
-```bash
-docker run -d --name ndmspc --net host registry.gitlab.com/ndmspc/ndmspc:latest
-```
-
-Run ndmspc with port mapping
-
-```bash
-docker run -d --name ndmspc -p 8080:8080 -p 8888:8888 -p 1094:1094 -p 1095:1095 registry.gitlab.com/ndmspc/ndmspc:latest
-```
-
-One can log into the container via
-
-```bash
-docker exec -it ndmspc /bin/bash
-```
-
-One can access
-
-- the web interface at <http://localhost:8080>
-- noteook at <http://localhost:8888>
-- EOS can be accessed via root://localhost:1094
-
-## Running http stress
-
-Via docker:
-
-```bash
-docker run -d --name ndmspc -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc:latest ndmspc-server start stress
-```
-
-To get help:
-
-```bash
-docker run --rm registry.gitlab.com/ndmspc/ndmspc:latest ndmspc-server stress --help
-```
+Please use the docs site for installation, usage guides, architecture, and examples.

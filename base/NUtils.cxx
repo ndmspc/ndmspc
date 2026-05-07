@@ -1857,17 +1857,17 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   NLogTrace("Parquet number of rows: %lld", file_metadata->num_rows());
   NLogTrace("Parquet number of row groups: %d", file_metadata->num_row_groups());
 
-  // Read the entire file as a Table
-  // std::shared_ptr<arrow::Table> table;
-  // arrow::Status                 status = reader->ReadTable(&table); // ReadTable still returns Status
-  std::shared_ptr<arrow::RecordBatchReader> batch_reader;
-  arrow::Status                             status = reader->GetRecordBatchReader(&batch_reader);
-  if (!status.ok()) {
+  // Read the file as a record batch stream (Result API, non-deprecated)
+  arrow::Result<std::unique_ptr<arrow::RecordBatchReader>> batch_reader_result = reader->GetRecordBatchReader();
+  if (!batch_reader_result.ok()) {
     NLogError("NUtils::CreateSparseFromParquetTaxi: Error reading table from Parquet file %s: %s", filename.c_str(),
-              status.ToString().c_str());
-    status = infile->Close();
+              batch_reader_result.status().ToString().c_str());
+    arrow::Status status = infile->Close();
     return nullptr;
   }
+  auto batch_reader = std::move(batch_reader_result).ValueUnsafe();
+
+  arrow::Status status;
 
   // It's good practice to close the input file stream when done
   status = infile->Close();
@@ -1891,8 +1891,6 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
   int max_rows   = 1e8;
   max_rows       = nMaxRows > 0 ? std::min(max_rows, nMaxRows) : max_rows;
   int print_rows = std::min(max_rows, 5);
-  // auto                                table_batch_reader = std::make_shared<arrow::TableBatchReader>(*table);
-  auto                                table_batch_reader = batch_reader;
   std::shared_ptr<arrow::RecordBatch> batch;
   auto                                point = std::make_unique<Double_t[]>(nDims);
   // Double_t                            point[nDims];
@@ -1902,9 +1900,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
     // NLogInfo("Columns: %s", NUtils::Join(column_names, '\t').c_str());
   }
 
-  int batch_count = 0;
-  while (table_batch_reader->ReadNext(&batch).ok() && batch) {
-    batch_count++;
+  while (batch_reader->ReadNext(&batch).ok() && batch) {
     NLogTrace("Processing batch with %d rows and %d columns ...", batch->num_rows(), batch->num_columns());
     for (int i = 0; i < batch->num_rows(); ++i) {
       if (i >= max_rows) break; // Limit to first 5 rows for display
@@ -1920,7 +1916,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
         const auto &                                  array         = batch->column(j);
         arrow::Result<std::shared_ptr<arrow::Scalar>> scalar_result = array->GetScalar(i);
         if (scalar_result.ok()) {
-          // if (i * batch_count < print_rows) std::cout << scalar_result.ValueUnsafe()->ToString() << "\t";
+          // if (i < print_rows) std::cout << scalar_result.ValueUnsafe()->ToString() << "\t";
           if (scalar_result.ValueUnsafe()->is_valid) {
             TAxis * axis = hns->GetAxis(idx);
             if (scalar_result.ValueUnsafe()->type->id() == arrow::Type::STRING ||
@@ -1976,7 +1972,7 @@ THnSparse * NUtils::CreateSparseFromParquetTaxi(const std::string & filename, TH
         }
         idx++;
       }
-      // if (i * batch_count < print_rows) std::cout << std::endl;
+      // if (i < print_rows) std::cout << std::endl;
       if (isValid) {
         // print point
         // for (int d = 0; d < nDims; ++d) {
