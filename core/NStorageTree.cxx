@@ -139,14 +139,20 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
   } catch (...) { NLogWarning("NDMSPC_TTREE_AUTOSAVE invalid: '%s'", envAutoSave ? envAutoSave : "(null)"); }
 
   // Apply settings
+  // SetBasketSize("*") requires existing branches; calling it on a fresh tree prints a ROOT error.
   if (basketSize > 0) {
-    fTree->SetBasketSize("*", basketSize);
-    NLogInfo("NStorageTree::InitTree: SetBasketSize(*, %lld)", (long long)basketSize);
+    TObjArray * branches = fTree->GetListOfBranches();
+    if (branches && branches->GetEntriesFast() > 0) {
+      fTree->SetBasketSize("*", basketSize);
+      NLogTrace("NStorageTree::InitTree: SetBasketSize(*, %lld)", (long long)basketSize);
+    } else {
+      NLogTrace("NStorageTree::InitTree: Skip SetBasketSize(*, %lld) (no branches yet)", (long long)basketSize);
+    }
   }
   fTree->SetAutoFlush(autoFlush);
-  NLogInfo("NStorageTree::InitTree: SetAutoFlush(%lld)", (long long)autoFlush);
+  NLogTrace("NStorageTree::InitTree: SetAutoFlush(%lld)", (long long)autoFlush);
   fTree->SetAutoSave(autoSave);
-  NLogInfo("NStorageTree::InitTree: SetAutoSave(%lld)", (long long)autoSave);
+  NLogTrace("NStorageTree::InitTree: SetAutoSave(%lld)", (long long)autoSave);
 
   return true;
 }

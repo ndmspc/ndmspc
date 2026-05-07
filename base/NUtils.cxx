@@ -186,6 +186,9 @@ int NUtils::Cp(std::string source, std::string destination, Bool_t progressbar )
     return -1;
   }
 
+  source      = gSystem->ExpandPathName(source.c_str());
+  destination = gSystem->ExpandPathName(destination.c_str());
+
   if (IsFileSupported(source) == false) {
     NLogError("NUtils::Cp: Source file '%s' is not supported", source.c_str());
     return -1;
@@ -193,6 +196,32 @@ int NUtils::Cp(std::string source, std::string destination, Bool_t progressbar )
   if (IsFileSupported(destination) == false) {
     NLogError("NUtils::Cp: Destination file '%s' is not supported", destination.c_str());
     return -1;
+  }
+
+  // For local destinations ensure parent directory exists before copy.
+  TString destinationExpanded(gSystem->ExpandPathName(destination.c_str()));
+  TString destinationNoQuery(destinationExpanded);
+  Ssiz_t  queryPos = destinationNoQuery.First('?');
+  if (queryPos != kNPOS) {
+    destinationNoQuery.Remove(queryPos);
+  }
+
+  const bool isLocalDestination = destinationNoQuery.BeginsWith("file://") || destinationNoQuery.BeginsWith("/") ||
+                                  !destinationNoQuery.Contains("://");
+  if (isLocalDestination) {
+    TString localPath(destinationNoQuery);
+    if (localPath.BeginsWith("file://")) {
+      localPath.ReplaceAll("file://", "");
+    }
+
+    TUrl        destinationUrl(localPath.Data());
+    std::string destinationFilePath = destinationUrl.GetFile();
+    std::string destinationDir      = gSystem->GetDirName(destinationFilePath.c_str()).Data();
+
+    if (!destinationDir.empty() && destinationDir != "." && !CreateDirectory(destinationDir)) {
+      // NLogError("NUtils::Cp: Cannot create destination directory '%s'", destinationDir.c_str());
+      // return -1;
+    }
   }
 
   NLogInfo("Copying file from '%s' to '%s' ...", source.c_str(), destination.c_str());
@@ -750,7 +779,7 @@ TFile * NUtils::OpenFile(std::string filename, std::string mode, bool createLoca
   return TFile::Open(filename.c_str(), mode.c_str());
 }
 
-std::string NUtils::OpenRawFile(std::string filename)
+std::string NUtils::OpenRawFile(std::string filename, Int_t chunkSize)
 {
   ///
   /// Opens raw file
@@ -758,25 +787,44 @@ std::string NUtils::OpenRawFile(std::string filename)
 
   std::string content;
   TFile *     f = OpenFile(TString::Format("%s?filetype=raw", filename.c_str()).Data());
-  if (!f) return "";
-
-  // Printf("%lld", f->GetSize());
-
-  int buffsize = 4096;
-  // FIXME: use smart pointer to avoid large stack allocation (check if working)
-  auto buff = std::make_unique<char[]>(buffsize + 1);
-  // char buff[buffsize + 1];
-
-  Long64_t buffread = 0;
-  while (buffread < f->GetSize()) {
-    if (buffread + buffsize > f->GetSize()) buffsize = f->GetSize() - buffread;
-
-    // Printf("Buff %lld %d", buffread, buffsize);
-    f->ReadBuffer(buff.get(), buffread, buffsize);
-    buff[buffsize] = '\0';
-    content += buff.get();
-    buffread += buffsize;
+  if (!f || f->IsZombie()) {
+    if (f) {
+      f->Close();
+    }
+    return "";
   }
+
+  const Long64_t fileSize = f->GetSize();
+  if (fileSize <= 0) {
+    f->Close();
+    return "";
+  }
+
+  content.reserve(static_cast<size_t>(fileSize));
+
+  if (chunkSize <= 0) {
+    NLogWarning("NUtils::OpenRawFile: Invalid chunkSize=%d for '%s', using default 4096", chunkSize,
+                filename.c_str());
+    chunkSize = 4096;
+  }
+
+  auto buff = std::make_unique<char[]>(chunkSize);
+
+  Long64_t offset = 0;
+  while (offset < fileSize) {
+    const Int_t toRead = (offset + chunkSize <= fileSize) ? chunkSize : static_cast<Int_t>(fileSize - offset);
+
+    if (f->ReadBuffer(buff.get(), offset, toRead) != 0) {
+      NLogError("NUtils::OpenRawFile: ReadBuffer failed at offset=%lld for '%s'", (long long)offset,
+                filename.c_str());
+      f->Close();
+      return "";
+    }
+
+    content.append(buff.get(), toRead);
+    offset += toRead;
+  }
+
   f->Close();
   return content;
 }
@@ -799,34 +847,33 @@ bool NUtils::SaveRawFile(std::string filename, std::string content)
 TMacro * NUtils::OpenMacro(std::string filename)
 {
   ///
-  /// Open macro - supports local files and http/https URLs
+  /// Open macro using ROOT plugin system via OpenRawFile
   ///
 
-  std::string content;
-  if (filename.find("http://") == 0 || filename.find("https://") == 0) {
-    NHttpRequest request;
-    content = request.get(filename);
-    if (content.empty()) {
-      Printf("Error: Problem fetching macro from '%s' ...", filename.c_str());
-      return nullptr;
-    }
+  // Expand env variables (e.g. ${NDMSPC_HOME}) before forwarding to OpenRawFile.
+  TString expanded(filename.c_str());
+  gSystem->ExpandPathName(expanded);
+  filename = expanded.Data();
+
+  std::string content = OpenRawFile(filename);
+  if (content.empty()) {
+    Printf("Error: Problem opening macro '%s' ...", filename.c_str());
+    return nullptr;
   }
-  else {
-    // process's environment before the ?filetype=raw suffix is appended.
-    TString expanded(filename.c_str());
-    gSystem->ExpandPathName(expanded);
-    filename = expanded.Data();
-    content = OpenRawFile(filename);
-    if (content.empty()) {
-      Printf("Error: Problem opening macro '%s' ...", filename.c_str());
-      return nullptr;
-    }
-  }
+
   Printf("Using macro '%s' ...", filename.c_str());
   TUrl        url(filename.c_str());
   std::string basefilename = gSystem->BaseName(url.GetFile());
-  basefilename.pop_back();
-  basefilename.pop_back();
+  if (basefilename.empty()) {
+    basefilename = gSystem->BaseName(filename.c_str());
+  }
+  size_t dotPos = basefilename.find_last_of('.');
+  if (dotPos != std::string::npos) {
+    basefilename.erase(dotPos);
+  }
+  if (basefilename.empty()) {
+    basefilename = "macro";
+  }
   TMacro * m = new TMacro();
   m->SetName(basefilename.c_str());
   m->AddLine(content.c_str());

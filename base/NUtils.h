@@ -71,9 +71,10 @@ class NUtils : TObject {
   /**
    * @brief Open a raw file and return its content as string.
    * @param filename File name.
+    * @param chunkSize Read chunk size in bytes (default 4096).
    * @return File content.
    */
-  static std::string OpenRawFile(std::string filename);
+    static std::string OpenRawFile(std::string filename, Int_t chunkSize = 4096);
 
   /**
    * @brief Save content to a raw file.
