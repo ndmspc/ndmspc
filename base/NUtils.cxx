@@ -857,11 +857,11 @@ TMacro * NUtils::OpenMacro(std::string filename)
 
   std::string content = OpenRawFile(filename);
   if (content.empty()) {
-    Printf("Error: Problem opening macro '%s' ...", filename.c_str());
+    NLogError("Error: Problem opening macro '%s' ...", filename.c_str());
     return nullptr;
   }
 
-  Printf("Using macro '%s' ...", filename.c_str());
+  NLogInfo("Using macro '%s' ...", filename.c_str());
   TUrl        url(filename.c_str());
   std::string basefilename = gSystem->BaseName(url.GetFile());
   if (basefilename.empty()) {
@@ -1739,13 +1739,51 @@ std::string NUtils::FormatTime(long long seconds)
   return ss.str();
 }
 
+std::string NUtils::FormatBytes(long long bytes, int precision)
+{
+  const char * units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
+  constexpr size_t kUnitCount = sizeof(units) / sizeof(units[0]);
+
+  const bool negative = (bytes < 0);
+  double value = negative ? static_cast<double>(-bytes) : static_cast<double>(bytes);
+  size_t unitIdx = 0;
+  while (value >= 1024.0 && unitIdx + 1 < kUnitCount) {
+    value /= 1024.0;
+    ++unitIdx;
+  }
+
+  std::stringstream ss;
+  if (negative) ss << "-";
+  if (unitIdx == 0) {
+    ss << static_cast<long long>(value) << " " << units[unitIdx];
+  }
+  else {
+    if (precision < 0) precision = 0;
+    ss << std::fixed << std::setprecision(precision) << value << " " << units[unitIdx];
+  }
+  return ss.str();
+}
+
 void NUtils::ProgressBar(int current, int total, std::string prefix, std::string suffix, int barWidth)
 {
 
   ///
   /// Print progress bar
   ///
-  if (total == 0) return; // Avoid division by zero
+  if (total == 0) {
+    std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
+    std::cout << "\r";
+    if (!prefix.empty()) std::cout << "[" << prefix << "]";
+    std::cout << "[";
+    for (int i = 0; i < barWidth; ++i) {
+      std::cout << "=";
+    }
+    std::cout << "] 100% (0/0)";
+    if (!suffix.empty()) std::cout << " [" << suffix << "]";
+    std::cout << std::endl;
+    std::cout << std::flush;
+    return;
+  }
 
   // Throttle updates per callsite to avoid flooding the terminal.
   {
@@ -1790,7 +1828,19 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   ///
   /// Print progress bar
   ///
-  if (total == 0) return; // Avoid division by zero
+  if (total == 0) {
+    std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
+    std::cout << "\r[";
+    if (!prefix.empty()) std::cout << prefix << "][";
+    for (int i = 0; i < barWidth; ++i) {
+      std::cout << "=";
+    }
+    std::cout << "] 100% | ETA: 00:00:00 | elapsed: 00:00:00 | 0/0";
+    if (!suffix.empty()) std::cout << " [" << suffix << "]";
+    std::cout << std::endl;
+    std::cout << std::flush;
+    return;
+  }
   std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
   if (current > total) current = total; // Cap current to total for safety
 

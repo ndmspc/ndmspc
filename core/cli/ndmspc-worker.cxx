@@ -1,12 +1,16 @@
 #include <CLI11.hpp>
 #include <csignal>
 #include <chrono>
+#include <cstdlib>
 #include <sstream>
 #include <sys/wait.h>
 #include <string>
 #include <thread>
 #include <vector>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include "TROOT.h"
 #include "TApplication.h"
 #include "TSystem.h"
@@ -48,6 +52,15 @@ pid_t spawn_worker_process(const std::string & workerBin, const std::string & en
   if (pid < 0) return -1;
 
   if (pid == 0) {
+    // Keep auto-spawned workers out of the spawner's foreground process
+    // group so a terminal Ctrl+C aimed at the spawner does not also hit
+    // every spawned worker.
+    setpgid(0, 0);
+
+    // Child process spawned by --spawn-workers: suppress verbose startup detail
+    // block so it is not duplicated N times.
+    setenv("NDMSPC_SUPPRESS_STARTUP_DETAILS", "1", 1);
+
     std::vector<std::string> args;
     args.emplace_back(workerBin);
     args.emplace_back("--endpoint");
@@ -134,10 +147,21 @@ int wait_for_workers(std::vector<pid_t> & workerPids)
 
 } // namespace
 
+static void configure_parent_death_guard()
+{
+  const char * env = gSystem->Getenv("NDMSPC_EXIT_ON_PARENT_DEATH");
+  if (!env || env[0] == '\0' || std::string(env) == "0") return;
+
+#ifdef __linux__
+  if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0) {
+    NLogWarning("ndmspc-worker: failed to set parent-death signal guard");
+  }
+#endif
+}
+
 int main(int argc, char ** argv)
 {
-  signal(SIGTERM, handle_signal);
-  signal(SIGINT, handle_signal);
+  configure_parent_death_guard();
 
   TApplication rootApp("ndmspc-worker", 0, nullptr);
 
@@ -190,6 +214,10 @@ int main(int argc, char ** argv)
   }
 
   if (spawnWorkers > 0) {
+    // Spawner mode needs cooperative signal handling to terminate children.
+    signal(SIGTERM, handle_signal);
+    signal(SIGINT, handle_signal);
+
     if (workerIndex != std::numeric_limits<size_t>::max()) {
       NLogError("ndmspc-worker: --index cannot be combined with --spawn-workers");
       return 1;
@@ -291,16 +319,60 @@ int main(int argc, char ** argv)
   }
   if (workerIndex == std::numeric_limits<size_t>::max()) workerIndex = 0;
 
+  // Resolve relative macro paths against launch CWD so worker I/O isolation
+  // (chdir to temp directory) does not break macro loading.
+  {
+    const char * cwd = gSystem->WorkingDirectory();
+    const std::string launchCwd = (cwd && cwd[0] != '\0') ? std::string(cwd) : std::string();
+    std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');
+    for (auto & macro : macros) {
+      const bool isRemote = (macro.rfind("http://", 0) == 0 || macro.rfind("https://", 0) == 0 ||
+                             macro.rfind("root://", 0) == 0);
+      if (!isRemote && !macro.empty() && !gSystem->IsAbsoluteFileName(macro.c_str()) && !launchCwd.empty()) {
+        macro = launchCwd + "/" + macro;
+      }
+    }
+    std::ostringstream rebuilt;
+    for (size_t i = 0; i < macros.size(); ++i) {
+      if (i != 0) rebuilt << ',';
+      rebuilt << macros[i];
+    }
+    macroList = rebuilt.str();
+  }
+
+  // Isolate worker-relative file I/O (e.g. accidental direct writes like
+  // "NNested01Gaus.root" in user macros) so it cannot clobber supervisor-side
+  // output files in the launch directory.
+  {
+    const char * tmpDirEnv = gSystem->Getenv("NDMSPC_TMP_DIR");
+    const std::string workerTmpRoot = (tmpDirEnv && tmpDirEnv[0] != '\0') ? std::string(tmpDirEnv) : "/tmp";
+    const std::string workerCwd = workerTmpRoot + "/.ndmspc/worker-cwd/" + std::to_string(gSystem->GetPid());
+    Ndmspc::NUtils::CreateDirectory(workerCwd);
+    if (::chdir(workerCwd.c_str()) != 0) {
+      NLogWarning("ndmspc-worker: failed to switch working directory to '%s'", workerCwd.c_str());
+    }
+  }
+
   // Set env vars so NGnTree::Process enters worker mode
   gSystem->Setenv("NDMSPC_WORKER_ENDPOINT", endpoint.c_str());
   gSystem->Setenv("NDMSPC_WORKER_INDEX", std::to_string(workerIndex).c_str());
 
   NLogPrint("ndmspc-worker: starting — index=%zu endpoint=%s", workerIndex, endpoint.c_str());
-  NLogPrint("  macro                  = %s", macroList.c_str());
-  NLogPrint("  NDMSPC_TMP_DIR         = %s", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");
-  NLogPrint("  NDMSPC_TMP_RESULTS_DIR = %s", gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") ? gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") : "(not set)");
-  NLogPrint("  NDMSPC_EXECUTION_MODE  = %s", gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "(not set)");
-  NLogPrint("  NDMSPC_MACRO_PARAMS    = %s", gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "(not set)");
+  const bool suppressStartupDetails = []() {
+    const char * env = gSystem->Getenv("NDMSPC_SUPPRESS_STARTUP_DETAILS");
+    if (!env || env[0] == '\0') return false;
+    std::string value(env);
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return (value == "1" || value == "true" || value == "yes" || value == "on");
+  }();
+  if (!suppressStartupDetails) {
+    NLogPrint("  macro                  = %s", macroList.c_str());
+    NLogPrint("  NDMSPC_TMP_DIR         = %s", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");
+    NLogPrint("  NDMSPC_TMP_RESULTS_DIR = %s", gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") ? gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") : "(not set)");
+    NLogPrint("  NDMSPC_EXECUTION_MODE  = %s", gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "(not set)");
+    NLogPrint("  NDMSPC_MACRO_PARAMS    = %s", gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "(not set)");
+  }
 
   const std::string effectiveMacroParams = gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "";
   std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');

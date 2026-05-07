@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <deque>
 #include <iomanip>
 #include <sstream>
 #include <signal.h>
@@ -17,10 +18,10 @@
 namespace Ndmspc {
 
 namespace {
-// Worker signal handler for Ctrl+C
+// Worker signal handler for external termination (Ctrl+C/SIGTERM)
 volatile sig_atomic_t gWorkerInterrupted = 0;
 
-void WorkerSigIntHandler(int)
+void WorkerSignalHandler(int)
 {
   gWorkerInterrupted = 1;
 }
@@ -168,19 +169,24 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
 
 int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadData * worker)
 {
-  // Install signal handler for Ctrl+C
+  // Install signal handlers for Ctrl+C/SIGTERM.
   gWorkerInterrupted = 0;
   struct sigaction sa;
-  struct sigaction oldSa;
+  struct sigaction oldSaInt;
+  struct sigaction oldSaTerm;
   memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = WorkerSigIntHandler;
+  sa.sa_handler = WorkerSignalHandler;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = 0;
-  sigaction(SIGINT, &sa, &oldSa);
+  sigaction(SIGINT, &sa, &oldSaInt);
+  sigaction(SIGTERM, &sa, &oldSaTerm);
 
   bool   finishedOk    = true;
   bool   aborted       = false;
   bool   wasInterrupted = false;
+  bool   stopRequested = false;
+  bool   stopRequestedAbort = false;
+  bool   shutdownSent = false;
   size_t tasksProcessed = 0;
   size_t lastReportedProgress = 0;
   const bool showWorkerProgress = []() {
@@ -203,6 +209,26 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     }
   }();
 
+  // Frames that were consumed during abort probing but must still be processed
+  // by the normal command loop (e.g. queued TASK/TASKB while finishing a batch).
+  std::deque<std::vector<std::string>> deferredFrames;
+
+  auto notifyShutdown = [&](const std::string & reason) {
+    if (shutdownSent) return;
+    SendFrames(dealer, {"SHUTDOWN", reason, std::to_string(tasksProcessed)});
+    shutdownSent = true;
+  };
+  auto handleLocalInterrupt = [&]() {
+    if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
+    NLogPrint("Worker %zu: interrupted by user (Ctrl+C), exiting ...", workerIndex);
+    NLogPrint("Worker %zu: interrupted by user (Ctrl+C) after processing %zu tasks, shutting down...", workerIndex,
+              tasksProcessed);
+    notifyShutdown("interrupted");
+    aborted = true;
+    wasInterrupted = true;
+    finishedOk = false;
+  };
+
   // Non-blocking check: poll the socket and consume a STOP frame if present.
   // Used between sub-tasks in a batch to react to supervisor abort quickly.
   auto checkAbort = [&]() -> bool {
@@ -210,7 +236,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     if (gWorkerInterrupted) {
       if (!aborted) {
         // Send shutdown notification on first detection
-        SendFrames(dealer, {"SHUTDOWN", "interrupted", std::to_string(tasksProcessed)});
+        notifyShutdown("interrupted");
       }
       aborted = true;
       return true;
@@ -220,43 +246,42 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     std::vector<std::string> peek;
     if (!ReceiveFrames(dealer, peek)) return false;
     if (!peek.empty() && peek[0] == "STOP") {
-      aborted = (peek.size() >= 2 && peek[1] == "abort");
-      if (aborted) NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
+      stopRequested = true;
+      stopRequestedAbort = (peek.size() >= 2 && peek[1] == "abort");
+      aborted = stopRequestedAbort;
+      notifyShutdown(stopRequestedAbort ? "abort" : "stop");
+      if (stopRequestedAbort) NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
       return true;
     }
-    return false; // unexpected frame — ignore, will be handled in main loop
+    // Do not drop non-STOP frames here: they can be queued TASK/TASKB payloads
+    // when the supervisor pipelines work. Queue for normal handling below.
+    deferredFrames.emplace_back(std::move(peek));
+    return false;
   };
 
   while (true) {
     // Check for Ctrl+C
     if (gWorkerInterrupted) {
-      if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
-      NLogPrint("Worker %zu: interrupted by user (Ctrl+C), exiting ...", workerIndex);
-      NLogPrint("Worker %zu: interrupted by user (Ctrl+C) after processing %zu tasks, shutting down...", workerIndex, tasksProcessed);
-      // Notify supervisor before exiting
-      SendFrames(dealer, {"SHUTDOWN", "interrupted", std::to_string(tasksProcessed)});
-      aborted = true;
-      wasInterrupted = true;
-      finishedOk = false;
+      handleLocalInterrupt();
       break;
     }
 
     std::vector<std::string> frames;
-    if (!ReceiveFrames(dealer, frames)) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        // Check for interruption on timeout
+    if (!deferredFrames.empty()) {
+      frames = std::move(deferredFrames.front());
+      deferredFrames.pop_front();
+    } else if (!ReceiveFrames(dealer, frames)) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+        // EINTR can happen when SIGINT/SIGTERM arrives during socket receive.
         if (gWorkerInterrupted) {
-          if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
-          NLogPrint("Worker %zu: interrupted by user (Ctrl+C), exiting ...", workerIndex);
-          NLogPrint("Worker %zu: interrupted by user (Ctrl+C) after processing %zu tasks, shutting down...", workerIndex, tasksProcessed);
-          // Notify supervisor before exiting
-          SendFrames(dealer, {"SHUTDOWN", "interrupted", std::to_string(tasksProcessed)});
-          aborted = true;
-          wasInterrupted = true;
-          finishedOk = false;
+          handleLocalInterrupt();
           break;
         }
         continue;
+      }
+      if (gWorkerInterrupted) {
+        handleLocalInterrupt();
+        break;
       }
       finishedOk = false;
       break;
@@ -267,6 +292,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     if (cmd == "STOP") {
       if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
       aborted = (frames.size() >= 2 && frames[1] == "abort");
+      notifyShutdown(aborted ? "abort" : "stop");
       if (aborted) {
         NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
       } else {
@@ -355,17 +381,24 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
           lastReportedProgress = tasksProcessed;
         }
         for (const auto & task : batchTasks) {
-          if (checkAbort()) { finishedOk = false; break; }
+          if (checkAbort()) { break; }
           errTaskId = task.first;
           worker->Process(task.second);
           ackedTaskIds.push_back(task.first);
         }
-        if (aborted) break;
 
-        if (!SendFrames(dealer, {"ACKB", SerializeTaskIds(ackedTaskIds)})) {
-          finishedOk = false;
+        if (!ackedTaskIds.empty()) {
+          if (!SendFrames(dealer, {"ACKB", SerializeTaskIds(ackedTaskIds)})) {
+            finishedOk = false;
+            break;
+          }
+        }
+
+        if (stopRequested) {
+          aborted = stopRequestedAbort;
           break;
         }
+
       }
     }
     catch (const std::exception & ex) {
@@ -447,8 +480,9 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
   int linger = 0;
   zmq_setsockopt(dealer, ZMQ_LINGER, &linger, sizeof(linger));
 
-  // Restore original signal handler
-  sigaction(SIGINT, &oldSa, nullptr);
+  // Restore original signal handlers
+  sigaction(SIGINT, &oldSaInt, nullptr);
+  sigaction(SIGTERM, &oldSaTerm, nullptr);
 
   return finishedOk ? 0 : 1;
 }

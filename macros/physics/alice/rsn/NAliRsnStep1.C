@@ -38,7 +38,7 @@ void NAliRsnStep1(
     NLogError("Failed to get object: %s/%s from file: %s", objectDir.c_str(), objectNames[0].c_str(), inFile.c_str());
     return;
   }
-  hns->Print("A");
+  // hns->Print("A");
   for (auto & axis : cfg["axes"]) {
     std::string axisStr = axis.get<std::string>();
     auto        parts   = Ndmspc::NUtils::Tokenize(axisStr, ':');
@@ -54,7 +54,7 @@ void NAliRsnStep1(
     axes->Add(axisObj->Clone(parts[0].c_str()));
   }
 
-  axes->Print();
+  // axes->Print();
 
   delete hns;
 

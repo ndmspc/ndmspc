@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <sstream>
 #include <set>
+#include <unordered_map>
 #include <vector>
 #include <functional>
 #include <cstddef>
@@ -93,6 +94,8 @@ class NDimensionalExecutor {
   void   FinishProcessIpc(bool abort = false);
 
   std::set<size_t> GetRegisteredWorkerIndices() const { return fRegisteredWorkerIndices; }
+  const std::set<size_t> & GetLastDoneWorkerIndices() const { return fLastDoneWorkerIndices; }
+  const std::unordered_map<size_t, size_t> & GetLastWorkerTaskCounts() const { return fLastWorkerTaskCounts; }
 
   /**
    * @brief Returns the number of dimensions.
@@ -143,6 +146,8 @@ class NDimensionalExecutor {
   struct IpcSession;
   std::unique_ptr<IpcSession> fIpcSession;
   std::set<size_t>            fRegisteredWorkerIndices; ///< Worker indices that completed registration (TCP mode)
+  std::set<size_t>            fLastDoneWorkerIndices;   ///< Worker indices that reported DONE in the last IPC run
+  std::unordered_map<size_t, size_t> fLastWorkerTaskCounts; ///< Last ExecuteCurrentBoundsProcessIpc completed-task count by worker index
 };
 
 
