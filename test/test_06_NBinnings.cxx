@@ -82,16 +82,14 @@ int ReserveFreeTcpPort()
   return port;
 }
 
-pid_t SpawnTcpWorker(const std::string & endpoint, size_t workerIndex, const std::string & outFile,
-         bool onlyOddPoints)
+pid_t SpawnTcpWorker(const std::string & endpoint, size_t workerIndex, const std::string & outFile, bool onlyOddPoints)
 {
   pid_t pid = ::fork();
   if (pid != 0) return pid;
 
   const std::string idx = std::to_string(workerIndex);
   ::execl(gExecutablePath.c_str(), gExecutablePath.c_str(), "--ndmspc-tcp-worker", endpoint.c_str(), idx.c_str(),
-    outFile.c_str(), onlyOddPoints ? "1" : "0",
-          nullptr);
+          outFile.c_str(), onlyOddPoints ? "1" : "0", nullptr);
 
   _exit(127);
 }
@@ -100,8 +98,8 @@ void CleanupWorkers(const std::vector<pid_t> & pids)
 {
   for (pid_t pid : pids) {
     if (pid <= 0) continue;
-    int status = 0;
-    pid_t rc   = ::waitpid(pid, &status, WNOHANG);
+    int   status = 0;
+    pid_t rc     = ::waitpid(pid, &status, WNOHANG);
     if (rc == 0) {
       ::kill(pid, SIGTERM);
       ::waitpid(pid, &status, 0);
@@ -200,11 +198,16 @@ TEST(NBinnings01GausModesTest, ValidatesScenarioFromEnvironment)
   const Long64_t nEntries = ngnt->GetEntries();
   ASSERT_GT(nEntries, 0) << "No entries were produced";
 
-  const Long64_t nEntriesContent = ngnt->GetBinning()->GetContent()->GetNbins();
+  Long64_t nEntriesContent = ngnt->GetBinning()->GetContent()->GetNbins();
+  if (onlyOddPoints) {
+    nEntriesContent  /= 2;
+  }
+
   ASSERT_GT(nEntriesContent, 0) << "No entries were produced";
 
-// lets test if nEntries matches the number of entries in the content
-  ASSERT_EQ(nEntries, nEntriesContent) << "Number of entries in the tree does not match the number of entries in the binning content";
+  // lets test if nEntries matches the number of entries in the content
+  ASSERT_EQ(nEntries, nEntriesContent)
+      << "Number of entries in the tree does not match the number of entries in the binning content";
 
   ngnt->Close();
 

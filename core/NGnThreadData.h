@@ -150,6 +150,7 @@ class NGnThreadData : public NThreadData {
   json                       fCfg{};                 ///< Configuration object
   bool                       fIsPureCopy{false};     ///< Flag indicating pure copy mode
   std::string                fResultsFilename{};     ///< Shared-FS path to copy result to after Close(true) (TCP mode)
+  std::vector<Long64_t>      fCurrentDefinitionIds;  ///< Worker-local override for current definition id mapping
   std::unordered_set<Long64_t> fProcessedBinIds{};  //!< Set of already-processed global bin IDs (duplicate guard)
   std::vector<TObject *>     fDeferredDeletes;       //!< Objects deferred for single-threaded deletion
 

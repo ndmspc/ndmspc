@@ -120,6 +120,18 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
   fEntryNumber                             = entry;
   std::vector<int>              contentVec = NUtils::ArrayToVector(fContentCoords, fContentNDimensions);
   std::vector<std::vector<int>> axisRanges = fBinning->GetAxisRanges(contentVec);
+  if (axisRanges.size() != static_cast<size_t>(fNDimensions)) {
+    NLogError("NBinningPoint::RecalculateStorageCoords: Invalid axis ranges size=%zu expected=%d for entry=%lld",
+              axisRanges.size(), fNDimensions, fEntryNumber);
+    return false;
+  }
+  for (size_t i = 0; i < axisRanges.size(); ++i) {
+    if (axisRanges[i].size() < 3) {
+      NLogError("NBinningPoint::RecalculateStorageCoords: Invalid axis range format at axis=%zu size=%zu for entry=%lld",
+                i, axisRanges[i].size(), fEntryNumber);
+      return false;
+    }
+  }
   // for (size_t i = 0; i < axisRanges.size(); i++) {
   //   NLogDebug("Axis %zu: %s", i, NUtils::GetCoordsString(axisRanges[i], -1).c_str());
   // }
