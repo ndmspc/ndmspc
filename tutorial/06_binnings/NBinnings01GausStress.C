@@ -9,7 +9,7 @@
 #include <TH1D.h>
 #include <TF1.h>
 
-void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddPoints = false)
+void NBinnings01GausStress(std::string outFile = "NBinnings01Gaus.root", bool onlyOddPoints = false)
 {
   ///
   /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash
@@ -41,6 +41,16 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   // Create an NGnTree from the list of axes
   Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(axes, outFile);
 
+
+  // Define the binning for the axes
+  std::map<std::string, std::vector<std::vector<int>>> b0x;
+  // Set binning for axis1 (rebin to 1 bin)
+  b0x["mean"]    = {{100}};
+  b0x["sigma"]   = {{100}};
+  b0x["entries"] = {{1}};
+  // Create the binning definition with name "b0" in the NGnTree
+  ngnt->GetBinning()->AddBinningDefinition("b0x", b0x);
+
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b0;
   // Set binning for axis1 (rebin to 1 bin)
@@ -60,6 +70,37 @@ void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddP
   // Create the binning definition with name "b0" in the NGnTree
   ngnt->GetBinning()->AddBinningDefinition("b0_", b0_);
 
+  // Define the binning for the axes
+  std::map<std::string, std::vector<std::vector<int>>> b1;
+  // Set binning for axis1 (rebin to 1 bin)
+  b1["mean"]    = {{5}};
+  b1["sigma"]   = {{5}};
+  b1["entries"] = {{1}};
+  // Create the binning definition with name "b1" in the NGnTree
+  ngnt->GetBinning()->AddBinningDefinition("b1", b1);
+
+  std::map<std::string, std::vector<std::vector<int>>> b2;
+  b2["mean"]    = {{10}};
+  b2["sigma"]   = {{10}};
+  b2["entries"] = {{1}};
+  // Create the binning definition with name "b2" in the NGnTree
+  ngnt->GetBinning()->AddBinningDefinition("b2", b2);
+
+  std::map<std::string, std::vector<std::vector<int>>> b3;
+  // b3["mean"]    = {{5,2}, {10}};
+  b3["mean"]    = {{10}};
+  b3["sigma"]   = {{10}};
+  b3["entries"] = {{1}};
+  // Create the binning definition with name "b3" in the NGnTree
+  ngnt->GetBinning()->AddBinningDefinition("b3", b3);
+
+  std::map<std::string, std::vector<std::vector<int>>> b4;
+  // b3["mean"]    = {{5,2}, {10}};
+  b4["mean"]    = {{3}};
+  b4["sigma"]   = {{3}};
+  b4["entries"] = {{1}};
+  // Create the binning definition with name "b4" in the NGnTree
+  ngnt->GetBinning()->AddBinningDefinition("b4", b4);
   
   ngnt->InitParameters({"meanFit", "sigmaFit"});
 

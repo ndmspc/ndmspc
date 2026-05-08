@@ -186,7 +186,18 @@ void NGnThreadData::Process(const std::vector<int> & coords)
 
   NBinningPoint * point = fHnSparseBase->GetBinning()->GetPoint();
 
-  Long64_t entry = fBiningSource->GetDefinition()->GetId(coords[0]);
+  Long64_t entry = -1;
+  if (!fCurrentDefinitionIds.empty()) {
+    if (coords.empty() || coords[0] < 0 || static_cast<size_t>(coords[0]) >= fCurrentDefinitionIds.size()) {
+      NLogError("NGnThreadData::Process: Invalid task coordinate index=%d for worker-local ids size=%zu",
+                coords.empty() ? -1 : coords[0], fCurrentDefinitionIds.size());
+      return;
+    }
+    entry = fCurrentDefinitionIds[coords[0]];
+  }
+  else {
+    entry = fBiningSource->GetDefinition()->GetId(coords[0]);
+  }
 
   if (fProcessedBinIds.count(entry)) {
     NLogDebug("NGnThreadData::Process: [%zu] Skipping entry=%lld, because it was already process !!!",
@@ -297,6 +308,8 @@ void NGnThreadData::Process(const std::vector<int> & coords)
 
 void NGnThreadData::SetCurrentDefinitionName(const std::string & name)
 {
+  fProcessedBinIds.clear();
+  fCurrentDefinitionIds.clear();
   if (fHnSparseBase && fHnSparseBase->GetBinning()) {
     fHnSparseBase->GetBinning()->SetCurrentDefinitionName(name);
   }
@@ -316,13 +329,8 @@ void NGnThreadData::SyncCurrentDefinitionIds(const std::vector<Long64_t> & ids)
       def->GetIds().clear();
     }
   }
-
-  // fBiningSource is used for GetId() coordinate lookups — it needs the full list.
-  if (fBiningSource) {
-    if (auto * def = fBiningSource->GetDefinition()) {
-      def->GetIds() = ids;
-    }
-  }
+  // Keep per-worker lookup IDs local; do not mutate shared source binning.
+  fCurrentDefinitionIds = ids;
 }
 
 Long64_t NGnThreadData::Merge(TCollection * list)
@@ -429,9 +437,6 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   // Print hnsb binning definition ids
   for (const auto & name : fBiningSource->GetDefinitionNames()) {
     NBinningDef * targetBinningDef = fBiningSource->GetDefinition(name);
-    if (auto * mergedDef = fHnSparseBase->GetBinning()->GetDefinition(name)) {
-      mergedDef->GetIds().clear();
-    }
     for (auto id : targetBinningDef->GetIds()) {
       NBinningPoint point(fHnSparseBase->GetBinning());
       fBiningSource->GetContent()->GetBinContent(id, point.GetCoords());

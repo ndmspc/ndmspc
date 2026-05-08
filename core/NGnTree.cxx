@@ -4,6 +4,7 @@
 #include <numbers>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "TAxis.h"
 #include <TDirectory.h>
@@ -872,11 +873,20 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   };
 
-  size_t iDef   = 0;
-  int    sumIds = 0;
-
   std::vector<Ndmspc::NThreadData *>            processWorkers;
   std::unique_ptr<Ndmspc::NDimensionalExecutor> ipcExecutor;
+  std::unordered_set<Long64_t>                  processedDefinitionIds;
+  std::map<std::string, std::vector<Long64_t>>  originalDefinitionIdsMap;
+
+  for (const auto & defName : defNames) {
+    auto * def = binningIn->GetDefinition(defName);
+    if (!def) {
+      NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", defName.c_str());
+      return false;
+    }
+    originalDefinitionIdsMap[defName] = def->GetIds();
+  }
+
   if (useProcessIpc) {
     processWorkers.reserve(threadDataVector.size());
     for (size_t i = 0; i < threadDataVector.size(); ++i) {
@@ -910,19 +920,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   }
 
-  std::map<std::string, std::vector<Long64_t>>
-      defIdMapProcessedRemoved; // Map to track which ids belong to which definition
-  // for (auto & name : defNames) {
-  //   auto binningDef = binningIn->GetDefinition(name);
-  //   if (!binningDef) {
-  //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-  //     return false;
-  //   }
-  //   for (auto & id : binningDef->GetIds()) {
-  //     defIdMap[name].push_back(id);
-  //   }
-  // }
-
   try {
     for (auto & name : defNames) {
       auto binningDef = binningIn->GetDefinition(name);
@@ -939,13 +936,32 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
         continue;
       }
 
-      const std::vector<Long64_t> originalDefinitionIds = binningDef->GetIds();
+      const std::vector<Long64_t> & originalDefinitionIds = originalDefinitionIdsMap[name];
+      std::vector<Long64_t>       scheduledDefinitionIds;
+      scheduledDefinitionIds.reserve(originalDefinitionIds.size());
+      for (const auto id : originalDefinitionIds) {
+        if (processedDefinitionIds.insert(id).second) {
+          scheduledDefinitionIds.push_back(id);
+        }
+      }
+
+      if (scheduledDefinitionIds.empty()) {
+        if (!NLogger::GetConsoleOutput()) {
+          NUtils::ProgressBar(0, 0, std::chrono::high_resolution_clock::now(), "", "R   0");
+        }
+        NLogWarning("NGnTree::Process: Binning definition '%s' has no new entries after dedup, skipping ...",
+                    name.c_str());
+        // Keep full definition membership even when all entries overlap with
+        // previously processed definitions.
+        binningIn->GetDefinition(name)->GetIds() = originalDefinitionIdsMap[name];
+        continue;
+      }
 
       std::vector<int> mins, maxs;
       mins.push_back(0);
-      maxs.push_back(binningDef->GetIds().size() - 1);
+      maxs.push_back(scheduledDefinitionIds.size() - 1);
       NLogDebug("NGnTree::Process: Processing with binning definition '%s' with %zu entries", name.c_str(),
-                binningDef->GetIds().size());
+                scheduledDefinitionIds.size());
 
       if (NLogger::GetConsoleOutput()) {
         NLogInfo("NGnTree::Process: Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
@@ -961,10 +977,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       if (!NLogger::GetConsoleOutput())
         NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", activeWorkers).Data());
 
-      // binningIn->SetCurrentDefinitionName(name);
+      binningIn->SetCurrentDefinitionName(name);
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
-        // threadDataVector[i].SetCurrentDefinitionName(name);
-        threadDataVector[i].GetHnSparseBase()->GetBinning()->SetCurrentDefinitionName(name);
+        threadDataVector[i].SetCurrentDefinitionName(name);
+        threadDataVector[i].SyncCurrentDefinitionIds(scheduledDefinitionIds);
       }
 
       Ndmspc::NDimensionalExecutor executorMT(mins, maxs);
@@ -1010,7 +1026,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
         // workers that actually connected.
         size_t finalActiveWorkers = 0;
         size_t acked              = ipcExecutor->ExecuteCurrentBoundsProcessIpc(
-            name, &originalDefinitionIds, [&, activeWorkers](const ExecutionProgress & progress) {
+            name, &scheduledDefinitionIds, [&, activeWorkers](const ExecutionProgress & progress) {
               processedEntries   = progress.tasksAcked;
               finalActiveWorkers = progress.activeWorkers;
               if (!NLogger::GetConsoleOutput()) {
@@ -1048,57 +1064,23 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
         Printf("Finished processing binning definition '%s'. Post-processing results ...", name.c_str());
       // Update hnsbBinningIn with the processed ids
       NLogDebug("NGnTree::Process: [BEGIN] ------------------------------------------------");
-      sumIds += binningIn->GetDefinition(name)->GetIds().size();
       binningIn->GetDefinition(name)->GetIds().clear();
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
         NLogDebug("NGnTree::Process: -> Thread %zu processed %lld entries", i, threadDataVector[i].GetNProcessed());
       }
       if (useProcessIpc) {
-        // In IPC/TCP mode all successful ACKed tasks are authoritative for this
-        // definition. Keep the original definition-id order rather than
-        // reconstructing per-worker ids heuristically.
-        binningIn->GetDefinition(name)->GetIds() = originalDefinitionIds;
+        // Keep full definition membership (including overlaps) while scheduling
+        // only non-overlapping ids for execution.
+        binningIn->GetDefinition(name)->GetIds() = originalDefinitionIdsMap[name];
       }
       else {
-        for (size_t i = 0; i < threadDataVector.size(); ++i) {
-          binningIn->GetDefinition(name)->GetIds().insert(
-              binningIn->GetDefinition(name)->GetIds().end(),
-              threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds().begin(),
-              threadDataVector[i].GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds().end());
-          sort(binningIn->GetDefinition(name)->GetIds().begin(), binningIn->GetDefinition(name)->GetIds().end());
-        }
+        // In thread mode the worker-collected list contains only scheduled ids.
+        // Restore the full source definition list so overlapping membership is preserved.
+        binningIn->GetDefinition(name)->GetIds() = originalDefinitionIdsMap[name];
       }
-      // hnsbBinningIn->GetDefinition(name)->Print();
-      // remove entries present in hnsbBinningIn from other definitions
-      for (size_t i = 0; i < defNames.size(); i++) {
-
-        std::string other_name = defNames[i];
-        auto        otherDef   = binningIn->GetDefinition(other_name);
-        if (i <= iDef) {
-          continue;
-        }
-        if (!otherDef) {
-          NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", other_name.c_str());
-          return false;
-        }
-        // remove entries that has value less then sumIds
-        for (auto it = otherDef->GetIds().begin(); it != otherDef->GetIds().end();) {
-          NLogTrace("NGnTree::Process: Checking entry %lld from definition '%s' against sumIds=%d", *it,
-                    other_name.c_str(), sumIds);
-          if (*it < sumIds) {
-            NLogTrace("NGnTree::Process: Removing entry %lld from definition '%s'", *it, other_name.c_str());
-            defIdMapProcessedRemoved[other_name].push_back(*it);
-            it = otherDef->GetIds().erase(it);
-          }
-          else {
-            ++it;
-          }
-        }
-
-        binningIn->GetDefinition(other_name)->Print();
-      }
-      // hnsbBinningIn->GetDefinition(name)->Print();
-      iDef++;
+      // Do not prune ids from other definitions.
+      // Binning definitions may overlap by design, and order-dependent pruning
+      // causes late definitions (e.g. b4 when added last) to lose valid entries.
 
       NLogDebug("NGnTree::Process: [END] ------------------------------------------------");
     }
@@ -1218,7 +1200,19 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   std::set<Long64_t>                                 mergedContentIds;
   std::vector<std::pair<Long64_t, std::vector<int>>> mergedContentCoords;
 
-  // add missing entries to definitions based on defIdMapProcessedRemoved
+  // NStorageTree::Merge may rebuild definition IDs from stored rows only,
+  // which drops overlapping membership in later definitions.
+  // Restore authoritative definition memberships collected in binningIn.
+  for (const auto & name : defNames) {
+    auto * mergedDef = mergedBinning->GetDefinition(name);
+    auto   idsIt     = originalDefinitionIdsMap.find(name);
+    if (!mergedDef || idsIt == originalDefinitionIdsMap.end()) {
+      NLogError("NGnTree::Process: Failed to restore definition '%s' after merge", name.c_str());
+      return false;
+    }
+    mergedDef->GetIds() = idsIt->second;
+  }
+
   for (size_t i = 0; i < defNames.size(); i++) {
     std::string name = defNames[i];
     // auto        def  = binningIn->GetDefinition(name);
@@ -1227,26 +1221,25 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       return false;
     }
-    for (auto & [other_name, removedIds] : defIdMapProcessedRemoved) {
-      if (other_name.compare(name) != 0) {
-        continue;
-      }
-      for (auto & id : removedIds) {
-        if (std::find(def->GetIds().begin(), def->GetIds().end(), id) == def->GetIds().end()) {
-          NLogTrace("NGnTree::Process: Adding missing entry %lld to definition '%s'", id, name.c_str());
-          def->GetIds().push_back(id);
-        }
-      }
-    }
     sort(def->GetIds().begin(), def->GetIds().end());
     // outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds() = def->GetIds();
 
     // Modify content in binning definitions based on def->GetIds()
     def->GetContent()->Reset();
     for (auto id : def->GetIds()) {
+      if (id < 0 || id >= def->GetBinning()->GetContent()->GetNbins()) {
+        NLogWarning("NGnTree::Process: Skipping invalid id=%lld in definition '%s' (content nbins=%lld)", id,
+                    name.c_str(), def->GetBinning()->GetContent()->GetNbins());
+        continue;
+      }
       NBinningPoint point(def->GetBinning());
       def->GetBinning()->GetContent()->GetBinContent(id, point.GetCoords());
-      point.RecalculateStorageCoords();
+      if (!point.RecalculateStorageCoords(id, false)) {
+        NLogWarning("NGnTree::Process: Skipping id=%lld in definition '%s' due to invalid storage coordinate "
+                    "recalculation",
+                    id, name.c_str());
+        continue;
+      }
       Long64_t bin = def->GetContent()->GetBin(point.GetStorageCoords());
       NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
       def->GetContent()->SetBinContent(bin, id);
