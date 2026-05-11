@@ -70,7 +70,7 @@ void NAliRsnStep1(
   // Define the binning for the axes
 
   std::map<std::string, std::vector<std::vector<int>>> b;
-  b["pt"] = {{4, 1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
+  b["pt"] = {{4, -1}, {1, 16}, {2, 5}, {5, 4}, {10, 1}, {20, 1}, {30, 1}};
   b["ce"] = {{1, 1}, {4, 1}, {5, 3}, {10, 3}, {20, 1}, {30}};
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 

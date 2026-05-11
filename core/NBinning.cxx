@@ -640,19 +640,26 @@ bool NBinning::AddBinningViaBinWidths(size_t id, std::vector<std::vector<int>> w
   std::vector<int> mins;
   // Print vector of widths
   mins.push_back(1);
+  bool appliedStartSkip = false;
   for (auto & w : widths) {
     TAxis * axis    = fAxes[id - 1];
     int     width   = w[0];
     int     nWidths = w.size() > 1 ? w[1] : axis->GetNbins() / width;
 
-    // NLogDebug("  width=%d nWidths=%d last min=%d", width, nWidths, mins[mins.size() - 1]);
-    for (int iWidth = 0; iWidth < nWidths; iWidth++) {
+    // support shorthand {width, -k} to skip k*width bins at start (apply once)
+    int startGroups = 0;
+    if (!appliedStartSkip && w.size() > 1 && w[1] < 0) {
+      int startSkip = (-w[1]) * width;
+      mins[0] = 1 + startSkip;
+      startGroups = startSkip / width;
+      appliedStartSkip = true;
+    }
+
+    for (int iWidth = startGroups; iWidth < nWidths; iWidth++) {
       if (mins[mins.size() - 1] > axis->GetNbins()) {
-        // NLogWarning("NBinning::AddBinningViaBinWidths: Exceeding axis nbins %d", axis->GetNbins());
         break;
       }
       mins.push_back(mins[mins.size() - 1] + width);
-      // NLogDebug("  width=%d nWidths=%d iWidth=%d -> min=%d", width, nWidths, iWidth, mins[mins.size() - 1]);
     }
   }
 
