@@ -47,8 +47,22 @@ ClassImp(Ndmspc::NUtils);
 namespace Ndmspc {
 
 // Progress bar throttle: per-callsite last print time
+/**
+ * @brief Mutex protecting progress throttle state and map.
+ *
+ * Guards access to `gLastProgressTime` which stores per-callsite timestamps
+ * of the last printed progress update.
+ */
 static std::mutex gProgressThrottleMutex;
+
+/**
+ * @brief Map of callsite->last progress print time.
+ */
 static std::unordered_map<void *, std::chrono::high_resolution_clock::time_point> gLastProgressTime;
+
+/**
+ * @brief Minimum seconds between progress updates (configurable via NDMSPC_PROGRESS_THROTTLE_SEC).
+ */
 static double gProgressThrottleSeconds = []() {
   const char * env = gSystem->Getenv("NDMSPC_PROGRESS_THROTTLE_SEC");
   if (env) {

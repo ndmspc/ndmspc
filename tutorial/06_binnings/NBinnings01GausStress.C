@@ -9,7 +9,7 @@
 #include <TH1D.h>
 #include <TF1.h>
 
-void NBinnings01GausStress(std::string outFile = "NBinnings01Gaus.root", bool onlyOddPoints = false)
+void NBinnings01GausStress(std::string outFile = "NBinnings01GausStress.root", bool onlyOddPoints = false)
 {
   ///
   /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash

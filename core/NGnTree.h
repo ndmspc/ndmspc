@@ -148,8 +148,7 @@ class NGnTree : public TObject {
    * @param binning Binning name.
    * @param outputPointIds Vector of output point IDs.
    * @param ranges Vector of ranges for axes.
-   * @param option Play options.
-   * @param ws Optional workspace string.
+  * @param option Play options.
    */
   void Play(int timeout = 0, std::string binning = "", std::vector<int> outputPointIds = {0},
             std::vector<std::vector<int>> ranges = {}, Option_t * option = "");
@@ -264,6 +263,8 @@ class NGnTree : public TObject {
    * @param func Processing function pointer.
    * @param cfg JSON configuration object.
    * @param binningName Binning name.
+  * @param beginFunc Optional function called at the start of processing (may be nullptr).
+  * @param endFunc Optional function called at the end of processing (may be nullptr).
    * @return True if processed successfully.
    */
   bool Process(NGnProcessFuncPtr func, const json & cfg = json::object(), std::string binningName = "",
@@ -275,6 +276,8 @@ class NGnTree : public TObject {
    * @param defNames Vector of definition names.
    * @param cfg JSON configuration object.
    * @param binningIn Pointer to NBinning object.
+  * @param beginFunc Optional function called at the start of processing (may be nullptr).
+  * @param endFunc Optional function called at the end of processing (may be nullptr).
    * @return True if processed successfully.
    */
   bool Process(NGnProcessFuncPtr func, const std::vector<std::string> & defNames, const json & cfg = json::object(),
@@ -383,11 +386,12 @@ class NGnTree : public TObject {
    * @param fileName The name of the file to import.
    * @param headers A vector of header strings to use during import.
    * @param outFileName The output file name to save the imported tree (default: "/tmp/ngnt_imported.root").
+  * @param close If true, close the file after import when saving to outFileName (default: true).
    * @return A pointer to the imported NGnTree object, or nullptr on failure.
    */
   static NGnTree * Import(const std::string & findPath, const std::string & fileName,
                           const std::vector<std::string> & headers,
-                          const std::string &              outFileName = "/tmp/ngnt_imported.root",bool close=true);
+                          const std::string &              outFileName = "/tmp/ngnt_imported.root", bool close = true);
 
   /**
    * @brief Helper: build object path string from configuration and a binning point.

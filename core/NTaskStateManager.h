@@ -21,9 +21,12 @@ namespace Ndmspc {
  */
 class NTaskStateManager {
   public:
+  /// @brief Unique identifier type for tasks
   using TaskId = size_t;
+  /// @brief Worker identifier type (typically identity string)
   using WorkerId = std::string;
-  using TaskPayload = std::vector<int>; // coordinates
+  /// @brief Payload associated with a task (coordinates for NDMSPC)
+  using TaskPayload = std::vector<int>;
   
   NTaskStateManager() = default;
   ~NTaskStateManager() = default;
@@ -140,15 +143,15 @@ class NTaskStateManager {
   
   private:
   // State buckets: tasks flow pending → running → done
-  std::queue<std::pair<TaskId, TaskPayload>> fPending;  // Not yet dispatched
-  std::unordered_set<TaskId>                fPendingIds;
-  std::unordered_map<TaskId, TaskPayload>   fRunning;   // Assigned to workers
-  std::set<TaskId>                          fDone;      // Successfully completed
+  std::queue<std::pair<TaskId, TaskPayload>> fPending;  ///< Pending tasks not yet dispatched
+  std::unordered_set<TaskId>                fPendingIds; ///< Index of pending task ids
+  std::unordered_map<TaskId, TaskPayload>   fRunning;   ///< Tasks currently assigned to workers
+  std::set<TaskId>                          fDone;      ///< Tasks that have completed successfully
   
   // Mappings for efficient lookup
-  std::unordered_map<WorkerId, std::set<TaskId>> fWorkerToTasks;  // Current assignments
-  std::unordered_map<TaskId, WorkerId>           fTaskToWorker;   // Reverse mapping
-  std::unordered_map<TaskId, TaskPayload>        fTaskPayloads;   // All payloads (for recovery)
+  std::unordered_map<WorkerId, std::set<TaskId>> fWorkerToTasks;  ///< Current assignments per worker
+  std::unordered_map<TaskId, WorkerId>           fTaskToWorker;   ///< Reverse mapping task->worker
+  std::unordered_map<TaskId, TaskPayload>        fTaskPayloads;   ///< Stored payloads for recovery
   
   /// Check if task exists in any state
   bool TaskExists(TaskId id) const;

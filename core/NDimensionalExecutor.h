@@ -58,6 +58,11 @@ class NDimensionalExecutor {
 
   ~NDimensionalExecutor();
 
+  /**
+   * @brief Set new bounds for each dimension.
+   * @param minBounds Minimum bounds for each dimension.
+   * @param maxBounds Maximum bounds for each dimension.
+   */
   void SetBounds(const std::vector<int> & minBounds, const std::vector<int> & maxBounds);
 
   /**
@@ -83,18 +88,55 @@ class NDimensionalExecutor {
    * @return Number of processed tasks acknowledged by workers.
    */
   size_t ExecuteParallelProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount);
+  /**
+   * @brief Start an IPC-based worker pool (fork or TCP) and bind the supervisor socket.
+   * @param workerObjects Vector of worker objects (one per process/thread).
+   * @param processCount Number of worker processes to spawn or accept.
+   * @param tcpBindEndpoint If non-empty, use TCP bind endpoint instead of IPC socket path.
+   * @param jobDir Working directory forwarded to TCP workers.
+   * @param treeName Name of the tree to open on workers (default: "ngnt").
+   * @param macroList Comma-separated list of macros to load on workers.
+   * @param tmpDir Supervisor TMP dir forwarded to workers.
+   * @param tmpResultsDir Supervisor TMP results dir forwarded to workers.
+   * @param macroParams Parameters forwarded to worker macro execution.
+   */
   void   StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount,
                          const std::string & tcpBindEndpoint = "", const std::string & jobDir = "",
                          const std::string & treeName = "ngnt", const std::string & macroList = "",
                          const std::string & tmpDir = "", const std::string & tmpResultsDir = "",
                          const std::string & macroParams = "");
+  /**
+   * @brief Execute the currently-configured bounds using the started IPC session.
+   * @param definitionName Optional definition name to dispatch to workers.
+   * @param definitionIds Optional pointer to vector of definition ids.
+   * @param progressCallback Optional callback invoked with progress updates.
+   * @return Number of tasks acknowledged as completed by workers.
+   */
   size_t ExecuteCurrentBoundsProcessIpc(const std::string & definitionName = "",
                                         const std::vector<Long64_t> * definitionIds = nullptr,
-                                        const std::function<void(const ExecutionProgress&)> & progressCallback = nullptr);
+                                        const std::function<void(const ExecutionProgress &)> & progressCallback = nullptr);
+  /**
+   * @brief Finish the active IPC session, optionally aborting running tasks.
+   * @param abort If true, attempt to abort running tasks and cleanup immediately.
+   */
   void   FinishProcessIpc(bool abort = false);
 
+  /**
+   * @brief Get indices of workers that have registered (TCP mode).
+   * @return Set of registered worker indices.
+   */
   std::set<size_t> GetRegisteredWorkerIndices() const { return fRegisteredWorkerIndices; }
+
+  /**
+   * @brief Get the worker indices that last reported completion.
+   * @return Reference to set of last-done worker indices.
+   */
   const std::set<size_t> & GetLastDoneWorkerIndices() const { return fLastDoneWorkerIndices; }
+
+  /**
+   * @brief Get the last task counts reported by each worker index.
+   * @return Mapping worker index -> completed-task count from last run.
+   */
   const std::unordered_map<size_t, size_t> & GetLastWorkerTaskCounts() const { return fLastWorkerTaskCounts; }
 
   /**
@@ -144,6 +186,7 @@ class NDimensionalExecutor {
                              size_t & acked);
 
   struct IpcSession;
+  /// Pointer to the active IPC session (null if no session is active).
   std::unique_ptr<IpcSession> fIpcSession;
   std::set<size_t>            fRegisteredWorkerIndices; ///< Worker indices that completed registration (TCP mode)
   std::set<size_t>            fLastDoneWorkerIndices;   ///< Worker indices that reported DONE in the last IPC run
