@@ -5,8 +5,8 @@ if(NOT CMAKE_INSTALL_PREFIX)
       CACHE PATH "Default installation" FORCE)
 endif()
 
-project(ndmspc VERSION 1.1.0 DESCRIPTION "NDMSPC")
-set(PROJECT_VERSION_RELEASE rc1)
+project(ndmspc VERSION 1.2.0 DESCRIPTION "NDMSPC")
+set(PROJECT_VERSION_RELEASE 0)
 
 option(USE_LEGACY "Compile with legacy code" OFF)
 option(WITH_TEST "Compile with tests" OFF)

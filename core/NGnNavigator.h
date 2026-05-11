@@ -101,12 +101,6 @@ class NGnNavigator : public TNamed {
   /**
    * @brief Draw spectra for a parameter.
    * @param parameterName Name of parameter.
-   * @param option Draw options.
-   * @param projIds Projection IDs.
-   */
-  /**
-   * @brief Draw spectra for a parameter.
-   * @param parameterName Name of parameter.
    * @param projIds Projection IDs.
    * @param minmax Min/max or percent range.
    * @param minmaxMode Mode for min/max calculation ("VE" = value±error, "V" = value only).
@@ -115,13 +109,6 @@ class NGnNavigator : public TNamed {
   virtual TList * DrawSpectra(std::string parameterName, std::vector<int> projIds, std::vector<double> minmax = {0.05},
                               const std::string& minmaxMode = "V", Option_t * option = "") const;
 
-  /**
-   * @brief Draws spectra for the given parameter and projection axes.
-   *
-   * @param parameterName The name of the parameter to draw spectra for.
-   * @param projAxes A vector of axis names to project onto.
-   * @param option Optional drawing options.
-   */
   /**
    * @brief Draws spectra for the given parameter and projection axes.
    * @param parameterName The name of the parameter to draw spectra for.
@@ -133,12 +120,6 @@ class NGnNavigator : public TNamed {
   virtual TList * DrawSpectraByName(std::string parameterName, std::vector<std::string> projAxes,
                                     std::vector<double> minmax = {0.05}, const std::string& minmaxMode = "V", Option_t * option = "") const;
 
-  /**
-   * @brief Draws all spectra for the given parameter.
-   *
-   * @param parameterName The name of the parameter to draw all spectra for.
-   * @param option Optional drawing options.
-   */
   /**
    * @brief Draws all spectra for the given parameter.
    * @param parameterName The name of the parameter to draw all spectra for.

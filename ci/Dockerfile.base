@@ -47,7 +47,8 @@ RUN root -b -q /usr/share/ndmspc/tutorial/02_storage/NStorage01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/04_customization/NCustomization01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/05_nested/NNested01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C'("NBinnings01Gaus_odd.root",true)'
+  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C'("NBinnings01Gaus_odd.root",true)' && \
+  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01GausStress.C 
 
 # Copy only the React build from Stage 1
 

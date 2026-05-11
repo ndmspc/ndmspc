@@ -54,9 +54,10 @@ class NUtils : TObject {
    * @brief Copy a file from source to destination.
    * @param source Source file path.
    * @param destination Destination file path.
+   * @param progressbar If true, display a progress bar during copy (default: true).
    * @return Status code (0 for success).
    */
-  static int Cp(std::string source, std::string destination,Bool_t progressbar = kTRUE);
+  static int Cp(std::string source, std::string destination, Bool_t progressbar = kTRUE);
   static bool CreateDirectory(const std::string & path);
 
   /**
@@ -100,6 +101,13 @@ class NUtils : TObject {
    */
   static bool LoadJsonFile(json & cfg, std::string filename);
 
+  /**
+   * @brief Type describing raw JSON injections.
+   *
+   * Each entry is a pair where the first element is a vector of nested keys
+   * representing the path inside a JSON object, and the second element is
+   * the raw JSON string to inject at that path.
+   */
   using RawJsonInjections = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
   /**
@@ -110,8 +118,8 @@ class NUtils : TObject {
    *
    * This avoids re-parsing raw JSON strings, preserving the exact output of TBufferJSON.
    *
-   * @param json       The json object to inject into
-   * @param injections Vector of {keys, rawJson} pairs
+  * @param j          The json object to inject into
+  * @param injections Vector of {keys, rawJson} pairs
    * @return           The final JSON string with all raw JSONs injected
    * @throws std::invalid_argument if any keys array is empty
    * @throws std::runtime_error if any placeholder is not found after dump

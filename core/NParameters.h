@@ -83,6 +83,10 @@ class NParameters : public TNamed {
    */
   TH1D * GetHisto() const { return fHisto; }
 
+  /**
+   * @brief Return the list of parameter names.
+   * @return Vector of parameter name strings.
+   */
   std::vector<std::string> GetNames() const { return fNames; }
 
   private:

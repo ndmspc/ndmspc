@@ -33,11 +33,13 @@ class NGnThreadData : public NThreadData {
    * @brief Initialize thread data for processing.
    * @param id Thread ID.
    * @param func Processing function pointer.
-   * @param ngnt Pointer to NGnTree object.
-   * @param binningIn Pointer to NBinning object.
-   * @param input Optional input NGnTree pointer.
-   * @param filename Optional file name.
-   * @param treename Optional tree name (default: "ngnt").
+    * @param beginFunc Function called at the beginning of processing (can be nullptr).
+    * @param endFunc Function called at the end of processing (can be nullptr).
+    * @param ngnt Pointer to NGnTree object.
+    * @param binningIn Pointer to NBinning object.
+    * @param input Optional input NGnTree pointer.
+    * @param filename Optional file name.
+    * @param treename Optional tree name (default: "ngnt").
    * @return True if initialization successful.
    */
   bool Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr beginFunc, NGnEndFuncPtr endFunc, NGnTree * ngnt,
@@ -122,10 +124,25 @@ class NGnThreadData : public NThreadData {
    */
   virtual void Process(const std::vector<int> & coords);
 
+  /**
+   * @brief Update the current definition name used by this thread.
+   * @param name New definition name.
+   */
   void SetCurrentDefinitionName(const std::string & name);
-  void SyncCurrentDefinitionIds(const std::vector<Long64_t> & ids);
 
+  /**
+   * @brief Synchronize the thread-local mapping of definition IDs.
+   * @param ids Vector of global definition IDs to use locally.
+   */
+  void SyncCurrentDefinitionIds(const std::vector<Long64_t> & ids);
+  /**
+   * @brief Invoke the configured begin-function callback (if any).
+   */
   void ExecuteBeginFunction();
+
+  /**
+   * @brief Invoke the configured end-function callback (if any).
+   */
   void ExecuteEndFunction();
 
   /**

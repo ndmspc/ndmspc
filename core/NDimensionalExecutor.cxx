@@ -75,41 +75,55 @@ void RestoreIpcSigIntHandler(const struct sigaction & oldAction, bool hasOldActi
 }
 } // namespace
 
+/**
+ * @brief Internal IPC session state used by `NDimensionalExecutor`.
+ *
+ * This structure holds sockets, lifecycle information and bookkeeping
+ * needed to coordinate supervisor <-> worker communication when running
+ * distributed/IPC based processing (forked IPC sockets or TCP-mode).
+ */
 struct NDimensionalExecutor::IpcSession {
-  void * ctx{nullptr};
-  void * router{nullptr};
-  bool   isTcp{false};
-  std::string endpointPath;
-  std::string endpoint;
-  std::vector<pid_t> childPids;
-  std::unordered_map<std::string, size_t> identityToWorker;
-  std::vector<std::string> workerIdentityVec; // ordered list for round-robin
+  void * ctx{nullptr};                            ///< ZeroMQ context for the session
+  void * router{nullptr};                         ///< ZeroMQ ROUTER socket used by the supervisor
+  bool   isTcp{false};                            ///< True when using TCP mode instead of IPC socket
+  std::string endpointPath;                       ///< Filesystem path for IPC socket (when not TCP)
+  std::string endpoint;                           ///< Full endpoint string used for zmq_bind
+  std::vector<pid_t> childPids;                   ///< PIDs of forked child worker processes (IPC/fork mode)
+  std::unordered_map<std::string, size_t> identityToWorker; ///< Mapping from worker identity string to index
+  std::vector<std::string> workerIdentityVec;     ///< Ordered identity list used for round-robin dispatch
+
   // TCP late-joiner support: stored so new workers can be initialised mid-run
-  std::string                jobDir;
-  std::string                treeName;
-  std::vector<NThreadData *> * workerObjects{nullptr};
-  size_t                     maxWorkers{0};
-  std::string                currentDefName;
-  std::vector<Long64_t>      currentDefIds;
-  bool                       hasCurrentDefIds{false};
-  struct sigaction oldSigIntAction{};
-  bool             hasOldSigIntAction{false};
+  std::string                jobDir;             ///< Job directory forwarded to TCP workers
+  std::string                treeName;            ///< Tree name forwarded to TCP workers
+  std::vector<NThreadData *> * workerObjects{nullptr}; ///< Pointer to supervisor's worker objects (TCP mode)
+  size_t                     maxWorkers{0};      ///< Maximum worker count expected (TCP mode)
+
+  // Current definition being executed
+  std::string                currentDefName;     ///< Name of the current definition dispatched to workers
+  std::vector<Long64_t>      currentDefIds;      ///< IDs for the current definition, if any
+  bool                       hasCurrentDefIds{false}; ///< True if `currentDefIds` is populated
+
+  struct sigaction oldSigIntAction{};            ///< Saved SIGINT handler for cleanup
+  bool             hasOldSigIntAction{false};    ///< True if `oldSigIntAction` contains a valid previous handler
+
   // Bootstrap configuration sent to workers on first contact
-  std::string macroList;       // comma-separated macro paths to load on worker
-  std::string macroParams;     // parameter list forwarded to TMacro::Exec on worker
-  std::string tmpDir;          // supervisor's NDMSPC_TMP_DIR (fallback for workers)
-  std::string tmpResultsDir;   // supervisor's NDMSPC_TMP_RESULTS_DIR
-  size_t      bootstrapNextIdx{0}; // auto-assigned index counter for BOOTSTRAP
-  std::unordered_map<std::string, size_t> bootstrapAssignments; // BOOTSTRAP identity -> assigned slot
-  std::vector<std::string> pendingReadyIdentities; // READY messages consumed while waiting for ACK
+  std::string macroList;       ///< Comma-separated macro paths to load on worker
+  std::string macroParams;     ///< Parameter list forwarded to TMacro::Exec on worker
+  std::string tmpDir;          ///< Supervisor's NDMSPC_TMP_DIR (fallback for workers)
+  std::string tmpResultsDir;   ///< Supervisor's NDMSPC_TMP_RESULTS_DIR
+  size_t      bootstrapNextIdx{0}; ///< Auto-assigned index counter for BOOTSTRAP
+  std::unordered_map<std::string, size_t> bootstrapAssignments; ///< BOOTSTRAP identity -> assigned slot
+  std::vector<std::string> pendingReadyIdentities; ///< READY messages received while waiting for ACK
+
   // Task state management: unified handling of pending, running, and done tasks
-  NTaskStateManager taskStateManager;
-  std::unordered_map<std::string, std::set<size_t>> workerTaskHistory; // all tasks assigned to each worker in current definition
-  std::set<std::string> earlyDoneWorkers; // workers that sent DONE before FinishProcessIpc started waiting
+  NTaskStateManager taskStateManager;             ///< Per-session task state manager
+  std::unordered_map<std::string, std::set<size_t>> workerTaskHistory; ///< All tasks assigned per worker in current definition
+  std::set<std::string> earlyDoneWorkers;         ///< Workers that sent DONE early
+
   // TCP worker activity tracking for failure detection
-  std::unordered_map<std::string, std::chrono::steady_clock::time_point> workerLastActivity; // identity -> last ACK time
-  std::set<std::string> failedTcpWorkers; // identities of TCP workers that have failed
-  std::set<std::string> seenWorkerIdentities; // all worker identities observed in this session
+  std::unordered_map<std::string, std::chrono::steady_clock::time_point> workerLastActivity; ///< identity -> last ACK time
+  std::set<std::string> failedTcpWorkers;        ///< Identities of TCP workers that have failed
+  std::set<std::string> seenWorkerIdentities;    ///< All worker identities observed in this session
 };
 
 // --- Private Increment Logic ---
