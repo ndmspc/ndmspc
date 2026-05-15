@@ -164,13 +164,19 @@ NGnTree::NGnTree(std::vector<TAxis *> axes, std::string filename, std::string tr
   ///
   if (axes.empty()) {
     NLogError("NGnTree::NGnTree: No axes provided, binning is nullptr.");
-    // fBinning = new NBinning();
     MakeZombie();
     return;
   }
+  // For workers, use a dummy filename since tree will be reinitialized with proper temp file in workerData.Init()
+  std::string outFile = filename;
+  if (gSystem->Getenv("NDMSPC_WORKER_ENDPOINT") && filename.empty()) {
+    outFile = ":memory:";
+  }
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree(fBinning);
-  fTreeStorage->InitTree(filename, treename);
+  fTreeStorage->InitTree(outFile, treename);
+  fNavigator = new NGnNavigator();
+  fNavigator->SetGnTree(this);
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
 }
@@ -191,9 +197,16 @@ NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) :
     MakeZombie();
     return;
   }
+  // For workers, use a dummy filename since tree will be reinitialized with proper temp file in workerData.Init()
+  std::string outFile = filename;
+  if (gSystem->Getenv("NDMSPC_WORKER_ENDPOINT") && filename.empty()) {
+    outFile = ":memory:";
+  }
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree(fBinning);
-  fTreeStorage->InitTree(filename, treename);
+  fTreeStorage->InitTree(outFile, treename);
+  fNavigator = new NGnNavigator();
+  fNavigator->SetGnTree(this);
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
 }
@@ -215,10 +228,17 @@ NGnTree::NGnTree(NGnTree * ngnt, std::string filename, std::string treename) : T
     return;
   }
 
+  // For workers, use a dummy filename since tree will be reinitialized with proper temp file in workerData.Init()
+  std::string outFile = filename;
+  if (gSystem->Getenv("NDMSPC_WORKER_ENDPOINT") && filename.empty()) {
+    outFile = ":memory:";
+  }
   // TODO: Import binning from user
   fBinning     = (NBinning *)ngnt->GetBinning()->Clone();
   fTreeStorage = new NStorageTree(fBinning);
-  fTreeStorage->InitTree(filename, treename);
+  fTreeStorage->InitTree(outFile, treename);
+  fNavigator = new NGnNavigator();
+  fNavigator->SetGnTree(this);
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
 }
@@ -972,10 +992,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       start_par        = std::chrono::high_resolution_clock::now();
       processedEntries = 0;
       totalEntries     = maxs[0] + 1;
-      const size_t activeWorkers =
+      const size_t expectedWorkers =
           useProcessIpc ? std::max<size_t>(1, std::min(nProcesses, processWorkers.size())) : threadDataVector.size();
       if (!NLogger::GetConsoleOutput())
-        NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", activeWorkers).Data());
+        NUtils::ProgressBar(processedEntries, totalEntries, start_par, "R   0");
 
       binningIn->SetCurrentDefinitionName(name);
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
@@ -1021,18 +1041,20 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
       else {
         ipcExecutor->SetBounds(mins, maxs);
-        // Capture final active worker count reported by the IPC executor so
-        // we can deterministically rebuild per-worker counters for only the
-        // workers that actually connected.
-        size_t finalActiveWorkers = 0;
+        bool workerShortfallWarned = false;
         size_t acked              = ipcExecutor->ExecuteCurrentBoundsProcessIpc(
-            name, &scheduledDefinitionIds, [&, activeWorkers](const ExecutionProgress & progress) {
+            name, &scheduledDefinitionIds, [&](const ExecutionProgress & progress) {
               processedEntries   = progress.tasksAcked;
-              finalActiveWorkers = progress.activeWorkers;
+              if (!workerShortfallWarned && progress.activeWorkers < expectedWorkers) {
+                NLogWarning("NGnTree::Process: active workers below expected for '%s' (%zu/%zu)",
+                            name.c_str(), progress.activeWorkers, expectedWorkers);
+                workerShortfallWarned = true;
+              }
               if (!NLogger::GetConsoleOutput()) {
-                size_t nRunning = std::min(progress.activeWorkers, activeWorkers);
+                const size_t rDisplay = std::min(progress.tasksOutstanding, expectedWorkers);
                 NUtils::ProgressBar(processedEntries, totalEntries, start_par,
-                                    TString::Format("R%4zu", nRunning).Data());
+                                    TString::Format("R%4zu", rDisplay)
+                                        .Data());
               }
             });
         processedEntries = acked;

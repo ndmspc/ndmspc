@@ -179,6 +179,17 @@ class NBinningPoint : public TObject {
   Int_t GetBin(std::string axis) const;
 
   /**
+   * @brief Check whether this binning point contains the specified axis.
+   *
+   * Checks `fLabels` (and any relevant configuration) to determine whether an
+   * axis with the given name exists for this binning point.
+   *
+   * @param axis Name of the axis to check.
+   * @return true If the axis exists; otherwise false.
+   */
+  bool ContainsAxis(std::string axis) const;
+
+  /**
    * @brief Get pointer to NBinning object.
    * @return Pointer to NBinning.
    */
