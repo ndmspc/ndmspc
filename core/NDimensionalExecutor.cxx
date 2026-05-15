@@ -1058,7 +1058,8 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
     ExecutionProgress progress{acked, fIpcSession->taskStateManager.PendingCount(),
                                fIpcSession->taskStateManager.RunningCount(),
                                fIpcSession->taskStateManager.DoneCount(),
-                               fIpcSession->workerIdentityVec.size()};
+                               fIpcSession->workerIdentityVec.size(),
+                               outstanding};
     progressCallback(progress);
   };
   // Release ghost outstandingMessages for a dead worker and erase its in-flight entry.
@@ -1116,7 +1117,8 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
         ExecutionProgress progress{acked, fIpcSession->taskStateManager.PendingCount(),
                                   fIpcSession->taskStateManager.RunningCount(),
                                   fIpcSession->taskStateManager.DoneCount(),
-                                  fIpcSession->workerIdentityVec.size()};
+                                  fIpcSession->workerIdentityVec.size(),
+                                  outstanding};
         progressCallback(progress);
       }
 
@@ -1207,7 +1209,10 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
 
     // Allow multiple batches to be in flight for better parallelism
     // Each worker can have up to this many batches pending
-    const size_t maxInFlightMessages = std::max<size_t>(4, fIpcSession->workerIdentityVec.size());
+    const size_t ipcDispatchCushion = fIpcSession->isTcp ? 0 : 1;
+    const size_t maxInFlightMessages =
+      std::max<size_t>(4, fIpcSession->workerIdentityVec.size() + ipcDispatchCushion);
+    bool dispatchedThisCycle = false;
 
     while ((hasMore || fIpcSession->taskStateManager.HasPending()) && outstandingMessages < maxInFlightMessages && firstError.empty()) {
       if (fIpcSession->workerIdentityVec.empty()) break; // no workers yet — wait
@@ -1366,6 +1371,13 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
       ++dispatchMessageId;
       ++outstandingMessages;
       ++inFlightMessagesPerWorker[identity];
+      dispatchedThisCycle = true;
+    }
+
+    // Report immediately after dispatch so tiny tasks don't under-report
+    // in-flight work when ACKs arrive very quickly.
+    if (dispatchedThisCycle) {
+      emitProgressUpdate();
     }
 
     // Clean up any TCP workers that failed during send attempts
@@ -1386,7 +1398,8 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
           ExecutionProgress progress{acked, fIpcSession->taskStateManager.PendingCount(),
                                     fIpcSession->taskStateManager.RunningCount(),
                                     fIpcSession->taskStateManager.DoneCount(),
-                                    fIpcSession->workerIdentityVec.size()};
+                                    fIpcSession->workerIdentityVec.size(),
+                                    outstanding};
           progressCallback(progress);
         }
       }
@@ -1445,7 +1458,8 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
             ExecutionProgress progress{acked, fIpcSession->taskStateManager.PendingCount(),
                                       fIpcSession->taskStateManager.RunningCount(),
                                       fIpcSession->taskStateManager.DoneCount(),
-                                      fIpcSession->workerIdentityVec.size()};
+                                      fIpcSession->workerIdentityVec.size(),
+                                      outstanding};
             progressCallback(progress);
           }
           
@@ -1578,7 +1592,8 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
         ExecutionProgress progress{acked, fIpcSession->taskStateManager.PendingCount(),
                                    fIpcSession->taskStateManager.RunningCount(),
                                    fIpcSession->taskStateManager.DoneCount(),
-                                   fIpcSession->workerIdentityVec.size()};
+                                   fIpcSession->workerIdentityVec.size(),
+                                   outstanding};
         progressCallback(progress);
       }
 
@@ -1690,7 +1705,8 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
         ExecutionProgress progress{acked, fIpcSession->taskStateManager.PendingCount(),
                                   fIpcSession->taskStateManager.RunningCount(),
                                   fIpcSession->taskStateManager.DoneCount(),
-                                  activeWorkersNow};
+                                  activeWorkersNow,
+                                  outstanding};
         progressCallback(progress);
       }
       if (acked >= nextSchedulerLogAck) {
@@ -1789,7 +1805,8 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
           ExecutionProgress progress{acked, fIpcSession->taskStateManager.PendingCount(),
                                     fIpcSession->taskStateManager.RunningCount(),
                                     fIpcSession->taskStateManager.DoneCount(),
-                                    activeWorkersNow};
+                                    activeWorkersNow,
+                                    outstanding};
           progressCallback(progress);
         }
         if (acked >= nextSchedulerLogAck) {

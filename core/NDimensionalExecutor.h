@@ -33,6 +33,7 @@ struct ExecutionProgress {
   size_t tasksRunning{0};   ///< Tasks currently assigned to workers  
   size_t tasksDone{0};      ///< Tasks completed locally (state machine)
   size_t activeWorkers{0};  ///< Number of workers currently active
+  size_t tasksOutstanding{0}; ///< Tasks dispatched but not yet ACKed
 };
 
 ///

@@ -385,8 +385,29 @@ int NBinningPoint::GetBin(std::string axis) const
     }
   }
 
-  NLogError("NBinningPoint::GetLabel: Axis '%s' not found !!!", axis.c_str());
+  NLogError("NBinningPoint::GetBin: Axis '%s' not found !!!", axis.c_str());
   return -1;
+}
+
+bool NBinningPoint::ContainsAxis(std::string axis) const
+{
+  ///
+  /// Check if point contains specific axis
+  ///
+
+  // check if axis exists in fBinning->GetAxes()
+  for (int i = 0; i < fNDimensions; i++) {
+    TAxis * a = fBinning->GetAxes()[i];
+    if (a == nullptr) {
+      NLogError("NBinningPoint::ContainsAxis: Axis %d is nullptr !!!", i);
+      continue;
+    }
+    if (axis.compare(a->GetName()) == 0) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 TObject * NBinningPoint::GetTempObject(const std::string & name) const
