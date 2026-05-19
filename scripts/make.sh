@@ -10,6 +10,9 @@ BEING_STRICT=false
 BUILDING_DOC=false
 WITH_TEST=${WITH_TEST-false}
 TEST_ARGS=${TEST_ARGS-""}
+TEST_REGEX=""
+VERBOSE=false
+LIST_TESTS=false
 WITH_SERVER=${WITH_SERVER-true}
 WITH_LEGACY=${WITH_LEGACY-false}
 WITH_PARQUET=${WITH_PARQUET-false}
@@ -24,7 +27,7 @@ MY_CMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE-"Debug"}
 CXX=""
 CC=""
 
-for ARG in $@; do
+for ARG in "$@"; do
   case $ARG in
     "clean")
       echo "Cleaning up build directory"
@@ -92,14 +95,38 @@ for ARG in $@; do
       MY_MAKE_OPTS="${MY_MAKE_OPTS} srpm"
       WITH_TEST=false
       ;;
-    "test")
+    test)
       echo "Building with tests ..."
       WITH_TEST=true
       ;;
-    "testv")
-      echo "Building with tests ..."
+    testv)
+      echo "Building with tests (verbose) ..."
       WITH_TEST=true
-      TEST_ARGS="-V"
+      VERBOSE=true
+      ;;
+    testv=*)
+      echo "Building with tests (selection, verbose) ..."
+      WITH_TEST=true
+      VERBOSE=true
+      TEST_REGEX="${ARG#testv=}"
+      ;;
+    testlist=*)
+      echo "Building with tests (selection) ..."
+      WITH_TEST=true
+      TEST_REGEX="${ARG#testlist=}"
+      ;;
+    test=*)
+      echo "Building with tests (selection) ..."
+      WITH_TEST=true
+      TEST_REGEX="${ARG#test=}"
+      ;;
+    list-tests)
+      echo "Will list available tests after configuring/building"
+      LIST_TESTS=true
+      ;;
+    list)
+      echo "Will list available tests after configuring/building"
+      LIST_TESTS=true
       ;;
     *)
       echo "Unknown argument! Exiting..."
@@ -178,7 +205,46 @@ cmake -DCMAKE_INSTALL_PREFIX=${PROJECT_DIR} ${MY_CMAKE_OPTS} ../
 
 ${MY_BUILDSYS} -j$(nproc) ${MY_MAKE_OPTS}
 
+if [[ $LIST_TESTS == true ]]; then
+  echo "Listing tests (ctest -N) ..."
+  ctest -N || true
+  exit 0
+fi
+
 if [[ $WITH_TEST == true ]]; then
-  echo "Running tests ..."
-  ARGS=$TEST_ARGS ${MY_BUILDSYS} test
+  # Assemble TEST_ARGS from TEST_REGEX and VERBOSE if provided
+  if [[ -n "$TEST_REGEX" ]]; then
+    # Build alternation from comma-separated names; match with or without .cxx suffix
+    IFS=',' read -ra parts <<< "$TEST_REGEX"
+    alts=()
+    for p in "${parts[@]}"; do
+      # trim whitespace
+      term=$(echo "$p" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      # escape regex metacharacters in term
+      esc=$(echo "$term" | sed -E 's/[][\\.^$*+?(){}|]/\\&/g')
+      # match as substring: contains term, or contains term.cxx
+      alts+=(".*${esc}.*" ".*${esc}\\.cxx.*")
+    done
+    regex=$(IFS='|'; echo "${alts[*]}")
+    # Quote the regex for ctest using double quotes to avoid single-quote issues
+    TEST_ARGS="-R \"(${regex})\""
+  fi
+  if [[ "$VERBOSE" == true ]]; then
+    if [[ -n "$TEST_ARGS" ]]; then
+      TEST_ARGS="$TEST_ARGS -V"
+    else
+      TEST_ARGS="-V"
+    fi
+  else
+    # Show output for failed tests even when not running in full verbose mode
+    if [[ -n "$TEST_ARGS" ]]; then
+      TEST_ARGS="$TEST_ARGS --output-on-failure"
+    else
+      TEST_ARGS="--output-on-failure"
+    fi
+  fi
+
+  echo "Running tests ... ${TEST_ARGS}"
+  # Run ctest directly to avoid make's shell quoting of ARGS
+  eval "ctest ${TEST_ARGS}"
 fi
