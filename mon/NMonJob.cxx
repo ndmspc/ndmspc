@@ -136,10 +136,10 @@ void NMonJob::CancelJob()
 {
   NLogInfo("Cancelling job '%s'", fName.Data());
 
-  std::string jobId = getSlurmId();
+  //std::string jobId = getSlurmId();
 
-  if (!jobId.empty()) {
-    std::string cmd = "scancel " + jobId;
+  //if (!jobId.empty()) {
+    /*std::string cmd = "scancel " + jobId;
     NLogInfo("Executing: %s", cmd.c_str());
 
     int ret = system(cmd.c_str());
@@ -148,7 +148,7 @@ void NMonJob::CancelJob()
     if (ret != 0) {
       NLogWarning("scancel failed for job %s", jobId.c_str());
       return;
-    }
+    }*/
 
     std::vector<unsigned int> pendingCopy = fPendingTasks;
     for (unsigned int taskId : pendingCopy) {
@@ -158,7 +158,7 @@ void NMonJob::CancelJob()
     for (unsigned int taskId : runningCopy) {
       MoveTask(taskId, fRunningTasks, fSkippedTasks);
     }
-  }
+  //}
 }
 
 const std::string NMonJob::getSlurmId() const

@@ -70,6 +70,7 @@ void httpNgntMon()
       if (httpIn.is_null()) {
         NLogWarning("Ignoring system DELETE (httpIn.is_null())");
         httpOut["result"] = "failure";
+        return;
       }
       json j = httpIn;
       if (j.contains("clear")) {
