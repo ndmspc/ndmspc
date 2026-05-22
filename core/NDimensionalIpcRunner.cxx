@@ -158,7 +158,7 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
     return 1;
   }
 
-  NLogPrint("Worker %zu: connected to %s, ready for tasks", workerIndex, endpoint.c_str());
+  NLogRun("Worker %zu: connected to %s, ready for tasks", workerIndex, endpoint.c_str());
 
   int rc = TaskLoop(dealer, workerIndex, worker);
 
@@ -219,10 +219,10 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     shutdownSent = true;
   };
   auto handleLocalInterrupt = [&]() {
-    if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
-    NLogPrint("Worker %zu: interrupted by user (Ctrl+C), exiting ...", workerIndex);
-    NLogPrint("Worker %zu: interrupted by user (Ctrl+C) after processing %zu tasks, shutting down...", workerIndex,
-              tasksProcessed);
+    if (showWorkerProgress && tasksProcessed > 0) { NLogRun(""); }
+    NLogRun("Worker %zu: interrupted by user (Ctrl+C), exiting ...", workerIndex);
+    NLogRun("Worker %zu: interrupted by user (Ctrl+C) after processing %zu tasks, shutting down...", workerIndex,
+          tasksProcessed);
     notifyShutdown("interrupted");
     aborted = true;
     wasInterrupted = true;
@@ -250,7 +250,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
       stopRequestedAbort = (peek.size() >= 2 && peek[1] == "abort");
       aborted = stopRequestedAbort;
       notifyShutdown(stopRequestedAbort ? "abort" : "stop");
-      if (stopRequestedAbort) NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
+      if (stopRequestedAbort) NLogRun("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
       return true;
     }
     // Do not drop non-STOP frames here: they can be queued TASK/TASKB payloads
@@ -290,13 +290,13 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
 
     const std::string & cmd = frames[0];
     if (cmd == "STOP") {
-      if (showWorkerProgress && tasksProcessed > 0) { NLogPrint(""); }
+      if (showWorkerProgress && tasksProcessed > 0) { NLogRun(""); }
       aborted = (frames.size() >= 2 && frames[1] == "abort");
       notifyShutdown(aborted ? "abort" : "stop");
       if (aborted) {
-        NLogPrint("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
+        NLogRun("Worker %zu: received abort from supervisor, stopping ...", workerIndex);
       } else {
-        // NLogPrint("Worker %zu: received STOP, processed %zu tasks total", workerIndex, tasksProcessed);
+        // NLogRun("Worker %zu: received STOP, processed %zu tasks total", workerIndex, tasksProcessed);
       }
       break;
     }
@@ -342,7 +342,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         std::vector<int> coords = ParseCoords(frames[2]);
         ++tasksProcessed;
         if (showWorkerProgress) {
-          NLogPrint("Worker %zu: processing tasks [done: %zu]", workerIndex, tasksProcessed);
+          NLogRun("Worker %zu: processing tasks [done: %zu]", workerIndex, tasksProcessed);
         }
         // Report progress at configured interval for visibility
         // Always show first task to confirm worker is actively processing
@@ -372,7 +372,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         ackedTaskIds.reserve(batchTasks.size());
         tasksProcessed += batchTasks.size();
         if (showWorkerProgress) {
-          NLogPrint("Worker %zu: processing tasks [done: %zu]", workerIndex, tasksProcessed);
+          NLogRun("Worker %zu: processing tasks [done: %zu]", workerIndex, tasksProcessed);
         }
         // Report progress at configured interval for visibility
         // Always show first task to confirm worker is actively processing
@@ -402,13 +402,13 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
       }
     }
     catch (const std::exception & ex) {
-      NLogPrint("Worker %zu: ERROR processing task %s: %s", workerIndex, errTaskId.c_str(), ex.what());
+      NLogRun("Worker %zu: ERROR processing task %s: %s", workerIndex, errTaskId.c_str(), ex.what());
       SendFrames(dealer, {"ERR", errTaskId.empty() ? "0" : errTaskId, ex.what()});
       finishedOk = false;
       break;
     }
     catch (...) {
-      NLogPrint("Worker %zu: ERROR processing task %s: unknown exception", workerIndex, errTaskId.c_str());
+      NLogRun("Worker %zu: ERROR processing task %s: unknown exception", workerIndex, errTaskId.c_str());
       SendFrames(dealer, {"ERR", errTaskId.empty() ? "0" : errTaskId, "unknown worker exception"});
       finishedOk = false;
       break;
@@ -425,7 +425,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     if (aborted) {
       // Supervisor aborted — skip end function and copy, but close the file handle
       // so we can delete it cleanly.
-      NLogPrint("Worker %zu: aborting, skipping post-processing.", workerIndex);
+      NLogRun("Worker %zu: aborting, skipping post-processing.", workerIndex);
       if (gnWorker->GetHnSparseBase()) {
         gnWorker->GetHnSparseBase()->Close(false); // false = don't save
       }
@@ -442,7 +442,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         if (!localTmpFile.empty() && localTmpFile != resultsFilename) {
           const std::string resultsDir = std::string(gSystem->GetDirName(resultsFilename.c_str()));
           NUtils::CreateDirectory(resultsDir);
-          NLogPrint("Worker %zu copying '%s' -> '%s' ...", workerIndex, localTmpFile.c_str(), resultsFilename.c_str());
+          NLogRun("Worker %zu copying '%s' -> '%s' ...", workerIndex, localTmpFile.c_str(), resultsFilename.c_str());
           if (!NUtils::Cp(localTmpFile, resultsFilename, kFALSE)) {
             NLogError("Worker %zu: failed to copy '%s' to '%s'", workerIndex, localTmpFile.c_str(),
                       resultsFilename.c_str());
@@ -457,7 +457,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     const std::string & resultsFilenameForDelete = gnWorker->GetResultsFilename();
     const bool hasDistinctResultsFile = !resultsFilenameForDelete.empty() && resultsFilenameForDelete != localTmpFile;
     if (!localTmpFile.empty() && hasDistinctResultsFile) {
-      NLogPrint("Worker %zu: removing local tmp file '%s'", workerIndex, localTmpFile.c_str());
+      NLogRun("Worker %zu: removing local tmp file '%s'", workerIndex, localTmpFile.c_str());
       gSystem->Unlink(localTmpFile.c_str());
     }
   }
@@ -468,11 +468,11 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
     // For IPC (fork) mode, master uses WaitForChildProcesses instead; the DONE
     // message stays unread in the ZMQ buffer which is harmless.
     SendFrames(dealer, {"DONE"});
-    NLogPrint("Worker %zu: completed successfully, processed %zu tasks total", workerIndex, tasksProcessed);
+    NLogRun("Worker %zu: completed successfully, processed %zu tasks total", workerIndex, tasksProcessed);
   } else if (wasInterrupted) {
     // Interrupted by Ctrl+C - already printed message above, don't print duplicate
   } else if (!finishedOk) {
-    NLogPrint("Worker %zu: exited with error after processing %zu tasks", workerIndex, tasksProcessed);
+    NLogRun("Worker %zu: exited with error after processing %zu tasks", workerIndex, tasksProcessed);
   }
 
   // Drop any unsent/undelivered messages immediately so zmq_close/zmq_ctx_term
