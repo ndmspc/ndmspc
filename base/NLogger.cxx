@@ -15,11 +15,12 @@
 namespace Ndmspc {
 
 // Singleton instance and mutex
-std::mutex     NLogger::fgLoggerMutex;
+std::recursive_mutex     NLogger::fgLoggerMutex;
 logs::Severity NLogger::fgMinSeverity   = logs::Severity::kInfo;
 std::string    NLogger::fgLogDirectory  = "/tmp/.ndmspc/logs";
 bool           NLogger::fgConsoleOutput = true;
 bool           NLogger::fgFileOutput    = false; // Default: no file logging
+bool           NLogger::fgRunOutput     = false; // Default: no run-mode console output
 std::string    NLogger::fgProcessName   = "";
 
 NLogger::NLogger()
@@ -45,9 +46,9 @@ void NLogger::Init()
   // Init logger
   if (const char * env_severity = getenv("NDMSPC_LOG_LEVEL")) {
     fgMinSeverity = GetSeverityFromString(env_severity);
-    if (fgMinSeverity != logs::Severity::kInfo) {
-      std::cout << "NLogger: Setting log level to '" << env_severity << "' ... " << std::endl;
-    }
+    // if (fgMinSeverity != logs::Severity::kInfo) {
+    //   std::cout << "NLogger: Setting log level to '" << env_severity << "' ... " << std::endl;
+    // }
   }
   if (const char * env_logdir = getenv("NDMSPC_LOG_DIR")) {
     fgLogDirectory = env_logdir;
@@ -79,6 +80,19 @@ void NLogger::Init()
     }
   }
 
+  // Check for run-mode output (separate from normal console output)
+  if (const char * env_run_output = getenv("NDMSPC_LOG_RUN")) {
+    std::string value(env_run_output);
+    fgRunOutput = (value == "1" || value == "true" || value == "TRUE");
+    // If run-mode output is enabled, disable normal console output to avoid
+    // duplicate or interleaved messages. Run-mode is intended to replace
+    // normal console logging for progress-style output.
+    if (fgRunOutput) {
+      fgConsoleOutput = false;
+      gErrorIgnoreLevel = kFatal;
+    }
+  }
+
   // Set default name for main thread
   std::thread::id main_tid         = std::this_thread::get_id();
   std::string     main_thread_name = "main";
@@ -105,9 +119,37 @@ void NLogger::Init()
 void NLogger::Cleanup()
 {
   // Cleanup logger
-  std::lock_guard<std::mutex> lock(fStreamMapMutex);
-  fThreadStreams.clear();
-  fThreadNames.clear();
+  std::vector<std::string> filenames;
+  {
+    std::lock_guard<std::mutex> lock(fStreamMapMutex);
+    if (fgFileOutput && !fThreadFilenames.empty()) {
+      for (const auto & kv : fThreadFilenames) {
+        filenames.push_back(kv.second);
+      }
+    }
+    fThreadStreams.clear();
+    fThreadNames.clear();
+    fThreadFilenames.clear();
+  }
+
+  // Report file locations outside the stream-map lock to avoid deadlocks.
+  // Only report when invoked via the ndmspc-run wrapper which sets
+  // NDMSPC_MACRO or NDMSPC_MACRO_PARAMS (this avoids printing when
+  // exiting an interactive ROOT session).
+  if (!filenames.empty()) {
+    bool invokedByNdmspcRun = false;
+    if (getenv("NDMSPC_MACRO") != nullptr || getenv("NDMSPC_MACRO_PARAMS") != nullptr) invokedByNdmspcRun = true;
+    if (invokedByNdmspcRun) {
+      if (fgRunOutput) {
+        RunLog("NLogger: Log files written:");
+        for (const auto & f : filenames) RunLog("  %s", f.c_str());
+      }
+      else {
+        std::cerr << "NLogger: Log files written:" << std::endl;
+        for (const auto & f : filenames) std::cerr << "  " << f << std::endl;
+      }
+    }
+  }
 }
 
 void NLogger::SetLogDirectory(const std::string & dir)
@@ -125,7 +167,7 @@ void NLogger::SetLogDirectory(const std::string & dir)
 
 void NLogger::SetProcessName(const std::string & name)
 {
-  std::lock_guard<std::mutex> lock(fgLoggerMutex);
+  std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
   fgProcessName = name;
 }
 
@@ -171,7 +213,7 @@ std::ofstream & NLogger::GetThreadStream()
 {
   std::thread::id tid = std::this_thread::get_id();
 
-  std::lock_guard<std::mutex> lock(fStreamMapMutex);
+  std::unique_lock<std::mutex> lock(fStreamMapMutex);
 
   auto it = fThreadStreams.find(tid);
   if (it != fThreadStreams.end()) {
@@ -214,10 +256,41 @@ std::ofstream & NLogger::GetThreadStream()
     *stream << "=== Process: " << fgProcessName << " (PID: " << getpid() << ")" << std::endl;
     *stream << "=== Thread: " << thread_id << std::endl;
     stream->flush();
+    // Inform user where the per-thread log file was created. Use stderr
+    // directly to avoid invoking logging which could recurse while the
+    // stream is still being established.
+    std::cerr << "NLogger: Log file created: " << filename.str() << std::endl;
   }
 
-  auto & ref          = *stream;
+  auto filename_str = filename.str();
+  auto & ref = *stream;
   fThreadStreams[tid] = std::move(stream);
+  // Record the filename for later reporting at cleanup
+  fThreadFilenames[tid] = filename_str;
+
+  // Release fStreamMapMutex (lock goes out of scope) before calling RunLog
+  // to avoid deadlocks where RunLog needs to acquire the same mutex.
+  // We still return a reference to the stream stored in the map.
+  {
+    // end of locked scope
+  }
+
+  // Notify via run-mode logging if enabled. Unlock the stream-map mutex
+  // first to avoid deadlocks (RunLog may call GetThreadStream()).
+  if (fgFileOutput || fgRunOutput) {
+    lock.unlock();
+    try {
+      RunLog("NLogger: Log file created: %s", filename_str.c_str());
+    }
+    catch (...) {
+      // Swallow any exceptions during log notification to avoid issues
+    }
+  }
+  else {
+    // Ensure we release lock before returning
+    lock.unlock();
+  }
+
   return ref;
 }
 void NLogger::CloseThreadStream(std::thread::id thread_id)
@@ -262,7 +335,18 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
   // Format timestamp
   auto        now      = std::chrono::system_clock::now();
   std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-  std::tm *   now_tm   = std::localtime(&now_time);
+  std::tm now_tm_buf;
+  std::tm * now_tm = nullptr;
+#if defined(_POSIX_VERSION)
+  if (localtime_r(&now_time, &now_tm_buf) != nullptr) {
+    now_tm = &now_tm_buf;
+  }
+  else {
+    now_tm = std::localtime(&now_time);
+  }
+#else
+  now_tm = std::localtime(&now_time);
+#endif
   char        time_buf[24];
   auto        ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
   std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", now_tm);
@@ -294,7 +378,57 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
 
   // Console output (if enabled)
   if (fgConsoleOutput) {
-    std::lock_guard<std::mutex> lock(fgLoggerMutex);
+    std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
+    std::cout << log_line.str() << std::endl;
+  }
+}
+
+void NLogger::RunLog(const char * format, ...)
+{
+  va_list args;
+  va_start(args, format);
+
+  // Format timestamp
+  auto        now      = std::chrono::system_clock::now();
+  std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+  std::tm now_tm_buf2;
+  std::tm * now_tm = nullptr;
+#if defined(_POSIX_VERSION)
+  if (localtime_r(&now_time, &now_tm_buf2) != nullptr) {
+    now_tm = &now_tm_buf2;
+  }
+  else {
+    now_tm = std::localtime(&now_time);
+  }
+#else
+  now_tm = std::localtime(&now_time);
+#endif
+  char        time_buf[24];
+  auto        ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+  std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", now_tm);
+
+  char message_buf[4096];
+  vsnprintf(message_buf, sizeof(message_buf), format, args);
+  va_end(args);
+
+  std::ostringstream log_line;
+  log_line << "[" << time_buf << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
+           << "[RUN] " << message_buf;
+
+  // File output (if enabled)
+  if (fgFileOutput) {
+    auto & stream = Instance()->GetThreadStream();
+    if (stream.is_open()) {
+      stream << log_line.str() << std::endl;
+      stream.flush();
+    }
+  }
+
+  // Run-mode console output: prints when NDMSPC_LOG_RUN is enabled. This
+  // is independent from NDMSPC_LOG_CONSOLE so callers can suppress normal
+  // logger output but still show run progress.
+  if (fgRunOutput) {
+    std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
     std::cout << log_line.str() << std::endl;
   }
 }

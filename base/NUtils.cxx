@@ -1785,7 +1785,7 @@ void NUtils::ProgressBar(int current, int total, std::string prefix, std::string
   /// Print progress bar
   ///
   if (total == 0) {
-    std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
+    std::lock_guard<std::recursive_mutex> lock(NLogger::GetLoggerMutex());
     std::cout << "\r";
     if (!prefix.empty()) std::cout << "[" << prefix << "]";
     std::cout << "[";
@@ -1814,7 +1814,7 @@ void NUtils::ProgressBar(int current, int total, std::string prefix, std::string
   }
 
   // Let's do protection against any log to be written during progress bar
-  std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
+  std::lock_guard<std::recursive_mutex> lock(NLogger::GetLoggerMutex());
 
   float percentage = static_cast<float>(current) / total;
   int   numChars   = static_cast<int>(percentage * barWidth);
@@ -1843,7 +1843,7 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   /// Print progress bar
   ///
   if (total == 0) {
-    std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
+    std::lock_guard<std::recursive_mutex> lock(NLogger::GetLoggerMutex());
     std::cout << "\r[";
     if (!prefix.empty()) std::cout << prefix << "][";
     for (int i = 0; i < barWidth; ++i) {
@@ -1855,7 +1855,7 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
     std::cout << std::flush;
     return;
   }
-  std::lock_guard<std::mutex> lock(NLogger::GetLoggerMutex());
+  std::lock_guard<std::recursive_mutex> lock(NLogger::GetLoggerMutex());
   if (current > total) current = total; // Cap current to total for safety
 
   // Throttle updates per callsite to avoid flooding the terminal.

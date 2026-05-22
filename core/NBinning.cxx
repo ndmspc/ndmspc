@@ -419,7 +419,9 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   /// Fill content binnings from mapping
   ///
   Long64_t nBinsFilled = 0;
-
+  bool     runOutput   = NLogger::GetRunOutput();
+  bool isWorker = getenv("NDMSPC_WORKER_ENDPOINT") != nullptr;
+  
   // fContent->Reset();
 
   std::vector<int>                           mins(fMap->GetAxis(0)->GetNbins(), 1);
@@ -487,12 +489,14 @@ Long64_t NBinning::FillAll(NBinningDef * def)
   }
 
   def->Print();
-  NLogDebug("NBinning::FillAll: Filling total of %lld bins ...", nTotalBins);
+  if (runOutput && !isWorker) NLogRun("NBinning::FillAll: Filling '%s' total of %lld bins ...",  def->GetName(), nTotalBins);
+  NLogDebug("NBinning::FillAll: Filling '%s' total of %lld bins ...",  def->GetName(), nTotalBins);
 
   auto start_par = std::chrono::high_resolution_clock::now();
   // Loop over all binning combinations
   NDimensionalExecutor executor(mins, maxs);
-  auto binning_task = [&content, &nBinsFilled, &nTotalBins, start_par, def, this](const std::vector<int> & coords) {
+  auto                 binning_task = [&content, &nBinsFilled, &nTotalBins, start_par, def, this,
+                                       runOutput](const std::vector<int> & coords) {
     std::vector<int> pointContentVector;
     NLogTrace("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
     for (size_t i = 0; i < coords.size(); i++) {
@@ -538,13 +542,13 @@ Long64_t NBinning::FillAll(NBinningDef * def)
     int refreshRate = nTotalBins / 100;
     if (refreshRate == 0) refreshRate = nTotalBins;
     if (nBinsFilled % (refreshRate) == 0 && nBinsFilled != nTotalBins)
-      Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par, "I    ");
+      if (runOutput) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par, "I    ");
     // NLogDebug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
     //                nBinsFilled);
   };
   executor.Execute(binning_task);
 
-  Ndmspc::NUtils::ProgressBar(nTotalBins, nTotalBins, start_par, "I    ");
+  if (runOutput && !isWorker) Ndmspc::NUtils::ProgressBar(nTotalBins, nTotalBins, start_par, "I    ");
 
   auto                                      end_par      = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
@@ -649,9 +653,9 @@ bool NBinning::AddBinningViaBinWidths(size_t id, std::vector<std::vector<int>> w
     // support shorthand {width, -k} to skip k*width bins at start (apply once)
     int startGroups = 0;
     if (!appliedStartSkip && w.size() > 1 && w[1] < 0) {
-      int startSkip = (-w[1]) * width;
-      mins[0] = 1 + startSkip;
-      startGroups = startSkip / width;
+      int startSkip    = (-w[1]) * width;
+      mins[0]          = 1 + startSkip;
+      startGroups      = startSkip / width;
       appliedStartSkip = true;
     }
 
@@ -1092,7 +1096,6 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
         exit(1);
       }
 
-
       AddBinningViaBinWidths(i + 1, binning[axisName]);
       SetAxisType(i, AxisType::kVariable);
       // GetDefinition()[axisName] = binning[axisName];
@@ -1100,7 +1103,7 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
     }
     else {
 
-       // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
+      // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
       if (axis->IsAlphanumeric()) {
         NLogError("NBinning::AddBinningDefinition: Axis '%s' is alphanumeric and no binning provided in definition "
                   "'%s'. Exiting ...",

@@ -123,6 +123,8 @@ class NBinningDef : public TObject {
    */
   NBinning * GetBinning() const { return fBinning; }
 
+  virtual const char* GetName() const { return fName.c_str(); }
+
   private:
   NBinning *                                           fBinning{nullptr}; ///< Pointer to the parent binning
   std::string                                          fName;             ///< Name of the binning definition

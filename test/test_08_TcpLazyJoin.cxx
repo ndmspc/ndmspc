@@ -199,7 +199,7 @@ bool RunAsTcpWorkerIfRequested(int argc, char ** argv)
   const int         timeoutMs = std::atoi(argv[5]);
   std::string error;
   if (!ExecuteNTcpTestMacro(outFile, timeoutMs, &error, bins)) {
-    NLogPrint("worker failed to execute NTcpTest.C: %s", error.c_str());
+    NLogRun("worker failed to execute NTcpTest.C: %s", error.c_str());
     _exit(2);
   }
   return true;

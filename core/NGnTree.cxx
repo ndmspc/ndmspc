@@ -586,6 +586,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   ///
 
   NLogInfo("NGnTree::Process: Starting processing with %zu definitions ...", defNames.size());
+  const bool runOutput = NLogger::GetRunOutput();
   bool batch = gROOT->IsBatch();
   gROOT->SetBatch(kTRUE);
   TH1::AddDirectory(kFALSE);
@@ -641,7 +642,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
       // INIT frames: "INIT", workerIdx, sessionId, resultsDir, treeName[, tmpDir, tmpResultsDir]
       if (frames.size() >= 1 && frames[0] == "STOP") {
-        NLogPrint("NGnTree::Process: Worker received STOP before INIT — session already finished, exiting.");
+        NLogRun("NGnTree::Process: Worker received STOP before INIT — session already finished, exiting.");
 
         // A late worker can start executing the user macro before INIT arrives;
         // in that case some macros may already have created/truncated an output
@@ -886,11 +887,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     // thread_obj.Print();
     thread_obj.Process(coords);
     processedEntries++;
-    if (!NLogger::GetConsoleOutput()) {
-      size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
-                                                                                     : totalEntries - processedEntries;
-      NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
-    }
+    size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
+                                                                                   : totalEntries - processedEntries;
+    if (runOutput) NUtils::ProgressBar(processedEntries, totalEntries, start_par,
+                                       TString::Format("R%4zu", nRunning).Data());
   };
 
   std::vector<Ndmspc::NThreadData *>            processWorkers;
@@ -949,7 +949,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
 
       if (binningDef->GetIds().size() == 0) {
-        if (!NLogger::GetConsoleOutput()) {
+        if (runOutput) {
           NUtils::ProgressBar(0, 0, std::chrono::high_resolution_clock::now(), "", "R   0");
         }
         NLogWarning("NGnTree::Process: Binning definition '%s' has no entries, skipping ...", name.c_str());
@@ -966,9 +966,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
 
       if (scheduledDefinitionIds.empty()) {
-        if (!NLogger::GetConsoleOutput()) {
-          NUtils::ProgressBar(0, 0, std::chrono::high_resolution_clock::now(), "", "R   0");
-        }
+        if (runOutput) NUtils::ProgressBar(0, 0, std::chrono::high_resolution_clock::now(), "", "R   0");
         NLogWarning("NGnTree::Process: Binning definition '%s' has no new entries after dedup, skipping ...",
                     name.c_str());
         // Keep full definition membership even when all entries overlap with
@@ -987,15 +985,14 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
         NLogInfo("NGnTree::Process: Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
       }
       else {
-        Printf("Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
+        NLogRun("Processing binning definition '%s' with %d tasks ...", name.c_str(), maxs[0] + 1);
       }
       start_par        = std::chrono::high_resolution_clock::now();
       processedEntries = 0;
       totalEntries     = maxs[0] + 1;
       const size_t expectedWorkers =
           useProcessIpc ? std::max<size_t>(1, std::min(nProcesses, processWorkers.size())) : threadDataVector.size();
-      if (!NLogger::GetConsoleOutput())
-        NUtils::ProgressBar(processedEntries, totalEntries, start_par, "R   0");
+      if (runOutput) NUtils::ProgressBar(processedEntries, totalEntries, start_par, "R   0");
 
       binningIn->SetCurrentDefinitionName(name);
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
@@ -1050,11 +1047,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
                             name.c_str(), progress.activeWorkers, expectedWorkers);
                 workerShortfallWarned = true;
               }
-              if (!NLogger::GetConsoleOutput()) {
+              if (runOutput) {
                 const size_t rDisplay = std::min(progress.tasksOutstanding, expectedWorkers);
                 NUtils::ProgressBar(processedEntries, totalEntries, start_par,
-                                    TString::Format("R%4zu", rDisplay)
-                                        .Data());
+                                    TString::Format("R%4zu", rDisplay).Data());
               }
             });
         processedEntries = acked;
@@ -1077,13 +1073,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
           threadDataVector[workerIndex].SetNProcessed(static_cast<Long64_t>(completed));
         }
 
-        if (!NLogger::GetConsoleOutput() && processedEntries < totalEntries) {
+        if (runOutput && processedEntries < totalEntries) {
           NUtils::ProgressBar(processedEntries, totalEntries, start_par, "R   0");
         }
       }
 
       if (!NLogger::GetConsoleOutput())
-        Printf("Finished processing binning definition '%s'. Post-processing results ...", name.c_str());
+        NLogRun("Finished processing binning definition '%s'. Post-processing results ...", name.c_str());
       // Update hnsbBinningIn with the processed ids
       NLogDebug("NGnTree::Process: [BEGIN] ------------------------------------------------");
       binningIn->GetDefinition(name)->GetIds().clear();
@@ -1148,8 +1144,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   const bool filterByDone = !doneWorkers.empty();
 
   if (!NLogger::GetConsoleOutput()) {
-    Printf("NGnTree::Process: Execution completed and it took %s .",
-           NUtils::FormatTime(par_duration.count() / 1000).c_str());
+    NLogRun("NGnTree::Process: Execution completed and it took %s .",
+            NUtils::FormatTime(par_duration.count() / 1000).c_str());
   }
   else {
     NLogInfo("NGnTree::Process: Execution completed and it took %s .",
@@ -1171,7 +1167,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   NLogDebug("NGnTree::Process: Merging %zu results ...", threadDataVector.size());
   if (!NLogger::GetConsoleOutput()) {
-    Printf("NGnTree::Process: merge start (%zu workers)", threadDataVector.size());
+    NLogRun("NGnTree::Process: merge start (%zu workers)", threadDataVector.size());
   }
   const auto              mergeStart = std::chrono::high_resolution_clock::now();
   TList *                 mergeList  = new TList();
@@ -1200,7 +1196,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   const auto mergeEnd = std::chrono::high_resolution_clock::now();
   if (!NLogger::GetConsoleOutput()) {
     const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
-    Printf("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
+    NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
   }
   if (nmerged <= 0) {
     NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
@@ -1313,23 +1309,21 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
                  NUtils::FormatBytes(size).c_str(), size);
       }
       else {
-        NLogPrint("NGnTree::Process: Final output '%s' size: %s (%lld bytes)", finalFile.c_str(),
-                  NUtils::FormatBytes(size).c_str(), size);
+        NLogRun("NGnTree::Process: Final output '%s' size: %s (%lld bytes)", finalFile.c_str(),
+                 NUtils::FormatBytes(size).c_str(), size);
       }
     }
-    else {
+      else {
       if (NLogger::GetConsoleOutput()) {
         NLogError("NGnTree::Process: Final output '%s' not found after close", finalFile.c_str());
       }
       else {
-        NLogPrint("NGnTree::Process: Error: Final output '%s' not found after close", finalFile.c_str());
+        NLogRun("NGnTree::Process: Error: Final output '%s' not found after close", finalFile.c_str());
       }
     }
   }
 
-  if (!NLogger::GetConsoleOutput()) {
-    NLogPrint("NGnTree::Process: cleanup start (%s)", jobDir.c_str());
-  } else {
+  if (NLogger::GetConsoleOutput()) {
     NLogInfo("NGnTree::Process: cleanup start (%s)", jobDir.c_str());
   }
   const auto cleanupStart = std::chrono::high_resolution_clock::now();
@@ -1338,7 +1332,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   if (!NLogger::GetConsoleOutput()) {
     const auto cleanupSec =
         std::chrono::duration_cast<std::chrono::duration<double>>(cleanupEnd - cleanupStart).count();
-    NLogPrint("NGnTree::Process: cleanup done (%.2f s)", cleanupSec);
+    NLogRun("NGnTree::Process: cleanup done (%.2f s)", cleanupSec);
   } else {
     const auto cleanupSec =
         std::chrono::duration_cast<std::chrono::duration<double>>(cleanupEnd - cleanupStart).count();
@@ -1678,7 +1672,7 @@ TList * NGnTree::Projection(const json & cfg, std::string binningName)
     point->Print();
     json cfg = point->GetCfg();
 
-    Printf("Processing THnSparse projection with configuration: %s", cfg.dump().c_str());
+    NLogRun("Processing THnSparse projection with configuration: %s", cfg.dump().c_str());
 
     Ndmspc::NGnTree * ngntIn = point->GetInput();
     // ngntIn->Print();

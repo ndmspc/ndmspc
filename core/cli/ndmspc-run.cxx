@@ -137,6 +137,14 @@ int main(int argc, char ** argv)
   CLI11_PARSE(app, argc, argv);
 
   // Default to file-only logging unless explicitly configured by environment.
+  // Expose a run-mode logging flag `NDMSPC_LOG_RUN` so code can emit
+  // run-specific progress output via NLogRun while keeping normal
+  // logger output controllable via NDMSPC_LOG_CONSOLE.
+  if (!gSystem->Getenv("NDMSPC_LOG_RUN")) {
+    gSystem->Setenv("NDMSPC_LOG_RUN", "1");
+    Ndmspc::NLogger::SetRunOutput(true);
+  }
+
   if (!gSystem->Getenv("NDMSPC_LOG_CONSOLE")) {
     gSystem->Setenv("NDMSPC_LOG_CONSOLE", "0");
     if (!verbose) {

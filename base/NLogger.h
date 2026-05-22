@@ -90,6 +90,15 @@ using json = nlohmann::json;
  */
 #define NLogPrint(format, ...) fprintf(stdout, format "\n", ##__VA_ARGS__)
 
+/**
+ * @def NLogRun
+ * @brief Logs a run-mode message (progress / run output).
+ *        This bypasses the normal console suppression when NDMSPC_LOG_RUN
+ *        is enabled and can also write to per-thread log files when
+ *        NDMSPC_LOG_FILE is enabled.
+ */
+#define NLogRun(format, ...) Ndmspc::NLogger::RunLog(format, ##__VA_ARGS__)
+
 namespace Ndmspc {
 
 namespace logs {
@@ -489,6 +498,11 @@ class NLogger {
    * @param ... Additional arguments for the format string.
    */
   static void Log(const char * file, int line, logs::Severity level, const char * format, ...);
+  /**
+   * @brief Log a run-mode message. Respects NDMSPC_LOG_RUN for console
+   * output and NDMSPC_LOG_FILE for file output.
+   */
+  static void RunLog(const char * format, ...);
 
   /**
    * @brief Sets the minimum severity level for logging.
@@ -513,6 +527,7 @@ class NLogger {
    * @param enable True to enable console output, false to disable.
    */
   static void SetConsoleOutput(bool enable) { fgConsoleOutput = enable; }
+  static void SetRunOutput(bool enable) { fgRunOutput = enable; }
 
   /**
    * @brief Enables or disables logging output to a file.
@@ -547,15 +562,17 @@ class NLogger {
 
   static bool         GetConsoleOutput() { return fgConsoleOutput; } ///< Get console output flag
   static bool         GetFileOutput() { return fgFileOutput; }       ///< Get file output flag
+  static bool         GetRunOutput() { return fgRunOutput; }         ///< Get run output flag
   static std::string  GetLogDirectory() { return fgLogDirectory; }   ///< Get log directory path
-  static std::mutex & GetLoggerMutex() { return fgLoggerMutex; }     ///< Get logger mutex reference
+  static std::recursive_mutex & GetLoggerMutex() { return fgLoggerMutex; }     ///< Get logger mutex reference
 
   private:
-  static std::mutex               fgLoggerMutex;   ///< Mutex for thread-safe singleton access
+  static std::recursive_mutex     fgLoggerMutex;   ///< Mutex for thread-safe singleton access (recursive to avoid re-entrant lock issues)
   static logs::Severity           fgMinSeverity;   ///< Minimum severity level for logging
   static std::string              fgLogDirectory;  ///< Directory for log files
   static bool                     fgConsoleOutput; ///< Flag for console output
   static bool                     fgFileOutput;    ///< Flag for file output
+  static bool                     fgRunOutput;     ///< Flag for run-mode console output
   static std::string              fgProcessName;   ///< Process name prefix for log files
   static std::unique_ptr<NLogger> fgLogger;        ///< Singleton instance
 
@@ -595,6 +612,7 @@ class NLogger {
    */
   std::unordered_map<std::thread::id, std::unique_ptr<std::ofstream>> fThreadStreams;
   std::unordered_map<std::thread::id, std::string> fThreadNames;          ///< Map of thread IDs to custom thread names
+  std::unordered_map<std::thread::id, std::string> fThreadFilenames;      ///< Map of thread IDs to their log filenames
   std::string                                      GetThreadIdentifier(); ///< Get thread name or ID as string
 
   /// \cond CLASSIMP

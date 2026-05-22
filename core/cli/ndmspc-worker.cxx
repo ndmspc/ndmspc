@@ -245,7 +245,7 @@ int main(int argc, char ** argv)
   // If macro or index not provided, bootstrap from supervisor
   const bool needsBootstrap = macroList.empty() || workerIndex == std::numeric_limits<size_t>::max();
   if (needsBootstrap) {
-    NLogPrint("ndmspc-worker: bootstrapping config from supervisor at %s ...", endpoint.c_str());
+    NLogRun("ndmspc-worker: bootstrapping config from supervisor at %s ...", endpoint.c_str());
     void * ctx    = zmq_ctx_new();
     void * dealer = zmq_socket(ctx, ZMQ_DEALER);
     // Use a unique bootstrap identity so supervisor can route the CONFIG reply
@@ -357,7 +357,7 @@ int main(int argc, char ** argv)
   gSystem->Setenv("NDMSPC_WORKER_ENDPOINT", endpoint.c_str());
   gSystem->Setenv("NDMSPC_WORKER_INDEX", std::to_string(workerIndex).c_str());
 
-  NLogPrint("ndmspc-worker: starting — index=%zu endpoint=%s", workerIndex, endpoint.c_str());
+  NLogRun("ndmspc-worker: starting — index=%zu endpoint=%s", workerIndex, endpoint.c_str());
   const bool suppressStartupDetails = []() {
     const char * env = gSystem->Getenv("NDMSPC_SUPPRESS_STARTUP_DETAILS");
     if (!env || env[0] == '\0') return false;
@@ -367,11 +367,11 @@ int main(int argc, char ** argv)
     return (value == "1" || value == "true" || value == "yes" || value == "on");
   }();
   if (!suppressStartupDetails) {
-    NLogPrint("  macro                  = %s", macroList.c_str());
-    NLogPrint("  NDMSPC_TMP_DIR         = %s", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");
-    NLogPrint("  NDMSPC_TMP_RESULTS_DIR = %s", gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") ? gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") : "(not set)");
-    NLogPrint("  NDMSPC_EXECUTION_MODE  = %s", gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "(not set)");
-    NLogPrint("  NDMSPC_MACRO_PARAMS    = %s", gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "(not set)");
+    NLogRun("  macro                  = %s", macroList.c_str());
+    NLogRun("  NDMSPC_TMP_DIR         = %s", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");
+    NLogRun("  NDMSPC_TMP_RESULTS_DIR = %s", gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") ? gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR") : "(not set)");
+    NLogRun("  NDMSPC_EXECUTION_MODE  = %s", gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "(not set)");
+    NLogRun("  NDMSPC_MACRO_PARAMS    = %s", gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "(not set)");
   }
 
   const std::string effectiveMacroParams = gSystem->Getenv("NDMSPC_MACRO_PARAMS") ? gSystem->Getenv("NDMSPC_MACRO_PARAMS") : "";
