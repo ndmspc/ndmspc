@@ -1,13 +1,13 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <fstream>
-#include "05_nested/NNested01Gaus.C"
+#include "05_single_bining/NSingleBinning01Gaus.C"
 #include "NGnNavigator.h"
 #include "NGnTree.h"
 
-class NNested01GausTest : public ::testing::Test {
+class NSingleBinning01GausTest : public ::testing::Test {
   protected:
-  std::string testFile     = "test_NNested01Gaus.root";
+  std::string testFile     = "test_NSingleBinning01Gaus.root";
   std::string testJsonFile = "test.json";
 
   void SetUp() override
@@ -15,7 +15,7 @@ class NNested01GausTest : public ::testing::Test {
     // Only create the test file if it doesn't exist
     std::ifstream f(testFile);
     if (!f.good()) {
-      NNested01Gaus(testFile);
+      NSingleBinning01Gaus(testFile);
     }
     f.close();
   }
@@ -27,7 +27,7 @@ class NNested01GausTest : public ::testing::Test {
   }
 };
 
-TEST_F(NNested01GausTest, CreatesOutputFile)
+TEST_F(NSingleBinning01GausTest, CreatesOutputFile)
 {
   Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(testFile);
   ASSERT_TRUE(ngnt);
@@ -48,7 +48,7 @@ TEST_F(NNested01GausTest, CreatesOutputFile)
   ngnt->Close();
 }
 
-TEST_F(NNested01GausTest, ReshapeMultipleLevels)
+TEST_F(NSingleBinning01GausTest, ReshapeMultipleLevels)
 {
   Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(testFile);
   ASSERT_TRUE(ngnt);

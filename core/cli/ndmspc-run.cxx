@@ -101,7 +101,7 @@ int main(int argc, char ** argv)
   std::string macroList;
   std::string macroParams;
   std::string mode;          // ipc | tcp | thread (maps to NDMSPC_EXECUTION_MODE)
-  size_t      nProcesses = 0; // 0 = not set
+  std::string nProcessesStr; // supports integers or colon-separated tokens like "2:3"
   std::string tcpPort;
   std::string workerBin;
   std::string workerEndpoint;
@@ -118,8 +118,8 @@ int main(int argc, char ** argv)
   app.add_option("--mode", mode,
                  "Execution mode: ipc/process (forked local processes), tcp (remote workers), thread")
      ->check(CLI::IsMember({"ipc", "process", "tcp", "thread"}));
-  app.add_option("-n,--processes", nProcesses,
-                 "Number of worker processes (NDMSPC_MAX_PROCESSES)");
+  app.add_option("-n,--processes", nProcessesStr,
+                 "Number of worker processes (NDMSPC_MAX_PROCESSES). Accepts integer or colon-separated tokens like '2:3'");
   app.add_option("--tcp-port", tcpPort,
                  "TCP port to bind for remote workers (NDMSPC_TCP_PORT, default: 5555)");
   app.add_option("--spawn-workers", spawnWorkers,
@@ -168,12 +168,14 @@ int main(int argc, char ** argv)
 
   // When auto-spawning TCP workers, default NDMSPC_MAX_PROCESSES to that count
   // if the caller didn't set --processes / NDMSPC_MAX_PROCESSES explicitly.
-  if (spawnWorkers > 0 && nProcesses == 0 && !gSystem->Getenv("NDMSPC_MAX_PROCESSES")) {
-    nProcesses = spawnWorkers;
+  if (spawnWorkers > 0 && nProcessesStr.empty() && !gSystem->Getenv("NDMSPC_MAX_PROCESSES")) {
+    nProcessesStr = std::to_string(spawnWorkers);
   }
 
-  if (nProcesses > 0 && !gSystem->Getenv("NDMSPC_MAX_PROCESSES"))
-    gSystem->Setenv("NDMSPC_MAX_PROCESSES", std::to_string(nProcesses).c_str());
+  // If user provided -n as either an integer or colon-separated tokens, export it
+  if (!nProcessesStr.empty() && !gSystem->Getenv("NDMSPC_MAX_PROCESSES")) {
+    gSystem->Setenv("NDMSPC_MAX_PROCESSES", nProcessesStr.c_str());
+  }
   setenvIfEmpty("NDMSPC_MACRO_PARAMS", macroParams);
   setenvIfEmpty("NDMSPC_TCP_PORT", tcpPort);
   setenvIfEmpty("NDMSPC_TMP_DIR", tmpDir);
@@ -247,13 +249,20 @@ int main(int argc, char ** argv)
   cleanupSpawnedWorkers();
   NLogInfo("ndmspc-run: done");
 
-  // // Workaround: ROOT teardown can intermittently hang at process exit in IPC
-  // // batch mode after all useful work has already completed.
-  // const std::string effectiveMode = gSystem->Getenv("NDMSPC_EXECUTION_MODE") ? gSystem->Getenv("NDMSPC_EXECUTION_MODE") : "";
-  // if (effectiveMode == "ipc") {
-  //   std::fflush(nullptr);
-  //   _exit(0);
-  // }
+  // Workaround: destructors from ROOT/Cling (TApplication, RTTI builders)
+  // can crash during static teardown on some environments after JIT
+  // compilation. Provide an opt-out mechanism to skip ROOT teardown and
+  // exit immediately to avoid crashes. Set `NDMSPC_SKIP_ROOT_TEARDOWN=0`
+  // to disable this behavior when debugging or when proper teardown is
+  // desired.
+  const char *skipTeardownEnv = gSystem->Getenv("NDMSPC_SKIP_ROOT_TEARDOWN");
+  const bool skipTeardown = (skipTeardownEnv == nullptr) || (std::string(skipTeardownEnv) != "0");
+  if (skipTeardown) {
+    NLogInfo("ndmspc-run: skipping ROOT/Cling teardown (NDMSPC_SKIP_ROOT_TEARDOWN=%s)",
+             skipTeardownEnv ? skipTeardownEnv : "(unset)");
+    std::fflush(nullptr);
+    _exit(0);
+  }
 
   return 0;
 }

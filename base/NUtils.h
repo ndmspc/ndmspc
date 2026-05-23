@@ -59,6 +59,12 @@ class NUtils : TObject {
    */
   static int Cp(std::string source, std::string destination, Bool_t progressbar = kTRUE);
   static bool CreateDirectory(const std::string & path);
+  /**
+   * @brief Parse a boolean-like environment value string.
+   *
+   * Accepts `1`, `true`, `yes`, `on` (case-insensitive) as true.
+   */
+  static bool ParseBoolEnv(const char * value);
 
   /**
    * @brief Open a ROOT file.

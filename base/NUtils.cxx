@@ -777,6 +777,14 @@ bool NUtils::CreateDirectory(const std::string & path)
   return gSystem->mkdir(localDir.c_str(), kTRUE) == 0;
 }
 
+bool NUtils::ParseBoolEnv(const char * value)
+{
+  if (!value) return false;
+  std::string v(value);
+  for (char & c : v) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+  return (v == "1" || v == "true" || v == "yes" || v == "on");
+}
+
 TFile * NUtils::OpenFile(std::string filename, std::string mode, bool createLocalDir)
 {
   ///
@@ -1784,6 +1792,8 @@ void NUtils::ProgressBar(int current, int total, std::string prefix, std::string
   ///
   /// Print progress bar
   ///
+  // Respect run-mode logging flag: if run output is disabled, do not print
+  if (!Ndmspc::NLogger::GetRunOutput()) return;
   if (total == 0) {
     std::lock_guard<std::recursive_mutex> lock(NLogger::GetLoggerMutex());
     std::cout << "\r";
@@ -1842,6 +1852,8 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
   ///
   /// Print progress bar
   ///
+  // Respect run-mode logging flag: if run output is disabled, do not print
+  if (!Ndmspc::NLogger::GetRunOutput()) return;
   if (total == 0) {
     std::lock_guard<std::recursive_mutex> lock(NLogger::GetLoggerMutex());
     std::cout << "\r[";

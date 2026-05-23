@@ -14,6 +14,7 @@
 #include "NDimensionalIpcRunner.h"
 #include "NGnThreadData.h"
 #include "NThreadData.h"
+#include "NGnTree.h"
 
 namespace Ndmspc {
 
@@ -125,6 +126,41 @@ int NDimensionalIpcRunner::WorkerLoop(const std::string & endpoint, size_t worke
   threadName << "ipc_" << std::setw(6) << std::setfill('0') << workerIndex;
   NLogger::SetThreadName(threadName.str());
 
+  // Diagnostic: print nesting and key NDMSPC env vars as seen in the worker
+  // Diagnostics removed: previously printed env/nesting info to stdout.
+
+  // Apply NDMSPC_LOG_* env vars to the logger in this forked worker so
+  // console/file/run output settings take effect immediately (NLogger was
+  // initialised in the parent and may not reflect env changes).
+  {
+    const char * runEnv = gSystem->Getenv("NDMSPC_LOG_RUN");
+    if (runEnv && runEnv[0] != '\0') {
+      const bool runOn = !(runEnv[0] == '0' || runEnv[0] == 'f' || runEnv[0] == 'F');
+      Ndmspc::NLogger::SetRunOutput(runOn);
+    }
+    const char * consoleEnv = gSystem->Getenv("NDMSPC_LOG_CONSOLE");
+    if (consoleEnv && consoleEnv[0] != '\0') {
+      const bool consoleOn = !(consoleEnv[0] == '0' || consoleEnv[0] == 'f' || consoleEnv[0] == 'F');
+      Ndmspc::NLogger::SetConsoleOutput(consoleOn);
+    }
+    const char * fileEnv = gSystem->Getenv("NDMSPC_LOG_FILE");
+    if (fileEnv && fileEnv[0] != '\0') {
+      const bool fileOn = (fileEnv[0] != '0' && fileEnv[0] != 'f' && fileEnv[0] != 'F');
+      Ndmspc::NLogger::SetFileOutput(fileOn);
+    }
+    const char * levelEnv = gSystem->Getenv("NDMSPC_LOG_LEVEL");
+    if (levelEnv && levelEnv[0] != '\0') {
+      try {
+        auto sev = Ndmspc::NLogger::GetSeverityFromString(std::string(levelEnv));
+        Ndmspc::NLogger::SetMinSeverity(sev);
+      } catch (...) {}
+    }
+    const char * dirEnv = gSystem->Getenv("NDMSPC_LOG_DIR");
+    if (dirEnv && dirEnv[0] != '\0') {
+      Ndmspc::NLogger::SetLogDirectory(std::string(dirEnv));
+    }
+  }
+
   void * ctx = zmq_ctx_new();
   if (!ctx) {
     return 1;
@@ -189,14 +225,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
   bool   shutdownSent = false;
   size_t tasksProcessed = 0;
   size_t lastReportedProgress = 0;
-  const bool showWorkerProgress = []() {
-    const char * env = gSystem->Getenv("NDMSPC_WORKER_PROGRESS");
-    if (!env || env[0] == '\0') return false;
-    std::string value(env);
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return (value == "1" || value == "true" || value == "yes" || value == "on");
-  }();
+  const bool showWorkerProgress = NUtils::ParseBoolEnv(gSystem->Getenv("NDMSPC_WORKER_PROGRESS"));
   
   const size_t progressReportInterval = []() -> size_t {
     const char * env = gSystem->Getenv("NDMSPC_WORKER_PROGRESS_INTERVAL");

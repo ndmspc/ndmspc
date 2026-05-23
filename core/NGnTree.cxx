@@ -14,6 +14,9 @@
 #include <THnSparse.h>
 #include <TH1.h>
 #include <TCanvas.h>
+#include <atomic>
+#include <unistd.h>
+#include <chrono>
 #include <TSystem.h>
 #include <TMap.h>
 #include <TObjString.h>
@@ -41,112 +44,6 @@ ClassImp(Ndmspc::NGnTree);
 
 namespace Ndmspc {
 
-std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, const NBinningPoint * point)
-{
-  std::string objPath = "";
-  if (objCfg.contains("prefix") && objCfg["prefix"].is_string()) {
-    objPath = objCfg["prefix"].get<std::string>();
-  }
-
-  std::string axisObjectDefaultFormat =
-      cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
-  std::string axisDefaultSeparator =
-      cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
-
-  std::string lastSep;
-  for (auto & axisEntry : cfg["axes"]) {
-    std::string axisName;
-    std::string mode;
-    std::string format;
-
-    if (axisEntry.is_string()) {
-      axisName = axisEntry.get<std::string>();
-      if (axisObjectDefaultFormat.empty()) {
-        mode = "bin";
-      }
-      else {
-        mode   = "minmax";
-        format = axisObjectDefaultFormat;
-      }
-    }
-    else if (axisEntry.is_object()) {
-      if (axisEntry.contains("name") && axisEntry["name"].is_string()) {
-        axisName = axisEntry["name"].get<std::string>();
-      }
-      else {
-        continue;
-      }
-      if (axisEntry.contains("mode") && axisEntry["mode"].is_string()) {
-        mode = axisEntry["mode"].get<std::string>();
-      }
-      if (axisEntry.contains("format") && axisEntry["format"].is_string()) {
-        format = axisEntry["format"].get<std::string>();
-      }
-    }
-    else {
-      continue;
-    }
-
-    if (mode.empty()) {
-      if (axisObjectDefaultFormat.empty())
-        mode = "bin";
-      else
-        mode = "minmax";
-    }
-    if (format.empty()) {
-      if (mode == "minmax")
-        format = axisObjectDefaultFormat.empty() ? "%.2f_%.2f" : axisObjectDefaultFormat;
-      else if (mode == "bin")
-        format = "%d";
-      else
-        format = "%.2f";
-    }
-
-    if (mode == "minmax") {
-      double min = point->GetBinMin(axisName);
-      double max = point->GetBinMax(axisName);
-      objPath += TString::Format(format.c_str(), min, max).Data();
-    }
-    else if (mode == "min") {
-      double min = point->GetBinMin(axisName);
-      objPath += TString::Format(format.c_str(), min).Data();
-    }
-    else if (mode == "max") {
-      double max = point->GetBinMax(axisName);
-      objPath += TString::Format(format.c_str(), max).Data();
-    }
-    else if (mode == "center") {
-      double c = point->GetBinCenter(axisName);
-      objPath += TString::Format(format.c_str(), c).Data();
-    }
-    else if (mode == "label") {
-      std::string lbl = point->GetBinLabel(axisName);
-      objPath += lbl;
-    }
-    else if (mode == "bin") {
-      objPath += std::to_string(point->GetBin(axisName));
-    }
-    else {
-      objPath += std::to_string(point->GetBin(axisName));
-    }
-
-    std::string sep = axisDefaultSeparator;
-    if (axisEntry.is_object() && axisEntry.contains("sufix") && axisEntry["sufix"].is_string()) {
-      sep = axisEntry["sufix"].get<std::string>();
-    }
-    objPath += sep;
-    lastSep = sep;
-  }
-
-  if (!lastSep.empty() && objPath.size() >= lastSep.size()) {
-    objPath = objPath.substr(0, objPath.size() - lastSep.size());
-  }
-  if (objCfg.contains("sufix") && objCfg["sufix"].is_string()) {
-    objPath += objCfg["sufix"].get<std::string>();
-  }
-
-  return objPath;
-}
 /**
  * @brief Global pointer to the HTTP handler map.
  *
@@ -477,18 +374,18 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
   // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
   ngnt->Process(processFunc, cfg);
-  ngnt->Close(true);
+  // ngnt->Close(true);
 
   // Release transient objects created for this import call. Keeping them
   // alive across repeated imports can accumulate ROOT state and lead to
   // hangs on subsequent calls.
-  if (ngnt->GetInput()) {
-    ngnt->GetInput()->Close(false);
-    delete ngnt->GetInput();
-    ngnt->SetInput(nullptr);
-  }
-  delete ngntIn;
-  delete ngnt;
+  // if (ngnt->GetInput()) {
+  //   // ngnt->GetInput()->Close(false);
+  //   delete ngnt->GetInput();
+  //   ngnt->SetInput(nullptr);
+  // }
+  // delete ngntIn;
+  // delete ngnt;
 
   // Remove tmp file
   gSystem->Exec(TString::Format("rm -f %s", tmpFilename.c_str()));
@@ -585,9 +482,15 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   /// Process the sparse object with the given function
   ///
 
+  // RAII guard to track nested Process() invocations in this process.
+  struct NestingGuard {
+    NestingGuard() { NGnTree::IncProcessNesting(); }
+    ~NestingGuard() { NGnTree::DecProcessNesting(); }
+  } _nesting_guard;
+
   NLogInfo("NGnTree::Process: Starting processing with %zu definitions ...", defNames.size());
   const bool runOutput = NLogger::GetRunOutput();
-  bool batch = gROOT->IsBatch();
+  bool       batch     = gROOT->IsBatch();
   gROOT->SetBatch(kTRUE);
   TH1::AddDirectory(kFALSE);
 
@@ -719,16 +622,56 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
   // --- End worker mode ---
 
-  NUtils::EnableMT();
-
   int nThreads = ROOT::GetThreadPoolSize(); // Get the number of threads to use
   if (nThreads < 1) nThreads = 1;
+  if (nThreads > 1) {
+    NLogInfo("NGnTree::Process: Running with %d threads ...", nThreads);
+    NUtils::EnableMT();
+  }
+
+  // Support colon-separated per-level configuration (e.g. "ipc:ipc") by
+  // picking the token that corresponds to the current Process() nesting.
+  int nesting   = NGnTree::GetProcessNesting();
+  int pickIndex = (nesting > 0) ? (nesting - 1) : 0;
+
+  auto pick_token = [](const char * envVal, int idx, const char * def) -> std::string {
+    if (!envVal || envVal[0] == '\0') return def ? std::string(def) : std::string();
+    std::string s(envVal);
+    size_t      start = 0;
+    int         cur   = 0;
+    while (true) {
+      size_t      pos   = s.find(':', start);
+      std::string token = (pos == std::string::npos) ? s.substr(start) : s.substr(start, pos - start);
+      if (cur == idx) return token;
+      if (pos == std::string::npos) break;
+      start = pos + 1;
+      ++cur;
+    }
+    size_t last_colon = s.rfind(':');
+    if (last_colon == std::string::npos) return s;
+    return s.substr(last_colon + 1);
+  };
 
   std::string  executionMode = "thread";
   const char * envMode       = gSystem->Getenv("NDMSPC_EXECUTION_MODE");
   const bool   modeExplicit  = (envMode && envMode[0] != '\0');
   if (modeExplicit) {
-    executionMode = envMode;
+    if (std::string(envMode).find(':') != std::string::npos) {
+      executionMode = pick_token(envMode, pickIndex, "ipc");
+    }
+    else {
+      executionMode = envMode;
+    }
+  }
+
+  // Quick debug: print PID, nesting/pickIndex and chosen tokens for troubleshooting
+  {
+    const char * envMax     = gSystem->Getenv("NDMSPC_MAX_PROCESSES");
+    const char * envModeRaw = gSystem->Getenv("NDMSPC_EXECUTION_MODE");
+    NLogInfo("NGnTree::Process: DBG PID=%d nesting=%d pickIndex=%d executionMode='%s' NDMSPC_EXECUTION_MODE='%s' "
+             "NDMSPC_MAX_PROCESSES='%s'",
+             static_cast<int>(getpid()), nesting, pickIndex, executionMode.c_str(), envModeRaw ? envModeRaw : "<unset>",
+             envMax ? envMax : "<unset>");
   }
 
   std::string normalizedMode = executionMode;
@@ -740,11 +683,16 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   bool   useTcp              = (normalizedMode == "tcp");
   size_t nProcesses          = static_cast<size_t>(nThreads);
   bool   ndmspcNProcExplicit = false;
+  bool   rootThreadsExplicit = false;
 
   if (const char * envNdmspcNProc = gSystem->Getenv("NDMSPC_MAX_PROCESSES")) {
     ndmspcNProcExplicit = true;
     try {
-      nProcesses = std::max<size_t>(1, static_cast<size_t>(std::stoll(envNdmspcNProc)));
+      std::string sel = envNdmspcNProc;
+      if (sel.find(':') != std::string::npos) {
+        sel = pick_token(envNdmspcNProc, pickIndex, nullptr);
+      }
+      nProcesses = std::max<size_t>(1, static_cast<size_t>(std::stoll(sel)));
     }
     catch (...) {
       NLogWarning("NGnTree::Process: Invalid NDMSPC_MAX_PROCESSES='%s', using default=%zu", envNdmspcNProc, nProcesses);
@@ -753,7 +701,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   else if (const char * envNProc = gSystem->Getenv("ROOT_MAX_THREADS")) {
     // Backward-compatible fallback when NDMSPC_MAX_PROCESSES is not set.
     try {
-      nProcesses = std::max<size_t>(1, static_cast<size_t>(std::stoll(envNProc)));
+      nProcesses          = std::max<size_t>(1, static_cast<size_t>(std::stoll(envNProc)));
+      rootThreadsExplicit = true;
     }
     catch (...) {
       NLogWarning("NGnTree::Process: Invalid ROOT_MAX_THREADS='%s', using default=%zu", envNProc, nProcesses);
@@ -761,7 +710,9 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   }
 
   // Keep explicit NDMSPC_EXECUTION_MODE settings authoritative.
-  // If mode is not explicitly set, default to local IPC for multi-process runs.
+  // If mode is not explicitly set, default to local IPC when the user has
+  // explicitly configured process/thread counts (even if the value is 1),
+  // or when more than one process is requested.
   if (modeExplicit) {
     if (normalizedMode == "thread") {
       useProcessIpc = false;
@@ -782,7 +733,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       useTcp        = false;
     }
   }
-  else if (nProcesses > 1) {
+  else if (ndmspcNProcExplicit || rootThreadsExplicit || nProcesses > 1) {
+    // If the user explicitly set NDMSPC_MAX_PROCESSES or ROOT_MAX_THREADS
+    // we prefer IPC mode so that per-process behaviour (and per-level
+    // token selection) is honoured, even when the value is 1.
     useProcessIpc  = true;
     useTcp         = false;
     executionMode  = "ipc";
@@ -840,19 +794,37 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
     if (tmpDir.empty()) tmpDir = "/tmp";
   }
-  if (!tmpDir.empty() && !gSystem->IsAbsoluteFileName(tmpDir.c_str()) && !launchCwd.empty()) {
+  // If tmpDir contains a remote protocol (e.g. root://, http://) treat it as absolute
+  bool tmpDirIsRemote = (tmpDir.find("://") != std::string::npos);
+  if (!tmpDir.empty() && !tmpDirIsRemote && !gSystem->IsAbsoluteFileName(tmpDir.c_str()) && !launchCwd.empty()) {
     tmpDir = launchCwd + "/" + tmpDir;
   }
 
-  std::string jobDir = tmpDir + "/.ndmspc/tmp/" + std::to_string(gSystem->GetPid());
+  // Create a unique per-invocation job directory to avoid collisions in nested runs.
+  static std::atomic<uint64_t> s_run_counter{0};
+  uint64_t                     runId  = ++s_run_counter;
+  auto                         now_ns = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  std::string jobDir = tmpDir + "/.ndmspc/tmp/" + std::to_string(gSystem->GetPid()) + "/run_" + std::to_string(now_ns) +
+                       "_" + std::to_string(runId);
+  // // Ensure the job directory exists for local paths only. Remote protocols
+  // // (e.g. root://, http://) are handled by the remote filesystem and by
+  // // NUtils::CreateDirectory/OpenFile, so skip local mkdir for those.
+  // std::string jobDirExpanded = gSystem->ExpandPathName(jobDir.c_str());
+  // bool isRemote = (jobDirExpanded.find("://") != std::string::npos) &&
+  //                 (jobDirExpanded.find("file://") == std::string::npos);
+  // if (!isRemote) {
+  //   gSystem->MakeDirectory(jobDirExpanded.c_str());
+  // }
 
   // Results dir: when NDMSPC_TMP_RESULTS_DIR equals NDMSPC_TMP_DIR (or is unset),
   // reuse jobDir so that localTmpFile == resultsFilename — no copy or delete needed.
   const char * resultsDirEnv = gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR");
   std::string  resultsDirBase;
   if (resultsDirEnv && resultsDirEnv[0] != '\0') {
-    resultsDirBase = resultsDirEnv;
-    if (!gSystem->IsAbsoluteFileName(resultsDirBase.c_str()) && !launchCwd.empty()) {
+    resultsDirBase          = resultsDirEnv;
+    bool resultsDirIsRemote = (resultsDirBase.find("://") != std::string::npos);
+    if (!resultsDirBase.empty() && !resultsDirIsRemote && !gSystem->IsAbsoluteFileName(resultsDirBase.c_str()) &&
+        !launchCwd.empty()) {
       resultsDirBase = launchCwd + "/" + resultsDirBase;
     }
   }
@@ -889,8 +861,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     processedEntries++;
     size_t nRunning = (totalEntries - processedEntries >= threadDataVector.size()) ? threadDataVector.size()
                                                                                    : totalEntries - processedEntries;
-    if (runOutput) NUtils::ProgressBar(processedEntries, totalEntries, start_par,
-                                       TString::Format("R%4zu", nRunning).Data());
+    if (runOutput)
+      NUtils::ProgressBar(processedEntries, totalEntries, start_par, TString::Format("R%4zu", nRunning).Data());
   };
 
   std::vector<Ndmspc::NThreadData *>            processWorkers;
@@ -957,7 +929,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
 
       const std::vector<Long64_t> & originalDefinitionIds = originalDefinitionIdsMap[name];
-      std::vector<Long64_t>       scheduledDefinitionIds;
+      std::vector<Long64_t>         scheduledDefinitionIds;
       scheduledDefinitionIds.reserve(originalDefinitionIds.size());
       for (const auto id : originalDefinitionIds) {
         if (processedDefinitionIds.insert(id).second) {
@@ -1038,13 +1010,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
       else {
         ipcExecutor->SetBounds(mins, maxs);
-        bool workerShortfallWarned = false;
-        size_t acked              = ipcExecutor->ExecuteCurrentBoundsProcessIpc(
+        bool   workerShortfallWarned = false;
+        size_t acked                 = ipcExecutor->ExecuteCurrentBoundsProcessIpc(
             name, &scheduledDefinitionIds, [&](const ExecutionProgress & progress) {
-              processedEntries   = progress.tasksAcked;
+              processedEntries = progress.tasksAcked;
               if (!workerShortfallWarned && progress.activeWorkers < expectedWorkers) {
-                NLogWarning("NGnTree::Process: active workers below expected for '%s' (%zu/%zu)",
-                            name.c_str(), progress.activeWorkers, expectedWorkers);
+                NLogWarning("NGnTree::Process: active workers below expected for '%s' (%zu/%zu)", name.c_str(),
+                            progress.activeWorkers, expectedWorkers);
                 workerShortfallWarned = true;
               }
               if (runOutput) {
@@ -1174,7 +1146,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   Ndmspc::NGnThreadData * outputData = new Ndmspc::NGnThreadData();
   outputData->Init(0, func, nullptr, nullptr, this, binningIn);
   outputData->SetCfg(cfgRuntime);
-  // outputData->Init(0, func, this);
 
   for (auto & data : threadDataVector) {
     // Always trust actual processed-count first.
@@ -1192,15 +1163,72 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     mergeList->Add(&data);
   }
 
-  Long64_t   nmerged  = outputData->Merge(mergeList);
-  const auto mergeEnd = std::chrono::high_resolution_clock::now();
-  if (!NLogger::GetConsoleOutput()) {
-    const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
-    NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
+  Long64_t  nmerged  = 0;
+  NGnTree * mergedNg = nullptr;
+  // Optionally enable a fast copy/open path when exactly one worker contributed.
+  // This unstable feature is OFF by default. Set `NDMSPC_SINGLE_WORKER_FAST_MERGE`
+  // to `1|true|yes|on` to enable.
+  const bool allowFast = []() {
+    const char * env = gSystem->Getenv("NDMSPC_SINGLE_WORKER_FAST_MERGE");
+    if (!env || env[0] == '\0') return false; // default: enabled
+    return NUtils::ParseBoolEnv(env);
+  }();
+
+  if (mergeList->GetEntries() == 1 && allowFast) {
+    auto * only = dynamic_cast<Ndmspc::NGnThreadData *>(mergeList->First());
+    if (!only) {
+      NLogError("NGnTree::Process: Unexpected merge list entry type");
+      delete mergeList;
+      delete outputData;
+      return false;
+    }
+    const std::string srcFile   = only->GetResultsFilename().empty()
+                                      ? only->GetHnSparseBase()->GetStorageTree()->GetFileName()
+                                      : only->GetResultsFilename();
+    const std::string finalFile = (mergedNg ? mergedNg->GetStorageTree()->GetFileName()
+                                            : outputData->GetHnSparseBase()->GetStorageTree()->GetFileName());
+
+    if (srcFile != finalFile) {
+      // Use NUtils::Cp which will create directories as needed and support
+      // ROOT-aware URIs; returns 0 on success.
+      if (!Ndmspc::NUtils::Cp(srcFile, finalFile, kFALSE)) {
+        NLogError("NGnTree::Process: Failed to copy single-worker result from '%s' to '%s' using NUtils::Cp",
+                  srcFile.c_str(), finalFile.c_str());
+        delete mergeList;
+        delete outputData;
+        return false;
+      }
+    }
+
+    // Open the copied final file as the merged NGnTree
+    mergedNg = NGnTree::Open(finalFile);
+    if (!mergedNg) {
+      NLogError("NGnTree::Process: Failed to open merged file '%s' after copy", finalFile.c_str());
+      delete mergeList;
+      delete outputData;
+      return false;
+    }
+    nmerged             = 1;
+    const auto mergeEnd = std::chrono::high_resolution_clock::now();
+    if (!NLogger::GetConsoleOutput()) {
+      const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
+      NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
+    }
+  }
+  else {
+    Long64_t tmpMerged  = outputData->Merge(mergeList);
+    nmerged             = tmpMerged;
+    const auto mergeEnd = std::chrono::high_resolution_clock::now();
+    if (!NLogger::GetConsoleOutput()) {
+      const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
+      NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
+    }
   }
   if (nmerged <= 0) {
     NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
     delete mergeList;
+    if (mergedNg) delete mergedNg;
+    delete outputData;
     return false;
   }
   NLogInfo("NGnTree::Process: Merged %lld outputs successfully", nmerged);
@@ -1214,8 +1242,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
 
   // binningIn= outputData->GetHnSparseBase()->GetBinning();
 
-  auto *                                             mergedBinning = outputData->GetHnSparseBase()->GetBinning();
-  std::set<Long64_t>                                 mergedContentIds;
+  auto *             mergedBinning = (mergedNg ? mergedNg->GetBinning() : outputData->GetHnSparseBase()->GetBinning());
+  std::set<Long64_t> mergedContentIds;
   std::vector<std::pair<Long64_t, std::vector<int>>> mergedContentCoords;
 
   // NStorageTree::Merge may rebuild definition IDs from stored rows only,
@@ -1281,7 +1309,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   NLogDebug("NGnTree::Process: Final binning definitions after processing:");
   for (auto & name : defNames) {
     // auto binningDef = binningIn->GetDefinition(name);
-    auto binningDef = outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name);
+    auto binningDef = (mergedNg ? mergedNg->GetBinning()->GetDefinition(name)
+                                : outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name));
     if (!binningDef) {
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
       return false;
@@ -1289,13 +1318,37 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     binningDef->Print();
   }
 
-  fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
-  fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
-  fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
-  fParameters  = outputData->GetHnSparseBase()->GetParameters();
-
-  // Close the final output file
-  outputData->GetHnSparseBase()->Close(true);
+  if (mergedNg) {
+    // Transfer pointers from the opened NGnTree into this instance.
+    // Do NOT call mergedNg->Close(true) here: Close() will delete/close
+    // internal TFile objects owned by the storage tree and can leave
+    // dangling pointers if we keep a direct reference. Instead, take
+    // ownership of the storage tree and related structures and delete
+    // the temporary NGnTree wrapper.
+    fTreeStorage = mergedNg->GetStorageTree();
+    fOutputs     = mergedNg->GetOutputs();
+    fBinning     = mergedNg->GetBinning(); // Update binning to the merged one
+    fParameters  = mergedNg->GetParameters();
+    // We now own the storage tree referenced by fTreeStorage. Ensure the
+    // destructor will free it once (avoid double-delete).
+    fOwnsTreeStorage = true;
+    // Binning and outputs are owned by the file; keep ownership flags as-is
+    // (do not claim ownership of binning here).
+    fOwnsBinning = false;
+    // Remove temporary NGnTree wrapper without closing underlying storage
+    // (its destructor won't delete the storage tree because Open() sets
+    // ownership to false).
+    delete mergedNg;
+    mergedNg = nullptr;
+  }
+  else {
+    fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
+    fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
+    fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
+    fParameters  = outputData->GetHnSparseBase()->GetParameters();
+    // Close the final output file
+    outputData->GetHnSparseBase()->Close(true);
+  }
   {
     Long_t            id        = 0;
     Long64_t          size      = 0;
@@ -1310,10 +1363,10 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       }
       else {
         NLogRun("NGnTree::Process: Final output '%s' size: %s (%lld bytes)", finalFile.c_str(),
-                 NUtils::FormatBytes(size).c_str(), size);
+                NUtils::FormatBytes(size).c_str(), size);
       }
     }
-      else {
+    else {
       if (NLogger::GetConsoleOutput()) {
         NLogError("NGnTree::Process: Final output '%s' not found after close", finalFile.c_str());
       }
@@ -1333,7 +1386,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     const auto cleanupSec =
         std::chrono::duration_cast<std::chrono::duration<double>>(cleanupEnd - cleanupStart).count();
     NLogRun("NGnTree::Process: cleanup done (%.2f s)", cleanupSec);
-  } else {
+  }
+  else {
     const auto cleanupSec =
         std::chrono::duration_cast<std::chrono::duration<double>>(cleanupEnd - cleanupStart).count();
     NLogInfo("NGnTree::Process: cleanup done (%.2f s)", cleanupSec);
@@ -1860,7 +1914,7 @@ bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
 }
 
 NGnTree * NGnTree::Import(const std::string & findPath, const std::string & fileName,
-                          const std::vector<std::string> & headers, const std::string & outputFile, bool close)
+                          const std::vector<std::string> & headers, const std::string & outputFile)
 {
   ///
   /// Import NGnTree from mutiple files in the given path
@@ -1927,12 +1981,13 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
         NLogDebug("NGnTree::Import: Closing previously opened file '%s' ...",
                   ngnt->GetStorageTree()->GetFileName().c_str());
         ngnt->Close(false);
-        // delete ngnt;
+        delete ngnt;
         point->SetTempObject("file", nullptr);
       }
       ngnt = NGnTree::Open(filename.c_str());
       if (!ngnt || ngnt->IsZombie()) {
         NLogError("NGnTree::Import: Cannot open file '%s'", filename.c_str());
+        point->SetTempObject("file", nullptr);
         return;
       }
       point->SetTempObject("file", ngnt);
@@ -1940,8 +1995,8 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
 
     int         nDirAxes  = cfg["nDirAxes"].get<int>();
     Int_t *     coords    = point->GetCoords();
-    std::string coordsStr = NUtils::GetCoordsString(NUtils::ArrayToVector(coords, point->GetNDimensionsContent()));
-    NLogInfo("NGnTree::Import: Processing point with coords %s ...", coordsStr.c_str());
+    // std::string coordsStr = NUtils::GetCoordsString(NUtils::ArrayToVector(coords, point->GetNDimensionsContent()));
+    // NLogInfo("NGnTree::Import: Processing point with coords %s ...", coordsStr.c_str());
 
     Long64_t entryNumber =
         ngnt->GetBinning()->GetContent()->GetBin(&coords[3 * nDirAxes], kFALSE); // skip first 3 dir axes
@@ -1989,18 +2044,121 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
     if (ngnt) {
       NLogDebug("NGnTree::Import: Closing last file '%s' ...", ngnt->GetStorageTree()->GetFileName().c_str());
       // ngnt->Close(false);
-      // delete ngnt;
+      delete ngnt;
       point->SetTempObject("file", nullptr);
     }
   };
 
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
-  if (close) {
-    ngnt->Close(true);
-    delete ngnt;
-    ngnt = NGnTree::Open(outputFile.c_str());
-  }
+  ngnt = NGnTree::Open(outputFile.c_str());
   return ngnt;
+}
+
+std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, const NBinningPoint * point)
+{
+  std::string objPath = "";
+  if (objCfg.contains("prefix") && objCfg["prefix"].is_string()) {
+    objPath = objCfg["prefix"].get<std::string>();
+  }
+
+  std::string axisObjectDefaultFormat =
+      cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
+  std::string axisDefaultSeparator =
+      cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
+
+  std::string lastSep;
+  for (auto & axisEntry : cfg["axes"]) {
+    std::string axisName;
+    std::string mode;
+    std::string format;
+
+    if (axisEntry.is_string()) {
+      axisName = axisEntry.get<std::string>();
+      if (axisObjectDefaultFormat.empty()) {
+        mode = "bin";
+      }
+      else {
+        mode   = "minmax";
+        format = axisObjectDefaultFormat;
+      }
+    }
+    else if (axisEntry.is_object()) {
+      if (axisEntry.contains("name") && axisEntry["name"].is_string()) {
+        axisName = axisEntry["name"].get<std::string>();
+      }
+      else {
+        continue;
+      }
+      if (axisEntry.contains("mode") && axisEntry["mode"].is_string()) {
+        mode = axisEntry["mode"].get<std::string>();
+      }
+      if (axisEntry.contains("format") && axisEntry["format"].is_string()) {
+        format = axisEntry["format"].get<std::string>();
+      }
+    }
+    else {
+      continue;
+    }
+
+    if (mode.empty()) {
+      if (axisObjectDefaultFormat.empty())
+        mode = "bin";
+      else
+        mode = "minmax";
+    }
+    if (format.empty()) {
+      if (mode == "minmax")
+        format = axisObjectDefaultFormat.empty() ? "%.2f_%.2f" : axisObjectDefaultFormat;
+      else if (mode == "bin")
+        format = "%d";
+      else
+        format = "%.2f";
+    }
+
+    if (mode == "minmax") {
+      double min = point->GetBinMin(axisName);
+      double max = point->GetBinMax(axisName);
+      objPath += TString::Format(format.c_str(), min, max).Data();
+    }
+    else if (mode == "min") {
+      double min = point->GetBinMin(axisName);
+      objPath += TString::Format(format.c_str(), min).Data();
+    }
+    else if (mode == "max") {
+      double max = point->GetBinMax(axisName);
+      objPath += TString::Format(format.c_str(), max).Data();
+    }
+    else if (mode == "center") {
+      double c = point->GetBinCenter(axisName);
+      objPath += TString::Format(format.c_str(), c).Data();
+    }
+    else if (mode == "label") {
+      std::string lbl = point->GetBinLabel(axisName);
+      objPath += lbl;
+    }
+    else if (mode == "bin") {
+      objPath += std::to_string(point->GetBin(axisName));
+    }
+    else {
+      objPath += std::to_string(point->GetBin(axisName));
+    }
+
+    std::string sep = axisDefaultSeparator;
+    if (axisEntry.is_object() && axisEntry.contains("sufix") && axisEntry["sufix"].is_string()) {
+      sep = axisEntry["sufix"].get<std::string>();
+    }
+    objPath += sep;
+    lastSep = sep;
+  }
+
+  if (!lastSep.empty() && objPath.size() >= lastSep.size()) {
+    objPath = objPath.substr(0, objPath.size() - lastSep.size());
+  }
+  if (objCfg.contains("sufix") && objCfg["sufix"].is_string()) {
+    objPath += objCfg["sufix"].get<std::string>();
+  }
+
+  return objPath;
 }
 
 } // namespace Ndmspc
