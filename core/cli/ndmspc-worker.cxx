@@ -358,14 +358,7 @@ int main(int argc, char ** argv)
   gSystem->Setenv("NDMSPC_WORKER_INDEX", std::to_string(workerIndex).c_str());
 
   NLogRun("ndmspc-worker: starting — index=%zu endpoint=%s", workerIndex, endpoint.c_str());
-  const bool suppressStartupDetails = []() {
-    const char * env = gSystem->Getenv("NDMSPC_SUPPRESS_STARTUP_DETAILS");
-    if (!env || env[0] == '\0') return false;
-    std::string value(env);
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return (value == "1" || value == "true" || value == "yes" || value == "on");
-  }();
+  const bool suppressStartupDetails = Ndmspc::NUtils::ParseBoolEnv(gSystem->Getenv("NDMSPC_SUPPRESS_STARTUP_DETAILS"));
   if (!suppressStartupDetails) {
     NLogRun("  macro                  = %s", macroList.c_str());
     NLogRun("  NDMSPC_TMP_DIR         = %s", gSystem->Getenv("NDMSPC_TMP_DIR") ? gSystem->Getenv("NDMSPC_TMP_DIR") : "(not set)");

@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
+#include <cstring>
 #include <queue>
 #include <set>
 #include <sstream>
@@ -433,7 +434,54 @@ void NDimensionalExecutor::ExecuteParallel(
 size_t NDimensionalExecutor::ExecuteParallelProcessIpc(std::vector<NThreadData *> & workerObjects,
                                                        size_t                       processCount)
 {
-  StartProcessIpc(workerObjects, processCount);
+  // Support colon-separated per-level configuration for NDMSPC_MAX_PROCESSES and
+  // NDMSPC_EXECUTION_MODE. Example: NDMSPC_MAX_PROCESSES=2:5 and
+  // NDMSPC_EXECUTION_MODE=ipc:ipc
+  int nesting = Ndmspc::NGnTree::GetProcessNesting();
+  int pickIndex = (nesting > 0) ? (nesting - 1) : 0;
+
+  const char * orig_env_max = gSystem->Getenv("NDMSPC_MAX_PROCESSES");
+  const char * orig_env_mode = gSystem->Getenv("NDMSPC_EXECUTION_MODE");
+
+  auto pick_token = [](const char * envVal, int idx, const char * def) -> std::string {
+    if (!envVal || std::strlen(envVal) == 0) return def ? std::string(def) : std::string();
+    std::string s(envVal);
+    size_t start = 0;
+    int cur = 0;
+    while (true) {
+      size_t pos = s.find(':', start);
+      std::string token = (pos == std::string::npos) ? s.substr(start) : s.substr(start, pos - start);
+      if (cur == idx) return token;
+      if (pos == std::string::npos) break;
+      start = pos + 1;
+      ++cur;
+    }
+    size_t last_colon = s.rfind(':');
+    if (last_colon == std::string::npos) return s;
+    return s.substr(last_colon + 1);
+  };
+
+  size_t chosenProcessCount = processCount;
+  if (orig_env_max && std::strchr(orig_env_max, ':')) {
+    std::string tok = pick_token(orig_env_max, pickIndex, nullptr);
+    try {
+      long long parsed = std::stoll(tok);
+      if (parsed > 0) chosenProcessCount = static_cast<size_t>(parsed);
+    }
+    catch (...) {
+      // fall back to provided processCount
+    }
+  }
+
+  std::string chosenMode = orig_env_mode ? std::string(orig_env_mode) : std::string();
+  if (orig_env_mode && std::strchr(orig_env_mode, ':')) {
+    chosenMode = pick_token(orig_env_mode, pickIndex, "ipc");
+  }
+
+  // We do not overwrite NDMSPC_MAX_PROCESSES / NDMSPC_EXECUTION_MODE here.
+  // Selection is based on the current NGnTree process nesting counter.
+
+  StartProcessIpc(workerObjects, chosenProcessCount);
   try {
     size_t acked = ExecuteCurrentBoundsProcessIpc();
     FinishProcessIpc();
@@ -630,11 +678,12 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
 
   if (zmq_bind(fIpcSession->router, fIpcSession->endpoint.c_str()) != 0) {
     const std::string err = zmq_strerror(zmq_errno());
+    const std::string boundEndpoint = fIpcSession->endpoint; // capture before reset
     zmq_close(fIpcSession->router);
     zmq_ctx_term(fIpcSession->ctx);
     if (!isTcp) ::unlink(fIpcSession->endpointPath.c_str());
     fIpcSession.reset();
-    throw std::runtime_error("Failed to bind endpoint '" + fIpcSession->endpoint + "': " + err);
+    throw std::runtime_error(std::string("Failed to bind endpoint '") + boundEndpoint + "': " + err);
   }
 
   fIpcSession->identityToWorker.clear();
@@ -663,6 +712,20 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
 
   if (!isTcp) {
     fIpcSession->childPids.assign(processesToUse, -1);
+    // If this StartProcessIpc is invoked from a nested Process() invocation
+    // (nesting > 0) then temporarily silence worker logs for the children
+    // we are about to fork so the second-level workers remain quiet by
+    // inheriting these env vars. Restore parent's env after forking.
+    const int nesting = Ndmspc::NGnTree::GetProcessNesting();
+    const char * origLogRun = nullptr;
+    const char * origLogConsole = nullptr;
+    if (nesting > 0) {
+      origLogRun = gSystem->Getenv("NDMSPC_LOG_RUN");
+      origLogConsole = gSystem->Getenv("NDMSPC_LOG_CONSOLE");
+      gSystem->Setenv("NDMSPC_LOG_RUN", "0");
+      gSystem->Setenv("NDMSPC_LOG_CONSOLE", "0");
+    }
+
     for (size_t i = 0; i < processesToUse; ++i) {
       pid_t pid = fork();
       if (pid < 0) {
@@ -680,6 +743,13 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
         _exit(rc == 0 ? 0 : 1);
       }
       fIpcSession->childPids[i] = pid;
+    }
+    // Restore parent's logging env after children have been forked
+    if (nesting > 0) {
+      if (origLogRun && origLogRun[0] != '\0') gSystem->Setenv("NDMSPC_LOG_RUN", origLogRun);
+      else gSystem->Unsetenv("NDMSPC_LOG_RUN");
+      if (origLogConsole && origLogConsole[0] != '\0') gSystem->Setenv("NDMSPC_LOG_CONSOLE", origLogConsole);
+      else gSystem->Unsetenv("NDMSPC_LOG_CONSOLE");
     }
   }
 
@@ -703,10 +773,7 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
   if (isTcp) {
     const char * envWaitAll = gSystem->Getenv("NDMSPC_TCP_WAIT_ALL_WORKERS");
     if (envWaitAll && envWaitAll[0] != '\0') {
-      std::string value(envWaitAll);
-      std::transform(value.begin(), value.end(), value.begin(),
-                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-      waitAllTcpWorkers = (value == "1" || value == "true" || value == "yes" || value == "on");
+      waitAllTcpWorkers = NUtils::ParseBoolEnv(envWaitAll);
     }
     if (waitAllTcpWorkers) {
       if (const char * envTarget = gSystem->Getenv("NDMSPC_TCP_WAIT_ALL_WORKERS_TARGET")) {

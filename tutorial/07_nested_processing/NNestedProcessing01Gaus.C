@@ -9,15 +9,11 @@
 #include <TH1D.h>
 #include <TF1.h>
 
-void NNested01Gaus(std::string outFile = "NNested01Gaus.root", bool onlyOddPoints = false)
+void NGausMeanSigma(std::string outFile = "NGausMeanSigma.root", int entries = 10000, bool onlyOddPoints = false)
 {
-  ///
-  /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash
-  ///   e.g. export ROOT_MAX_THREADS=4
-  ///
-
   json cfg;
   cfg["onlyOddPoints"] = onlyOddPoints;
+  cfg["entries"]       = entries;
 
   // Create axes
   TObjArray * axes = new TObjArray();
@@ -29,19 +25,14 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root", bool onlyOddPoint
   TAxis * a2 = Ndmspc::NUtils::CreateAxisFromLabels("sigma", "Sigma", {"0.5", "1.0", "1.5", "2.0", "2.5", "3.0"});
   axes->Add(a2);
 
-  TAxis * a3 =
-      Ndmspc::NUtils::CreateAxisFromLabels("entries", "Entries", {"100", "1000", "10000", "100000", "1000000"});
-  axes->Add(a3);
-
   // Create an NGnTree from the list of axes
   Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(axes, outFile);
 
   // Define the binning for the axes
   std::map<std::string, std::vector<std::vector<int>>> b;
   // Set binning for axis1 (rebin to 1 bin)
-  b["mean"]    = {{1}};
-  b["sigma"]   = {{1}};
-  b["entries"] = {{1}};
+  b["mean"]  = {{1}};
+  b["sigma"] = {{1}};
   // Create the binning definition with name "default" in the NGnTree
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
@@ -67,7 +58,7 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root", bool onlyOddPoint
     double sigma = std::stof(point->GetBinLabel("sigma"));
 
     // Retrieve number of entries
-    int nEntries = std::stoi(point->GetBinLabel("entries"));
+    int nEntries = cfg["entries"].get<int>();
 
     // each thread gets its own RNG (thread-safe)
     thread_local TRandom3 rnd(0);
@@ -78,11 +69,11 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root", bool onlyOddPoint
 
     // Warning: Make sure that you add this canvas to the output list of the point.
     //          If not you have to delete it manually to avoid memory leaks.
-    TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
+    // TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
 
     // Create Gaussian fit function for the histogram
     TF1 * gausFunc = new TF1("gausFunc", "gaus", -10, 10);
-    gausFunc->AddToGlobalList(false); // prevent registration in ROOT's global list (thread-safe)
+    // gausFunc->AddToGlobalList(false); // prevent registration in ROOT's global list (thread-safe)
 
     // Retrieve fit results and store them in the parameters of the point
     TFitResultPtr fitResult = h->Fit(gausFunc, "QS");
@@ -96,13 +87,13 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root", bool onlyOddPoint
       pointParams->SetParameter("sigmaFit", fitResult->Parameter(2), fitResult->Error(2));
     }
     outputPoint->Add(h);
-    outputPoint->Add(c);
+    // outputPoint->Add(c);
   };
 
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     // NLogInfo("Starting processing ...");
-    TH1::AddDirectory(kFALSE);
+    // TH1::AddDirectory(kFALSE);
   };
 
   // Define the end function which is executed after processing all points
@@ -113,5 +104,74 @@ void NNested01Gaus(std::string outFile = "NNested01Gaus.root", bool onlyOddPoint
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
 
   // Clean up
+  delete ngnt;
+}
+
+void NNestedProcessing01Gaus(std::string outputDir = "/tmp/NNestedProcessing",
+                             std::string outFile = "NNestedProcessing01Gaus.root", bool onlyOddPoints = false)
+{
+  json cfg;
+  cfg["outputDir"]     = outputDir; // %d is replaced by the thread id in the output file name
+  cfg["outFile"]       = outFile;
+  cfg["onlyOddPoints"] = onlyOddPoints;
+
+  // Create axes
+  TObjArray * axes = new TObjArray();
+  TAxis *     a3 =
+      Ndmspc::NUtils::CreateAxisFromLabels("entries", "Entries", {"100", "1000", "10000", "100000", "1000000"});
+  axes->Add(a3);
+
+  // Create an NGnTree from the list of axes
+  Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(axes, outFile);
+
+  // Define the binning for the axes
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  b["entries"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
+
+  // Define the processing function
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
+    // Retrieve configuration
+    json        cfg           = point->GetCfg();
+    bool        onlyOddPoints = cfg["onlyOddPoints"].get<bool>();
+    int         entries       = std::stoi(point->GetBinLabel("entries"));
+    std::string outputDir     = cfg["outputDir"].get<std::string>();
+    std::string outFileName   = cfg["outFile"].get<std::string>();
+    std::string outFile       = Form("%s/%d/%s", outputDir.c_str(), entries, outFileName.c_str());
+
+    // gSystem->Setenv("NDMSPC_MAX_PROCESSES", "5"); // set temporary directory for NGnTree processing (e.g. for storing
+    // intermediate files during import) gSystem->Setenv("NDMSPC_EXECUTION_MODE", "ipc"); // set temporary directory for
+    // NGnTree processing (e.g. for storing intermediate files during import)
+
+    NGausMeanSigma(outFile, entries, onlyOddPoints);
+
+    outputPoint->Add(new TNamed("outputFile", outFile.c_str()));
+  };
+
+  // Define the begin function which is executed before processing all points
+  Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    // NLogInfo("Starting processing ...");
+    // TH1::AddDirectory(kFALSE);
+  };
+
+  // Define the end function which is executed after processing all points
+  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    // NLogInfo("Finished processing ...");
+  };
+  // execute the processing function
+  ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
+
+  // Clean up
+  delete ngnt;
+
+  std::string outFileNameImported = outFile;
+  // replace .root with _imported.root in outFileNameImported
+  size_t pos = outFileNameImported.rfind(".root");
+  if (pos != std::string::npos) {
+    outFileNameImported.replace(pos, 5, "_imported.root");
+  }
+  ngnt = Ndmspc::NGnTree::Import(outputDir, outFile, {"entries"}, outFileNameImported);
+  ngnt->Print();
   delete ngnt;
 }

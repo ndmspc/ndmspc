@@ -6,6 +6,7 @@
 #include <TH2.h>
 #include <TH3.h>
 #include <TObject.h>
+#include <atomic>
 #include <vector>
 #include "NBinning.h"
 #include "NParameters.h"
@@ -391,7 +392,19 @@ class NGnTree : public TObject {
    */
   static NGnTree * Import(const std::string & findPath, const std::string & fileName,
                           const std::vector<std::string> & headers,
-                          const std::string &              outFileName = "/tmp/ngnt_imported.root", bool close = true);
+                          const std::string &              outFileName = "/tmp/ngnt_imported.root");
+
+  /**
+   * @brief Process nesting counter helpers.
+   *
+   * These functions track how many nested `Process()` calls are active
+   * in the current process. Useful for selecting per-level configuration
+   * (e.g. NDMSPC_MAX_PROCESSES colon-separated tokens).
+   */
+  static inline std::atomic<int> s_processNesting{0};
+  static void IncProcessNesting() { s_processNesting.fetch_add(1, std::memory_order_relaxed); }
+  static void DecProcessNesting() { s_processNesting.fetch_sub(1, std::memory_order_relaxed); }
+  static int GetProcessNesting() { return s_processNesting.load(std::memory_order_relaxed); }
 
   /**
    * @brief Helper: build object path string from configuration and a binning point.

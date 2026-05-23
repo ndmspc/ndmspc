@@ -11,6 +11,7 @@
 #include <TError.h>
 
 #include "NLogger.h"
+#include "NUtils.h"
 
 namespace Ndmspc {
 
@@ -65,25 +66,19 @@ void NLogger::Init()
 
   // Check if file output is enabled via environment variable
   if (const char * env_file_output = getenv("NDMSPC_LOG_FILE")) {
-    std::string value(env_file_output);
-    fgFileOutput = (value == "1" || value == "true" || value == "TRUE");
+    fgFileOutput = Ndmspc::NUtils::ParseBoolEnv(env_file_output);
   } // Check if console output is controlled via environment variable
 
   if (const char * env_console_output = getenv("NDMSPC_LOG_CONSOLE")) {
-    std::string value(env_console_output);
-    if (value == "0" || value == "false" || value == "FALSE") {
-      fgConsoleOutput = false;
-      gErrorIgnoreLevel = kFatal;
-    }
-    else if (value == "1" || value == "true" || value == "TRUE") {
-      fgConsoleOutput = true;
-    }
+    // Parse with utility: also handle explicit disable by false/0
+    bool v = Ndmspc::NUtils::ParseBoolEnv(env_console_output);
+    fgConsoleOutput = v;
+    if (!fgConsoleOutput) gErrorIgnoreLevel = kFatal;
   }
 
   // Check for run-mode output (separate from normal console output)
   if (const char * env_run_output = getenv("NDMSPC_LOG_RUN")) {
-    std::string value(env_run_output);
-    fgRunOutput = (value == "1" || value == "true" || value == "TRUE");
+    fgRunOutput = Ndmspc::NUtils::ParseBoolEnv(env_run_output);
     // If run-mode output is enabled, disable normal console output to avoid
     // duplicate or interleaved messages. Run-mode is intended to replace
     // normal console logging for progress-style output.
