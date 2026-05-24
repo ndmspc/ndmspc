@@ -620,7 +620,9 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   if (nThreads < 1) nThreads = 1;
   if (nThreads > 1) {
     NLogInfo("NGnTree::Process: Running with %d threads ...", nThreads);
-    NUtils::EnableMT();
+    // Do not enable ROOT IMT here unconditionally; it will be enabled later
+    // only when execution mode is 'thread' to avoid initializing ROOT/Cling
+    // in the supervisor when using IPC (separate worker processes).
   }
 
   // Support colon-separated per-level configuration (e.g. "ipc:ipc") by
@@ -754,6 +756,11 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   if (ndmspcNProcExplicit && normalizedMode == "thread" && nProcesses > 1) {
     NLogWarning("NGnTree::Process: NDMSPC_MAX_PROCESSES=%zu is set, but NDMSPC_EXECUTION_MODE=thread disables IPC.",
                 nProcesses);
+  }
+
+  // Enable ROOT multithreading only when running in threaded (in-process) mode.
+  if (!useProcessIpc && nThreads > 1) {
+    NUtils::EnableMT(nThreads);
   }
 
   const size_t workerObjectCount =

@@ -24,7 +24,7 @@
 #include "NLogger.h"
 #include "NParameters.h"
 #include "NUtils.h"
-#include "NWsClient.h"
+// #include "NWsClient.h"
 
 #include "NGnNavigator.h"
 
@@ -757,8 +757,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   return current;
 }
 
-void NGnNavigator::Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & wsUrl,
-                          int timeoutMs)
+void NGnNavigator::Export(const std::string & filename, std::vector<std::string> objectNames)
 {
   ///
   /// Export object to file
@@ -801,36 +800,6 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
   else {
     NLogError("Unsupported file format for export: %s", filename.c_str());
     return;
-  }
-  if (!wsUrl.empty()) {
-    NLogInfo("Uploading exported file to web socket: %s", wsUrl.c_str());
-    // NUtils::UploadFileToWebService(filename, wsUrl);
-
-    std::string       message = objJson.dump();
-    Ndmspc::NWsClient client;
-    if (!message.empty()) {
-      NLogInfo("Connecting to web socket: %s", wsUrl.c_str());
-      if (!client.Connect(wsUrl)) {
-        NLogError("Failed to connect to '%s' !!!", wsUrl.c_str());
-      }
-      else {
-
-        if (!client.Send(objJson.dump())) {
-          NLogError("Failed to send message `%s`", message.c_str());
-        }
-        else {
-          NLogInfo("Successfully sent message to '%s'", wsUrl.c_str());
-        }
-      }
-      if (timeoutMs > 0) {
-        NLogInfo("Waiting %d ms before disconnecting ...", timeoutMs);
-        gSystem->Sleep(timeoutMs); // wait for a while to ensure message is sent
-      }
-      NLogInfo("Disconnecting from '%s' ...", wsUrl.c_str());
-      client.Disconnect();
-    }
-
-    NLogInfo("Sent: %s", message.c_str());
   }
 }
 

@@ -11,11 +11,14 @@ BUILDING_DOC=false
 WITH_TEST=${WITH_TEST-false}
 TEST_ARGS=${TEST_ARGS-""}
 TEST_REGEX=""
+TEST_EXCLUDE=""
+TEST_EXCLUDE_ARGS=""
 VERBOSE=false
 LIST_TESTS=false
-WITH_SERVER=${WITH_SERVER-true}
-WITH_LEGACY=${WITH_LEGACY-false}
-WITH_PARQUET=${WITH_PARQUET-false}
+WITH_HTTP=${WITH_HTTP-true}
+WITH_HEP=${WITH_HEP-true}
+WITH_UTILS=${WITH_UTILS-false}
+WITH_TAXI=${WITH_TAXI-false}
 WITH_NUMCAL=${WITH_NUMCAL-false}
 
 PRINT_DEBUG=${PRINT_DEBUG-false}
@@ -73,16 +76,32 @@ for ARG in "$@"; do
       echo "Will install after compilation"
       MY_MAKE_OPTS="${MY_MAKE_OPTS} install"
       ;;
-    "server")
-      echo "Forcing build with Server support"
-      WITH_SERVER=true
+    "http")
+      echo "Forcing build with HTTP support"
+      WITH_HTTP=true
       ;;
-    "parquet")
-      echo "Forcing build with Parquet support"
-      WITH_PARQUET=true
+    "taxi")
+      echo "Forcing build with Taxi support"
+      WITH_TAXI=true
       ;;
     "numcal")
       echo "Forcing build with NUMCAL support"
+      WITH_NUMCAL=true
+      ;;
+    "hep")
+      echo "Forcing build with HEP support"
+      WITH_HEP=true
+      ;;
+    "utils")
+      echo "Forcing build with utils support"
+      WITH_UTILS=true
+      ;;
+    "all")
+      echo "Forcing build with all optional components"
+      WITH_HTTP=true
+      WITH_HEP=true
+      WITH_UTILS=true
+      WITH_TAXI=true
       WITH_NUMCAL=true
       ;;
     "rpm")
@@ -115,6 +134,11 @@ for ARG in "$@"; do
       WITH_TEST=true
       TEST_REGEX="${ARG#testlist=}"
       ;;
+    testexclude=*)
+      echo "Excluding tests matching: ${ARG#testexclude=}"
+      WITH_TEST=true
+      TEST_EXCLUDE="${ARG#testexclude=}"
+      ;;
     test=*)
       echo "Building with tests (selection) ..."
       WITH_TEST=true
@@ -142,22 +166,24 @@ if [[ $BUILDING_DOC == true ]]; then
   echo "Building with documentation"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DBUILD_DOCUMENTATION:bool=ON"
 fi
-if [[ $WITH_LEGACY == true ]]; then
-  echo "Building with legacy support"
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DUSE_LEGACY:bool=ON"
-fi
 if [[ $WITH_TEST == true ]]; then
   echo "Building with testing support"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_TEST:bool=ON"
 fi
-if [[ $WITH_PARQUET == true ]]; then
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_PARQUET:bool=ON"
+if [[ $WITH_TAXI == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_TAXI:bool=ON"
 fi
-if [[ $WITH_SERVER == true ]]; then
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_SERVER:bool=ON"
+if [[ $WITH_HTTP == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_HTTP:bool=ON"
 fi
 if [[ $WITH_NUMCAL == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_NUMCAL:bool=ON"
+fi
+if [[ $WITH_HEP == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_HEP:bool=ON"
+fi
+if [[ $WITH_UTILS == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_UTILS:bool=ON"
 fi
 
 
@@ -229,6 +255,18 @@ if [[ $WITH_TEST == true ]]; then
     # Quote the regex for ctest using double quotes to avoid single-quote issues
     TEST_ARGS="-R \"(${regex})\""
   fi
+  if [[ -n "$TEST_EXCLUDE" ]]; then
+    # Build alternation from comma-separated names for exclusion
+    IFS=',' read -ra parts_ex <<< "$TEST_EXCLUDE"
+    alts_ex=()
+    for p in "${parts_ex[@]}"; do
+      term=$(echo "$p" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      esc=$(echo "$term" | sed -E 's/[][\\.^$*+?(){}|]/\\&/g')
+      alts_ex+=(".*${esc}.*" ".*${esc}\.cxx.*")
+    done
+    regex_ex=$(IFS='|'; echo "${alts_ex[*]}")
+    TEST_EXCLUDE_ARGS="-E \"(${regex_ex})\""
+  fi
   if [[ "$VERBOSE" == true ]]; then
     if [[ -n "$TEST_ARGS" ]]; then
       TEST_ARGS="$TEST_ARGS -V"
@@ -244,7 +282,7 @@ if [[ $WITH_TEST == true ]]; then
     fi
   fi
 
-  echo "Running tests ... ${TEST_ARGS}"
+  echo "Running tests ... ${TEST_ARGS} ${TEST_EXCLUDE_ARGS}"
   # Run ctest directly to avoid make's shell quoting of ARGS
-  eval "ctest ${TEST_ARGS}"
+  eval "ctest ${TEST_ARGS} ${TEST_EXCLUDE_ARGS}"
 fi

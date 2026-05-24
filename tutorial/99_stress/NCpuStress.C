@@ -10,7 +10,7 @@
 #include <TF1.h>
 
 void NCpuStress(std::string outFile = "NCpuStress.root", Long64_t nEntries = 1e7, int rebinMean = 1,
-                int rebinSigma = 1, int nBinsMean = 100, int nBinsSigma = 100)
+                int rebinSigma = 1, int nBinsMean = 10, int nBinsSigma = 10)
 {
   gErrorIgnoreLevel = kError;
 

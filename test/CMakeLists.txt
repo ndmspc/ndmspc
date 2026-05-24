@@ -9,7 +9,6 @@ set(MY_INCLUDE_DIRS
   ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
-  ${CMAKE_SOURCE_DIR}/base
   ${CMAKE_SOURCE_DIR}/core
   ${CMAKE_SOURCE_DIR}/tutorial
 )
@@ -22,7 +21,6 @@ set(MY_EXTERNAL_LIBS
   ${OpenSSL_LIBRARIES}
   ${LIBWEBSOCKETS_LIBRARIES}
   # nlohmann_json::nlohmann_json
-  NdmspcBase
   NdmspcCore
 )
 if(WITH_NUMCAL)

@@ -1,6 +1,16 @@
-set(MODULE Base)
+set(MODULE Utils)
 set(PACKAGE Ndmspc${MODULE})
 file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
+
+if(PROTOBUF_ROOT)
+  find_package(Protobuf CONFIG REQUIRED)
+  set(Protobuf_LIBRARIES "${PROTOBUF_ROOT}/lib")
+  set(Protobuf_INCLUDE_DIR "${PROTOBUF_ROOT}/include")
+endif()
+find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(LIBUV REQUIRED)
+find_package(LIBWEBSOCKETS REQUIRED)
 
 set(MY_INCLUDE_DIRS
   ${OpenSSL_INCLUDE_DIRS}
@@ -8,21 +18,18 @@ set(MY_INCLUDE_DIRS
   ${CURL_INCLUDE_DIRS}
   ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
+  ${CMAKE_SOURCE_DIR}/core
 )
 include_directories(${MY_INCLUDE_DIRS})
 set(MY_EXTERNAL_LIBS
-  RHTTP
   ${OpenSSL_LIBRARIES}
   ${LIBUV_LIBRARIES}
   ${CURL_LIBRARIES}
   ${LIBWEBSOCKETS_LIBRARIES}
   ${NLOHMANN_JSON_LIBRARIES}
+  RHTTP
+  NdmspcCore
 )
-if(ARROW_WITH_PARQUET)
-  list(APPEND MY_INCLUDE_DIRS ${Arrow_INCLUDE_DIRS} ${Parquet_INCLUDE_DIRS})
-  list(APPEND MY_EXTERNAL_LIBS Arrow::arrow_shared Parquet::parquet_shared)
-endif()
-
 
 RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
 

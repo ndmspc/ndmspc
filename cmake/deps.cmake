@@ -1,13 +1,5 @@
 find_package(NLOHMANN_JSON REQUIRED)
-if(PROTOBUF_ROOT)
-  find_package(Protobuf CONFIG REQUIRED)
-  set(Protobuf_LIBRARIES "${PROTOBUF_ROOT}/lib")
-  set(Protobuf_INCLUDE_DIR "${PROTOBUF_ROOT}/include")
-endif()
-find_package(CURL REQUIRED)
-find_package(OpenSSL REQUIRED)
-find_package(LIBUV REQUIRED)
-find_package(LIBWEBSOCKETS REQUIRED)
+
 
 # if(WITH_OPENTELEMETRY)
 #   # TODO: Remove it: Temporary fix for opentelemetry-cpp
@@ -18,20 +10,7 @@ find_package(LIBWEBSOCKETS REQUIRED)
 # endif()
 
 
-if(WITH_PARQUET)
-  message(STATUS "Compiling with Parquet support")
-  set(ARROW_WITH_PARQUET ON)
-  find_package(Arrow REQUIRED)
-  find_package(Parquet REQUIRED)
-else()
-  message(STATUS "Compiling without Parquet support")
-  # set(ARROW_WITH_PARQUET OFF)
-endif()
-if(WITH_NUMCAL)
-  message(STATUS "Compiling with Numcal support")
-  find_package(GINAC REQUIRED)
-  find_package(CUBA REQUIRED)
-endif()
+
 
 message(STATUS "Compiling with ZeroMQ IPC support")
 find_package(ZEROMQ REQUIRED)
