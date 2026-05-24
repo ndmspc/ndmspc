@@ -136,25 +136,50 @@ int main(int argc, char ** argv)
 
   CLI11_PARSE(app, argc, argv);
 
-  // Default to file-only logging unless explicitly configured by environment.
-  // Expose a run-mode logging flag `NDMSPC_LOG_RUN` so code can emit
-  // run-specific progress output via NLogRun while keeping normal
-  // logger output controllable via NDMSPC_LOG_CONSOLE.
-  if (!gSystem->Getenv("NDMSPC_LOG_RUN")) {
-    gSystem->Setenv("NDMSPC_LOG_RUN", "1");
-    Ndmspc::NLogger::SetRunOutput(true);
-  }
+  // Default logging behaviour:
+  // - If neither `NDMSPC_LOG_RUN` nor `NDMSPC_LOG_CONSOLE` is set: enable
+  //   run output (`NDMSPC_LOG_RUN=1`) and disable console output
+  //   (`NDMSPC_LOG_CONSOLE=0`).
+  // - If `NDMSPC_LOG_CONSOLE` is set and `NDMSPC_LOG_RUN` is not set: default
+  //   `NDMSPC_LOG_RUN=0`.
+  // - If both are set, respect the user's values. `--verbose` overrides
+  //   console output and forces console on.
+  const char * origRunEnv = gSystem->Getenv("NDMSPC_LOG_RUN");
+  const char * origConsoleEnv = gSystem->Getenv("NDMSPC_LOG_CONSOLE");
+  const bool hadRun = origRunEnv != nullptr;
+  const bool hadConsole = origConsoleEnv != nullptr;
 
-  if (!gSystem->Getenv("NDMSPC_LOG_CONSOLE")) {
+  if (!hadRun && !hadConsole) {
+    // Neither set: default to run logging enabled, console disabled.
+    gSystem->Setenv("NDMSPC_LOG_RUN", "1");
     gSystem->Setenv("NDMSPC_LOG_CONSOLE", "0");
-    if (!verbose) {
-      Ndmspc::NLogger::SetConsoleOutput(false);
+    origRunEnv = "1";
+    origConsoleEnv = "0";
+  } else {
+    if (!hadConsole) {
+      // Console not set: default to 0 (no console) unless verbose overrides.
+      gSystem->Setenv("NDMSPC_LOG_CONSOLE", "0");
+      origConsoleEnv = "0";
+    }
+    if (!hadRun) {
+      // Run not set but console was set by user: default run to 0.
+      if (hadConsole) {
+        gSystem->Setenv("NDMSPC_LOG_RUN", "0");
+        origRunEnv = "0";
+      } else {
+        gSystem->Setenv("NDMSPC_LOG_RUN", "1");
+        origRunEnv = "1";
+      }
     }
   }
 
-  if (verbose) {
-    Ndmspc::NLogger::SetConsoleOutput(true);
-  }
+  // Apply to runtime logger.
+  Ndmspc::NLogger::SetRunOutput(std::string(origRunEnv) == "1");
+
+  // Console output: honor explicit env var, but allow `--verbose` to override.
+  bool consoleEnabled = std::string(origConsoleEnv ? origConsoleEnv : "0") == "1";
+  if (verbose) consoleEnabled = true;
+  Ndmspc::NLogger::SetConsoleOutput(consoleEnabled);
 
   // Set env vars from CLI args (only if not already set in the environment)
   auto setenvIfEmpty = [](const char * name, const std::string & value) {

@@ -123,6 +123,12 @@ class NBinningDef : public TObject {
    */
   NBinning * GetBinning() const { return fBinning; }
 
+  /**
+   * @brief Get the name of this binning definition.
+   *
+   * Overrides TObject::GetName() to return the stored std::string name.
+   * @return C-string pointer to the name.
+   */
   virtual const char* GetName() const { return fName.c_str(); }
 
   private:

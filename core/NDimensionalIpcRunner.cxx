@@ -459,7 +459,7 @@ int NDimensionalIpcRunner::TaskLoop(void * dealer, size_t workerIndex, NThreadDa
         gnWorker->GetHnSparseBase()->Close(false); // false = don't save
       }
     } else {
-      NLogDebug("Worker %zu finished processing, executing end function and closing file if open ...", workerIndex);
+      NLogDebug("Worker %zu finished processing, executing end function and closing file ...", workerIndex);
       gnWorker->ExecuteEndFunction();
       if (gnWorker->GetHnSparseBase()) {
         gnWorker->GetHnSparseBase()->Close(true);

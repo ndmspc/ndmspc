@@ -146,7 +146,7 @@ void NNestedProcessing01Gaus(std::string outputDir = "/tmp/NNestedProcessing",
 
     NGausMeanSigma(outFile, entries, onlyOddPoints);
 
-    outputPoint->Add(new TNamed("outputFile", outFile.c_str()));
+    outputPoint->Add(new TH1S("outputFile", outFile.c_str(),1,0,1));
   };
 
   // Define the begin function which is executed before processing all points
@@ -161,8 +161,6 @@ void NNestedProcessing01Gaus(std::string outputDir = "/tmp/NNestedProcessing",
   };
   // execute the processing function
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
-
-  // Clean up
   delete ngnt;
 
   std::string outFileNameImported = outFile;

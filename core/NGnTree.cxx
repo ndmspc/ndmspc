@@ -74,8 +74,6 @@ NGnTree::NGnTree(std::vector<TAxis *> axes, std::string filename, std::string tr
   fTreeStorage->InitTree(outFile, treename);
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
-  fNavigator = new NGnNavigator();
-  fNavigator->SetGnTree(this);
 }
 NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) : TObject(), fInput(nullptr)
 {
@@ -102,8 +100,6 @@ NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) :
   fBinning     = new NBinning(axes);
   fTreeStorage = new NStorageTree(fBinning);
   fTreeStorage->InitTree(outFile, treename);
-  fNavigator = new NGnNavigator();
-  fNavigator->SetGnTree(this);
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
 }
@@ -134,8 +130,6 @@ NGnTree::NGnTree(NGnTree * ngnt, std::string filename, std::string treename) : T
   fBinning     = (NBinning *)ngnt->GetBinning()->Clone();
   fTreeStorage = new NStorageTree(fBinning);
   fTreeStorage->InitTree(outFile, treename);
-  fNavigator = new NGnNavigator();
-  fNavigator->SetGnTree(this);
   fNavigator = new NGnNavigator();
   fNavigator->SetGnTree(this);
 }
@@ -664,6 +658,20 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   }
 
+  // If the user did not explicitly set execution mode, and this is a
+  // nested Process() invocation, default to local IPC with a single
+  // process — set environment variables so the debug log and later
+  // code see the intended defaults.
+  if (!modeExplicit && nesting > 0) {
+    if (!gSystem->Getenv("NDMSPC_EXECUTION_MODE") || gSystem->Getenv("NDMSPC_EXECUTION_MODE")[0] == '\0') {
+      gSystem->Setenv("NDMSPC_EXECUTION_MODE", "ipc");
+      executionMode = "ipc";
+    }
+    if (!gSystem->Getenv("NDMSPC_MAX_PROCESSES") || gSystem->Getenv("NDMSPC_MAX_PROCESSES")[0] == '\0') {
+      gSystem->Setenv("NDMSPC_MAX_PROCESSES", "1");
+    }
+  }
+
   // Quick debug: print PID, nesting/pickIndex and chosen tokens for troubleshooting
   {
     const char * envMax     = gSystem->Getenv("NDMSPC_MAX_PROCESSES");
@@ -1170,11 +1178,11 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   // to `1|true|yes|on` to enable.
   const bool allowFast = []() {
     const char * env = gSystem->Getenv("NDMSPC_SINGLE_WORKER_FAST_MERGE");
-    if (!env || env[0] == '\0') return false; // default: enabled
+    if (!env || env[0] == '\0') return true; // default: enabled
     return NUtils::ParseBoolEnv(env);
   }();
 
-  if (mergeList->GetEntries() == 1 && allowFast) {
+  if (mergeList->GetEntries() == 1 && allowFast && binningIn->GetDefinitions().size() == 1) {
     auto * only = dynamic_cast<Ndmspc::NGnThreadData *>(mergeList->First());
     if (!only) {
       NLogError("NGnTree::Process: Unexpected merge list entry type");
@@ -1392,6 +1400,8 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
         std::chrono::duration_cast<std::chrono::duration<double>>(cleanupEnd - cleanupStart).count();
     NLogInfo("NGnTree::Process: cleanup done (%.2f s)", cleanupSec);
   }
+
+  Close(false); // Close without writing since the merged file is already closed
   gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
 }
@@ -2020,7 +2030,7 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
       NLogTrace("NGnTree::Import: Setting branch address for branch '%s' ...", kv.first.c_str());
       point->GetTreeStorage()->GetBranch(kv.first)->SetAddress(kv.second.GetObject());
     }
-    outputPoint->Add(new TNamed("source_file", filename));
+    outputPoint->Add(new TH1S("source_file", filename.c_str(), 1, 0.5, 1.5));
 
     // ngnt->Print();
 
