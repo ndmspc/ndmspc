@@ -9,36 +9,41 @@ Group:		System Environment/Libraries
 License:	LGPL v3+
 Source0:    %{name}-%{version}.tar.gz
 
+%global with_utils 0
 %global with_jupyroot 0
 %if 0%{?rhel} == 10 || 0%{?almalinux} == 10
 %global with_numcal 0
-%global with_parquet 0
+%global with_taxi 0
 %else
 %if 0%{?rhel} == 9 || 0%{?almalinux} == 9
 %global with_numcal 1
-%global with_parquet 0
+%global with_taxi 0
 %else
 %global with_numcal 1
-%global with_parquet 1
+%global with_taxi 1
 %endif
 %endif
 
 BuildRequires: systemd-rpm-macros
 BuildRequires: gcc-c++, cmake
-BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
-# BuildRequires: protobuf-devel
 BuildRequires: json-devel zeromq-devel
-%if %{with_parquet}
-BuildRequires: parquet-libs-devel
-%endif
 BuildRequires: root, root-net-http, root-net-httpsniff
 BuildRequires: root-roofit root-roofit-more 
+Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
+Requires:      root-roofit root-roofit-more 
+
+%if %{with_utils}
+BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
+Requires:      libwebsockets-devel
+%endif
+
+%if %{with_taxi}
+BuildRequires: parquet-libs-devel
+%endif
+
 %if %{with_numcal}
 BuildRequires: ginac-devel, cuba-devel
 %endif
-Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
-Requires:      root-roofit root-roofit-more 
-Requires:      libwebsockets-devel, json-devel
 
 %description
 @PROJECT_DESCRIPTION@
@@ -66,6 +71,16 @@ Requires: ginac, cuba
 This package contains numcal support for @PROJECT_NAME@.
 %endif
 
+%if %{with_taxi}
+%package taxi
+Summary:  Taxi support for @PROJECT_NAME@
+Group:    Additional Packages
+Requires: %{name} = %{version}-%{release}, pkgconfig
+
+%description taxi
+This package contains taxi support for @PROJECT_NAME@.
+%endif
+
 %prep
 %setup -q
 
@@ -77,15 +92,20 @@ cmake ../ \
 -DCMAKE_BUILD_TYPE=Release \
 -DBUILD_DOCUMENTATION=OFF \
 -DWITH_TEST=OFF \
+%if %{with_utils}
+-DWITH_UTILS=ON \
+%else
+-DWITH_UTILS=OFF \
+%endif
 %if %{with_jupyroot}
 -DWITH_JUPYROOT=ON \
 %else
 -DWITH_JUPYROOT=OFF \
 %endif
-%if %{with_parquet}
--DWITH_PARQUET=ON \
+%if %{with_taxi}
+-DWITH_TAXI=ON \
 %else
--DWITH_PARQUET=OFF \
+-DWITH_TAXI=OFF \
 %endif
 %if %{with_numcal}
 -DWITH_NUMCAL=ON
@@ -138,6 +158,12 @@ make install DESTDIR=%{buildroot}
 %{_libdir}/libNdmspcNumcal*
 %{_includedir}/ndmspc/NNumcalManager.h
 %{_bindir}/ndmspc-numcal
+%endif
+
+%if %{with_taxi}
+%files taxi
+%{_libdir}/libNdmspcTaxi*
+%{_includedir}/ndmspc/NTaxi.h
 %endif
 
 %if %{with_jupyroot}

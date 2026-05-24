@@ -8,11 +8,15 @@ endif()
 project(ndmspc VERSION 1.2.0 DESCRIPTION "NDMSPC")
 set(PROJECT_VERSION_RELEASE 0)
 
-option(USE_LEGACY "Compile with legacy code" OFF)
-option(WITH_TEST "Compile with tests" OFF)
-option(WITH_SERVER "Compile with server part" ON)
-option(WITH_PARQUET "Compile with Parquet support" OFF)
+option(WITH_DOC "Compile with documentation support" OFF)
+option(WITH_HTTP "Compile with HTTP part" ON)
+option(WITH_HEP "Compile with HEP part" ON)
+option(WITH_UTILS "Compile with utils part" OFF)
+option(WITH_MON "Compile with MON part" OFF)
+# option(WITH_PARQUET "Compile with Parquet support" OFF)
+option(WITH_TAXI "Compile with Taxi support" OFF)
 option(WITH_NUMCAL "Compile with numcal support" OFF)
+option(WITH_TEST "Compile with tests" OFF)
 option(WITH_JUPYROOT "Compile with JupyROOT support" OFF)
 
 # option to use strict warning flags
@@ -21,17 +25,33 @@ option(ENABLE_STRICT_WARNINGS "Enable strict warning flags" OFF)
 include(cmake/base.cmake)
 include(cmake/deps.cmake)
 
-add_subdirectory(base)
 add_subdirectory(core)
+
+if(WITH_HTTP)
+  add_subdirectory(http)
+endif()
+
+if(WITH_MON)
+  add_subdirectory(mon)
+endif()
+
+if(WITH_HEP)
+  add_subdirectory(hep)
+endif()
+
+if(WITH_UTILS)
+  add_subdirectory(utils)
+endif()
+
 if(WITH_NUMCAL)
   add_subdirectory(numcal)
 endif()
 
-if(WITH_SERVER)
-  add_subdirectory(http)
-  add_subdirectory(mon)
+if(WITH_TAXI)
+  add_subdirectory(taxi)
 endif()
-add_subdirectory(hep)
+
+
 if(WITH_TEST)
   find_package(GTest)
   if(GTest_FOUND)
@@ -39,18 +59,16 @@ if(WITH_TEST)
     add_subdirectory(test)
   endif()
 endif()
-if(USE_LEGACY)
-  message(STATUS "Compiling with legacy code")
-  add_subdirectory(legacy/core)
+
+if(WITH_DOC)
+  add_subdirectory(doc)
 endif()
-add_subdirectory(doc)
 
 # profile.d
 configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.sh.profile.d.in"
   "${PROJECT_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh"
 )
-
 
 if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
   INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)
@@ -72,30 +90,3 @@ else()
   INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS)
   INSTALL(DIRECTORY tutorial DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS)
 endif()
-# INSTALL(FILES scripts/ndmspc-run PERMISSIONS
-# OWNER_EXECUTE OWNER_WRITE OWNER_READ
-# GROUP_EXECUTE GROUP_READ
-# WORLD_EXECUTE WORLD_READ
-# DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
-# if(USE_LEGACY)
-#   INSTALL(FILES scripts/ndmspc PERMISSIONS
-# OWNER_EXECUTE OWNER_WRITE OWNER_READ
-# GROUP_EXECUTE GROUP_READ
-# WORLD_EXECUTE WORLD_READ
-# DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
-#   INSTALL(FILES scripts/ndmspc-run.sh PERMISSIONS
-# OWNER_EXECUTE OWNER_WRITE OWNER_READ
-# GROUP_EXECUTE GROUP_READ
-# WORLD_EXECUTE WORLD_READ
-# DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
-#   INSTALL(FILES scripts/ndmspc-slurm-run-jobs PERMISSIONS
-# OWNER_EXECUTE OWNER_WRITE OWNER_READ
-# GROUP_EXECUTE GROUP_READ
-# WORLD_EXECUTE WORLD_READ
-# DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
-#   INSTALL(FILES scripts/ndmspc-slurm-run-single PERMISSIONS
-# OWNER_EXECUTE OWNER_WRITE OWNER_READ
-# GROUP_EXECUTE GROUP_READ
-# WORLD_EXECUTE WORLD_READ
-# DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
-# endif()

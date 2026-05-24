@@ -38,7 +38,7 @@ TEST_F(NSingleBinning01GausTest, CreatesOutputFile)
 
   Ndmspc::NGnNavigator * nav = ngnt->Reshape("", {{0, 1, 2}});
   ASSERT_TRUE(nav);
-  nav->Export(testJsonFile, {}, "");
+  nav->Export(testJsonFile, {});
   // Check that the file was created
   std::ifstream f(testJsonFile);
   ASSERT_TRUE(f.good()) << "Output file was not created";
@@ -61,7 +61,7 @@ TEST_F(NSingleBinning01GausTest, ReshapeMultipleLevels)
   for (const auto & axes : axes_combinations) {
     Ndmspc::NGnNavigator * nav = ngnt->Reshape("", axes);
     ASSERT_TRUE(nav);
-    nav->Export(testJsonFile, {}, "");
+    nav->Export(testJsonFile, {});
     std::ifstream f(testJsonFile);
     ASSERT_TRUE(f.good()) << "Output file was not created";
     f.close();

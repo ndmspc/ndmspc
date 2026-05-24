@@ -582,16 +582,6 @@ class NUtils : TObject {
    */
   static void SafeDeleteObject(TObject *& obj);
 
-  /**
-   * @brief Create THnSparse from Parquet Taxi file.
-   * @param filename Parquet file name.
-   * @param hns Optional input THnSparse.
-   * @param nMaxRows Maximum number of rows to read.
-   * @return Pointer to created THnSparse.
-   */
-  static THnSparse * CreateSparseFromParquetTaxi(const std::string & filename, THnSparse * hns = nullptr,
-                                                 Int_t nMaxRows = -1);
-
   /// \cond CLASSIMP
   ClassDef(NUtils, 0);
   /// \endcond;
