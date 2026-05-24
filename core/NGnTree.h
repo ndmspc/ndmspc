@@ -386,8 +386,7 @@ class NGnTree : public TObject {
    * @param findPath The directory path to search for the file.
    * @param fileName The name of the file to import.
    * @param headers A vector of header strings to use during import.
-   * @param outFileName The output file name to save the imported tree (default: "/tmp/ngnt_imported.root").
-  * @param close If true, close the file after import when saving to outFileName (default: true).
+  * @param outFileName The output file name to save the imported tree (default: "/tmp/ngnt_imported.root").
    * @return A pointer to the imported NGnTree object, or nullptr on failure.
    */
   static NGnTree * Import(const std::string & findPath, const std::string & fileName,
@@ -402,8 +401,26 @@ class NGnTree : public TObject {
    * (e.g. NDMSPC_MAX_PROCESSES colon-separated tokens).
    */
   static inline std::atomic<int> s_processNesting{0};
+  /**
+   * @brief Increment the per-process nesting counter for Process() invocations.
+   *
+   * This should be called at the beginning of a Process() invocation to
+   * indicate one more nested processing level is active in this process.
+   */
   static void IncProcessNesting() { s_processNesting.fetch_add(1, std::memory_order_relaxed); }
+
+  /**
+   * @brief Decrement the per-process nesting counter for Process() invocations.
+   *
+   * This should be called when a Process() invocation finishes to decrement
+   * the active nesting level.
+   */
   static void DecProcessNesting() { s_processNesting.fetch_sub(1, std::memory_order_relaxed); }
+
+  /**
+   * @brief Get current Process() nesting depth for this process.
+   * @return Current nesting level (0 means no active Process() calls).
+   */
   static int GetProcessNesting() { return s_processNesting.load(std::memory_order_relaxed); }
 
   /**

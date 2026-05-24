@@ -461,21 +461,53 @@ size_t NDimensionalExecutor::ExecuteParallelProcessIpc(std::vector<NThreadData *
     return s.substr(last_colon + 1);
   };
 
+  // Determine chosen process count. Support both single-value and
+  // colon-separated per-nesting values. If the env var is unset and
+  // we're in a nested invocation, default to a single-process for
+  // deeper levels (behaves like NDMSPC_MAX_PROCESSES=1:1:1:...).
   size_t chosenProcessCount = processCount;
-  if (orig_env_max && std::strchr(orig_env_max, ':')) {
-    std::string tok = pick_token(orig_env_max, pickIndex, nullptr);
-    try {
-      long long parsed = std::stoll(tok);
-      if (parsed > 0) chosenProcessCount = static_cast<size_t>(parsed);
+  std::string envMaxStr = orig_env_max ? std::string(orig_env_max) : std::string();
+  if (envMaxStr.empty()) {
+    if (nesting > 0) {
+      chosenProcessCount = 1;
     }
-    catch (...) {
-      // fall back to provided processCount
+  } else {
+    if (envMaxStr.find(':') != std::string::npos) {
+      std::string tok = pick_token(envMaxStr.c_str(), pickIndex, "1");
+      try {
+        long long parsed = std::stoll(tok);
+        if (parsed > 0) chosenProcessCount = static_cast<size_t>(parsed);
+      }
+      catch (...) {
+        // fall back to provided processCount
+      }
+    } else {
+      try {
+        long long parsed = std::stoll(envMaxStr);
+        if (parsed > 0) chosenProcessCount = static_cast<size_t>(parsed);
+      }
+      catch (...) {
+        // fall back to provided processCount
+      }
     }
   }
 
-  std::string chosenMode = orig_env_mode ? std::string(orig_env_mode) : std::string();
-  if (orig_env_mode && std::strchr(orig_env_mode, ':')) {
-    chosenMode = pick_token(orig_env_mode, pickIndex, "ipc");
+  // Determine chosen execution mode. If unset and we're in a nested
+  // invocation, default to "ipc" so nested runs are conservative.
+  std::string chosenMode;
+  if (!orig_env_mode || std::strlen(orig_env_mode) == 0) {
+    if (nesting > 0) {
+      chosenMode = "ipc";
+    } else {
+      chosenMode.clear();
+    }
+  } else {
+    std::string envModeStr(orig_env_mode);
+    if (envModeStr.find(':') != std::string::npos) {
+      chosenMode = pick_token(envModeStr.c_str(), pickIndex, "ipc");
+    } else {
+      chosenMode = envModeStr;
+    }
   }
 
   // We do not overwrite NDMSPC_MAX_PROCESSES / NDMSPC_EXECUTION_MODE here.
@@ -717,11 +749,9 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
     // we are about to fork so the second-level workers remain quiet by
     // inheriting these env vars. Restore parent's env after forking.
     const int nesting = Ndmspc::NGnTree::GetProcessNesting();
-    const char * origLogRun = nullptr;
-    const char * origLogConsole = nullptr;
-    if (nesting > 0) {
-      origLogRun = gSystem->Getenv("NDMSPC_LOG_RUN");
-      origLogConsole = gSystem->Getenv("NDMSPC_LOG_CONSOLE");
+    const char * origLogRun = gSystem->Getenv("NDMSPC_LOG_RUN");
+    const char * origLogConsole = gSystem->Getenv("NDMSPC_LOG_CONSOLE");
+    if (nesting > 0 && (NUtils::ParseBoolEnv(origLogRun))) {
       gSystem->Setenv("NDMSPC_LOG_RUN", "0");
       gSystem->Setenv("NDMSPC_LOG_CONSOLE", "0");
     }
@@ -745,7 +775,7 @@ void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerOb
       fIpcSession->childPids[i] = pid;
     }
     // Restore parent's logging env after children have been forked
-    if (nesting > 0) {
+    if (nesting > 0 && (NUtils::ParseBoolEnv(origLogRun))) {
       if (origLogRun && origLogRun[0] != '\0') gSystem->Setenv("NDMSPC_LOG_RUN", origLogRun);
       else gSystem->Unsetenv("NDMSPC_LOG_RUN");
       if (origLogConsole && origLogConsole[0] != '\0') gSystem->Setenv("NDMSPC_LOG_CONSOLE", origLogConsole);

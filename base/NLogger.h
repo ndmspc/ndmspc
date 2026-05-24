@@ -527,6 +527,14 @@ class NLogger {
    * @param enable True to enable console output, false to disable.
    */
   static void SetConsoleOutput(bool enable) { fgConsoleOutput = enable; }
+
+  /**
+   * @brief Enables or disables run-mode logging output.
+   *
+   * Run-mode output is controlled by NDMSPC_LOG_RUN and is intended for
+   * progress/run-status messages that should bypass normal console suppression.
+   * @param enable True to enable run output, false to disable.
+   */
   static void SetRunOutput(bool enable) { fgRunOutput = enable; }
 
   /**

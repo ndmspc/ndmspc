@@ -104,7 +104,7 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/NAliRsnDownlo
       }
       hns->Print("");
       point->GetTreeStorage()->GetBranch(objectName)->SetAddress(hns, true);
-      // outputPoint->Add(new TNamed(objectName.c_str(), filePath.c_str()));
+      // outputPoint->Add(new TH1S(objectName.c_str(), filePath.c_str()),1,0,1);
       outputPoint->Add(hns->Projection(0));
     }
   };
