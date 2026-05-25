@@ -94,36 +94,69 @@ void NResourceMonitor::Fill(Int_t * coords, int threadId)
   auto statBinCoords = std::make_unique<Int_t[]>(fHnSparse->GetNdimensions());
   // Axis layout: [worker, binning_axes..., stat]
   // worker is axis 0; original binning axes follow; stat is the last axis.
-  statBinCoords[0] = threadId + 1;
+  // Guard against TCP mode where workerIndex may be larger than the
+  // configured worker axis. Clamp to the available worker bins so the
+  // sparse fill stays in-range and remains meaningful.
+  int workerBins = 1;
+  if (fHnSparse && fHnSparse->GetAxis(0)) workerBins = fHnSparse->GetAxis(0)->GetNbins();
+  int workerIndexClamped = static_cast<int>(threadId);
+  if (workerIndexClamped < 0) workerIndexClamped = 0;
+  if (workerIndexClamped >= workerBins) {
+    NLogTrace("NResourceMonitor::Fill: workerId %d >= workerBins %d, clamping to last bin",
+              workerIndexClamped, workerBins);
+    workerIndexClamped = workerBins - 1;
+  }
+  statBinCoords[0] = workerIndexClamped + 1;
+  // Log mapping for debugging: worker index and corresponding storage coords
+  int origDims = fHnSparse->GetNdimensions() - 2;
+  std::vector<int> coordsVec = NUtils::ArrayToVector(coords, origDims);
+  // Compute the actual values we'll fill so we can log them for inspection
+  double timeValLocal = GetTimeDiffInSeconds();
+  if (!std::isfinite(timeValLocal) || timeValLocal <= 0.0) timeValLocal = 0.001;
+  double cpuLocal = GetCpuUsage();
+  if (!std::isfinite(cpuLocal) || cpuLocal <= 0.0) cpuLocal = 0.001;
+  long diffRssLocal = static_cast<long>(fUsageEnd.ru_maxrss) - static_cast<long>(fUsageStart.ru_maxrss);
+  double memLocal = (diffRssLocal <= 0) ? 0.001 : static_cast<double>(diffRssLocal);
+
+  // NLogInfo("NResourceMonitor::Fill: worker=%d mappedWorkerBin=%d coords=%s time=%.6f cpu=%.3f mem=%.3f",
+  //          workerIndexClamped, workerIndexClamped + 1, NUtils::GetCoordsString(coordsVec).c_str(),
+  //          timeValLocal, cpuLocal, memLocal);
   for (Int_t i = 0; i < fHnSparse->GetNdimensions() - 2; ++i) {
     statBinCoords[i + 1] = coords[i];
   }
   Long64_t statBin;
 
   constexpr double kTinyError = std::numeric_limits<double>::min();
+  // Small non-zero value used to ensure sparse bins remain allocated
+  // when measured diffs are zero or non-finite.
 
+  // Time diff (seconds)
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 1;
   statBin                                        = fHnSparse->GetBin(statBinCoords.get());
-  fHnSparse->SetBinContent(statBin, GetTimeDiffInSeconds());
+  fHnSparse->SetBinContent(statBin, timeValLocal);
   fHnSparse->SetBinError(statBin, kTinyError);
 
   // Set CPU usage — guard against NaN/Inf when wall time is near-zero
+  // CPU usage (percentage)
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 2;
   statBin                                        = fHnSparse->GetBin(statBinCoords.get());
-  {
-    double cpu = GetCpuUsage();
-    if (!std::isfinite(cpu)) cpu = 0.0;
-    fHnSparse->SetBinContent(statBin, cpu);
-    fHnSparse->SetBinError(statBin, kTinyError);
-  }
+  fHnSparse->SetBinContent(statBin, cpuLocal);
+  fHnSparse->SetBinError(statBin, kTinyError);
 
   // Set Memory usage — store absolute max RSS (KB) at end of processing so the
   // bin is always non-zero; ru_maxrss tracks peak RSS and the diff is often 0,
   // which would silently remove the sparse bin.
   statBinCoords[fHnSparse->GetNdimensions() - 1] = 3;
   statBin                                        = fHnSparse->GetBin(statBinCoords.get());
-  fHnSparse->SetBinContent(statBin, static_cast<double>(fUsageEnd.ru_maxrss));
+  // Prefer storing the difference in RSS (end - start) so the monitor reflects
+  // memory growth during the job rather than the absolute peak RSS which may
+  // be large due to unrelated background allocations. Ensure non-negative.
+  // When the difference is zero, store a tiny non-zero value so the sparse
+  // bin is still allocated and visible in the monitor.
+  // Use precomputed memLocal
+  fHnSparse->SetBinContent(statBin, memLocal);
   fHnSparse->SetBinError(statBin, kTinyError);
+    NLogTrace("NResourceMonitor::Fill: after Set mem binContent=%.6f", fHnSparse->GetBinContent(statBin));
 }
 
 void NResourceMonitor::Start()

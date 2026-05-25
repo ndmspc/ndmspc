@@ -29,6 +29,7 @@ class NTaxi : TObject {
   /// Destructor
   virtual ~NTaxi() {};
 
+  public:
   /**
    * @brief Create THnSparse from Parquet Taxi file.
    * @param filename Parquet file name.
