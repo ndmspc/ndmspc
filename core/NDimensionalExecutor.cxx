@@ -656,7 +656,8 @@ bool NDimensionalExecutor::HandleBootstrap(const std::string & identity)
                                            {identity, "CONFIG", std::to_string(assignedIdx),
                                             fIpcSession->macroList, fIpcSession->tmpDir,
                                             fIpcSession->tmpResultsDir,
-                                            fIpcSession->macroParams});
+                                            fIpcSession->macroParams,
+                                            std::to_string(fIpcSession->maxWorkers)});
 }
 
 void NDimensionalExecutor::StartProcessIpc(std::vector<NThreadData *> & workerObjects, size_t processCount,

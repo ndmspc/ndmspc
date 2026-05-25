@@ -285,6 +285,9 @@ int main(int argc, char ** argv)
           gSystem->Setenv("NDMSPC_TMP_RESULTS_DIR", frames[4].c_str());
         if (frames.size() >= 6 && !frames[5].empty() && !gSystem->Getenv("NDMSPC_MACRO_PARAMS"))
           gSystem->Setenv("NDMSPC_MACRO_PARAMS", frames[5].c_str());
+        // Optional: supervisor may send expected max worker count as frame[6]
+        if (frames.size() >= 7 && !frames[6].empty())
+          gSystem->Setenv("NDMSPC_MAX_PROCESSES", frames[6].c_str());
         configOk = true;
       } else if (frames.size() >= 1 && frames[0] == "REJECT") {
         const std::string reason = (frames.size() >= 2) ? frames[1] : "unspecified";

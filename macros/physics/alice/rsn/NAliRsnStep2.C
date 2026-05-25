@@ -47,11 +47,11 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   axes->Add(bg);
 
   // TAxis * fitType = Ndmspc::NUtils::CreateAxisFromLabels("fitType", "fitType", {"std", "rootfit"});
-  TAxis * fitType = Ndmspc::NUtils::CreateAxisFromLabels("fitType", "fitType", {"std"});
-  // TAxis * fitType = Ndmspc::NUtils::CreateAxisFromLabels("fitType", "fitType", {"rootfit"});
+  // TAxis * fitType = Ndmspc::NUtils::CreateAxisFromLabels("fitType", "fitType", {"std"});
+  TAxis * fitType = Ndmspc::NUtils::CreateAxisFromLabels("fitType", "fitType", {"rootfit"});
 
   // Ndmspc::NUtils::CreateAxisFromLabels("fitType", "fitType", {"rootfit"});
-  axes->Add(fitType);
+  // axes->Add(fitType);
 
   // delete ngntIn;
 
@@ -79,7 +79,7 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
   // b2["pt"]      = {{50}};
   // b2["ce"]      = {{50}};
   // b2["bg"]      = {{1}};
-  // b2["fitType"] = {{1}};
+  // // b2["fitType"] = {{1}};
   // ngnt->GetBinning()->AddBinningDefinition("b2", b2);
 
   // std::map<std::string, std::vector<std::vector<int>>> b3;
@@ -163,7 +163,7 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
     }
     hBg->SetTitle(point->GetString().c_str());
 
-    cfg["fitType"] = point->GetBinLabel("fitType");
+    // cfg["fitType"] = point->GetBinLabel("fitType");
     std::string fitType = cfg["fitType"].get<std::string>();
     // if (point->ContainsAxis("fitType")) {
       // fitType = point->GetBinLabel("fitType");

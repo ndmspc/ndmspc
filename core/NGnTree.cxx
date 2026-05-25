@@ -176,20 +176,20 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   std::vector<std::string>                             labels;
   for (int i = 0; i < hns->GetNdimensions(); i++) {
     TAxis * axisIn = (TAxis *)hns->GetAxis(i);
-    TAxis * axis   = (TAxis *)axisIn->Clone();
-
     // check if parameterAxis matches axis name
-    if (parameterAxis.compare(axis->GetName()) == 0) {
+    if (parameterAxis.compare(axisIn->GetName()) == 0) {
       parameterAxisIdx = i;
-      TAxis * axis     = hns->GetAxis(parameterAxisIdx);
-      for (int bin = 1; bin <= axis->GetNbins(); bin++) {
+      TAxis * a        = hns->GetAxis(parameterAxisIdx);
+      for (int bin = 1; bin <= a->GetNbins(); bin++) {
         // NLogInfo("Axis bin %d label: %s", bin, axis->GetBinLabel(bin));
-        labels.push_back(axis->GetBinLabel(bin));
+        labels.push_back(a->GetBinLabel(bin));
       }
       continue;
     }
 
-    // set label
+    TAxis * axis = (TAxis *)axisIn->Clone();
+
+    // set labels
     if (axisIn->IsAlphanumeric()) {
       NLogTrace("Setting axis '%s' labels from input THnSparse", axis->GetName());
       for (int bin = 1; bin <= axisIn->GetNbins(); bin++) {
@@ -231,21 +231,31 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   // Use a unique file per import call to avoid collisions on repeated runs.
   std::string tmpFilename = tmpDir + "/ngnt_imported_input" + std::to_string(gSystem->GetPid()) + "_" +
                             std::to_string(static_cast<long long>(gSystem->Now())) + ".root";
-  NGnTree *   ngntIn      = new NGnTree(axes, tmpFilename);
-  if (ngntIn->IsZombie()) {
-    NLogError("NGnTree::Import: Failed to create NGnTree for input !!!");
+
+  cfg["inputFilename"] = tmpFilename;
+  cfg["inputObj"]      = "test";
+  TFile * f            = TFile::Open(tmpFilename.c_str(), "RECREATE");
+  if (!f || f->IsZombie()) {
+    NLogError("NGnTree::Import: Cannot create temporary file '%s' for input !!!", tmpFilename.c_str());
     SafeDelete(ngnt);
     MakeZombie();
     return;
   }
-  // ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
-  ngntIn->GetOutput("default")->Add(hns->Clone("test"));
-  ngntIn->Close(true);
 
-  // return;
-  // delete ngntIn;
-
-  ngnt->SetInput(NGnTree::Open(tmpFilename)); // Set input to self
+  hns->Write("test", TObject::kSingleKey);
+  f->Close();
+  delete f;
+  // NGnTree *   ngntIn      = new NGnTree(axes, tmpFilename);
+  // if (ngntIn->IsZombie()) {
+  //   NLogError("NGnTree::Import: Failed to create NGnTree for input !!!");
+  //   SafeDelete(ngnt);
+  //   MakeZombie();
+  //   return;
+  // }
+  // // ngntIn->GetStorageTree()->GetTree()->GetUserInfo()->Add(hns->Clone());
+  // ngntIn->GetOutput("default")->Add(hns->Clone("test"));
+  // ngntIn->Close(true);
+  // ngnt->SetInput(NGnTree::Open(tmpFilename)); // Set input to self
 
   ngnt->GetBinning()->AddBinningDefinition("default", b);
   ngnt->InitParameters(cfg["_labels"].get<std::vector<std::string>>());
@@ -253,22 +263,37 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
                                              int /*threadId*/) {
     // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     // point->Print();
     json cfg = point->GetCfg();
 
-    NGnTree * ngntIn = point->GetInput();
-    if (!ngntIn) {
-      NLogError("NGnTree::Import: Input NGnTree is nullptr !!!");
-      return;
+    TFile * fIn = point->GetTempObject("inFile") ? (TFile *)point->GetTempObject("inFile") : nullptr;
+    if (!fIn) {
+      std::string inFilename = cfg["inputFilename"].get<std::string>();
+      NLogDebug("NGnTree::Import: Opening input file '%s' ...", inFilename.c_str());
+      TFile * fTmp = gFile;
+      fIn          = TFile::Open(inFilename.c_str());
+      if (!fIn || fIn->IsZombie()) {
+        NLogError("NGnTree::Import: Cannot open input file '%s' !!!", inFilename.c_str());
+        return;
+      }
+      point->SetTempObject("inFile", fIn);
+      gFile = fTmp; // Restore global file pointer to avoid issues with ROOT's global state in multi-threaded context
     }
-    // ngntIn->Print();
 
-    THnSparse * hns = (THnSparse *)ngntIn->GetOutput("default")->At(0);
+    // NGnTree * ngntIn = point->GetInput();
+    // if (!ngntIn) {
+    //   NLogError("NGnTree::Import: Input NGnTree is nullptr !!!");
+    //   return;
+    // }
+    // // ngntIn->Print();
+
+    THnSparse * hns = (THnSparse *)fIn->Get(cfg["inputObj"].get<std::string>().c_str());
     if (hns == nullptr) {
       NLogError("NGnTree::Import: THnSparse 'hns' not found in storage tree !!!");
       return;
     }
+
+    // hns->Print("all");
 
     int                           axisIdx = cfg["_parameterAxis"].get<int>();
     std::vector<std::vector<int>> ranges;
@@ -285,14 +310,19 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     TH1 * h = hns->Projection(axisIdx, "O");
     if (!h) {
       NLogError("NGnTree::Import: Projection of THnSparse failed !!!");
+      delete h;
       return;
     }
     if (h->GetEntries() > 0) {
       NParameters * params = point->GetParameters();
       if (params) {
+        std::string info;
         for (int bin = 1; bin <= h->GetNbinsX(); bin++) {
+          info += TString::Format("%s: %f +/- %f; ", h->GetXaxis()->GetBinLabel(bin), h->GetBinContent(bin),
+                                  h->GetBinError(bin));
           params->SetParameter(bin, h->GetBinContent(bin), h->GetBinError(bin));
         }
+        NLogInfo("NGnTree::Import: Found '%s' %s !!!", point->GetString().c_str(), info.c_str());
       }
       // outputPoint->Add(hParams);
       outputPoint->Add(h);
@@ -364,10 +394,31 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       }
       // f->Close();
     }
+    else {
+      // NLogWarning("NGnTree::Import: No entries in projected histogram for point '%s' !!!",
+      // point->GetString().c_str());
+      delete h;
+    }
+  };
+
+  // Define the begin function which is executed before processing all points
+  Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    // NLogInfo("Starting processing ...");
+    TH1::AddDirectory(kFALSE);
+  };
+
+  // Define the end function which is executed after processing all points
+  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * point, int /*threadId*/) {
+    // NLogInfo("Finished processing ...");
+    TFile * f = (TFile *)point->GetTempObject("inFile");
+    if (f) {
+      NLogDebug("NGnTree::Import: Closing input file '%s' ...", f->GetName());
+      f->Close();
+    }
   };
 
   // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
-  ngnt->Process(processFunc, cfg);
+  ngnt->Process(processFunc, cfg, "default", beginFunc, endFunc);
   // ngnt->Close(true);
 
   // Release transient objects created for this import call. Keeping them
@@ -1231,13 +1282,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   }
   else {
-    Long64_t tmpMerged  = outputData->Merge(mergeList);
-    nmerged             = tmpMerged;
-    const auto mergeEnd = std::chrono::high_resolution_clock::now();
-    if (!NLogger::GetConsoleOutput()) {
-      const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
-      NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
-    }
+  Long64_t tmpMerged  = outputData->Merge(mergeList);
+  nmerged             = tmpMerged;
+  const auto mergeEnd = std::chrono::high_resolution_clock::now();
+  if (!NLogger::GetConsoleOutput()) {
+    const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
+    NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
+  }
   }
   if (nmerged <= 0) {
     NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
@@ -1357,12 +1408,12 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     mergedNg = nullptr;
   }
   else {
-    fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
-    fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
-    fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
-    fParameters  = outputData->GetHnSparseBase()->GetParameters();
-    // Close the final output file
-    outputData->GetHnSparseBase()->Close(true);
+  fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
+  fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
+  fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
+  fParameters  = outputData->GetHnSparseBase()->GetParameters();
+  // Close the final output file
+  outputData->GetHnSparseBase()->Close(true);
   }
   {
     Long_t            id        = 0;
@@ -2010,8 +2061,8 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
       point->SetTempObject("file", ngnt);
     }
 
-    int         nDirAxes  = cfg["nDirAxes"].get<int>();
-    Int_t *     coords    = point->GetCoords();
+    int     nDirAxes = cfg["nDirAxes"].get<int>();
+    Int_t * coords   = point->GetCoords();
     // std::string coordsStr = NUtils::GetCoordsString(NUtils::ArrayToVector(coords, point->GetNDimensionsContent()));
     // NLogInfo("NGnTree::Import: Processing point with coords %s ...", coordsStr.c_str());
 

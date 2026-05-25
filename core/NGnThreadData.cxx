@@ -1,14 +1,15 @@
-#include <NGnTree.h>
+
 #include <NStorageTree.h>
 #include <TROOT.h>
 #include <TCanvas.h>
+#include <TSystem.h>
 #include <mutex>
-#include "THnSparse.h"
+#include <THnSparse.h>
 #include "NBinningPoint.h"
 #include "NLogger.h"
 #include "NUtils.h"
 #include "NGnThreadData.h"
-
+#include "NGnTree.h"
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NGnThreadData);
 /// \endcond
@@ -211,6 +212,18 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     if (fCfg.contains("_ndmspc") && fCfg["_ndmspc"].is_object() && fCfg["_ndmspc"].contains("workerCount") &&
         fCfg["_ndmspc"]["workerCount"].is_number_integer()) {
       monitorWorkers = fCfg["_ndmspc"]["workerCount"].get<int>();
+    }
+    // Fallback: if workerCount not provided via cfg, check environment variable set during bootstrap
+    if (monitorWorkers == 0) {
+      const char * env = gSystem->Getenv("NDMSPC_MAX_PROCESSES");
+      if (env && env[0] != '\0') {
+        try {
+          int parsed = std::stoi(std::string(env));
+          if (parsed > 0) monitorWorkers = parsed;
+        } catch (...) {
+          // ignore parse errors and leave monitorWorkers as 0
+        }
+      }
     }
     fResourceMonitor = new NResourceMonitor();
     fResourceMonitor->Initialize(binningDef->GetContent(), monitorWorkers);
