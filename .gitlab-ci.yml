@@ -15,7 +15,7 @@ build-al9:
   tags:
     - ndmspc-hosted
   script:
-    - scripts/make.sh release test numcal testexclude=test_08_TcpLazyJoin.cxx_worker_interrupt
+    - scripts/make.sh release test numcal
   except:
     - main
     - tags
@@ -26,7 +26,7 @@ build-al10:
   tags:
     - ndmspc-hosted
   script:
-    - scripts/make.sh release test testexclude=test_08_TcpLazyJoin.cxx_worker_interrupt
+    - scripts/make.sh release test
   allow_failure: true
   except:
     - main
