@@ -150,7 +150,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   // TCanvas::Constructor call with a static mutex.  After this block gPad is
   // set for this thread and subsequent Fit() calls find it non-null.
   if (!gPad) {
-    static std::mutex sPadMutex;
+    static std::mutex           sPadMutex;
     std::lock_guard<std::mutex> lk(sPadMutex);
     // gPad is still nullptr for THIS thread even inside the lock (thread-local);
     // the mutex only serialises concurrent TCanvas::Constructor calls.
@@ -220,7 +220,8 @@ void NGnThreadData::Process(const std::vector<int> & coords)
         try {
           int parsed = std::stoi(std::string(env));
           if (parsed > 0) monitorWorkers = parsed;
-        } catch (...) {
+        }
+        catch (...) {
           // ignore parse errors and leave monitorWorkers as 0
         }
       }
@@ -405,7 +406,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       // }
 
       const std::string mergeFilename =
-        hnsttd->GetResultsFilename().empty() ? ts->GetFileName() : hnsttd->GetResultsFilename();
+          hnsttd->GetResultsFilename().empty() ? ts->GetFileName() : hnsttd->GetResultsFilename();
       NGnTree * hnsb = NGnTree::Open(mergeFilename);
       if (!hnsb) {
         NLogError("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", mergeFilename.c_str());
@@ -430,7 +431,6 @@ Long64_t NGnThreadData::Merge(TCollection * list)
     }
   }
 
-
   // for (const auto & name : fBiningSource->GetDefinitionNames()) {
   //   auto binningDef = fBiningSource->GetDefinition(name);
   //   if (!binningDef) {
@@ -444,7 +444,6 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   //             NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
   // }
 
-
   // FIXME: Fix this properly [it should be ok now]
   fHnSparseBase->GetBinning()->GetContent()->Reset();
   // Print hnsb binning definition ids
@@ -454,7 +453,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
       NBinningPoint point(fHnSparseBase->GetBinning());
       fBiningSource->GetContent()->GetBinContent(id, point.GetCoords());
       Long64_t bin = fHnSparseBase->GetBinning()->GetContent()->GetBin(point.GetCoords());
-      NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld",name.c_str(), id, bin);
+      NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
       fHnSparseBase->GetBinning()->GetContent()->SetBinContent(bin, id);
     }
     // fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
@@ -549,38 +548,45 @@ Long64_t NGnThreadData::Merge(TCollection * list)
     }
   }
 
-  // Loop over binning definitions and merge their contents
-  fHnSparseBase->GetStorageTree()->SetEnabledBranches({}, 0);
-  for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-    NBinningDef * binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
-    if (!binningDef) {
-      NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-      continue;
-    }
-    // binningDef->Print();
-    // Recalculate binningDef content based on ids
-    binningDef->GetContent()->Reset();
-    for (auto id : binningDef->GetIds()) {
-      fHnSparseBase->GetEntry(id, false);
-      Long64_t bin = binningDef->GetContent()->GetBin(fHnSparseBase->GetBinning()->GetPoint()->GetStorageCoords());
-      binningDef->GetContent()->SetBinContent(bin, id);
-      // binningDef->GetIds().push_back(id);
-      NLogTrace("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
-    }
-  }
-
-  // // print all definitions
+  // // Loop over binning definitions and merge their contents
+  // fHnSparseBase->GetStorageTree()->SetEnabledBranches({}, 0);
   // for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-  //   fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
+  //   NBinningDef * binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
+  //   if (!binningDef) {
+  //     NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+  //     continue;
+  //   }
+  //   // binningDef->Print();
+  //   // Recalculate binningDef content based on ids
+  //   binningDef->GetContent()->Reset();
+  //   for (auto id : binningDef->GetIds()) {
+  //     fHnSparseBase->GetEntry(id, false);
+  //     Long64_t bin = binningDef->GetContent()->GetBin(fHnSparseBase->GetBinning()->GetPoint()->GetStorageCoords());
+  //     binningDef->GetContent()->SetBinContent(bin, id);
+  //     // binningDef->GetIds().push_back(id);
+  //     NLogTrace("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
+  //   }
   // }
 
-  if (fHnSparseBase->GetInput()) {
-    fHnSparseBase->GetInput()->Close(false);
+  // // // print all definitions
+  // // for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
+  // //   fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
+  // // }
+
+  // if (fHnSparseBase->GetInput()) {
+  //   fHnSparseBase->GetInput()->Close(false);
+  // }
+
+  // fHnSparseBase->GetStorageTree()->SetEnabledBranches({}, 1);
+
+  // print all definitions
+  for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
+    fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
   }
+
 
   // Set default setting
   fHnSparseBase->GetBinning()->GetPoint()->Reset();
-  fHnSparseBase->GetStorageTree()->SetEnabledBranches({}, 1);
   fHnSparseBase->GetBinning()->SetCurrentDefinitionName(fHnSparseBase->GetBinning()->GetDefinitionNames().front());
 
   NLogTrace("NGnThreadData::Merge: END ------------------------------------------------");
@@ -609,8 +615,8 @@ void NGnThreadData::FlushDeferredDeletes()
 {
   if (fDeferredDeletes.empty()) return;
 
-  NLogTrace("NGnThreadData::FlushDeferredDeletes: [%zu] Deleting %zu deferred objects ...",
-            GetAssignedIndex(), fDeferredDeletes.size());
+  NLogTrace("NGnThreadData::FlushDeferredDeletes: [%zu] Deleting %zu deferred objects ...", GetAssignedIndex(),
+            fDeferredDeletes.size());
 
   NUtils::SafeDeleteObjects(fDeferredDeletes);
 }

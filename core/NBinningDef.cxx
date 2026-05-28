@@ -67,6 +67,7 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
     bins[count++] = axis->GetBinLowEdge(1);
 
     int                                                  iBin       = 0;
+    fBins[name].push_back(1); // add first bin edge
     std::map<std::string, std::vector<std::vector<int>>> definition = GetDefinition();
     for (auto & v : definition.at(name)) {
       // NLogDebug("  %s", NUtils::GetCoordsString(v, -1).c_str());
@@ -77,10 +78,20 @@ NBinningDef::NBinningDef(std::string name, std::map<std::string, std::vector<std
         if (iBin > axis->GetNbins()) {
           break;
         }
+        fBins[name].push_back(iBin+1);
         bins[count++] = axis->GetBinUpEdge(iBin);
       }
+      NLogDebug("NBinningDef::NBinningDef: Axis '%s': Added %d bins, total count=%d (n=%d)", name.c_str(), n, count,
+                v[0]);
     }
-    // loop over bins and print
+
+
+    // print fBins for the axis
+    for (auto &b: fBins) {
+      NLogDebug("NBinningDef::NBinningDef: Axis '%s': Cached bins: %s", b.first.c_str(), NUtils::GetCoordsString(b.second, -1).c_str());
+    }
+
+    // // loop over bins and print
     // for (int i = 0; i < count; i++) {
     //   NLogDebug("  %s: %d %f", axis->GetName(), i + 1, bins[i]);
     // }
@@ -276,5 +287,48 @@ void NBinningDef::RefreshContentFromIds()
   NDimensionalExecutor executor(mins, maxs);
   executor.Execute(task);
   delete[] c;
+}
+
+bool NBinningDef::ContainsBin(Int_t * coords, Int_t nDims) const {
+  ///
+  /// Check if the given coordinates correspond to a bin defined in this binning definition
+  ///
+
+
+
+  // Loop over variable axes and check if the coordinates are within the defined bins
+  for (size_t i = 0; i < fVariableAxes.size(); i++) {
+    int axisIndex = fVariableAxes[i];
+    TAxis * axis = fContent->GetAxis(axisIndex);
+    int rebin = coords[i*3];
+    int start = coords[i*3+1];
+    int id = coords[i*3+2];
+    // NLogDebug("NBinningDef::ContainsBin: Checking variable axis %d (name='%s') with rebin=%d start=%d id=%d", axisIndex, axis->GetName(), rebin, start, id);
+    auto definition = fDefinition.at(axis->GetName());
+    
+
+    int min, max;
+    bool isAxisRange = fBinning->GetAxisRangeInBase(i,min, max, {rebin, start, id});
+
+    // NLogDebug("NBinningDef::ContainsBin: Axis range for axis %d: min=%d max=%d", axisIndex, min, max);
+
+    bool found = false; 
+    std::vector<int> bins = fBins.at(axis->GetName());
+    for (size_t b = 0; b < bins.size()-1; b++) {
+      // NLogDebug("NBinningDef::ContainsBin: Axis %d (name='%s') checking bin edge [%d %d] minmax[%d %d]", axisIndex, axis->GetName(), bins[b], bins[b+1], min, max);
+      if (min == bins[b] && max == bins[b+1]-1) {
+        found = true;
+        // NLogDebug("NBinningDef::ContainsBin: !!!!!!!!!!!!!!!!! Axis %d (name='%s') found matching bin edge [%d %d]", axisIndex, axis->GetName(), bins[b], bins[b+1]);
+        break;
+      }
+    }
+
+    if (!found) {
+      // NLogDebug("NBinningDef::ContainsBin: !!!!!!!!!!!!!!!!! Axis %d (name='%s') did not find matching bin edge for minmax[%d %d]", axisIndex, axis->GetName(), min, max);
+      return false;
+    }
+
+  }
+  return true;
 }
 } // namespace Ndmspc

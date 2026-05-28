@@ -45,7 +45,8 @@ WORKDIR /ndmspc
 RUN root -b -q /usr/share/ndmspc/tutorial/02_storage/NStorage01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/03_parameter/NParameter01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/04_customization/NCustomization01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/05_nested/NNested01Gaus.C && \
+  root -b -q /usr/share/ndmspc/tutorial/05_single_bining/NSingleBinning01Gaus.C && \
+  root -b -q /usr/share/ndmspc/tutorial/05_single_bining/NSingleBinning01Gaus'("NNested01Gaus.root.root")'.C && \
   root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C && \
   root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C'("NBinnings01Gaus_odd.root",true)' && \
   root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01GausStress.C 

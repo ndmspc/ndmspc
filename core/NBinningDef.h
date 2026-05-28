@@ -64,6 +64,9 @@ class NBinningDef : public TObject {
    */
   void SetAxisDefinition(std::string axisName, const std::vector<std::vector<int>> & d) { fDefinition[axisName] = d; }
 
+  std::vector<int> GetBins(std::string axisName) const { return fBins.at(axisName); }
+
+
   /**
    * @brief Get list of variable axes indices.
    * @return Vector of variable axis indices.
@@ -131,16 +134,20 @@ class NBinningDef : public TObject {
    */
   virtual const char* GetName() const { return fName.c_str(); }
 
+
+  bool ContainsBin(Int_t* coords, Int_t nDims) const;
+
   private:
   NBinning *                                           fBinning{nullptr}; ///< Pointer to the parent binning
   std::string                                          fName;             ///< Name of the binning definition
   std::map<std::string, std::vector<std::vector<int>>> fDefinition;       ///< Binning mapping definition
+  std::map<std::string, std::vector<int>> fBins;       ///< Cached bin edges for each axis name
   std::vector<int>      fVariableAxes{};   ///< List of variable axes indices in the content histogram
   std::vector<Long64_t> fIds{};            ///< List of IDs for the binning definition
   THnSparse *           fContent{nullptr}; ///< Template histogram for the binning definition
 
   /// \cond CLASSIMP
-  ClassDef(NBinningDef, 1);
+  ClassDef(NBinningDef, 2);
   /// \endcond;
 };
 } // namespace Ndmspc

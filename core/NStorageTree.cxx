@@ -119,24 +119,33 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
   // NDMSPC_TTREE_BASKET_SIZE: bytes per branch (default 1MB)
   // NDMSPC_TTREE_AUTOFLUSH: entries to flush (negative value means entries, default -100)
   // NDMSPC_TTREE_AUTOSAVE: autosave frequency (negative value means entries, default -500)
-  const char * envBasket = gSystem->Getenv("NDMSPC_TTREE_BASKET_SIZE");
+  const char * envBasket    = gSystem->Getenv("NDMSPC_TTREE_BASKET_SIZE");
   const char * envAutoFlush = gSystem->Getenv("NDMSPC_TTREE_AUTOFLUSH");
-  const char * envAutoSave = gSystem->Getenv("NDMSPC_TTREE_AUTOSAVE");
+  const char * envAutoSave  = gSystem->Getenv("NDMSPC_TTREE_AUTOSAVE");
 
   // ROOT defaults
-  Long64_t basketSize = 32000LL;          // 32 KB per branch (ROOT default)
-  Long64_t autoFlush  = -30000000LL;      // 30 MB (ROOT default)
-  Long64_t autoSave   = -300000000LL;     // 300 MB (ROOT default)
+  Long64_t basketSize = 32000LL;      // 32 KB per branch (ROOT default)
+  Long64_t autoFlush  = -30000000LL;  // 30 MB (ROOT default)
+  Long64_t autoSave   = -300000000LL; // 300 MB (ROOT default)
 
   try {
     if (envBasket) basketSize = std::stoll(std::string(envBasket));
-  } catch (...) { NLogWarning("NDMSPC_TTREE_BASKET_SIZE invalid: '%s'", envBasket ? envBasket : "(null)"); }
+  }
+  catch (...) {
+    NLogWarning("NDMSPC_TTREE_BASKET_SIZE invalid: '%s'", envBasket ? envBasket : "(null)");
+  }
   try {
     if (envAutoFlush) autoFlush = std::stoll(std::string(envAutoFlush));
-  } catch (...) { NLogWarning("NDMSPC_TTREE_AUTOFLUSH invalid: '%s'", envAutoFlush ? envAutoFlush : "(null)"); }
+  }
+  catch (...) {
+    NLogWarning("NDMSPC_TTREE_AUTOFLUSH invalid: '%s'", envAutoFlush ? envAutoFlush : "(null)");
+  }
   try {
     if (envAutoSave) autoSave = std::stoll(std::string(envAutoSave));
-  } catch (...) { NLogWarning("NDMSPC_TTREE_AUTOSAVE invalid: '%s'", envAutoSave ? envAutoSave : "(null)"); }
+  }
+  catch (...) {
+    NLogWarning("NDMSPC_TTREE_AUTOSAVE invalid: '%s'", envAutoSave ? envAutoSave : "(null)");
+  }
 
   // Apply settings
   // SetBasketSize("*") requires existing branches; calling it on a fresh tree prints a ROOT error.
@@ -145,7 +154,8 @@ bool NStorageTree::InitTree(const std::string & filename, const std::string & tr
     if (branches && branches->GetEntriesFast() > 0) {
       fTree->SetBasketSize("*", basketSize);
       NLogTrace("NStorageTree::InitTree: SetBasketSize(*, %lld)", (long long)basketSize);
-    } else {
+    }
+    else {
       NLogTrace("NStorageTree::InitTree: Skip SetBasketSize(*, %lld) (no branches yet)", (long long)basketSize);
     }
   }
@@ -262,7 +272,7 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
 
   Long64_t bin = point->Fill(ignoreFilledCheck);
   if (bin < 0 && ignoreFilledCheck == false) {
-    fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
+    // fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
 
     NLogWarning("Point was already processed, skipping ...");
     // NLogWarning("NStorageTree::Fill: Point was already filled !!!");
@@ -290,7 +300,26 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   }
 
   Long64_t entry = fTree->GetEntries() - 1;
-  fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
+
+  // point->Print();
+  // Set bin content in the template histogram for the binning definition
+  for (auto & defs : fBinning->GetDefinitions()) {
+    if (defs.second->ContainsBin(point->GetCoords(), point->GetNDimensionsContent())) {
+      // NLogDebug("NStorageTree::Fill: Setting bin content for axis '%s' ...", defs.first.c_str());
+      // FIXME: This is a workaround to set the bin content in the template histogram for the binning definition, which
+      // is used to store the bin IDs. This should be refactored to avoid this kind of coupling between the point and
+      // the binning definition. fBinning->SetCurrentDefinitionName(defs.first);
+      // point->RecalculateStorageCoords(point->GetEntryNumber(), false);
+      // point->Print();
+      // fBinning->GetContent()->Print("all");
+      // Long64_t bin = fBinning->GetContent()->GetBin(point->GetCoords(), false);
+      // NLogDebug("NStorageTree::Fill: Setting bin content for axis '%s' with bin %lld [in binning] and entry %lld
+      // ...", defs.first.c_str(), bin, point->GetEntryNumber());
+      defs.second->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
+      defs.second->GetIds().push_back(point->GetEntryNumber());
+    }
+  }
+  // fBinning->GetDefinition()->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
   point->SetEntryNumber(entry);
 
   ProcInfo_t info;
@@ -548,19 +577,22 @@ Long64_t NStorageTree::Merge(TCollection * list)
       // Long64_t bin = fBinning->GetContent()->GetBin(cCoords, false);
       Long64_t bin = obj->GetBinning()->GetContent()->GetBin(cCoords, false);
 
-      NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' is bin=%lld binGlobal=%lld", linBin, idx,
-                binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
       if (bin < 0) {
         NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' bin=%lld, skipping ...", linBin, idx,
                   binCoordsStr.c_str(), obj->GetFileName().c_str(), bin);
         continue;
       }
-
+      else {
+        NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' is bin=%lld binGlobal=%lld", linBin, idx,
+                  binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
+      }
       NLogTrace("NStorageTree::Merge: bin=%lld obj->GetTree()->GetEntries()=%lld", bin, obj->GetTree()->GetEntries());
       if (bin < obj->GetTree()->GetEntries()) {
         // obj->Print();
         obj->GetEntry(bin, point);
+
         // point->SetEntryNumber(bin); // Set the entry number to the linear bin index
+
         // point->Print();
         // // FIXME: check why ids are not filled correctly when merging
         found = false;
@@ -625,13 +657,14 @@ Long64_t NStorageTree::Merge(TCollection * list)
           // would be a use-after-free on macOS's strict allocator.
           b->SetAddress(branchObj, false); // Set the branch address
         }
-        // SetPoint(obj->GetPoint()); // Set the point in the current NGnTree
-        // SaveEntry();
-        // fBinning->SetPoint(obj->GetBinning()->GetPoint());
+
+        // FIXME: This is a workaround. Make it cleaner
+        point->SetCoords(cCoords);
+        point->SetEntryNumber(GetEntries());
+        point->RecalculateStorageCoords(point->GetEntryNumber(), false);
+        // point->Print();
+
         Fill(point, obj, true, {}, false);
-        for (auto * def : matchedDefinitions) {
-          def->GetIds().push_back(point->GetEntryNumber());
-        }
         NLogTrace("NHnSparseTree::Merge: Filling point %s linBin=%d idx=%d entry_number=%d...", binCoordsStr.c_str(),
                   linBin, idx, point->GetEntryNumber());
       }
