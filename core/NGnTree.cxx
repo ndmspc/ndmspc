@@ -322,7 +322,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
                                   h->GetBinError(bin));
           params->SetParameter(bin, h->GetBinContent(bin), h->GetBinError(bin));
         }
-        NLogInfo("NGnTree::Import: Found '%s' %s !!!", point->GetString().c_str(), info.c_str());
+        NLogTrace("NGnTree::NGnTree: Found '%s' %s !!!", point->GetString().c_str(), info.c_str());
       }
       // outputPoint->Add(hParams);
       outputPoint->Add(h);
@@ -1236,7 +1236,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   // to `1|true|yes|on` to enable.
   const bool allowFast = []() {
     const char * env = gSystem->Getenv("NDMSPC_SINGLE_WORKER_FAST_MERGE");
-    if (!env || env[0] == '\0') return true; // default: enabled
+    if (!env || env[0] == '\0') return false; // default: disabled
     return NUtils::ParseBoolEnv(env);
   }();
 
@@ -1306,83 +1306,83 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   // }
   //
 
-  // binningIn= outputData->GetHnSparseBase()->GetBinning();
+  // // binningIn= outputData->GetHnSparseBase()->GetBinning();
 
-  auto *             mergedBinning = (mergedNg ? mergedNg->GetBinning() : outputData->GetHnSparseBase()->GetBinning());
-  std::set<Long64_t> mergedContentIds;
-  std::vector<std::pair<Long64_t, std::vector<int>>> mergedContentCoords;
+  // auto *             mergedBinning = (mergedNg ? mergedNg->GetBinning() : outputData->GetHnSparseBase()->GetBinning());
+  // std::set<Long64_t> mergedContentIds;
+  // std::vector<std::pair<Long64_t, std::vector<int>>> mergedContentCoords;
 
-  // NStorageTree::Merge may rebuild definition IDs from stored rows only,
-  // which drops overlapping membership in later definitions.
-  // Restore authoritative definition memberships collected in binningIn.
-  for (const auto & name : defNames) {
-    auto * mergedDef = mergedBinning->GetDefinition(name);
-    auto   idsIt     = originalDefinitionIdsMap.find(name);
-    if (!mergedDef || idsIt == originalDefinitionIdsMap.end()) {
-      NLogError("NGnTree::Process: Failed to restore definition '%s' after merge", name.c_str());
-      return false;
-    }
-    mergedDef->GetIds() = idsIt->second;
-  }
+  // // NStorageTree::Merge may rebuild definition IDs from stored rows only,
+  // // which drops overlapping membership in later definitions.
+  // // Restore authoritative definition memberships collected in binningIn.
+  // for (const auto & name : defNames) {
+  //   auto * mergedDef = mergedBinning->GetDefinition(name);
+  //   auto   idsIt     = originalDefinitionIdsMap.find(name);
+  //   if (!mergedDef || idsIt == originalDefinitionIdsMap.end()) {
+  //     NLogError("NGnTree::Process: Failed to restore definition '%s' after merge", name.c_str());
+  //     return false;
+  //   }
+  //   mergedDef->GetIds() = idsIt->second;
+  // }
 
-  for (size_t i = 0; i < defNames.size(); i++) {
-    std::string name = defNames[i];
-    // auto        def  = binningIn->GetDefinition(name);
-    auto def = mergedBinning->GetDefinition(name);
-    if (!def) {
-      NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-      return false;
-    }
-    sort(def->GetIds().begin(), def->GetIds().end());
-    // outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds() = def->GetIds();
+  // for (size_t i = 0; i < defNames.size(); i++) {
+  //   std::string name = defNames[i];
+  //   // auto        def  = binningIn->GetDefinition(name);
+  //   auto def = mergedBinning->GetDefinition(name);
+  //   if (!def) {
+  //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+  //     return false;
+  //   }
+  //   sort(def->GetIds().begin(), def->GetIds().end());
+  //   // outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds() = def->GetIds();
 
-    // Modify content in binning definitions based on def->GetIds()
-    def->GetContent()->Reset();
-    for (auto id : def->GetIds()) {
-      if (id < 0 || id >= def->GetBinning()->GetContent()->GetNbins()) {
-        NLogWarning("NGnTree::Process: Skipping invalid id=%lld in definition '%s' (content nbins=%lld)", id,
-                    name.c_str(), def->GetBinning()->GetContent()->GetNbins());
-        continue;
-      }
-      NBinningPoint point(def->GetBinning());
-      def->GetBinning()->GetContent()->GetBinContent(id, point.GetCoords());
-      if (!point.RecalculateStorageCoords(id, false)) {
-        NLogWarning("NGnTree::Process: Skipping id=%lld in definition '%s' due to invalid storage coordinate "
-                    "recalculation",
-                    id, name.c_str());
-        continue;
-      }
-      Long64_t bin = def->GetContent()->GetBin(point.GetStorageCoords());
-      NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
-      def->GetContent()->SetBinContent(bin, id);
+  //   // Modify content in binning definitions based on def->GetIds()
+  //   def->GetContent()->Reset();
+  //   for (auto id : def->GetIds()) {
+  //     if (id < 0 || id >= def->GetBinning()->GetContent()->GetNbins()) {
+  //       NLogWarning("NGnTree::Process: Skipping invalid id=%lld in definition '%s' (content nbins=%lld)", id,
+  //                   name.c_str(), def->GetBinning()->GetContent()->GetNbins());
+  //       continue;
+  //     }
+  //     NBinningPoint point(def->GetBinning());
+  //     def->GetBinning()->GetContent()->GetBinContent(id, point.GetCoords());
+  //     if (!point.RecalculateStorageCoords(id, false)) {
+  //       NLogWarning("NGnTree::Process: Skipping id=%lld in definition '%s' due to invalid storage coordinate "
+  //                   "recalculation",
+  //                   id, name.c_str());
+  //       continue;
+  //     }
+  //     Long64_t bin = def->GetContent()->GetBin(point.GetStorageCoords());
+  //     NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
+  //     def->GetContent()->SetBinContent(bin, id);
 
-      if (mergedContentIds.insert(id).second) {
-        mergedContentCoords.emplace_back(id, NUtils::ArrayToVector(point.GetCoords(), point.GetNDimensionsContent()));
-      }
-    }
-  }
+  //     if (mergedContentIds.insert(id).second) {
+  //       mergedContentCoords.emplace_back(id, NUtils::ArrayToVector(point.GetCoords(), point.GetNDimensionsContent()));
+  //     }
+  //   }
+  // }
 
-  // Rebuild the merged top-level content from final definition ids. In IPC/TCP mode
-  // the merge setup may still carry sparse source-bin content; resetting here keeps
-  // only the bins that correspond to actual merged tree entries.
-  mergedBinning->GetContent()->Reset();
-  for (const auto & entry : mergedContentCoords) {
-    Long64_t bin = mergedBinning->GetContent()->GetBin(entry.second.data());
-    mergedBinning->GetContent()->SetBinContent(bin, entry.first);
-  }
+  // // Rebuild the merged top-level content from final definition ids. In IPC/TCP mode
+  // // the merge setup may still carry sparse source-bin content; resetting here keeps
+  // // only the bins that correspond to actual merged tree entries.
+  // mergedBinning->GetContent()->Reset();
+  // for (const auto & entry : mergedContentCoords) {
+  //   Long64_t bin = mergedBinning->GetContent()->GetBin(entry.second.data());
+  //   mergedBinning->GetContent()->SetBinContent(bin, entry.first);
+  // }
 
-  // print final binning definitions
-  NLogDebug("NGnTree::Process: Final binning definitions after processing:");
-  for (auto & name : defNames) {
-    // auto binningDef = binningIn->GetDefinition(name);
-    auto binningDef = (mergedNg ? mergedNg->GetBinning()->GetDefinition(name)
-                                : outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name));
-    if (!binningDef) {
-      NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-      return false;
-    }
-    binningDef->Print();
-  }
+  // // print final binning definitions
+  // NLogDebug("NGnTree::Process: Final binning definitions after processing:");
+  // for (auto & name : defNames) {
+  //   // auto binningDef = binningIn->GetDefinition(name);
+  //   auto binningDef = (mergedNg ? mergedNg->GetBinning()->GetDefinition(name)
+  //                               : outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name));
+  //   if (!binningDef) {
+  //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
+  //     return false;
+  //   }
+  //   binningDef->Print();
+  // }
 
   if (mergedNg) {
     // Transfer pointers from the opened NGnTree into this instance.

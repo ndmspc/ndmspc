@@ -164,7 +164,7 @@ MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE}"
 
 if [[ $BUILDING_DOC == true ]]; then
   echo "Building with documentation"
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_DOC:bool=ON"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DBUILD_DOCUMENTATION:bool=ON"
 fi
 if [[ $WITH_TEST == true ]]; then
   echo "Building with testing support"

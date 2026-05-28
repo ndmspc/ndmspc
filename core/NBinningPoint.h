@@ -54,6 +54,12 @@ class NBinningPoint : public TObject {
    */
   Int_t * GetCoords() const { return fContentCoords; }
 
+  void SetCoords(Int_t * coords) {
+    for (int i = 0; i < fContentNDimensions; ++i) {
+      fContentCoords[i] = coords[i];
+    }
+  }
+
   /**
    * @brief Get number of dimensions.
    * @return Number of dimensions.

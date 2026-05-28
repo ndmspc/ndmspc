@@ -1032,7 +1032,7 @@ std::vector<std::string> NBinning::GetAxisNamesByIndexes(std::vector<int> ids) c
   return names;
 }
 
-NBinningDef * NBinning::GetDefinition(const std::string & name)
+NBinningDef * NBinning::GetDefinition(const std::string & name,bool setCurrent)
 {
 
   ///
@@ -1057,7 +1057,10 @@ NBinningDef * NBinning::GetDefinition(const std::string & name)
     return nullptr;
   }
   NLogTrace("NBinning::GetDefinition: Using definition '%s'", name.c_str());
-  fCurrentDefinitionName = name;
+  
+  if (setCurrent) {
+    fCurrentDefinitionName = name;
+  }
   return fDefinitions.at(name);
 }
 
