@@ -99,6 +99,17 @@ using json = nlohmann::json;
  */
 #define NLogRun(format, ...) Ndmspc::NLogger::RunLog(format, ##__VA_ARGS__)
 
+
+/**
+ * @def NLogForce
+ * @brief Always prints a message to console and file (if enabled), regardless of log level or output settings.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogForce(format, ...) Ndmspc::NLogger::ForceLog(format, ##__VA_ARGS__)
+
+
+
 namespace Ndmspc {
 
 namespace logs {
@@ -503,6 +514,13 @@ class NLogger {
    * output and NDMSPC_LOG_FILE for file output.
    */
   static void RunLog(const char * format, ...);
+
+  /**
+   * @brief Always prints a message to console and file (if enabled), regardless of log level or output settings.
+   * @param format The printf-style format string.
+   * @param ... Arguments for the format string.
+   */
+  static void ForceLog(const char * format, ...);
 
   /**
    * @brief Sets the minimum severity level for logging.

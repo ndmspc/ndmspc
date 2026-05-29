@@ -16,13 +16,13 @@
 namespace Ndmspc {
 
 // Singleton instance and mutex
-std::recursive_mutex     NLogger::fgLoggerMutex;
-logs::Severity NLogger::fgMinSeverity   = logs::Severity::kInfo;
-std::string    NLogger::fgLogDirectory  = "/tmp/.ndmspc/logs";
-bool           NLogger::fgConsoleOutput = true;
-bool           NLogger::fgFileOutput    = false; // Default: no file logging
-bool           NLogger::fgRunOutput     = false; // Default: no run-mode console output
-std::string    NLogger::fgProcessName   = "";
+std::recursive_mutex NLogger::fgLoggerMutex;
+logs::Severity       NLogger::fgMinSeverity   = logs::Severity::kInfo;
+std::string          NLogger::fgLogDirectory  = "/tmp/.ndmspc/logs";
+bool                 NLogger::fgConsoleOutput = true;
+bool                 NLogger::fgFileOutput    = false; // Default: no file logging
+bool                 NLogger::fgRunOutput     = false; // Default: no run-mode console output
+std::string          NLogger::fgProcessName   = "";
 
 NLogger::NLogger()
 {
@@ -71,7 +71,7 @@ void NLogger::Init()
 
   if (const char * env_console_output = getenv("NDMSPC_LOG_CONSOLE")) {
     // Parse with utility: also handle explicit disable by false/0
-    bool v = Ndmspc::NUtils::ParseBoolEnv(env_console_output);
+    bool v          = Ndmspc::NUtils::ParseBoolEnv(env_console_output);
     fgConsoleOutput = v;
     if (!fgConsoleOutput) gErrorIgnoreLevel = kFatal;
   }
@@ -83,7 +83,7 @@ void NLogger::Init()
     // duplicate or interleaved messages. Run-mode is intended to replace
     // normal console logging for progress-style output.
     if (fgRunOutput) {
-      fgConsoleOutput = false;
+      fgConsoleOutput   = false;
       gErrorIgnoreLevel = kFatal;
     }
   }
@@ -257,8 +257,8 @@ std::ofstream & NLogger::GetThreadStream()
     std::cerr << "NLogger: Log file created: " << filename.str() << std::endl;
   }
 
-  auto filename_str = filename.str();
-  auto & ref = *stream;
+  auto   filename_str = filename.str();
+  auto & ref          = *stream;
   fThreadStreams[tid] = std::move(stream);
   // Record the filename for later reporting at cleanup
   fThreadFilenames[tid] = filename_str;
@@ -330,8 +330,8 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
   // Format timestamp
   auto        now      = std::chrono::system_clock::now();
   std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-  std::tm now_tm_buf;
-  std::tm * now_tm = nullptr;
+  std::tm     now_tm_buf;
+  std::tm *   now_tm = nullptr;
 #if defined(_POSIX_VERSION)
   if (localtime_r(&now_time, &now_tm_buf) != nullptr) {
     now_tm = &now_tm_buf;
@@ -342,8 +342,8 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
 #else
   now_tm = std::localtime(&now_time);
 #endif
-  char        time_buf[24];
-  auto        ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+  char time_buf[24];
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
   std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", now_tm);
 
   // Format message
@@ -386,8 +386,8 @@ void NLogger::RunLog(const char * format, ...)
   // Format timestamp
   auto        now      = std::chrono::system_clock::now();
   std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-  std::tm now_tm_buf2;
-  std::tm * now_tm = nullptr;
+  std::tm     now_tm_buf2;
+  std::tm *   now_tm = nullptr;
 #if defined(_POSIX_VERSION)
   if (localtime_r(&now_time, &now_tm_buf2) != nullptr) {
     now_tm = &now_tm_buf2;
@@ -398,8 +398,8 @@ void NLogger::RunLog(const char * format, ...)
 #else
   now_tm = std::localtime(&now_time);
 #endif
-  char        time_buf[24];
-  auto        ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+  char time_buf[24];
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
   std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", now_tm);
 
   char message_buf[4096];
@@ -428,4 +428,52 @@ void NLogger::RunLog(const char * format, ...)
   }
 }
 
+// Always print to console, regardless of fgRunOutput or fgConsoleOutput
+void NLogger::ForceLog(const char * format, ...)
+{
+  va_list args;
+  va_start(args, format);
+
+  // Format timestamp
+  auto        now      = std::chrono::system_clock::now();
+  std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+  std::tm     now_tm_buf2;
+  std::tm *   now_tm = nullptr;
+#if defined(_POSIX_VERSION)
+  if (localtime_r(&now_time, &now_tm_buf2) != nullptr) {
+    now_tm = &now_tm_buf2;
+  }
+  else {
+    now_tm = std::localtime(&now_time);
+  }
+#else
+  now_tm = std::localtime(&now_time);
+#endif
+  char time_buf[24];
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+  std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", now_tm);
+
+  char message_buf[4096];
+  vsnprintf(message_buf, sizeof(message_buf), format, args);
+  va_end(args);
+
+  std::ostringstream log_line;
+  log_line << "[" << time_buf << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
+           << message_buf;
+
+  // File output (if enabled)
+  if (fgFileOutput) {
+    auto & stream = Instance()->GetThreadStream();
+    if (stream.is_open()) {
+      stream << log_line.str() << std::endl;
+      stream.flush();
+    }
+  }
+
+  // Always print to console, regardless of fgRunOutput or fgConsoleOutput
+  {
+    std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
+    std::cout << log_line.str() << std::endl;
+  }
+}
 } // namespace Ndmspc

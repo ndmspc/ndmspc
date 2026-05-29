@@ -255,7 +255,7 @@ class NBinning : public TObject {
    * @param name Definition name (optional).
    * @return Pointer to NBinningDef.
    */
-  NBinningDef * GetDefinition(const std::string & name = "",bool setCurrent = true) ;
+  NBinningDef * GetDefinition(const std::string & name = "",bool setCurrent = false);
 
   /**
    * @brief Get all binning definitions.

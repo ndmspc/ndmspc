@@ -5,7 +5,7 @@ if(NOT CMAKE_INSTALL_PREFIX)
       CACHE PATH "Default installation" FORCE)
 endif()
 
-project(ndmspc VERSION 1.2.0 DESCRIPTION "NDMSPC")
+project(ndmspc VERSION 1.3.0 DESCRIPTION "NDMSPC")
 set(PROJECT_VERSION_RELEASE 0)
 
 option(WITH_HTTP "Compile with HTTP part" ON)
