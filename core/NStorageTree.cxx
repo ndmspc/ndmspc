@@ -304,17 +304,7 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   // point->Print();
   // Set bin content in the template histogram for the binning definition
   for (auto & defs : fBinning->GetDefinitions()) {
-    if (defs.second->ContainsBin(point->GetCoords(), point->GetNDimensionsContent())) {
-      // NLogDebug("NStorageTree::Fill: Setting bin content for axis '%s' ...", defs.first.c_str());
-      // FIXME: This is a workaround to set the bin content in the template histogram for the binning definition, which
-      // is used to store the bin IDs. This should be refactored to avoid this kind of coupling between the point and
-      // the binning definition. fBinning->SetCurrentDefinitionName(defs.first);
-      // point->RecalculateStorageCoords(point->GetEntryNumber(), false);
-      // point->Print();
-      // fBinning->GetContent()->Print("all");
-      // Long64_t bin = fBinning->GetContent()->GetBin(point->GetCoords(), false);
-      // NLogDebug("NStorageTree::Fill: Setting bin content for axis '%s' with bin %lld [in binning] and entry %lld
-      // ...", defs.first.c_str(), bin, point->GetEntryNumber());
+    if (defs.second->ContainsBin(point->GetCoords())) {
       defs.second->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
       defs.second->GetIds().push_back(point->GetEntryNumber());
     }

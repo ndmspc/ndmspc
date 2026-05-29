@@ -289,7 +289,7 @@ void NBinningDef::RefreshContentFromIds()
   delete[] c;
 }
 
-bool NBinningDef::ContainsBin(Int_t * coords, Int_t nDims) const {
+bool NBinningDef::ContainsBin(Int_t * coords) const {
   ///
   /// Check if the given coordinates correspond to a bin defined in this binning definition
   ///
@@ -308,7 +308,7 @@ bool NBinningDef::ContainsBin(Int_t * coords, Int_t nDims) const {
     
 
     int min, max;
-    bool isAxisRange = fBinning->GetAxisRangeInBase(i,min, max, {rebin, start, id});
+    fBinning->GetAxisRangeInBase(i,min, max, {rebin, start, id});
 
     // NLogDebug("NBinningDef::ContainsBin: Axis range for axis %d: min=%d max=%d", axisIndex, min, max);
 
