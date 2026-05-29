@@ -937,7 +937,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   std::map<std::string, std::vector<Long64_t>>  originalDefinitionIdsMap;
 
   for (const auto & defName : defNames) {
-    auto * def = binningIn->GetDefinition(defName);
+    auto * def = binningIn->GetDefinition(defName,false);
     if (!def) {
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", defName.c_str());
       return false;
@@ -1009,7 +1009,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
                     name.c_str());
         // Keep full definition membership even when all entries overlap with
         // previously processed definitions.
-        binningIn->GetDefinition(name)->GetIds() = originalDefinitionIdsMap[name];
+        binningDef->GetIds() = originalDefinitionIdsMap[name];
         continue;
       }
 
@@ -1298,92 +1298,6 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     return false;
   }
   NLogInfo("NGnTree::Process: Merged %lld outputs successfully", nmerged);
-  // delete all temporary files
-  // for (auto & data : threadDataVector) {
-  //   std::string filename = data.GetHnSparseBase()->GetStorageTree()->GetFileName();
-  //   NLogTrace("NGnTree::Process: Deleting temporary file '%s' ...", filename.c_str());
-  //   gSystem->Exec(TString::Format("rm -f %s", filename.c_str()));
-  // }
-  //
-
-  // // binningIn= outputData->GetHnSparseBase()->GetBinning();
-
-  // auto *             mergedBinning = (mergedNg ? mergedNg->GetBinning() : outputData->GetHnSparseBase()->GetBinning());
-  // std::set<Long64_t> mergedContentIds;
-  // std::vector<std::pair<Long64_t, std::vector<int>>> mergedContentCoords;
-
-  // // NStorageTree::Merge may rebuild definition IDs from stored rows only,
-  // // which drops overlapping membership in later definitions.
-  // // Restore authoritative definition memberships collected in binningIn.
-  // for (const auto & name : defNames) {
-  //   auto * mergedDef = mergedBinning->GetDefinition(name);
-  //   auto   idsIt     = originalDefinitionIdsMap.find(name);
-  //   if (!mergedDef || idsIt == originalDefinitionIdsMap.end()) {
-  //     NLogError("NGnTree::Process: Failed to restore definition '%s' after merge", name.c_str());
-  //     return false;
-  //   }
-  //   mergedDef->GetIds() = idsIt->second;
-  // }
-
-  // for (size_t i = 0; i < defNames.size(); i++) {
-  //   std::string name = defNames[i];
-  //   // auto        def  = binningIn->GetDefinition(name);
-  //   auto def = mergedBinning->GetDefinition(name);
-  //   if (!def) {
-  //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-  //     return false;
-  //   }
-  //   sort(def->GetIds().begin(), def->GetIds().end());
-  //   // outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name)->GetIds() = def->GetIds();
-
-  //   // Modify content in binning definitions based on def->GetIds()
-  //   def->GetContent()->Reset();
-  //   for (auto id : def->GetIds()) {
-  //     if (id < 0 || id >= def->GetBinning()->GetContent()->GetNbins()) {
-  //       NLogWarning("NGnTree::Process: Skipping invalid id=%lld in definition '%s' (content nbins=%lld)", id,
-  //                   name.c_str(), def->GetBinning()->GetContent()->GetNbins());
-  //       continue;
-  //     }
-  //     NBinningPoint point(def->GetBinning());
-  //     def->GetBinning()->GetContent()->GetBinContent(id, point.GetCoords());
-  //     if (!point.RecalculateStorageCoords(id, false)) {
-  //       NLogWarning("NGnTree::Process: Skipping id=%lld in definition '%s' due to invalid storage coordinate "
-  //                   "recalculation",
-  //                   id, name.c_str());
-  //       continue;
-  //     }
-  //     Long64_t bin = def->GetContent()->GetBin(point.GetStorageCoords());
-  //     NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
-  //     def->GetContent()->SetBinContent(bin, id);
-
-  //     if (mergedContentIds.insert(id).second) {
-  //       mergedContentCoords.emplace_back(id, NUtils::ArrayToVector(point.GetCoords(), point.GetNDimensionsContent()));
-  //     }
-  //   }
-  // }
-
-  // // Rebuild the merged top-level content from final definition ids. In IPC/TCP mode
-  // // the merge setup may still carry sparse source-bin content; resetting here keeps
-  // // only the bins that correspond to actual merged tree entries.
-  // mergedBinning->GetContent()->Reset();
-  // for (const auto & entry : mergedContentCoords) {
-  //   Long64_t bin = mergedBinning->GetContent()->GetBin(entry.second.data());
-  //   mergedBinning->GetContent()->SetBinContent(bin, entry.first);
-  // }
-
-  // // print final binning definitions
-  // NLogDebug("NGnTree::Process: Final binning definitions after processing:");
-  // for (auto & name : defNames) {
-  //   // auto binningDef = binningIn->GetDefinition(name);
-  //   auto binningDef = (mergedNg ? mergedNg->GetBinning()->GetDefinition(name)
-  //                               : outputData->GetHnSparseBase()->GetBinning()->GetDefinition(name));
-  //   if (!binningDef) {
-  //     NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-  //     return false;
-  //   }
-  //   binningDef->Print();
-  // }
-
   if (mergedNg) {
     // Transfer pointers from the opened NGnTree into this instance.
     // Do NOT call mergedNg->Close(true) here: Close() will delete/close
@@ -1779,107 +1693,107 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
   delete bdContent;
 }
 
-TList * NGnTree::Projection(const json & cfg, std::string binningName)
-{
-  ///
-  /// Project THnSparse objects from the output lists based on configuration
-  ///
+// TList * NGnTree::Projection(const json & cfg, std::string binningName)
+// {
+//   ///
+//   /// Project THnSparse objects from the output lists based on configuration
+//   ///
 
-  // SetInput(); // Set input to selfp
-  SetInput(Ndmspc::NGnTree::Open(fTreeStorage->GetFileName()));
-  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * /*outputPoint*/,
-                                             int /*threadId*/) {
-    // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
-    point->Print();
-    json cfg = point->GetCfg();
+//   // SetInput(); // Set input to selfp
+//   SetInput(Ndmspc::NGnTree::Open(fTreeStorage->GetFileName()));
+//   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * /*outputPoint*/,
+//                                              int /*threadId*/) {
+//     // NLogInfo("Thread ID: %d", threadId);
+//     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
+//     point->Print();
+//     json cfg = point->GetCfg();
 
-    NLogRun("Processing THnSparse projection with configuration: %s", cfg.dump().c_str());
+//     NLogRun("Processing THnSparse projection with configuration: %s", cfg.dump().c_str());
 
-    Ndmspc::NGnTree * ngntIn = point->GetInput();
-    // ngntIn->Print();
-    // ngntIn->GetEntry(0);
-    ngntIn->GetEntry(point->GetEntryNumber());
+//     Ndmspc::NGnTree * ngntIn = point->GetInput();
+//     // ngntIn->Print();
+//     // ngntIn->GetEntry(0);
+//     ngntIn->GetEntry(point->GetEntryNumber());
 
-    // loop over all cfg["objects"]
-    for (auto & [objName, objCfg] : cfg["objects"].items()) {
-      NLogInfo("Processing object '%s' ...", objName.c_str());
+//     // loop over all cfg["objects"]
+//     for (auto & [objName, objCfg] : cfg["objects"].items()) {
+//       NLogInfo("Processing object '%s' ...", objName.c_str());
 
-      THnSparse * hns = (THnSparse *)(ngntIn->GetStorageTree()->GetBranchObject(objName));
-      if (hns == nullptr) {
-        NLogError("NGnTree::Projection: THnSparse 'hns' not found in storage tree !!!");
-        return;
-      }
-      // hns->Print("all");
-      // loop over cfg["objects"][objName] array of projection dimension names
-      for (size_t i = 0; i < objCfg.size(); i++) {
+//       THnSparse * hns = (THnSparse *)(ngntIn->GetStorageTree()->GetBranchObject(objName));
+//       if (hns == nullptr) {
+//         NLogError("NGnTree::Projection: THnSparse 'hns' not found in storage tree !!!");
+//         return;
+//       }
+//       // hns->Print("all");
+//       // loop over cfg["objects"][objName] array of projection dimension names
+//       for (size_t i = 0; i < objCfg.size(); i++) {
 
-        NLogInfo("Processing projection %zu for object '%s' ...", i, objName.c_str());
-        std::vector<int>         dims;
-        std::vector<std::string> dimNames = cfg["objects"][objName][i].get<std::vector<std::string>>();
-        for (const auto & dimName : dimNames) {
-          NLogDebug("Looking for dimension name '%s' in THnSparse ...", dimName.c_str());
-          int dim = -1;
-          for (int i = 0; i < hns->GetNdimensions(); i++) {
-            if (dimName == hns->GetAxis(i)->GetName()) {
-              dim = i;
-              break;
-            }
-          }
-          if (dim >= 0)
-            dims.push_back(dim);
-          else {
-            NLogError("NGnTree::Projection: Dimension name '%s' not found in THnSparse !!!", dimName.c_str());
-          }
-        }
-        // Print dims
-        NLogInfo("Projecting THnSparse on dimensions: %s", NUtils::GetCoordsString(dims, -1).c_str());
-        TH1 * hPrev = (TH1 *)output->At(i);
-        TH1 * hProj = NUtils::ProjectTHnSparse(hns, dims, "O");
-        hProj->SetName(TString::Format("%s_proj_%s", objName.c_str(), NUtils::Join(dims, '_').c_str()).Data());
-        if (hPrev) {
-          hPrev->Add(hProj);
-        }
-        else {
-          output->Add(hProj);
-        }
-      }
-    }
-    output->Print();
-  };
+//         NLogInfo("Processing projection %zu for object '%s' ...", i, objName.c_str());
+//         std::vector<int>         dims;
+//         std::vector<std::string> dimNames = cfg["objects"][objName][i].get<std::vector<std::string>>();
+//         for (const auto & dimName : dimNames) {
+//           NLogDebug("Looking for dimension name '%s' in THnSparse ...", dimName.c_str());
+//           int dim = -1;
+//           for (int i = 0; i < hns->GetNdimensions(); i++) {
+//             if (dimName == hns->GetAxis(i)->GetName()) {
+//               dim = i;
+//               break;
+//             }
+//           }
+//           if (dim >= 0)
+//             dims.push_back(dim);
+//           else {
+//             NLogError("NGnTree::Projection: Dimension name '%s' not found in THnSparse !!!", dimName.c_str());
+//           }
+//         }
+//         // Print dims
+//         NLogInfo("Projecting THnSparse on dimensions: %s", NUtils::GetCoordsString(dims, -1).c_str());
+//         TH1 * hPrev = (TH1 *)output->At(i);
+//         TH1 * hProj = NUtils::ProjectTHnSparse(hns, dims, "O");
+//         hProj->SetName(TString::Format("%s_proj_%s", objName.c_str(), NUtils::Join(dims, '_').c_str()).Data());
+//         if (hPrev) {
+//           hPrev->Add(hProj);
+//         }
+//         else {
+//           output->Add(hProj);
+//         }
+//       }
+//     }
+//     output->Print();
+//   };
 
-  // NBinningDef *                 binningDef = fInput->GetBinning()->GetDefinition(binningName);
-  NBinningDef * binningDef = GetBinning()->GetDefinition(binningName);
-  THnSparse *   hnsIn      = binningDef->GetContent();
-  // std::vector<std::vector<int>> ranges{{0, 2, 2}, {2, 1, 1}};
-  std::vector<std::vector<int>> ranges = cfg["ranges"].get<std::vector<std::vector<int>>>();
-  NUtils::SetAxisRanges(hnsIn, ranges); // Set the ranges for the axes
-  Long64_t                                        linBin = 0;
-  std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hnsIn->CreateIter(true /*use axis range*/)};
-  std::vector<Long64_t>                           ids;
-  // std::vector<Long64_t> ids = binningDef->GetIds();
-  while ((linBin = iter->Next()) >= 0) {
-    ids.push_back(linBin);
-  }
-  if (ids.empty()) {
-    NLogWarning("NGnTree::Projection: No entries found in binning definition '%s' !!!", binningDef->GetName());
-    binningDef->RefreshIdsFromContent();
-    return nullptr;
-  }
+//   // NBinningDef *                 binningDef = fInput->GetBinning()->GetDefinition(binningName,true);
+//   NBinningDef * binningDef = GetBinning()->GetDefinition(binningName,true);
+//   THnSparse *   hnsIn      = binningDef->GetContent();
+//   // std::vector<std::vector<int>> ranges{{0, 2, 2}, {2, 1, 1}};
+//   std::vector<std::vector<int>> ranges = cfg["ranges"].get<std::vector<std::vector<int>>>();
+//   NUtils::SetAxisRanges(hnsIn, ranges); // Set the ranges for the axes
+//   Long64_t                                        linBin = 0;
+//   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hnsIn->CreateIter(true /*use axis range*/)};
+//   std::vector<Long64_t>                           ids;
+//   // std::vector<Long64_t> ids = binningDef->GetIds();
+//   while ((linBin = iter->Next()) >= 0) {
+//     ids.push_back(linBin);
+//   }
+//   if (ids.empty()) {
+//     NLogWarning("NGnTree::Projection: No entries found in binning definition '%s' !!!", binningDef->GetName());
+//     binningDef->RefreshIdsFromContent();
+//     return nullptr;
+//   }
 
-  binningDef->GetIds() = ids;
+//   binningDef->GetIds() = ids;
 
-  // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
-  Process(processFunc, cfg);
+//   // NUtils::SetAxisRanges(, std::vector<std::vector<int>> ranges)
+//   Process(processFunc, cfg);
 
-  // Refresh binning definition ids from content after processing
-  binningDef->RefreshIdsFromContent();
+//   // Refresh binning definition ids from content after processing
+//   binningDef->RefreshIdsFromContent();
 
-  // GetInput()->Close(false);
-  return GetOutput(fBinning->GetCurrentDefinitionName());
+//   // GetInput()->Close(false);
+//   return GetOutput(fBinning->GetCurrentDefinitionName());
 
-  // Close(false);
-}
+//   // Close(false);
+// }
 
 NGnNavigator * NGnTree::Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level,
                                 std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase)

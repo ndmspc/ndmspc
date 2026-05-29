@@ -64,8 +64,26 @@ class NBinningDef : public TObject {
    */
   void SetAxisDefinition(std::string axisName, const std::vector<std::vector<int>> & d) { fDefinition[axisName] = d; }
 
+  /**
+   * @brief Get the cached bin edges for a named axis.
+   * @param axisName Name of the axis to query.
+   * @return A vector of integer bin edge indices for the given axis.
+   * @throws std::out_of_range if the axis name is not present in the cache.
+   */
   std::vector<int> GetBins(std::string axisName) const { return fBins.at(axisName); }
 
+  /**
+   * @brief Determine whether a coordinate tuple corresponds to a defined bin.
+   *
+   * The `coords` pointer is expected to point to an array of integer
+   * coordinates (one per axis) matching the axes in the `fContent`
+   * THnSparse global mapping. The method checks whether these coordinates map
+   * to a bin that exists in this binning definition.
+   *
+   * @param coords Pointer to array of bin indices (one per axis).
+   * @return `true` if the coordinates map to a defined bin, `false` otherwise.
+   */
+  bool ContainsBin(Int_t* coords) const;
 
   /**
    * @brief Get list of variable axes indices.
@@ -79,15 +97,15 @@ class NBinningDef : public TObject {
    */
   void AddVariableAxis(size_t axis) { fVariableAxes.push_back(axis); }
 
-  /**
-   * @brief Refresh content histogram from bin IDs.
-   */
-  void RefreshContentFromIds();
+  // /**
+  //  * @brief Refresh content histogram from bin IDs.
+  //  */
+  // void RefreshContentFromIds();
 
-  /**
-   * @brief Refresh bin IDs from content histogram.
-   */
-  void RefreshIdsFromContent();
+  // /**
+  //  * @brief Refresh bin IDs from content histogram.
+  //  */
+  // void RefreshIdsFromContent();
 
   /**
    * @brief Get list of bin IDs.
@@ -135,7 +153,7 @@ class NBinningDef : public TObject {
   virtual const char* GetName() const { return fName.c_str(); }
 
 
-  bool ContainsBin(Int_t* coords, Int_t nDims) const;
+
 
   private:
   NBinning *                                           fBinning{nullptr}; ///< Pointer to the parent binning

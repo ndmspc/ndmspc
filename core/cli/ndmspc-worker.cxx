@@ -245,7 +245,7 @@ int main(int argc, char ** argv)
   // If macro or index not provided, bootstrap from supervisor
   const bool needsBootstrap = macroList.empty() || workerIndex == std::numeric_limits<size_t>::max();
   if (needsBootstrap) {
-    NLogRun("ndmspc-worker: bootstrapping config from supervisor at %s ...", endpoint.c_str());
+    NLogInfo("ndmspc-worker: bootstrapping config from supervisor at %s ...", endpoint.c_str());
     void * ctx    = zmq_ctx_new();
     void * dealer = zmq_socket(ctx, ZMQ_DEALER);
     // Use a unique bootstrap identity so supervisor can route the CONFIG reply
@@ -291,7 +291,7 @@ int main(int argc, char ** argv)
         configOk = true;
       } else if (frames.size() >= 1 && frames[0] == "REJECT") {
         const std::string reason = (frames.size() >= 2) ? frames[1] : "unspecified";
-        NLogWarning("ndmspc-worker: bootstrap rejected by supervisor (%s), exiting", reason.c_str());
+        NLogForce("[WARNING] ndmspc-worker: bootstrap rejected by supervisor (%s), exiting !!!", reason.c_str());
         rejectedBySupervisor = true;
         break;
       }
@@ -304,8 +304,10 @@ int main(int argc, char ** argv)
     }
 
     if (!configOk) {
-      NLogError("ndmspc-worker: failed to receive CONFIG from supervisor at %s, exiting", endpoint.c_str());
+      NLogForce("[ERROR] ndmspc-worker: worker[%zu] failed to receive CONFIG from supervisor at %s, exiting !!!", workerIndex, endpoint.c_str());
       return 1;
+    } else {
+      NLogForce("[INFO] ndmspc-worker: worker[%zu] received CONFIG from supervisor at '%s' ...", workerIndex, endpoint.c_str());
     }
   }
 
@@ -374,19 +376,19 @@ int main(int argc, char ** argv)
   std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');
   for (const auto & macro : macros) {
     if (effectiveMacroParams.empty()) {
-      NLogInfo("ndmspc-worker: executing macro '%s'", macro.c_str());
+      NLogForce("[INFO] ndmspc-worker: worker[%zu] executing macro '%s'", workerIndex, macro.c_str());
     } else {
-      NLogInfo("ndmspc-worker: executing macro '%s' with params '%s'", macro.c_str(), effectiveMacroParams.c_str());
+      NLogForce("[INFO] ndmspc-worker: worker[%zu] executing macro '%s' with params '%s'", workerIndex, macro.c_str(), effectiveMacroParams.c_str());
     }
     TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
     if (!m) {
-      NLogError("ndmspc-worker: failed to open macro '%s', exiting", macro.c_str());
+      NLogForce("[ERROR] ndmspc-worker: worker[%zu] failed to open macro '%s', exiting", workerIndex, macro.c_str());
       return 1;
     }
     m->Exec(effectiveMacroParams.empty() ? nullptr : effectiveMacroParams.c_str());
     delete m;
   }
 
-  NLogInfo("ndmspc-worker: done");
+  NLogForce("[INFO] ndmspc-worker: worker[%zu] done",workerIndex);
   return 0;
 }

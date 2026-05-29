@@ -8,7 +8,7 @@ void NResourceMonitor(std::string filename, std::string binningName = "",
 {
 
   Ndmspc::NGnTree *     ngnt       = Ndmspc::NGnTree::Open(filename.c_str());
-  Ndmspc::NBinningDef * binningDef = ngnt->GetBinning()->GetDefinition(binningName);
+  Ndmspc::NBinningDef * binningDef = ngnt->GetBinning()->GetDefinition(binningName,true);
   TList *               outputs    = ngnt->GetOutput(binningName);
 
   THnSparse * hnsMesourceMonitor = (THnSparse *)outputs->FindObject("resource_monitor");

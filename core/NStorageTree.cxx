@@ -304,17 +304,7 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   // point->Print();
   // Set bin content in the template histogram for the binning definition
   for (auto & defs : fBinning->GetDefinitions()) {
-    if (defs.second->ContainsBin(point->GetCoords(), point->GetNDimensionsContent())) {
-      // NLogDebug("NStorageTree::Fill: Setting bin content for axis '%s' ...", defs.first.c_str());
-      // FIXME: This is a workaround to set the bin content in the template histogram for the binning definition, which
-      // is used to store the bin IDs. This should be refactored to avoid this kind of coupling between the point and
-      // the binning definition. fBinning->SetCurrentDefinitionName(defs.first);
-      // point->RecalculateStorageCoords(point->GetEntryNumber(), false);
-      // point->Print();
-      // fBinning->GetContent()->Print("all");
-      // Long64_t bin = fBinning->GetContent()->GetBin(point->GetCoords(), false);
-      // NLogDebug("NStorageTree::Fill: Setting bin content for axis '%s' with bin %lld [in binning] and entry %lld
-      // ...", defs.first.c_str(), bin, point->GetEntryNumber());
+    if (defs.second->ContainsBin(point->GetCoords())) {
       defs.second->GetContent()->SetBinContent(point->GetStorageCoords(), point->GetEntryNumber());
       defs.second->GetIds().push_back(point->GetEntryNumber());
     }
@@ -525,24 +515,16 @@ Long64_t NStorageTree::Merge(TCollection * list)
     NLogTrace("NStorageTree::Merge: Clearing ids in binning definition '%s' ...", kv.first.c_str());
     kv.second->GetIds().clear();
   }
-
-  // clear all binning definition contents and ids before merging
-  // for (auto & kv : fBinning->GetDefinitions()) {
-  //   auto binningDefIn = obj->GetBinning()->GetDefinition(kv.first);
-  //   if (binningDefIn) {
-  //     // binningDefIn->GetContent()->Reset();
-  //     // binningDefIn->GetIds().clear();
-  //   }
-  // }
   NBinningPoint * point = fBinning->GetPoint();
 
   TIter          next(list);
   NStorageTree * obj     = nullptr;
-  THnSparse *    cSparse = fBinning->GetContent();
+  THnSparse *    cSparse = (THnSparse *)fBinning->GetContent()->Clone();
   if (cSparse == nullptr) {
     NLogError("NHnSparseTree::Merge: Content is nullptr !!! Cannot merge and exiting ...");
     return 0;
   }
+
   NLogTrace("NStorageTree::Merge: Number of entries in content: %lld", cSparse->GetNbins());
   Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
   Long64_t                                        linBin  = 0;
@@ -565,16 +547,16 @@ Long64_t NStorageTree::Merge(TCollection * list)
       NLogTrace("NHnSparseTree::Merge: Scanning object '%s' with %lld entries ...", obj->GetFileName().c_str(),
                 obj->GetTree()->GetEntries());
       // continue;
-      Long64_t binObj = fBinning->GetContent()->GetBin(cCoords, false);
+      Long64_t binObj = cSparse->GetBin(cCoords, false);
       if (binObj < 0) {
         NLogTrace("NStorageTree::Merge: Bin %lld(idx=%lld): %s -> file='%s' binObj=%lld, skipping ...", linBin, idx,
                   binCoordsStr.c_str(), obj->GetFileName().c_str(), binObj);
         continue;
       }
       NLogTrace("NStorageTree::Merge: binObj=%lld", binObj);
-      Long64_t binGlobal = (Long64_t)fBinning->GetContent()->GetBinContent(binObj);
+      Long64_t binGlobal = (Long64_t)cSparse->GetBinContent(binObj);
       NLogTrace("NStorageTree::Merge: bcObj=%lld", binGlobal);
-      // Long64_t bin = fBinning->GetContent()->GetBin(cCoords, false);
+      // Long64_t bin = cSparse->GetBin(cCoords, false);
       Long64_t bin = obj->GetBinning()->GetContent()->GetBin(cCoords, false);
 
       if (bin < 0) {
@@ -596,7 +578,7 @@ Long64_t NStorageTree::Merge(TCollection * list)
         // point->Print();
         // // FIXME: check why ids are not filled correctly when merging
         found = false;
-        std::vector<NBinningDef *> matchedDefinitions;
+        // std::vector<NBinningDef *> matchedDefinitions;
         NLogTrace("NHnSparseTree::Merge: Looping over all binning definitions to fill ids ...");
         for (auto & name : fBinning->GetDefinitionNames()) {
           // check if id
@@ -611,23 +593,18 @@ Long64_t NStorageTree::Merge(TCollection * list)
             if (std::find(binningDefIn->GetIds().begin(), binningDefIn->GetIds().end(), binGlobal) ==
                 binningDefIn->GetIds().end()) {
               // binningDefIn->GetIds().push_back(binGlobal);
-              NLogTrace("***** NHnSparseTree::Merge: Found and added %lld to definition '%s' Skipping", binGlobal,
+              NLogTrace("***** NHnSparseTree::Merge: Found and added %lld to definition '%s' Skipping ...", binGlobal,
                         name.c_str());
               continue;
             }
-            else {
-              NLogTrace("***** NHnSparseTree::Merge: ID %lld already exists in definition '%s', Found ...", binGlobal,
-                        name.c_str());
-              found = true;
-            }
-
-            NBinningDef * def = fBinning->GetDefinition(name);
-            if (def) {
-              matchedDefinitions.push_back(def);
-            }
+            NLogTrace("***** NHnSparseTree::Merge: ID %lld already exists in definition '%s', Found ...", binGlobal,
+                      name.c_str());
+            found = true;
+            fBinning->SetCurrentDefinitionName(name);
+            break;
           }
         }
-        if (found == false) {
+        if (!found) {
           NLogWarning("NHnSparseTree::Merge: Bin %lld(idx=%lld): %s -> bin in obj='%s' is bin=%lld binGlobal=%lld "
                       "but no definition found, skipping ...",
                       linBin, idx, binCoordsStr.c_str(), obj->GetFileName().c_str(), bin, binGlobal);
@@ -677,11 +654,9 @@ Long64_t NStorageTree::Merge(TCollection * list)
     NLogTrace("NStorageTree::Merge: Closing file '%s' ...", obj->GetFileName().c_str());
     obj->Close(false);
   }
-  // Print all definition ids after merging
-  for (auto & kv : fBinning->GetDefinitions()) {
-    NLogTrace("NHnSparseTree::Merge: IDs in definition '%s': %s", kv.first.c_str(),
-              NUtils::GetCoordsString(kv.second->GetIds(), -1).c_str());
-  }
+
+  delete cSparse;
+  delete[] cCoords;
 
   return nmerged;
 }

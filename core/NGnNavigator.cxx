@@ -74,7 +74,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
   ///
   /// Reshape the navigator
   ///
-  NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName);
+  NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName,true);
   if (!binningDef) {
     NLogError("NGnNavigator::Reshape: Binning definition is null !!!");
     return nullptr;
@@ -175,7 +175,6 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   }
   fNLevels = levels.size();
   fLevel   = level;
-  // NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName);
 
   NGnNavigator * current = parent;
   if (current == nullptr) {

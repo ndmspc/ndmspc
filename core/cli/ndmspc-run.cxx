@@ -105,8 +105,8 @@ int main(int argc, char ** argv)
   std::string tcpPort;
   std::string workerBin;
   std::string workerEndpoint;
-  std::string tmpDir;
-  std::string tmpResultsDir;
+  std::string tmpDir="/tmp";
+  std::string tmpResultsDir="/tmp";
   size_t      spawnWorkers = 0;
   bool        verbose = false;
 

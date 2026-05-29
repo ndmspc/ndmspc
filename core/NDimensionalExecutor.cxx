@@ -110,8 +110,8 @@ struct NDimensionalExecutor::IpcSession {
   // Bootstrap configuration sent to workers on first contact
   std::string macroList;       ///< Comma-separated macro paths to load on worker
   std::string macroParams;     ///< Parameter list forwarded to TMacro::Exec on worker
-  std::string tmpDir;          ///< Supervisor's NDMSPC_TMP_DIR (fallback for workers)
-  std::string tmpResultsDir;   ///< Supervisor's NDMSPC_TMP_RESULTS_DIR
+  std::string tmpDir{"/tmp"};          ///< Supervisor's NDMSPC_TMP_DIR (fallback for workers)
+  std::string tmpResultsDir{"/tmp"};   ///< Supervisor's NDMSPC_TMP_RESULTS_DIR
   size_t      bootstrapNextIdx{0}; ///< Auto-assigned index counter for BOOTSTRAP
   std::unordered_map<std::string, size_t> bootstrapAssignments; ///< BOOTSTRAP identity -> assigned slot
   std::vector<std::string> pendingReadyIdentities; ///< READY messages received while waiting for ACK
@@ -2115,6 +2115,27 @@ void NDimensionalExecutor::FinishProcessIpc(bool abort)
   }
   // Bound socket close time to avoid hangs at process end when peers disappear
   // or when STOP/DONE frames are still queued.
+  // TCP mode: after normal shutdown, add a grace period to handle late workers
+  if (fIpcSession->isTcp && !abort && fIpcSession->router) {
+    const auto graceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < graceDeadline) {
+      zmq_pollitem_t item = {fIpcSession->router, 0, ZMQ_POLLIN, 0};
+      const int rc = zmq_poll(&item, 1, 100); // 100ms poll
+      if (rc > 0 && (item.revents & ZMQ_POLLIN)) {
+        std::vector<std::string> frames;
+        if (NDimensionalIpcRunner::ReceiveFrames(fIpcSession->router, frames) && frames.size() >= 2) {
+          if (frames[1] == "READY") {
+            NLogInfo("NDimensionalExecutor::FinishProcessIpc: Late worker '%s' arrived during grace period, sending STOP", frames[0].c_str());
+            NDimensionalIpcRunner::SendFrames(fIpcSession->router, {frames[0], "STOP", "ok"});
+          } else if (frames[1] == "BOOTSTRAP") {
+            NLogInfo("NDimensionalExecutor::FinishProcessIpc: Late worker '%s' sent BOOTSTRAP during grace period, sending REJECT", frames[0].c_str());
+            NDimensionalIpcRunner::SendFrames(fIpcSession->router, {frames[0], "REJECT", "finished"});
+          }
+        }
+      }
+    }
+  }
+
   if (fIpcSession->router) {
     int lingerMs = 0;
     if (fIpcSession->isTcp) {

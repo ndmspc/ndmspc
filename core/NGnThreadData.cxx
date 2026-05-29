@@ -52,9 +52,6 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
   }
 
   fHnSparseBase = (NGnTree *)ngnt->Clone();
-  // fHnSparseBase = new NGnTree(hnsb->GetBinning(), (NStorageTree *)hnsb->GetStorageTree()->Clone());
-  // fHnSparseBase = new NGnTree(hnsb->GetBinning(), new NStorageTree(hnsb->GetBinning()));
-  // fHnSparseBase = new NGnTree(hnsb->GetBinning(), nullptr);
 
   if (fHnSparseBase->GetBinning() == nullptr) {
     NLogError("NGnThreadData::InitStorage: Binning is not set !!!");
@@ -65,11 +62,6 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
     NLogError("NGnThreadData::InitStorage: Storage tree is not set !!!");
     return false;
   }
-
-  // NLogDebug("NGnThreadData::Init: Initializing storage for thread %zu", id);
-  // NGnTree * ngntIn = new NGnTree(ngnt->GetInput(), "");
-  //
-  // fHnSparseBase->SetInput(ngntIn); // Clear input for the thread local NGnTree
 
   NStorageTree * ts = fHnSparseBase->GetStorageTree();
   std::string    fn = ts->GetFileName();
@@ -104,21 +96,14 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
   // Recreate the point and set the storage tree
   fHnSparseBase->GetBinning()->GetPoint()->SetTreeStorage(fHnSparseBase->GetStorageTree());
 
-  // for (auto & kv : ts->GetBranchesMap()) {
-  //   NLogTrace("NGnThreadData::Init: Adding branch '%s' to thread %zu", kv.first.c_str(), id);
-  //   fHnSparseBase->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
-  // }
-
-  // TODO: check if needed or move it somewhere else like Reset();
-  //
-  // Loop over aoll definitions and reset their content and ids
-  for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-    NBinningDef * def = fHnSparseBase->GetBinning()->GetDefinition(name);
+  for (auto & kv : fHnSparseBase->GetBinning()->GetDefinitions()) {
+    NBinningDef * def = kv.second;
     if (def) {
       def->GetContent()->Reset();
       def->GetIds().clear();
     }
   }
+
 
   if (input) {
     NLogTrace("NGnThreadData::Init: Setting input NGnTree for thread %zu '%s'", id,
@@ -126,9 +111,6 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
     std::string branches = NUtils::Join(input->GetStorageTree()->GetBrancheNames(true), ',');
     fHnSparseBase->SetInput(NGnTree::Open(input->GetStorageTree()->GetFileName(), branches)); // Set the input NGnTree
   }
-
-  // fHnSparseBase->GetBinning()->GetDefinition()->GetContent()->Reset();
-  // fHnSparseBase->GetBinning()->GetDefinition()->GetIds().clear();
 
   ExecuteBeginFunction();
 
@@ -407,85 +389,40 @@ Long64_t NGnThreadData::Merge(TCollection * list)
 
       const std::string mergeFilename =
           hnsttd->GetResultsFilename().empty() ? ts->GetFileName() : hnsttd->GetResultsFilename();
-      NGnTree * hnsb = NGnTree::Open(mergeFilename);
-      if (!hnsb) {
+      NGnTree * ngntmerge = NGnTree::Open(mergeFilename);
+      if (!ngntmerge) {
         NLogError("NGnThreadData::Merge: Failed to open NGnTree from file '%s' !!!", mergeFilename.c_str());
         continue;
       }
 
       // In IPC/process mode worker-side output lists live in the worker files,
       // not in parent in-memory worker objects. Merge these lists explicitly.
-      for (auto & kv : hnsb->GetOutputs()) {
+      for (auto & kv : ngntmerge->GetOutputs()) {
         NLogTrace("NGnThreadData::Merge: Found file output list '%s' with %d objects from '%s'", kv.first.c_str(),
                   kv.second ? kv.second->GetEntries() : 0, mergeFilename.c_str());
         queueOutputListForMerge(kv.first, kv.second);
       }
 
-      // hnsb->Print();
-      listTreeStorage->Add(hnsb->GetStorageTree());
-
-      // TODO: check if needed
-      // fHnSparseBase->GetBinning()->GetDefinition()->GetContent()->Add(
-      //     hnsb->GetBinning()->GetDefinition()->GetContent());
+      listTreeStorage->Add(ngntmerge->GetStorageTree());
       nmerged++;
     }
   }
 
-  // for (const auto & name : fBiningSource->GetDefinitionNames()) {
-  //   auto binningDef = fBiningSource->GetDefinition(name);
-  //   if (!binningDef) {
-  //     NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-  //     continue;
-  //   }
-  //   // add ids from fBiningSource to binningDef
-  //   // binningDef->GetIds().insert(binningDef->GetIds().end(), fBiningSource->GetDefinition(name)->GetIds().begin(),
-  //   //                             fBiningSource->GetDefinition(name)->GetIds().end());
-  //   NLogDebug("NGnThreadData::Merge: BEFORE Final IDs in definition '%s': %s", name.c_str(),
-  //             NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
-  // }
-
-  // FIXME: Fix this properly [it should be ok now]
+  Long64_t      bin;
+  NBinningPoint point(fHnSparseBase->GetBinning());
   fHnSparseBase->GetBinning()->GetContent()->Reset();
-  // Print hnsb binning definition ids
-  for (const auto & name : fBiningSource->GetDefinitionNames()) {
-    NBinningDef * targetBinningDef = fBiningSource->GetDefinition(name);
-    for (auto id : targetBinningDef->GetIds()) {
-      NBinningPoint point(fHnSparseBase->GetBinning());
-      fBiningSource->GetContent()->GetBinContent(id, point.GetCoords());
-      Long64_t bin = fHnSparseBase->GetBinning()->GetContent()->GetBin(point.GetCoords());
-      NLogTrace("NGnThreadData::Merge: [%s] Adding def_id=%lld to content_bin=%lld", name.c_str(), id, bin);
-      fHnSparseBase->GetBinning()->GetContent()->SetBinContent(bin, id);
-    }
-    // fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
+  for (Long64_t i = 0; i < fBiningSource->GetContent()->GetNbins(); ++i) {
+
+    fBiningSource->GetContent()->GetBinContent(i, point.GetCoords());
+    bin = fHnSparseBase->GetBinning()->GetContent()->GetBin(point.GetCoords());
+    NLogTrace("NGnThreadData::Merge: Adding bin=%lld to content_bin=%lld", bin, i);
+    fHnSparseBase->GetBinning()->GetContent()->SetBinContent(bin, i);
   }
-  // FIXME: End
+
   NLogDebug("NGnThreadData::Merge: Total entries to merge: %lld", nmerged);
-
-  for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-    auto binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
-    if (!binningDef) {
-      NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-      continue;
-    }
-    // add ids from fBiningSource to binningDef
-    // binningDef->GetIds().insert(binningDef->GetIds().end(), fBiningSource->GetDefinition(name)->GetIds().begin(),
-    //                             fBiningSource->GetDefinition(name)->GetIds().end());
-    NLogTrace("NGnThreadData::Merge: Final IDs in definition '%s': %s", name.c_str(),
-              NUtils::GetCoordsString(binningDef->GetIds(), -1).c_str());
-  }
-
-  // fHnSparseBase->GetBinning()->GetContent()->Projection(5)->Print("all");
-  // NLogDebug("Not ready to merge, exiting ...");
-  // return 0;
-
   NLogTrace("NGnThreadData::Merge: Merging %d storage trees ...", listTreeStorage->GetEntries());
-  // fHnSparseBase->GetBinning()->GetPoint()->Reset();
-  // fHnSparseBase->GetBinning()->GetDefinition("default")->Print();
-  // fHnSparseBase->GetBinning()->GetDefinition("b2")->Print();
   fHnSparseBase->GetStorageTree()->SetBinning(fHnSparseBase->GetBinning()); // Update binning to the merged one
   fHnSparseBase->GetStorageTree()->Merge(listTreeStorage);
-  // NLogDebug("Not ready to merge after Storage merge, exiting ...");
-  // return 0;
 
   // loop over all output lists and merge them
   for (auto & kv : listOutputs) {
@@ -547,43 +484,10 @@ Long64_t NGnThreadData::Merge(TCollection * list)
                NUtils::GetCoordsString(mergedNames).c_str());
     }
   }
-
-  // // Loop over binning definitions and merge their contents
-  // fHnSparseBase->GetStorageTree()->SetEnabledBranches({}, 0);
-  // for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-  //   NBinningDef * binningDef = fHnSparseBase->GetBinning()->GetDefinition(name);
-  //   if (!binningDef) {
-  //     NLogError("NGnThreadData::Merge: Binning definition '%s' not found in NGnTree !!!", name.c_str());
-  //     continue;
-  //   }
-  //   // binningDef->Print();
-  //   // Recalculate binningDef content based on ids
-  //   binningDef->GetContent()->Reset();
-  //   for (auto id : binningDef->GetIds()) {
-  //     fHnSparseBase->GetEntry(id, false);
-  //     Long64_t bin = binningDef->GetContent()->GetBin(fHnSparseBase->GetBinning()->GetPoint()->GetStorageCoords());
-  //     binningDef->GetContent()->SetBinContent(bin, id);
-  //     // binningDef->GetIds().push_back(id);
-  //     NLogTrace("NGnThreadData::Merge: -> Setting content bin %lld to id %lld", bin, id);
-  //   }
-  // }
-
-  // // // print all definitions
-  // // for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-  // //   fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
-  // // }
-
-  // if (fHnSparseBase->GetInput()) {
-  //   fHnSparseBase->GetInput()->Close(false);
-  // }
-
-  // fHnSparseBase->GetStorageTree()->SetEnabledBranches({}, 1);
-
   // print all definitions
-  for (const auto & name : fHnSparseBase->GetBinning()->GetDefinitionNames()) {
-    fHnSparseBase->GetBinning()->GetDefinition(name)->Print();
+  for (auto &def : fHnSparseBase->GetBinning()->GetDefinitions()) {
+    def.second->Print();
   }
-
 
   // Set default setting
   fHnSparseBase->GetBinning()->GetPoint()->Reset();
