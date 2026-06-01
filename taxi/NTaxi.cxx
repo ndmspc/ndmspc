@@ -35,19 +35,37 @@ THnSparse * NTaxi::CreateSparseFromParquetTaxi(const std::string & filename, THn
   }
   infile = infile_result.ValueUnsafe();
 
-  // Create a Parquet reader using the modern arrow::Result API
+  auto close_input_file = [&]() {
+    const arrow::Status close_status = infile->Close();
+    if (!close_status.ok()) {
+      NLogWarning("NTaxi::CreateSparseFromParquetTaxi: Error closing input file %s: %s", filename.c_str(),
+                  close_status.ToString().c_str());
+    }
+  };
+
+  // Create a Parquet reader with the Arrow/Parquet API available in this build.
   std::unique_ptr<parquet::arrow::FileReader> reader;
 
-  // The new approach using arrow::Result:
+  arrow::Status status;
+#if defined(ARROW_VERSION_MAJOR) && (ARROW_VERSION_MAJOR < 21)
+  status = parquet::arrow::OpenFile(infile, arrow::default_memory_pool(), &reader);
+  if (!status.ok()) {
+    NLogError("NTaxi::CreateSparseFromParquetTaxi: Error opening Parquet file reader for file %s: %s",
+              filename.c_str(), status.ToString().c_str());
+    close_input_file();
+    return nullptr;
+  }
+#else
   arrow::Result<std::unique_ptr<parquet::arrow::FileReader>> reader_result =
-      parquet::arrow::OpenFile(infile, arrow::default_memory_pool()); // No third parameter!
+      parquet::arrow::OpenFile(infile, arrow::default_memory_pool());
   if (!reader_result.ok()) {
     NLogError("NTaxi::CreateSparseFromParquetTaxi: Error opening Parquet file reader for file %s: %s",
               filename.c_str(), reader_result.status().ToString().c_str());
-    arrow::Status status = infile->Close(); // Attempt to close
+    close_input_file();
     return nullptr;
   }
-  reader = std::move(reader_result).ValueUnsafe(); // Transfer ownership from Result to unique_ptr
+  reader = std::move(reader_result).ValueUnsafe();
+#endif
 
   // Get file metadata (optional)
   // Note: parquet_reader() returns a const ptr, and metadata() returns a shared_ptr
@@ -59,17 +77,26 @@ THnSparse * NTaxi::CreateSparseFromParquetTaxi(const std::string & filename, THn
   NLogTrace("Parquet number of rows: %lld", file_metadata->num_rows());
   NLogTrace("Parquet number of row groups: %d", file_metadata->num_row_groups());
 
-  // Read the file as a record batch stream (Result API, non-deprecated)
+  // Read the file as a record batch stream using the API available in this build.
+  std::shared_ptr<arrow::RecordBatchReader> batch_reader;
+#if defined(ARROW_VERSION_MAJOR) && (ARROW_VERSION_MAJOR < 21)
+  status = reader->GetRecordBatchReader(&batch_reader);
+  if (!status.ok()) {
+    NLogError("NTaxi::CreateSparseFromParquetTaxi: Error reading table from Parquet file %s: %s", filename.c_str(),
+              status.ToString().c_str());
+    close_input_file();
+    return nullptr;
+  }
+#else
   arrow::Result<std::unique_ptr<arrow::RecordBatchReader>> batch_reader_result = reader->GetRecordBatchReader();
   if (!batch_reader_result.ok()) {
     NLogError("NTaxi::CreateSparseFromParquetTaxi: Error reading table from Parquet file %s: %s", filename.c_str(),
               batch_reader_result.status().ToString().c_str());
-    arrow::Status status = infile->Close();
+    close_input_file();
     return nullptr;
   }
-  auto batch_reader = std::move(batch_reader_result).ValueUnsafe();
-
-  arrow::Status status;
+  batch_reader = std::shared_ptr<arrow::RecordBatchReader>(std::move(batch_reader_result).ValueUnsafe());
+#endif
 
   // It's good practice to close the input file stream when done
   status = infile->Close();
