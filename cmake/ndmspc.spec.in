@@ -26,7 +26,7 @@ Source0:    %{name}-%{version}.tar.gz
 %endif
 
 BuildRequires: systemd-rpm-macros
-BuildRequires: gcc-c++, cmake
+BuildRequires: git, gcc-c++, cmake
 BuildRequires: json-devel zeromq-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
 BuildRequires: root-roofit root-roofit-more
