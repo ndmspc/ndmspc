@@ -11,14 +11,15 @@
 #include "NLogger.h"
 #include "ndmspc.h"
 
-static inline void EnsureServerRunning(Ndmspc::NHttpServer *serv, int port)
+static inline void EnsureServerRunning(Ndmspc::NHttpServer * serv, int port)
 {
   if (!serv || !serv->IsAnyEngine()) {
     NLogError("Server is not running on port %d: address may be in use.\n"
               "Hints:\n"
               " - Check for a process listening on the port: `lsof -i :%d` or `ss -ltnp | grep :%d`.\n"
               " - Check other terminals or system services (systemd) that may have started the server.\n"
-              " - Check for Docker containers exposing the port: `docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' | grep :%d`.\n"
+              " - Check for Docker containers exposing the port: `docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' | "
+              "grep :%d`.\n"
               "If this is unexpected, stop the conflicting process or choose a different port.\n",
               port, port, port, port);
     exit(1);
@@ -38,7 +39,7 @@ std::string app_version()
 {
   size_t size = 128;
   auto   buf  = std::make_unique<char[]>(size);
-  size = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
+  size        = std::snprintf(buf.get(), size, "%s v%s-%s", NDMSPC_NAME, NDMSPC_VERSION, NDMSPC_VERSION_RELEASE);
   return std::string(buf.get(), size);
 }
 
@@ -179,7 +180,8 @@ int main(int argc, char ** argv)
   // add file url option
   std::string macroFilename;
   server_ngnt->add_option("-m,--macro", macroFilename,
-                          "Macro path list separated by commas (default: auto-load $NDMSPC_DIR/macros/builtin/httpNgntBase.C,$NDMSPC_DIR/macros/builtin/httpNgnt.C)");
+                          "Macro path list separated by commas (default: auto-load "
+                          "$NDMSPC_DIR/macros/builtin/httpNgntBase.C,$NDMSPC_DIR/macros/builtin/httpNgnt.C)");
   server_ngnt->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
   server_ngnt->add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
@@ -202,6 +204,14 @@ int main(int argc, char ** argv)
 
     serv->SetUseHistory(!noHistory);
     serv->SetCors("*");
+    if (htmlDir.empty()) {
+      htmlDir = TString::Format("%s/share/ndmspc/ndmspc-ui",
+                                gSystem->Getenv("NDMSPC_DIR") ? gSystem->Getenv("NDMSPC_DIR") : "/usr/share/ndmspc")
+                    .Data();
+      if (gSystem->AccessPathName(htmlDir.c_str())) {
+        htmlDir = "";
+      }
+    }
     if (!htmlDir.empty()) {
       NLogInfo("Using '%s' as directory with static assets.", htmlDir.c_str());
       serv->AddLocation("assets/", TString::Format("%s/assets", htmlDir.c_str()).Data());
@@ -212,13 +222,12 @@ int main(int argc, char ** argv)
       const char * ndmspcDir = gSystem->Getenv("NDMSPC_DIR");
       std::string  baseDir   = (ndmspcDir && *ndmspcDir) ? ndmspcDir : "/usr/share/ndmspc";
       macroFilename = TString::Format("%s/macros/builtin/httpNgntBase.C,%s/macros/builtin/httpNgnt.C", baseDir.c_str(),
-                                       baseDir.c_str())
+                                      baseDir.c_str())
                           .Data();
       NLogInfo("No macro file given, using default NGNT macros: '%s'", macroFilename.c_str());
     }
 
-    NLogInfo("NGNT server heartbeat: %d ms, macro file '%s'", heartbeat_ms,
-             macroFilename.c_str());
+    NLogInfo("NGNT server heartbeat: %d ms, macro file '%s'", heartbeat_ms, macroFilename.c_str());
 
     // Your local map
     std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;

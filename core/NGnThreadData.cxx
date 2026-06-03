@@ -299,6 +299,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
       fDeferredDeletes.push_back(obj);
     }
     delete outputPoint;
+    // FlushDeferredDeletes();
   }
 }
 

@@ -16,6 +16,7 @@ TEST_EXCLUDE_ARGS=""
 VERBOSE=false
 LIST_TESTS=false
 WITH_HTTP=${WITH_HTTP-true}
+WITH_UI=${WITH_UI-false}
 WITH_HEP=${WITH_HEP-true}
 WITH_UTILS=${WITH_UTILS-false}
 WITH_TAXI=${WITH_TAXI-false}
@@ -79,6 +80,10 @@ for ARG in "$@"; do
     "http")
       echo "Forcing build with HTTP support"
       WITH_HTTP=true
+      ;;
+    "ui")
+      echo "Forcing build with UI support"
+      WITH_UI=true
       ;;
     "taxi")
       echo "Forcing build with Taxi support"
@@ -175,6 +180,9 @@ if [[ $WITH_TAXI == true ]]; then
 fi
 if [[ $WITH_HTTP == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_HTTP:bool=ON"
+fi
+if [[ $WITH_UI == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_UI:bool=ON"
 fi
 if [[ $WITH_NUMCAL == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_NUMCAL:bool=ON"

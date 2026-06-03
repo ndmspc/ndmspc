@@ -265,8 +265,10 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     // NLogInfo("Thread ID: %d", threadId);
     // point->Print();
     json cfg = point->GetCfg();
-
+  
     TFile * fIn = point->GetTempObject("inFile") ? (TFile *)point->GetTempObject("inFile") : nullptr;
+
+    THnSparse * hns = point->GetTempObject("inputObj") ? (THnSparse *)point->GetTempObject("inputObj") : nullptr;
     if (!fIn) {
       std::string inFilename = cfg["inputFilename"].get<std::string>();
       NLogDebug("NGnTree::Import: Opening input file '%s' ...", inFilename.c_str());
@@ -278,6 +280,14 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       }
       point->SetTempObject("inFile", fIn);
       gFile = fTmp; // Restore global file pointer to avoid issues with ROOT's global state in multi-threaded context
+
+      if (hns) delete hns; // Clean up any existing hns to avoid memory leak
+      hns = (THnSparse *)fIn->Get(cfg["inputObj"].get<std::string>().c_str());
+      if (hns == nullptr) {
+        NLogError("NGnTree::Import: THnSparse 'hns' not found in storage tree !!!");
+        return;
+      }
+      point->SetTempObject("inputObj", hns);
     }
 
     // NGnTree * ngntIn = point->GetInput();
@@ -286,12 +296,6 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     //   return;
     // }
     // // ngntIn->Print();
-
-    THnSparse * hns = (THnSparse *)fIn->Get(cfg["inputObj"].get<std::string>().c_str());
-    if (hns == nullptr) {
-      NLogError("NGnTree::Import: THnSparse 'hns' not found in storage tree !!!");
-      return;
-    }
 
     // hns->Print("all");
 
@@ -409,7 +413,6 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
   // Define the end function which is executed after processing all points
   Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * point, int /*threadId*/) {
-    // NLogInfo("Finished processing ...");
     TFile * f = (TFile *)point->GetTempObject("inFile");
     if (f) {
       NLogDebug("NGnTree::Import: Closing input file '%s' ...", f->GetName());
@@ -430,7 +433,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   //   ngnt->SetInput(nullptr);
   // }
   // delete ngntIn;
-  // delete ngnt;
+  delete ngnt;
 
   // Remove tmp file
   gSystem->Exec(TString::Format("rm -f %s", tmpFilename.c_str()));
@@ -937,7 +940,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   std::map<std::string, std::vector<Long64_t>>  originalDefinitionIdsMap;
 
   for (const auto & defName : defNames) {
-    auto * def = binningIn->GetDefinition(defName,false);
+    auto * def = binningIn->GetDefinition(defName, false);
     if (!def) {
       NLogError("NGnTree::Process: Binning definition '%s' not found in NGnTree !!!", defName.c_str());
       return false;
@@ -1282,13 +1285,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     }
   }
   else {
-  Long64_t tmpMerged  = outputData->Merge(mergeList);
-  nmerged             = tmpMerged;
-  const auto mergeEnd = std::chrono::high_resolution_clock::now();
-  if (!NLogger::GetConsoleOutput()) {
-    const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
-    NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
-  }
+    Long64_t tmpMerged  = outputData->Merge(mergeList);
+    nmerged             = tmpMerged;
+    const auto mergeEnd = std::chrono::high_resolution_clock::now();
+    if (!NLogger::GetConsoleOutput()) {
+      const auto mergeSec = std::chrono::duration_cast<std::chrono::duration<double>>(mergeEnd - mergeStart).count();
+      NLogRun("NGnTree::Process: merge done (%lld outputs, %.2f s)", nmerged, mergeSec);
+    }
   }
   if (nmerged <= 0) {
     NLogError("NGnTree::Process: Failed to merge thread data, exiting ...");
@@ -1322,12 +1325,12 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     mergedNg = nullptr;
   }
   else {
-  fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
-  fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
-  fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
-  fParameters  = outputData->GetHnSparseBase()->GetParameters();
-  // Close the final output file
-  outputData->GetHnSparseBase()->Close(true);
+    fTreeStorage = outputData->GetHnSparseBase()->GetStorageTree();
+    fOutputs     = outputData->GetHnSparseBase()->GetOutputs();
+    fBinning     = outputData->GetHnSparseBase()->GetBinning(); // Update binning to the merged one
+    fParameters  = outputData->GetHnSparseBase()->GetParameters();
+    // Close the final output file
+    outputData->GetHnSparseBase()->Close(true);
   }
   {
     Long_t            id        = 0;
@@ -1373,7 +1376,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
     NLogInfo("NGnTree::Process: cleanup done (%.2f s)", cleanupSec);
   }
 
-  Close(false); // Close without writing since the merged file is already closed
+  Close(false);           // Close without writing since the merged file is already closed
   gROOT->SetBatch(batch); // Restore ROOT batch mode
   return true;
 }
@@ -1986,12 +1989,6 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
 
     ngnt->GetEntry(entryNumber);
 
-    // // add outputPoint content to outputPoint list
-    // TList * inputOutputPoint = (TList *)ngnt->GetStorageTree()->GetBranch("_outputPoint")->GetObject();
-    // for (int i = 0; i < inputOutputPoint->GetEntries(); i++) {
-    //   outputPoint->Add(inputOutputPoint->At(i));
-    // }
-
     // set all branches from ngnt to branch addresses in current object
     for (const auto & kv : ngnt->GetStorageTree()->GetBranchesMap()) {
       // check if branch exists in current storage tree
@@ -2004,18 +2001,6 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
     }
     outputPoint->Add(new TH1S("source_file", filename.c_str(), 1, 0.5, 1.5));
 
-    // ngnt->Print();
-
-    // NLogInfo("NGnTree::Import: nDirAxes=%d ...", cfg["nDirAxes"].get<int>());
-
-    // json & tempCfg = point->GetTempCfg();
-    // if (tempCfg["test"].is_null()) {
-    //   NLogInfo("Setting temp cfg test value to 42");
-    //   tempCfg["test"] = 42;
-    // }
-    // NLogInfo("Temp cfg test value: %d", tempCfg["test"].get<int>());
-
-    // f->ls();
   };
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
