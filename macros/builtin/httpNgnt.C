@@ -45,6 +45,7 @@
 #include <TH1.h>
 #include <TList.h>
 #include <TString.h>
+#include <TSystem.h>
 
 // ============================================================================
 //  Helper functions (formerly NGnHandlerUtils)
@@ -460,6 +461,12 @@ void httpNgnt()
         json nested;
         nav->ExportToJson(nested, nav, std::vector<std::string>{});
         listJson["nested"] = nested;
+        // Dump to file for debugging
+        const char * tmpFile = gSystem->Getenv("NDMSPC_NGNG_EXPORT_JSON_FILE");
+        if (tmpFile) {
+          Ndmspc::NUtils::SaveRawFile( tmpFile,nested.dump());
+          NLogDebug("[Server] Exported nested navigator structure to %s", tmpFile);
+        }
       }
 
       std::vector<int> pointForClickAction;
