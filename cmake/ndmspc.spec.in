@@ -9,6 +9,7 @@ Group:		System Environment/Libraries
 License:	LGPL v3+
 Source0:    %{name}-%{version}.tar.gz
 
+%global with_ui 1
 %global with_utils 0
 %global with_jupyroot 0
 %if 0%{?rhel} == 10 || 0%{?almalinux} == 10
@@ -28,9 +29,14 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: gcc-c++, cmake
 BuildRequires: json-devel zeromq-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
-BuildRequires: root-roofit root-roofit-more 
+BuildRequires: root-roofit root-roofit-more
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
 Requires:      root-roofit root-roofit-more 
+
+%if %{with_ui}
+BuildRequires: nodejs, npm
+%endif
+
 
 %if %{with_utils}
 BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
@@ -48,6 +54,17 @@ BuildRequires: ginac-devel, cuba-devel
 %description
 @PROJECT_DESCRIPTION@
 Obsoletes: ndmspc-server < %{version}
+
+
+%if %{with_ui}
+%package ui
+Summary:  UI support for @PROJECT_NAME@
+Group:    Additional Packages
+Requires: %{name} = %{version}-%{release}, pkgconfig
+
+%description ui
+This package contains taxi support for @PROJECT_NAME@.
+%endif
 
 %if %{with_jupyroot}
 %package jupyroot
@@ -92,6 +109,11 @@ cmake ../ \
 -DCMAKE_BUILD_TYPE=Release \
 -DBUILD_DOCUMENTATION=OFF \
 -DWITH_TEST=OFF \
+%if %{with_ui}
+-DWITH_UI=ON \
+%else
+-DWITH_UI=OFF \
+%endif
 %if %{with_utils}
 -DWITH_UTILS=ON \
 %else
@@ -140,19 +162,27 @@ make install DESTDIR=%{buildroot}
 %endif
 
 %files
+%if %{with_numcal}
 %exclude %{_libdir}/libNdmspcNumcal*
 %exclude %{_includedir}/ndmspc/NNumcalManager.h
+%endif
 %{_libdir}/*
 %{_bindir}/ndmspc-server
 %{_bindir}/ndmspc-run
 %{_bindir}/ndmspc-worker
 %{_includedir}/*
 %exclude %{_datadir}/%{name}/macros/taxi/*
+%exclude %{_datadir}/%{name}/ndmspc-ui/*
 %{_datadir}/%{name}/*
 %{_sysconfdir}/systemd/user/ndmspc-http@.service
 %{_sysconfdir}/%{name}/*
 %{_sysconfdir}/profile.d/*
 %{_unitdir}/ndmspc-http@.service
+
+%if %{with_ui}
+%files ui
+%{_datadir}/%{name}/ndmspc-ui/*
+%endif
 
 %if %{with_numcal}
 %files numcal
