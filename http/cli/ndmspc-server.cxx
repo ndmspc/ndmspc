@@ -206,13 +206,11 @@ int main(int argc, char ** argv)
     serv->SetCors("*");
     if (htmlDir.empty()) {
       htmlDir = TString::Format("%s/share/ndmspc/ndmspc-ui",
-                                gSystem->Getenv("NDMSPC_DIR") ? gSystem->Getenv("NDMSPC_DIR") : "/usr/share/ndmspc")
+                                gSystem->Getenv("NDMSPC_DIR") ? gSystem->Getenv("NDMSPC_DIR") : "/usr")
                     .Data();
-      if (gSystem->AccessPathName(htmlDir.c_str())) {
-        htmlDir = "";
-      }
     }
-    if (!htmlDir.empty()) {
+
+    if (!htmlDir.empty() && gSystem->AccessPathName(htmlDir.c_str()) == 0) {
       NLogInfo("Using '%s' as directory with static assets.", htmlDir.c_str());
       serv->AddLocation("assets/", TString::Format("%s/assets", htmlDir.c_str()).Data());
       serv->SetDefaultPage(TString::Format("%s/index.html", htmlDir.c_str()).Data());
@@ -236,8 +234,9 @@ int main(int argc, char ** argv)
 
     std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroFilename, ',');
 
+    NLogInfo("Going to load %d macro(s). Waiting ...", static_cast<int>(macros.size()));
     for (const auto & macro : macros) {
-      NLogInfo("Executing macro: %s", macro.c_str());
+      // NLogInfo("Executing macro: %s", macro.c_str());
       TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
       m->Exec();
     }
@@ -246,13 +245,15 @@ int main(int argc, char ** argv)
       return;
     }
 
-    NLogInfo("Macro '%s' executed.", macroFilename.c_str());
+    NLogInfo("%zu macro(s) executed.", macros.size());
     serv->SetHttpHandlers(handlers);
 
     if (serv->IsTerminated()) {
       NLogError("Server is zombie, exiting ...");
       exit(1);
     }
+
+    NLogInfo("Server is running and ready to use on port %d ...", port);
 
     int timeout = 100;
     while (!gSystem->ProcessEvents()) {

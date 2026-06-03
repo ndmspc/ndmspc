@@ -886,7 +886,7 @@ TMacro * NUtils::OpenMacro(std::string filename)
     return nullptr;
   }
 
-  NLogInfo("Using macro '%s' ...", filename.c_str());
+  NLogInfo("Opening macro '%s' ...", filename.c_str());
   TUrl        url(filename.c_str());
   std::string basefilename = gSystem->BaseName(url.GetFile());
   if (basefilename.empty()) {
