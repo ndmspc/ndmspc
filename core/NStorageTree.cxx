@@ -350,6 +350,9 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
       fFile->cd();
       // fFile->Print();
 
+      fFile->cd();
+      fTree->Write("", TObject::kOverwrite);
+
       fFile->mkdir("outputs");
       fFile->cd("outputs");
       for (auto & kv : outputs) {
@@ -360,8 +363,7 @@ bool NStorageTree::Close(bool write, std::map<std::string, TList *> outputs)
                     kv.second->GetEntries());
         }
       }
-      fFile->cd();
-      fTree->Write("", TObject::kOverwrite);
+
       fFile->Close();
       NLogTrace("NStorageTree::Close: NGnTree was written to file '%s' ...", fFile->GetName());
     }

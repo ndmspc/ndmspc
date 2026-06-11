@@ -104,7 +104,6 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
     }
   }
 
-
   if (input) {
     NLogTrace("NGnThreadData::Init: Setting input NGnTree for thread %zu '%s'", id,
               input->GetStorageTree()->GetFileName().c_str());
@@ -292,14 +291,15 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   {
     NLogTrace("NGnThreadData::Process: [%zu] Cleaning output list with %d entries for entry '%lld' ...",
               GetAssignedIndex(), outputPoint->GetEntries(), entry);
-
-    TObject * obj = nullptr;
-    while ((obj = outputPoint->First())) {
-      outputPoint->Remove(obj);
-      fDeferredDeletes.push_back(obj);
+    if (!fIsPureCopy) {
+      TObject * obj = nullptr;
+      while ((obj = outputPoint->First())) {
+        outputPoint->Remove(obj);
+        fDeferredDeletes.push_back(obj);
+      }
+      delete outputPoint;
+      FlushDeferredDeletes();
     }
-    delete outputPoint;
-    // FlushDeferredDeletes();
   }
 }
 
@@ -486,7 +486,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
     }
   }
   // print all definitions
-  for (auto &def : fHnSparseBase->GetBinning()->GetDefinitions()) {
+  for (auto & def : fHnSparseBase->GetBinning()->GetDefinitions()) {
     def.second->Print();
   }
 

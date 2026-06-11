@@ -308,7 +308,7 @@ class NUtils : TObject {
    * @return A pointer to a TObjArray containing the axes objects, or nullptr if none found.
    */
   static TObjArray * AxesFromDirectory(const std::vector<std::string> paths, const std::string & findPath,
-                                       const std::string & fileName, const std::vector<std::string> & axesNames);
+                                       const std::string & fileName, const std::vector<std::string> & axesNames, const std::map<std::string,std::vector<std::string>> & filterAxes = {});
 
   /**
    * @brief Tokenize a string by delimiter.
