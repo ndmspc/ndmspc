@@ -68,7 +68,8 @@ static double gProgressThrottleSeconds = []() {
   if (env) {
     try {
       return std::stod(std::string(env));
-    } catch (...) {
+    }
+    catch (...) {
       return 1.0;
     }
   }
@@ -187,7 +188,7 @@ bool NUtils::AccessPathName(std::string path)
   return false;
 }
 
-int NUtils::Cp(std::string source, std::string destination, Bool_t progressbar )
+int NUtils::Cp(std::string source, std::string destination, Bool_t progressbar)
 {
   ///
   /// Copy file
@@ -763,7 +764,8 @@ bool NUtils::CreateDirectory(const std::string & path)
   bool    isLocalFile = dir.BeginsWith("file://");
   if (isLocalFile) {
     dir.ReplaceAll("file://", "");
-  } else {
+  }
+  else {
     isLocalFile = !dir.Contains("://");
   }
 
@@ -828,8 +830,7 @@ std::string NUtils::OpenRawFile(std::string filename, Int_t chunkSize)
   content.reserve(static_cast<size_t>(fileSize));
 
   if (chunkSize <= 0) {
-    NLogWarning("NUtils::OpenRawFile: Invalid chunkSize=%d for '%s', using default 4096", chunkSize,
-                filename.c_str());
+    NLogWarning("NUtils::OpenRawFile: Invalid chunkSize=%d for '%s', using default 4096", chunkSize, filename.c_str());
     chunkSize = 4096;
   }
 
@@ -840,8 +841,7 @@ std::string NUtils::OpenRawFile(std::string filename, Int_t chunkSize)
     const Int_t toRead = (offset + chunkSize <= fileSize) ? chunkSize : static_cast<Int_t>(fileSize - offset);
 
     if (f->ReadBuffer(buff.get(), offset, toRead) != 0) {
-      NLogError("NUtils::OpenRawFile: ReadBuffer failed at offset=%lld for '%s'", (long long)offset,
-                filename.c_str());
+      NLogError("NUtils::OpenRawFile: ReadBuffer failed at offset=%lld for '%s'", (long long)offset, filename.c_str());
       f->Close();
       return "";
     }
@@ -981,8 +981,8 @@ void NUtils::AddRawJsonInjection(json & j, const std::vector<std::string> & path
 
   // Walk to the parent of the target key and capture any existing object members so
   // they are preserved in the final injected string (merged at string level).
-  json * current        = &j;
-  bool   pathReachable  = true;
+  json * current       = &j;
+  bool   pathReachable = true;
   for (size_t k = 0; k + 1 < path.size(); ++k) {
     if (!current->is_object() || !current->contains(path[k])) {
       pathReachable = false;
@@ -999,8 +999,8 @@ void NUtils::AddRawJsonInjection(json & j, const std::vector<std::string> & path
       // Works only when rawJson is itself a JSON object (starts with '{').
       size_t lastBrace = valueToStore.rfind('}');
       if (lastBrace != std::string::npos) {
-        std::string extras      = existing.dump();                          // e.g. {"key":"val"}
-        std::string extraFields = extras.substr(1, extras.size() - 2);     // strip outer { }
+        std::string extras      = existing.dump();                     // e.g. {"key":"val"}
+        std::string extraFields = extras.substr(1, extras.size() - 2); // strip outer { }
         if (!extraFields.empty()) {
           valueToStore = valueToStore.substr(0, lastBrace) + "," + extraFields + "}";
         }
@@ -1023,7 +1023,8 @@ bool NUtils::CollectRawJsonInjections(const json & j, RawJsonInjections & inject
   }
 
   for (const auto & entry : j[injectionsKey]) {
-    if (!entry.contains("path") || !entry["path"].is_array() || !entry.contains("value") || !entry["value"].is_string()) {
+    if (!entry.contains("path") || !entry["path"].is_array() || !entry.contains("value") ||
+        !entry["value"].is_string()) {
       continue;
     }
     injections.emplace_back(entry["path"].get<std::vector<std::string>>(), entry["value"].get<std::string>());
@@ -1040,17 +1041,17 @@ std::string NUtils::MergeRawJsonWithMetadata(const std::string & rawJson, const 
 
   try {
     json obj = json::parse(rawJson);
-    
+
     // Merge metadata fields into the parsed object
     for (const auto & [key, val] : metadata.items()) {
       obj[key] = val;
     }
-    
+
     return obj.dump();
   }
   catch (const std::exception & e) {
     NLogError("NUtils::MergeRawJsonWithMetadata: Failed to parse raw JSON: %s", e.what());
-    return rawJson;  // Return original if parsing fails
+    return rawJson; // Return original if parsing fails
   }
 }
 
@@ -1488,7 +1489,8 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int &
 }
 
 TObjArray * NUtils::AxesFromDirectory(const std::vector<std::string> paths, const std::string & findPath,
-                                      const std::string & fileName, const std::vector<std::string> & axesNames)
+                                      const std::string & fileName, const std::vector<std::string> & axesNames,
+                                      const std::map<std::string, std::vector<std::string>> & filterAxes)
 {
   if (paths.empty()) {
     NLogError("Error: No paths provided ...");
@@ -1525,9 +1527,26 @@ TObjArray * NUtils::AxesFromDirectory(const std::vector<std::string> paths, cons
     }
   }
 
+  std::map<std::string, std::vector<std::string>> axesVec;
   TObjArray * axesArr = new TObjArray();
   for (const auto & axisName : axesNames) {
-    TAxis * axis = Ndmspc::NUtils::CreateAxisFromLabelsSet(axisName, axisName, axes[axisName]); // Convert set to vector
+
+    if (filterAxes.contains(axisName) && !filterAxes.at(axisName).empty()) {
+      NLogTrace("Filtering axis '%s' with %zu values ...", axisName.c_str(), filterAxes.at(axisName).size());
+      axesVec[axisName].clear();
+      for (const auto & v : filterAxes.at(axisName)) {
+        axesVec[axisName].push_back(v);
+      }
+    } else {
+      axesVec.emplace(axisName, std::vector<std::string>(axes[axisName].begin(), axes[axisName].end()));
+    }
+
+    // print axis values
+    for (const auto & v : axesVec[axisName]) {
+      NLogTrace("Axis '%s' value: %s", axisName.c_str(), v.c_str());
+    }
+
+    TAxis * axis = Ndmspc::NUtils::CreateAxisFromLabels(axisName, axisName, axesVec[axisName]); // Convert set to vector
     axesArr->Add(axis);
   }
 
@@ -1766,12 +1785,12 @@ std::string NUtils::FormatTime(long long seconds)
 
 std::string NUtils::FormatBytes(long long bytes, int precision)
 {
-  const char * units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
+  const char *     units[]    = {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
   constexpr size_t kUnitCount = sizeof(units) / sizeof(units[0]);
 
   const bool negative = (bytes < 0);
-  double value = negative ? static_cast<double>(-bytes) : static_cast<double>(bytes);
-  size_t unitIdx = 0;
+  double     value    = negative ? static_cast<double>(-bytes) : static_cast<double>(bytes);
+  size_t     unitIdx  = 0;
   while (value >= 1024.0 && unitIdx + 1 < kUnitCount) {
     value /= 1024.0;
     ++unitIdx;
@@ -1814,11 +1833,11 @@ void NUtils::ProgressBar(int current, int total, std::string prefix, std::string
 
   // Throttle updates per callsite to avoid flooding the terminal.
   {
-    bool forcePrint = (current == total);
-    void * caller = __builtin_return_address(0);
-    auto now = std::chrono::high_resolution_clock::now();
+    bool                        forcePrint = (current == total);
+    void *                      caller     = __builtin_return_address(0);
+    auto                        now        = std::chrono::high_resolution_clock::now();
     std::lock_guard<std::mutex> plock(gProgressThrottleMutex);
-    auto it = gLastProgressTime.find(caller);
+    auto                        it = gLastProgressTime.find(caller);
     if (it != gLastProgressTime.end() && !forcePrint) {
       double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - it->second).count();
       if (elapsed < gProgressThrottleSeconds) return; // too soon
@@ -1875,11 +1894,11 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
 
   // Throttle updates per callsite to avoid flooding the terminal.
   {
-    bool forcePrint = (current == total);
-    void * caller = __builtin_return_address(0);
-    auto now = std::chrono::high_resolution_clock::now();
+    bool                        forcePrint = (current == total);
+    void *                      caller     = __builtin_return_address(0);
+    auto                        now        = std::chrono::high_resolution_clock::now();
     std::lock_guard<std::mutex> plock(gProgressThrottleMutex);
-    auto it = gLastProgressTime.find(caller);
+    auto                        it = gLastProgressTime.find(caller);
     if (it != gLastProgressTime.end() && !forcePrint) {
       double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - it->second).count();
       if (elapsed < gProgressThrottleSeconds) return; // too soon

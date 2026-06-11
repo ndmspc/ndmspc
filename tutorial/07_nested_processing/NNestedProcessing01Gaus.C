@@ -69,7 +69,7 @@ void NGausMeanSigma(std::string outFile = "NGausMeanSigma.root", int entries = 1
 
     // Warning: Make sure that you add this canvas to the output list of the point.
     //          If not you have to delete it manually to avoid memory leaks.
-    // TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
+    TCanvas * c = Ndmspc::NUtils::CreateCanvas("cGaus", title);
 
     // Create Gaussian fit function for the histogram
     TF1 * gausFunc = new TF1("gausFunc", "gaus", -10, 10);
@@ -87,7 +87,7 @@ void NGausMeanSigma(std::string outFile = "NGausMeanSigma.root", int entries = 1
       pointParams->SetParameter("sigmaFit", fitResult->Parameter(2), fitResult->Error(2));
     }
     outputPoint->Add(h);
-    // outputPoint->Add(c);
+    outputPoint->Add(c);
   };
 
   // Define the begin function which is executed before processing all points
@@ -169,7 +169,7 @@ void NNestedProcessing01Gaus(std::string outputDir = "/tmp/NNestedProcessing",
   if (pos != std::string::npos) {
     outFileNameImported.replace(pos, 5, "_imported.root");
   }
-  ngnt = Ndmspc::NGnTree::Import(outputDir, outFile, {"entries"}, outFileNameImported);
+  ngnt = Ndmspc::NGnTree::ImportNgnt(outputDir, outFile, {"entries"}, {},{}, outFileNameImported);
   ngnt->Print();
   delete ngnt;
 }

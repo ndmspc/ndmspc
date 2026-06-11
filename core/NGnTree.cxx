@@ -21,6 +21,7 @@
 #include <TMap.h>
 #include <TObjString.h>
 #include <TTree.h>
+#include <TKey.h>
 #include <TBufferJSON.h>
 #include <sys/poll.h>
 #include <zmq.h>
@@ -265,7 +266,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
     // NLogInfo("Thread ID: %d", threadId);
     // point->Print();
     json cfg = point->GetCfg();
-  
+
     TFile * fIn = point->GetTempObject("inFile") ? (TFile *)point->GetTempObject("inFile") : nullptr;
 
     THnSparse * hns = point->GetTempObject("inputObj") ? (THnSparse *)point->GetTempObject("inputObj") : nullptr;
@@ -1898,8 +1899,68 @@ bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
   return true;
 }
 
-NGnTree * NGnTree::Import(const std::string & findPath, const std::string & fileName,
-                          const std::vector<std::string> & headers, const std::string & outputFile)
+NGnTree * NGnTree::Import(const std::string & jsonFile)
+{
+
+  json cfg;
+  if (!NUtils::LoadJsonFile(cfg, jsonFile)) {
+    NLogError("NGnTree::Import: Failed to load JSON file '%s'", jsonFile.c_str());
+    return nullptr;
+  }
+  std::string findPath = cfg.value("basedir", "");
+  std::string fileName = cfg.value("filename", "");
+  if (findPath.empty() || fileName.empty()) {
+    NLogError("NGnTree::Import: 'basedir' and 'filename' must be specified in the configuration !!!");
+    return nullptr;
+  }
+  std::vector<std::string> headers = cfg.value("axes", std::vector<std::string>{});
+  if (headers.empty()) {
+    NLogWarning("NGnTree::Import: No 'axes' specified in configuration, proceeding with empty axes list ...");
+  }
+  std::string outputFile = cfg.value("outputFile", "imported_ngnt.root");
+
+  std::map<std::string, std::vector<std::string>> filterAxes;
+  std::vector<std::string>                        paramNames;
+  if (cfg.contains("filter")) {
+    if (cfg["filter"].contains("axes")) {
+      for (auto & [axisName, axisValues] : cfg["filter"]["axes"].items()) {
+        filterAxes[axisName] = axisValues.get<std::vector<std::string>>();
+      }
+    }
+    if (cfg["filter"].contains("parameters")) {
+      for (const auto & param : cfg["filter"]["parameters"]) {
+        if (param.is_string()) {
+          paramNames.push_back(param.get<std::string>());
+        }
+        else {
+          if (param.is_object() && param.contains("name") && param["name"].is_string()) {
+            paramNames.push_back(param["name"].get<std::string>());
+          }
+          else {
+            NLogWarning("NGnTree::Import: Skipping invalid parameter filter entry: %s", param.dump().c_str());
+          }
+        }
+      }
+    }
+  }
+  std::string type = cfg.value("type", "simple");
+  if (type == "simple") {
+    std::string paramsHistoName = cfg.value("paramsObjectName", "hParameters");
+    return ImportSimple(findPath, fileName, headers, paramNames, filterAxes, outputFile, paramsHistoName);
+  }
+  else if (type == "ngnt") {
+    return ImportNgnt(findPath, fileName, headers, paramNames, filterAxes, outputFile);
+  }
+  else {
+    NLogError("NGnTree::Import: Unknown import type '%s' specified in configuration !!!", type.c_str());
+    return nullptr;
+  }
+}
+
+NGnTree * NGnTree::ImportNgnt(const std::string & findPath, const std::string & fileName,
+                              const std::vector<std::string> & headers, const std::vector<std::string> & params,
+                              const std::map<std::string, std::vector<std::string>> & filterAxes,
+                              const std::string &                                     outputFile)
 {
   ///
   /// Import NGnTree from mutiple files in the given path
@@ -1912,12 +1973,16 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   }
 
   std::vector<std::string> paths = NUtils::Find(findPathClean, fileName);
-  NLogInfo("NGnTree::Import: Found %zu files to import ...", paths.size());
+  NLogInfo("NGnTree::ImportNgnt: Found %zu files to import ...", paths.size());
 
-  TObjArray * ngntArray = NUtils::AxesFromDirectory(paths, findPathClean, fileName, headers);
+  TObjArray * ngntArray = NUtils::AxesFromDirectory(paths, findPathClean, fileName, headers, filterAxes);
   int         nDirAxes  = ngntArray->GetEntries();
 
   NGnTree * ngntFirst = NGnTree::Open(paths[0]);
+  if (!ngntFirst || ngntFirst->IsZombie()) {
+    NLogError("NGnTree::ImportNgnt: Failed to open first file '%s' for importing !!!", paths[0].c_str());
+    return nullptr;
+  }
   // Add all axes from ngntFirst to ngntArray
   for (const auto & axis : ngntFirst->GetBinning()->GetAxes()) {
     ngntArray->Add(axis->Clone());
@@ -1937,15 +2002,25 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   // return nullptr;
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
+  if (params.size() > 0) {
+    ngnt->InitParameters(params);
+  }
+
   json cfg;
-  cfg["basedir"]  = findPathClean;
-  cfg["filename"] = fileName;
-  cfg["nDirAxes"] = nDirAxes;
-  cfg["headers"]  = headers;
+  cfg["basedir"]    = findPathClean;
+  cfg["filename"]   = fileName;
+  cfg["nDirAxes"]   = nDirAxes;
+  cfg["headers"]    = headers;
+  cfg["parameters"] = params;
   // cfg["ndmspc"]["shared"]["currentFileName"]  = "";
+
+  // NLogDebug("%s", cfg.dump(2).c_str());
+  // return ngnt;
+
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
                                              int /*threadId*/) {
     // point->Print();
+    NLogDebug("NGnTree::ImportNgnt: %s", point->GetString().c_str());
 
     json        cfg      = point->GetCfg();
     std::string filename = cfg["basedir"].get<std::string>();
@@ -1959,11 +2034,14 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
     // filename += point->GetBinLabel("year");
     // filename += "/";
     filename += cfg["filename"].get<std::string>();
+
+    std::vector<std::string> parameters = cfg["parameters"].get<std::vector<std::string>>();
+
     NGnTree * ngnt = (NGnTree *)point->GetTempObject("file");
     if (!ngnt || filename.compare(ngnt->GetStorageTree()->GetFileName()) != 0) {
-      NLogInfo("NGnTree::Import: Opening file '%s' ...", filename.c_str());
+      NLogDebug("NGnTree::ImportNgnt: Opening file '%s' ...", filename.c_str());
       if (ngnt) {
-        NLogDebug("NGnTree::Import: Closing previously opened file '%s' ...",
+        NLogDebug("NGnTree::ImportNgnt: Closing previously opened file '%s' ...",
                   ngnt->GetStorageTree()->GetFileName().c_str());
         ngnt->Close(false);
         delete ngnt;
@@ -1985,22 +2063,38 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
 
     Long64_t entryNumber =
         ngnt->GetBinning()->GetContent()->GetBin(&coords[3 * nDirAxes], kFALSE); // skip first 3 dir axes
-    NLogInfo("NGnTree::Import: Corresponding entry number in file '%s' is %lld", filename.c_str(), entryNumber);
+    NLogDebug("NGnTree::ImportNgnt: Corresponding entry number in file '%s' is %lld", filename.c_str(), entryNumber);
 
     ngnt->GetEntry(entryNumber);
 
     // set all branches from ngnt to branch addresses in current object
     for (const auto & kv : ngnt->GetStorageTree()->GetBranchesMap()) {
+      // if kv.first is "_params", set parameters
+      if (kv.first == "_params" && parameters.size() > 0) {
+        NParameters * paramsIn      = (NParameters *)kv.second.GetObject();
+        NParameters * paramsCurrent = (NParameters *)point->GetParameters();
+        if (paramsIn && paramsCurrent) {
+          // paramsIn->Print();
+
+          for (const auto & param : parameters) {
+            NLogDebug("NGnTree::ImportNgnt: Setting parameter '%s' to value '%.2f +/- %.2f' ...", param.c_str(),
+                      paramsIn->GetParameter(param.c_str()), paramsIn->GetParameterError(param.c_str()));
+            paramsCurrent->SetParameter(param.c_str(), paramsIn->GetParameter(param.c_str()),
+                                        paramsIn->GetParameterError(param.c_str()));
+          }
+        }
+        continue;
+      }
+
       // check if branch exists in current storage tree
       if (point->GetStorageTree()->GetBranch(kv.first) == nullptr) {
-        NLogTrace("NGnTree::Import: Adding branch '%s' to storage tree ...", kv.first.c_str());
+        NLogTrace("NGnTree::ImportNgnt: Adding branch '%s' to storage tree ...", kv.first.c_str());
         point->GetStorageTree()->AddBranch(kv.first, nullptr, kv.second.GetObjectClassName());
       }
-      NLogTrace("NGnTree::Import: Setting branch address for branch '%s' ...", kv.first.c_str());
+      NLogTrace("NGnTree::ImportNgnt: Setting branch address for branch '%s' ...", kv.first.c_str());
       point->GetTreeStorage()->GetBranch(kv.first)->SetAddress(kv.second.GetObject());
     }
     outputPoint->Add(new TH1S("source_file", filename.c_str(), 1, 0.5, 1.5));
-
   };
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
@@ -2009,7 +2103,7 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
   Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * point, int /*threadId*/) {
     NGnTree * ngnt = (NGnTree *)point->GetTempObject("file");
     if (ngnt) {
-      NLogDebug("NGnTree::Import: Closing last file '%s' ...", ngnt->GetStorageTree()->GetFileName().c_str());
+      NLogDebug("NGnTree::ImportNgnt: Closing last file '%s' ...", ngnt->GetStorageTree()->GetFileName().c_str());
       // ngnt->Close(false);
       delete ngnt;
       point->SetTempObject("file", nullptr);
@@ -2018,6 +2112,147 @@ NGnTree * NGnTree::Import(const std::string & findPath, const std::string & file
 
   ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
   ngnt = NGnTree::Open(outputFile.c_str());
+  return ngnt;
+}
+
+NGnTree * NGnTree::ImportSimple(const std::string & findPath, const std::string & fileName,
+                                const std::vector<std::string> & headers, const std::vector<std::string> & params,
+                                const std::map<std::string, std::vector<std::string>> & filterAxes, std::string outFile,
+                                const std::string & paramsHistoName)
+{
+
+  // remove trailing slash from findPath if exists
+  std::string findPathClean = findPath;
+  if (!findPathClean.empty() && findPathClean.back() == '/') {
+    findPathClean.pop_back();
+  }
+
+  std::vector<std::string> paths = Ndmspc::NUtils::Find(findPathClean, fileName);
+  NLogInfo("NGnTree::ImportSimple: Found %zu files to import ...", paths.size());
+
+  TObjArray * ngntArray = Ndmspc::NUtils::AxesFromDirectory(paths, findPathClean, fileName, headers, filterAxes);
+
+  Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(ngntArray, outFile);
+
+  std::map<std::string, std::vector<std::vector<int>>> b;
+
+  for (int i = 0; i < ngntArray->GetEntries(); i++) {
+    TAxis * axis = (TAxis *)ngntArray->At(i);
+    b[axis->GetName()].push_back({1});
+  }
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
+
+  NLogInfo("NGnTree::ImportSimple: Opening file '%s' and parameters histogram '%s' ...", paths[0].c_str(),
+           paramsHistoName.c_str());
+
+  std::vector<std::string> paramNames;
+  TFile *                  fIn     = TFile::Open(paths[0].c_str());
+  TH1 *                    hParams = (TH1 *)fIn->Get(paramsHistoName.c_str());
+  if (!hParams) {
+    NLogWarning("NGnTree::ImportSimple: Parameters histogram '%s' not found in file '%s' !!!", paramsHistoName.c_str(),
+                paths[0].c_str());
+  }
+  else {
+
+    for (Int_t i = 1; i <= hParams->GetNbinsX(); i++) {
+      std::string l = hParams->GetXaxis()->GetBinLabel(i);
+      NLogInfo("NGnTree::ImportSimple: Adding parameter '%s' ...", l.c_str());
+      paramNames.push_back(l);
+    }
+  }
+  fIn->Close();
+
+  json cfg;
+  cfg["basedir"]         = findPath;
+  cfg["filename"]        = fileName;
+  cfg["headers"]         = headers;
+  cfg["parameters"]      = params;
+  cfg["paramsHistoName"] = paramsHistoName;
+
+  if (params.size() > 0) {
+    NLogInfo("NGnTree::ImportSimple: Initializing parameters from configuration ...");
+    paramNames = params;
+  }
+  if (paramNames.size() > 0) ngnt->InitParameters(paramNames);
+
+  // Define the processing function
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
+    // print the title of the binning point
+    NLogInfo("NGnTree::ImportSimple: title : %s", point->GetString().c_str());
+    json        cfg      = point->GetCfg();
+    std::string filename = cfg["basedir"].get<std::string>();
+    filename += "/";
+    for (auto & header : cfg["headers"]) {
+      filename += point->GetBinLabel(header.get<std::string>());
+      filename += "/";
+    }
+    filename += cfg["filename"].get<std::string>();
+
+    std::vector<std::string> parameterNames = cfg["parameters"].get<std::vector<std::string>>();
+
+    NLogInfo("NGnTree::ImportSimple: Opening file '%s' ...", filename.c_str());
+    TFile * fIn = TFile::Open(filename.c_str());
+    if (!fIn) {
+      NLogError("NGnTree::ImportSimple: File '%s' was not found or could not be opened ...", filename.c_str());
+      return;
+    }
+
+    // loop over all keys in the file and print their names
+    TIter  next(fIn->GetListOfKeys());
+    TKey * key;
+    while ((key = (TKey *)next())) {
+      NLogDebug("NGnTree::ImportSimple: Found key: '%s'", key->GetName());
+      if (std::string(key->GetName()) == cfg["paramsHistoName"].get<std::string>()) {
+        // NLogInfo("Found parameters histogram: %s", key->GetName());
+        TH1 *                 h      = (TH1 *)key->ReadObj();
+        Ndmspc::NParameters * params = point->GetParameters();
+        if (!params) {
+          NLogError("NGnTree::ImportSimple: Could not get parameters for point %s", point->GetString().c_str());
+          continue;
+        }
+
+        if (parameterNames.empty()) {
+          std::string info;
+          for (int bin = 1; bin <= h->GetNbinsX(); bin++) {
+            info += TString::Format("%s: %f +/- %f; ", h->GetXaxis()->GetBinLabel(bin), h->GetBinContent(bin),
+                                    h->GetBinError(bin));
+
+            params->SetParameter(bin, h->GetBinContent(bin), h->GetBinError(bin));
+          }
+          NLogTrace("NGnTree::ImportSimple: Found '%s' %s !!!", point->GetString().c_str(), info.c_str());
+        } else {
+          for (size_t i = 0; i < parameterNames.size(); i++) {
+            int     bin   = h->GetXaxis()->FindBin(parameterNames[i].c_str());
+            
+            if (bin < 1 || bin > h->GetNbinsX()) {
+              NLogWarning("NGnTree::ImportSimple: Parameter '%s' not found in histogram '%s' for point %s !!!",
+                          parameterNames[i].c_str(), key->GetName(), point->GetString().c_str());
+              continue;
+            }
+            double  value = h->GetBinContent(bin);
+            double  error = h->GetBinError(bin);
+            params->SetParameter(parameterNames[i].c_str(), value, error);
+            NLogDebug("NGnTree::ImportSimple: Set parameter '%s' to value '%.2f +/- %.2f' ...", parameterNames[i].c_str(),
+                      value, error);
+          }
+        }
+      }
+      else {
+        outputPoint->Add(key->ReadObj());
+      }
+    }
+
+    fIn->Close();
+  };
+
+  // execute the processing function
+  ngnt->Process(processFunc, cfg);
+
+  // Clean up
+  delete ngnt;
+
+  ngnt = NGnTree::Open(outFile.c_str());
   return ngnt;
 }
 
