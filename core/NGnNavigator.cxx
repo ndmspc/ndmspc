@@ -74,7 +74,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
   ///
   /// Reshape the navigator
   ///
-  NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName,true);
+  NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName, true);
   if (!binningDef) {
     NLogError("NGnNavigator::Reshape: Binning definition is null !!!");
     return nullptr;
@@ -955,20 +955,12 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
       }
     }
 
-    if (key.compare("mass") == 0) {
-      // for chi2, ndf and pvalue set min and max to 0 and 1
-      min = 1.018;
-      max = 1.023;
-    }
-    else {
-
-      // set min max with 5 percent margin
-      double margin            = 0.05 * (max - min);
-      min                      = min - margin;
-      max                      = max + margin;
-      j["fArrays"][key]["min"] = min;
-      j["fArrays"][key]["max"] = max;
-    }
+    // set min max with 5 percent margin
+    double margin            = 0.05 * (max - min);
+    min                      = min - margin;
+    max                      = max + margin;
+    j["fArrays"][key]["min"] = min;
+    j["fArrays"][key]["max"] = max;
     // j["ndmspc"][key]["fEntries"] = entries;
     // NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
   }
