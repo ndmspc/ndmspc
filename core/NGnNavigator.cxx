@@ -74,7 +74,7 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
   ///
   /// Reshape the navigator
   ///
-  NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName,true);
+  NBinningDef * binningDef = fGnTree->GetBinning()->GetDefinition(binningName, true);
   if (!binningDef) {
     NLogError("NGnNavigator::Reshape: Binning definition is null !!!");
     return nullptr;
@@ -396,7 +396,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
       // Handle special THnSparse reserved first cell without looping: use
       // GetBinContent(0, coords) which fills coords for the linear bin 0.
-      {
+      if (level == fNLevels - 1) {
         Int_t   nd         = hnsIn->GetNdimensions();
         Int_t * firstCoord = new Int_t[nd];
         // Double_t firstVal =
@@ -406,22 +406,26 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         if (firstCoord) {
           if (nDims == 1) {
             int bx = firstCoord[axesIds[0]];
-            if (content < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX())
+            if (hProj->GetBinContent(bx) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX()) {
               hProj->SetBinContent(bx, hProj->GetBinContent(bx) + 1.0);
+            }
           }
           else if (nDims == 2) {
             int bx = firstCoord[axesIds[0]];
             int by = firstCoord[axesIds[1]];
-            if (content < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY())
+            if (hProj->GetBinContent(bx, by) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY()) {
               hProj->SetBinContent(bx, by, hProj->GetBinContent(bx, by) + 1.0);
+            }
           }
           else if (nDims == 3) {
             int bx = firstCoord[axesIds[0]];
             int by = firstCoord[axesIds[1]];
             int bz = firstCoord[axesIds[2]];
-            if (content < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY() &&
-                bz >= 1 && bz <= hProj->GetNbinsZ())
+
+            if (hProj->GetBinContent(bx, by, bz) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY() &&
+                bz >= 1 && bz <= hProj->GetNbinsZ()) {
               hProj->SetBinContent(bx, by, bz, hProj->GetBinContent(bx, by, bz) + 1.0);
+            }
           }
         }
         delete[] firstCoord;
@@ -756,7 +760,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   return current;
 }
 
-void NGnNavigator::Export(const std::string & filename, std::vector<std::string> objectNames)
+void NGnNavigator::Export(const std::string & filename, std::vector<std::string> objectNames,
+                          const std::string & cfgFileName)
 {
   ///
   /// Export object to file
@@ -764,6 +769,16 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
   NLogInfo("Exporting NGnNavigator to file: %s", filename.c_str());
 
   json objJson;
+
+  json cfgJson;
+  if (!cfgFileName.empty()) {
+    bool rc = NUtils::LoadJsonFile(cfgJson, cfgFileName);
+    if (rc == false) {
+      NLogError("Failed to load JSON config file: %s", cfgFileName.c_str());
+      return;
+    }
+    NLogInfo("Loaded JSON config file: %s", cfgJson.dump().c_str());
+  }
 
   // if filename ends with .root, remove it
   if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".root") {
@@ -781,7 +796,8 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
   else if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".json") {
     NLogInfo("Exporting NGnNavigator to JSON file: %s", filename.c_str());
     NGnNavigator * obj = const_cast<NGnNavigator *>(this);
-    ExportToJson(objJson, obj, objectNames);
+
+    ExportToJson(objJson, obj, objectNames, cfgJson);
     // std::cout << objJson.dump(2) << std::endl;
     bool rc = NUtils::SaveRawFile(filename, objJson.dump());
     if (rc == false) {
@@ -793,7 +809,7 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
   else if (filename.empty()) {
     NLogInfo("No filename provided, export to JSON only ...");
     NGnNavigator * obj = const_cast<NGnNavigator *>(this);
-    ExportToJson(objJson, obj, objectNames);
+    ExportToJson(objJson, obj, objectNames, cfgJson);
     std::cout << objJson.dump() << std::endl;
   }
   else {
@@ -802,7 +818,7 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
   }
 }
 
-void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames)
+void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames, json cfg)
 {
   ///
   /// Export NGnNavigator to JSON object
@@ -885,9 +901,9 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
       continue;
     }
 
-    double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
-    double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
-    entries    = 0.0;                                 // Reset entries for each key
+    // double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+    // double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+    entries = 0.0; // Reset entries for each key
 
     for (size_t i = 0; i < val.size(); i++) {
       TObject * objContent = val[i];
@@ -899,12 +915,12 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
           // Store TString in a named variable to avoid Cling temporary lifetime issue.
           TString histJsonStr = TBufferJSON::ConvertToJSON(hist);
           json    objJson     = json::parse(histJsonStr.Data());
-          double  objMin, objMax;
-          NUtils::GetTrueHistogramMinMax(hist, objMin, objMax, false);
-          min            = TMath::Min(min, objMin);
-          max            = TMath::Max(max, objMax);
-          entries        = hist->GetEntries();
-          j["fArray"][i] = entries;
+          // double  objMin, objMax;
+          // NUtils::GetTrueHistogramMinMax(hist, objMin, objMax, false);
+          // min            = TMath::Min(min, objMin);
+          // max            = TMath::Max(max, objMax);
+          entries = hist->GetEntries();
+          // j["fArray"][i] = entries;
           if (entries > 0) {
             j["children"][key].push_back(objJson);
           }
@@ -926,9 +942,11 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   }
 
   for (auto & [key, val] : obj->GetParameterContentMap()) {
-    double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
-    double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
-    entries    = 0.0;                                 // Reset entries for each key
+    double min  = std::numeric_limits<double>::max();  // Initialize with largest possible double
+    double max  = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+    double minE = std::numeric_limits<double>::max();  // Initialize with largest possible double
+    double maxE = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+    entries     = 0.0;                                 // Reset entries for each key
 
     for (size_t i = 0; i < val.size(); i++) {
       double param      = val[i];
@@ -944,47 +962,109 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         }
       }
       if (!std::isnan(param) && std::fabs(param) > 1e-12) {
-        min                            = TMath::Min(min, param);
-        max                            = TMath::Max(max, param);
+        min  = TMath::Min(min, param);
+        max  = TMath::Max(max, param);
+        minE = TMath::Min(minE, paramError);
+        maxE = TMath::Max(maxE, paramError);
+
+        // if (!key.compare("IsFitValid"))
+        //   NLogDebug("NGnNavigator::ExportJson: key=%s[%zu] Min=%f, Max=%f param=%f", key.c_str(), i, min, max,
+        //   param);
+        // if (!key.compare("Chi2_NDF")) NLogDebug("NGnNavigator::ExportJson: key=%s[%zu] Min=%f, Max=%f", key.c_str(),
+        // i, min, max);
+
         j["fArrays"][key]["values"][i] = param;
-        j["fArrays"][key]["errors"][i] = TMath::Power(paramError, 2);
+
+        if (!std::isnan(paramError) && std::fabs(paramError) > 1e-12) {
+          j["fArrays"][key]["errors"][i] = TMath::Power(paramError, 2);
+        }
+        else {
+          // j["fArrays"][key]["errors"][i] = param;
+          j["fArrays"][key]["errors"][i] = 0.0;
+        }
       }
       else {
         j["fArrays"][key]["values"][i] = 0.0;
         j["fArrays"][key]["errors"][i] = 0.0;
+        min                            = TMath::Min(min, 0.0);
+        max                            = TMath::Max(max, 0.0);
+        minE                           = TMath::Min(minE, 0.0);
+        maxE                           = TMath::Max(maxE, 0.0);
       }
     }
 
-    if (key.compare("mass") == 0) {
-      // for chi2, ndf and pvalue set min and max to 0 and 1
-      min = 1.018;
-      max = 1.023;
-    }
-    else {
+    // set min max with 5 percent margin
+    double margin = 0.05 * (max - min);
+    min           = min - margin;
+    max           = max + margin;
 
-      // set min max with 5 percent margin
-      double margin            = 0.05 * (max - min);
-      min                      = min - margin;
-      max                      = max + margin;
-      j["fArrays"][key]["min"] = min;
-      j["fArrays"][key]["max"] = max;
+    double marginE = 0.05 * (maxE - minE);
+    minE           = minE - marginE;
+    maxE           = maxE + marginE;
+
+    // NLogDebug("NGnNavigator::ExportJson: %s", cfg["parameters"].dump().c_str());
+
+    json parameters = cfg["parameters"];
+    if (parameters.is_array()) {
+      for (const auto & p : parameters) {
+        // NLogDebug("NGnNavigator::ExportJson: Checking config for key '%s': %s", key.c_str(), p.dump().c_str());
+        if (p.contains("name") && p["name"].get<std::string>().compare(key) == 0) {
+
+          if (p.contains("value")) {
+            if (p["value"].contains("min") && p["value"]["min"].is_number()) {
+
+              min = p["value"]["min"].get<double>();
+            }
+            if (p["value"].contains("max") && p["value"]["max"].is_number()) {
+              max = p["value"]["max"].get<double>();
+            }
+            // NLogDebug("AAAAAAAAAAAAAAAA NGnNavigator::ExportJson: Found config for key '%s': min=%f, max=%f",
+            //           key.c_str(), min, max);
+          }
+
+          if (p.contains("error")) {
+            if (p["error"].contains("min") && p["error"]["min"].is_number()) {
+
+              minE = p["error"]["min"].get<double>();
+            }
+            if (p["error"].contains("max") && p["error"]["max"].is_number()) {
+              maxE = p["error"]["max"].get<double>();
+            }
+            // NLogDebug("AAAAAAAAAAAAAAAA NGnNavigator::ExportJson: Found config for key '%s': minE=%f, maxE=%f",
+            //           key.c_str(), minE, maxE);
+          }
+        }
+      }
     }
+
+    j["fArrays"][key]["min"]  = min;
+    j["fArrays"][key]["max"]  = max;
+    j["fArrays"][key]["minE"] = minE;
+    j["fArrays"][key]["maxE"] = maxE;
+
+    // j["fSumw2"][key]["min"] = min;
+    // j["fSumw2"][key]["max"] = max;
+
     // j["ndmspc"][key]["fEntries"] = entries;
-    // NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min, max);
+    // if (!key.compare("IsFitValid")) NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min,
+    // max); if (!key.compare("Chi2_NDF")) NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(),
+    // min, max);
   }
 
-  double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
-  double              max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
+  // double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
+  // double              max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
   std::vector<double> tmpContent;
   // --- Propagate parameter min/max from children ---
   std::map<std::string, double> paramMinGlobal;
   std::map<std::string, double> paramMaxGlobal;
+  std::map<std::string, double> paramMinEGlobal;
+  std::map<std::string, double> paramMaxEGlobal;
   bool                          firstChild = true;
   for (const auto & child : obj->GetChildren()) {
     json childJson;
     if (child != nullptr) {
       try {
-        ExportToJson(childJson, child, objectNames);
+        ExportToJson(childJson, child, objectNames, cfg);
       }
       catch (...) {
         NLogWarning("NGnNavigator::ExportJson: Exception in recursive ExportToJson for child.");
@@ -1005,6 +1085,19 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
               paramMaxGlobal[param] = std::max(paramMaxGlobal[param], cmax);
             }
           }
+
+          if (arr.contains("minE") && arr.contains("maxE")) {
+            double cmin = arr["minE"].get<double>();
+            double cmax = arr["maxE"].get<double>();
+            if (firstChild || paramMinEGlobal.find(param) == paramMinEGlobal.end()) {
+              paramMinEGlobal[param] = cmin;
+              paramMaxEGlobal[param] = cmax;
+            }
+            else {
+              paramMinEGlobal[param] = std::min(paramMinEGlobal[param], cmin);
+              paramMaxEGlobal[param] = std::max(paramMaxEGlobal[param], cmax);
+            }
+          }
         }
       }
     }
@@ -1019,6 +1112,12 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
       j["fArrays"][param]["max"] = paramMaxGlobal[param];
     }
   }
+  if (!paramMinEGlobal.empty()) {
+    for (const auto & [param, minVal] : paramMinEGlobal) {
+      j["fArrays"][param]["minE"] = minVal;
+      j["fArrays"][param]["maxE"] = paramMaxEGlobal[param];
+    }
+  }
   // loop over j["children"]["content"] and remove empty objects"
   bool hasContent = false;
   for (auto & c : j["children"]["content"]) {
@@ -1028,18 +1127,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     }
   }
 
-  if (!hasContent) {
-    j["children"].erase("content");
-    // NOTE: GetChildren() returns by value, so .clear() here was a no-op and did NOT
-    // modify fChildren. The node's actual children remain intact.
-    // If pruning is desired, add a ClearChildren() method that clears fChildren directly.
-    // j["ndmspc"]["content"]["fMinimum"] = min;
-    // j["ndmspc"]["content"]["fMaximum"] = max;
-  }
-  else {
-    j["ndmspc"]["content"]["fMinimum"] = min;
-    j["ndmspc"]["content"]["fMaximum"] = max;
-  }
+  if (!hasContent) j["children"].erase("content");
 
   if (obj->GetParent() == nullptr) {
     // NLogDebug("NGnNavigator::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
@@ -1052,23 +1140,7 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         continue;
       }
 
-      if (child.contains("ndmspc")) {
-        // std::cout << child["fTitle"].dump() << std::endl;
-        // double min = std::numeric_limits<double>::max();  // Initialize with largest possible double
-        double max = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
-        // loop over all keys in "ndmspc"
-        for (auto & [key, value] : child["ndmspc"].items()) {
-          if (value.is_object()) {
-            // min = TMath::Min(min, value["fMinimum"].get<double>());
-            // min = 0;
-            max = TMath::Max(max, value["fMaximum"].get<double>());
-          }
-        }
-        j["fArray"][i] = max; // Store the maximum value for the content
-      }
-      else {
-        j["fArray"][i] = 1; // Store the maximum value for the content
-      }
+      j["fArray"][i] = 1; // Store the maximum value for the content
     }
     if (j["children"]["content"].is_null()) j["children"].erase("content");
   }

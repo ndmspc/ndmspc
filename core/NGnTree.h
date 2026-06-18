@@ -377,6 +377,15 @@ class NGnTree : public TObject {
    */
   static NGnTree * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
+  /**
+   * @brief Imports an NGnTree from a JSON configuration file.
+   *
+   * Reads the specified JSON file and constructs an NGnTree according to the
+   * configuration and data sources described within it.
+   *
+   * @param jsonFile Path to the JSON file describing the import configuration.
+   * @return A pointer to the imported NGnTree object, or nullptr on failure.
+   */
   static NGnTree * Import(const std::string & jsonFile);
 
   /**
@@ -396,6 +405,23 @@ class NGnTree : public TObject {
                               const std::map<std::string,std::vector<std::string>> & filterAxes = {},
                               const std::string & outFileName = "/tmp/ngnt_imported.root");
 
+  /**
+   * @brief Imports an NGnTree from a simple flat data file.
+   *
+   * Searches for the file in the given path and imports it into an NGnTree,
+   * applying optional parameter and axis filters. Parameters are read from a
+   * named histogram inside the file. The result can be saved to a specified
+   * output ROOT file.
+   *
+   * @param findPath       The directory path to search for the file.
+   * @param fileName       The name of the file to import.
+   * @param headers        A vector of column header strings defining the axes.
+   * @param params         Optional vector of parameter names to import (default: empty).
+   * @param filterAxes     Optional map of axis names to allowed value lists for filtering (default: empty).
+   * @param outFile        Output ROOT file path to save the imported tree (default: "/tmp/ngnt_imported.root").
+   * @param paramsHistoName Name of the histogram inside the file that stores parameters (default: "hParameters").
+   * @return A pointer to the imported NGnTree object, or nullptr on failure.
+   */
   static NGnTree * ImportSimple(const std::string & findPath, const std::string & fileName,
                                 const std::vector<std::string> & headers, const std::vector<std::string> & params = {},
                                 const std::map<std::string,std::vector<std::string>> & filterAxes = {},
