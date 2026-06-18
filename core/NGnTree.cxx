@@ -1927,22 +1927,24 @@ NGnTree * NGnTree::Import(const std::string & jsonFile)
         filterAxes[axisName] = axisValues.get<std::vector<std::string>>();
       }
     }
-    if (cfg["filter"].contains("parameters")) {
-      for (const auto & param : cfg["filter"]["parameters"]) {
-        if (param.is_string()) {
-          paramNames.push_back(param.get<std::string>());
+  }
+
+  if (cfg.contains("parameters")) {
+    for (const auto & param : cfg["parameters"]) {
+      if (param.is_string()) {
+        paramNames.push_back(param.get<std::string>());
+      }
+      else {
+        if (param.is_object() && param.contains("name") && param["name"].is_string()) {
+          paramNames.push_back(param["name"].get<std::string>());
         }
         else {
-          if (param.is_object() && param.contains("name") && param["name"].is_string()) {
-            paramNames.push_back(param["name"].get<std::string>());
-          }
-          else {
-            NLogWarning("NGnTree::Import: Skipping invalid parameter filter entry: %s", param.dump().c_str());
-          }
+          NLogWarning("NGnTree::Import: Skipping invalid parameter filter entry: %s", param.dump().c_str());
         }
       }
     }
   }
+
   std::string type = cfg.value("type", "simple");
   if (type == "simple") {
     std::string paramsHistoName = cfg.value("paramsObjectName", "hParameters");
@@ -2221,20 +2223,21 @@ NGnTree * NGnTree::ImportSimple(const std::string & findPath, const std::string 
             params->SetParameter(bin, h->GetBinContent(bin), h->GetBinError(bin));
           }
           NLogTrace("NGnTree::ImportSimple: Found '%s' %s !!!", point->GetString().c_str(), info.c_str());
-        } else {
+        }
+        else {
           for (size_t i = 0; i < parameterNames.size(); i++) {
-            int     bin   = h->GetXaxis()->FindBin(parameterNames[i].c_str());
-            
+            int bin = h->GetXaxis()->FindBin(parameterNames[i].c_str());
+
             if (bin < 1 || bin > h->GetNbinsX()) {
               NLogWarning("NGnTree::ImportSimple: Parameter '%s' not found in histogram '%s' for point %s !!!",
                           parameterNames[i].c_str(), key->GetName(), point->GetString().c_str());
               continue;
             }
-            double  value = h->GetBinContent(bin);
-            double  error = h->GetBinError(bin);
+            double value = h->GetBinContent(bin);
+            double error = h->GetBinError(bin);
             params->SetParameter(parameterNames[i].c_str(), value, error);
-            NLogDebug("NGnTree::ImportSimple: Set parameter '%s' to value '%.2f +/- %.2f' ...", parameterNames[i].c_str(),
-                      value, error);
+            NLogDebug("NGnTree::ImportSimple: Set parameter '%s' to value '%.2f +/- %.2f' ...",
+                      parameterNames[i].c_str(), value, error);
           }
         }
       }

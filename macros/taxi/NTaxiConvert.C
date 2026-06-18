@@ -10,6 +10,7 @@
 #include <TCanvas.h>
 #include <NGnTree.h>
 #include <NLogger.h>
+#include <NUtils.h>
 #include <NTaxi.h>
 THnSparse * CreateTaxiTHnSparse();
 void        NTaxiConvert(std::string inputFile = "NTaxiDownload.root",
@@ -29,7 +30,7 @@ void        NTaxiConvert(std::string inputFile = "NTaxiDownload.root",
 
   json cfg = json::object();
   // cfg["opt"]               = "A";
-  cfg["inputPrefix"] = "/home/mvala/.ngnt_taxi/";
+  cfg["inputPrefix"] = "$HOME/.ngnt_taxi/";
   cfg["inputSuffix"] = ".parquet";
 
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
@@ -44,6 +45,8 @@ void        NTaxiConvert(std::string inputFile = "NTaxiDownload.root",
         TString::Format("%02d", point->GetStorageCoords()[1]).Data() + cfg["inputSuffix"].get<std::string>();
     NLogDebug("NTaxiConvert: Processing point '%s' file '%s'", point->GetString().c_str(),
                            fileTypeYearMonth.c_str());
+
+    fileTypeYearMonth = gSystem->ExpandPathName(fileTypeYearMonth.c_str());
 
     if (Ndmspc::NUtils::AccessPathName(fileTypeYearMonth.c_str()) == false) {
       NLogWarning("NTaxiConvert: File %s does not exist. Skipping point ...", fileTypeYearMonth.c_str());

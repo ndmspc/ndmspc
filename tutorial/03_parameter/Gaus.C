@@ -4,16 +4,24 @@
 #include <TH1D.h>
 #include <TCanvas.h>
 #include <TFile.h>
+#include <TROOT.h>
 #include <TSystem.h>
 
 // To import
 //    auto ngnt = Ndmspc::NGnTree::ImportSimple("/tmp/test","Gaus.root",{"entries","mean","sigma"},"ngnt_imported.root","hParameters")
+// or
+//    auto ngnt = Ndmspc::NGnTree::Import("import.json") // import from JSON file
+
 
 void Gaus(int nEntries = 10000, double mean = 0.0, double sigma = 1.0, std::string outDir = "", std::string outFileName = "Gaus.root")
 {
 
-  TCanvas *c1 = new TCanvas("c1", "Gaussian Fit", 800, 600);
-  TH1D * h = new TH1D("h", "Gaussian", 200, -10, 10);
+  gROOT->SetBatch(kTRUE); // Run in batch mode to avoid opening GUI windows
+  TH1::AddDirectory(kFALSE); // Avoid memory leaks by not adding histograms to the current directory
+
+  std::string title = TString::Format("Gaussian Fit: nEntries=%d, mean=%.2f, sigma=%.2f", nEntries, mean, sigma).Data();
+  TCanvas *c1 = new TCanvas("cGaus", title.c_str(), 800, 600);
+  TH1D * h = new TH1D("hGaus", title.c_str(), 200, -10, 10);
   // Fill histogram with Gaussian random numbers 10,000 times
   for (int i = 0; i < nEntries; i++) {
     double x = gRandom->Gaus(mean, sigma);
@@ -30,8 +38,8 @@ void Gaus(int nEntries = 10000, double mean = 0.0, double sigma = 1.0, std::stri
     Printf("Could not create parameters histogram !!!");
     return;
   }
-  hParameters->GetXaxis()->SetBinLabel(1, "Mean");
-  hParameters->GetXaxis()->SetBinLabel(2, "Sigma");
+  hParameters->GetXaxis()->SetBinLabel(1, "meanFit");
+  hParameters->GetXaxis()->SetBinLabel(2, "sigmaFit");
   hParameters->SetBinContent(1, fitResult->Parameter(1));
   hParameters->SetBinError(1, fitResult->Error(1));
   hParameters->SetBinContent(2, fitResult->Parameter(2));
