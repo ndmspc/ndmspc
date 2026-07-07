@@ -17,19 +17,22 @@
 #include <RooChebychev.h>
 
 #include "NUtils.h"
-
-#include "AnalysisFunctions.h"
-#include "AnalysisUtils.h"
+#include "NGnTree.h"
+#include "NParameters.h"
+#include "NLogger.h"
+#include "NSystematicsStats.h"
+#include "NAnalysisFunctions.h"
+#include "NAnalysisUtils.h"
 
 /// \cond CLASSIMP
-ClassImp(Ndmspc::AnalysisUtils);
+ClassImp(Ndmspc::NAnalysisUtils);
 /// \endcond
 
 namespace Ndmspc {
 
 static std::mutex gRooFitMutex;
 
-bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & cfg, TList * output, TH1 * results)
+bool NAnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & cfg, TList * output, TH1 * results)
 {
 
   bool accepted = true;
@@ -124,8 +127,8 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
       TFitResultPtr fitResults = hPeak->Fit(fitFunc, "QRNS");
       // TFitResultPtr fitResults = hPeak->Fit(fitFunc, "QRNMS");
       // check if fit was successful
-      // bool          isFitGood  = Ndmspc::AnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 2.0, 0.001, 0.8);
-      fitGoodness = Ndmspc::AnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 500.0, 0.00001, 1.0);
+      // bool          isFitGood  = Ndmspc::NAnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 2.0, 0.001, 0.8);
+      fitGoodness = Ndmspc::NAnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 500.0, 0.00001, 1.0);
       // fitGoodness = 0; // TEMPORARY OVERRIDE
       // NLogInfo("Fit goodness: %d", isFitGood);
     }
@@ -188,7 +191,7 @@ bool AnalysisUtils::ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & c
   return accepted;
 }
 
-bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList * output, TH1 * results)
+bool NAnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList * output, TH1 * results)
 {
 
   bool accepted = true;
@@ -310,7 +313,8 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
     // maxFit = 1.040;
 
     // std::cout << "hSigBg integral (fit range): "
-    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
+    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) <<
+    //           std::endl;
     // std::cout << "hBgNorm integral (fit range): "
     //           << hBgNorm->Integral(hBgNorm->GetXaxis()->FindBin(minFit), hBgNorm->GetXaxis()->FindBin(maxFit))
     //           << std::endl;
@@ -334,7 +338,8 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
     //           << hBgNorm->Integral(hBgNorm->GetXaxis()->FindBin(minFit), hBgNorm->GetXaxis()->FindBin(maxFit))
     //           << std::endl;
     // std::cout << "hPeak   integral, fit range: "
-    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
+    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) <<
+    //           std::endl;
 
     // Use hBgNorm directly as background shape PDF
     RooDataHist bgHist("bgHist", "background histogram", x, hBgNorm);
@@ -377,7 +382,8 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
     RooAddPdf  model("model", "sig+bg", RooArgList(sig, bgPdf), RooArgList(nsig, nbkg));
 
     // std::cout << "peak integral in fit range: "
-    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) << std::endl;
+    //           << hPeak->Integral(hPeak->GetXaxis()->FindBin(minFit), hPeak->GetXaxis()->FindBin(maxFit)) <<
+    //           std::endl;
     // std::cout << "=======================" << std::endl;
 
     RooFitResult * fitResult = 0;
@@ -434,7 +440,7 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
 
     hPeak->Add(hBgNorm, -1);
     if (hPeak->Integral() > 0 && accepted) {
-      TF1 * fitFunc = Ndmspc::AnalysisFunctions::VoigtPol2("fVoigtPol2", 0.998, 1.042);
+      TF1 * fitFunc = Ndmspc::NAnalysisFunctions::VoigtPol2("fVoigtPol2", 0.998, 1.042);
       fitFunc->SetParameters(0.0, 1.019461, 0.00426, 0.0008, 0.0, 0.0, 0.0);
 
       int nFits     = 10;
@@ -452,8 +458,8 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
         TFitResultPtr fitResults = hPeak->Fit(fitFunc, "QRNS");
         // TFitResultPtr fitResults = hPeak->Fit(fitFunc, "QRNMS");
         // check if fit was successful
-        // bool          isFitGood  = Ndmspc::AnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 2.0, 0.001, 0.8);
-        fitGoodness = Ndmspc::AnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 500.0, 0.00001, 1.0);
+        // bool          isFitGood  = Ndmspc::NAnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 2.0, 0.001, 0.8);
+        fitGoodness = Ndmspc::NAnalysisFunctions::IsFitGood(fitFunc, fitResults, 0.5, 500.0, 0.00001, 1.0);
         // fitGoodness = 0; // TEMPORARY OVERRIDE
         // NLogInfo("Fit goodness: %d", isFitGood);
       }
@@ -497,7 +503,7 @@ bool AnalysisUtils::ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList
   return true;
 }
 
-void AnalysisUtils::ResetHistograms(TList * list)
+void NAnalysisUtils::ResetHistograms(TList * list)
 {
   ///
   /// Reset histograms in the list
@@ -510,4 +516,243 @@ void AnalysisUtils::ResetHistograms(TList * list)
     h->Reset();
   }
 }
+
+void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
+{
+
+  json cfg;
+  if (!NUtils::LoadJsonFile(cfg, cfgFile)) {
+    NLogError("Failed to load configuration file: %s", cfgFile.c_str());
+    return;
+  }
+  std::string              inFile  = cfg["inFile"].get<std::string>();
+  std::string              outFile = cfg["outFile"].get<std::string>();
+  std::vector<std::string> axisNames;
+  std::vector<std::string> sysAxisNames;
+
+  for (auto & [key, value] : cfg["sys"].items()) {
+    for (auto & name : value) {
+      axisNames.push_back(name.get<std::string>());
+    }
+    sysAxisNames.push_back(key);
+  }
+
+  // make unique
+  std::sort(axisNames.begin(), axisNames.end());
+  axisNames.erase(std::unique(axisNames.begin(), axisNames.end()), axisNames.end());
+  cfg["axisNames"] = axisNames;
+
+  NLogInfo("Processing systematics for axes: %s", NUtils::Join(sysAxisNames, ',').c_str());
+  // return;
+  auto ngntIn = NGnTree::Open(inFile);
+  if (!ngntIn || ngntIn->IsZombie()) {
+    NLogError("Failed to open input file: %s", inFile.c_str());
+    return;
+  }
+
+  std::vector<TAxis *> axes = ngntIn->GetBinning()->GetAxes();
+
+  // Handle merging/filtering axes
+  axes.erase(std::remove_if(axes.begin(), axes.end(),
+                            [&axisNames](TAxis * axis) {
+                              std::string name = axis->GetName();
+                              return (std::find(axisNames.begin(), axisNames.end(), name) != axisNames.end());
+                            }),
+             axes.end());
+
+  // Define the binning for the axes
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  // Set binning for axis1 (rebin to 1 bin)
+  for (auto & axis : axes) {
+    std::string name = axis->GetName();
+    b[name]          = {{1}};
+  }
+
+  // axisNames.insert(axisNames.begin(), "all");
+  // add axis as first axis
+  TAxis * aSys = Ndmspc::NUtils::CreateAxisFromLabels("sys", "Systematics", sysAxisNames);
+  // axes.insert(axes.begin(), aSys);
+  axes.push_back(aSys);
+  b["sys"] = {{1}};
+
+  // Create an NGnTree from the list of axes
+  Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(axes, outFile);
+  ngnt->Print();
+
+  // Create the binning definition with name "default" in the NGnTree
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
+
+  ngntIn->GetEntry(0);
+  Ndmspc::NParameters * pointParamsIn =
+      (Ndmspc::NParameters *)ngntIn->GetStorageTree()->GetBranch("_params")->GetObject();
+  NLogInfo("Parameters in the input file: %s", Ndmspc::NUtils::Join(pointParamsIn->GetNames(), ',').c_str());
+
+  std::vector<std::string> parNames;
+  for (auto & name : pointParamsIn->GetNames()) {
+    NLogInfo("Adding parameter: %s", name.c_str());
+    parNames.push_back(std::string(name) + "Mean");
+    parNames.push_back(std::string(name) + "MeanAbsDev");
+    parNames.push_back(std::string(name) + "MeanRelAbsDev");
+    parNames.push_back(std::string(name) + "MaxAbsDev");
+    parNames.push_back(std::string(name) + "MaxRelAbsDev");
+  }
+  cfg["parameters"] = pointParamsIn->GetNames();
+
+  ngnt->InitParameters(parNames);
+
+  // Define the processing function
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
+    point->Print("S");
+    point->Print("C");
+    // Retrieve configuration
+    json cfg = point->GetCfg();
+
+    auto ngntIn = (Ndmspc::NGnTree *)point->GetTempObject("inFile");
+    if (!ngntIn || ngntIn->IsZombie()) {
+      ngntIn = Ndmspc::NGnTree::Open(cfg["inFile"].get<std::string>(), "_params");
+      point->SetTempObject("inFile", ngntIn);
+    }
+
+    auto hnsIn = ngntIn->GetBinning()->GetContent();
+
+    Long64_t                      linBin = 0;
+    std::vector<std::vector<int>> rangesTmp;
+    Int_t *                       c = point->GetCoords();
+
+    int axisIndex;
+    for (auto axis : point->GetBinning()->GetAxes()) {
+      std::string name = axis->GetName();
+      if (name.compare("sys") == 0) {
+        std::string              sysLabel  = point->GetBinLabel(name);
+        std::vector<std::string> axisNames = cfg["axisNames"].get<std::vector<std::string>>();
+        // remove all elements in cfg["sys"][sysLabel] from cfg["axisNames"]
+        for (auto & n : cfg["sys"][sysLabel]) {
+          std::string axisName = n.get<std::string>();
+          auto        it       = std::find(axisNames.begin(), axisNames.end(), axisName);
+          if (it != axisNames.end()) {
+            axisNames.erase(it);
+          }
+        }
+
+        // print the remaining axis names
+        NLogDebug("Remaining axis names: %s", Ndmspc::NUtils::Join(axisNames, ',').c_str());
+
+        for (auto & axisName : axisNames) {
+          int iAxis = ngntIn->GetBinning()->GetAxisIndex(axisName);
+          axisIndex = 3 * iAxis;
+
+          int idx = cfg["ref"][axisName]["bin"].get<int>();
+          rangesTmp.push_back({axisIndex, 1, 1});
+          rangesTmp.push_back({axisIndex + 1, 1, 1});
+          rangesTmp.push_back({axisIndex + 2, idx, idx});
+          NLogDebug("Processing axis: %s (%s), index: %d, coords: %d, %d, %d", axisName.c_str(), sysLabel.c_str(),
+                    axisIndex, 1, 1, idx);
+        }
+      }
+      else {
+        int iAxis = point->GetBinning()->GetAxisIndex(name) * 3;
+        axisIndex = 3 * ngntIn->GetBinning()->GetAxisIndex(name);
+        rangesTmp.push_back({axisIndex, c[iAxis], c[iAxis]});
+        rangesTmp.push_back({axisIndex + 1, c[iAxis + 1], c[iAxis + 1]});
+        rangesTmp.push_back({axisIndex + 2, c[iAxis + 2], c[iAxis + 2]});
+        // NLogDebug("Processing axis: %s, index: %d, coords: %d, %d, %d", name.c_str(), axisIndex, c[axisIndex],
+        //           c[axisIndex + 1], c[axisIndex + 2]);
+      }
+    }
+
+    Ndmspc::NUtils::SetAxisRanges(hnsIn, rangesTmp); // Set the ranges for the axes
+    std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{hnsIn->CreateIter(true /*use axis range*/)};
+    std::vector<int>                                linBins;
+
+    std::map<std::string, Ndmspc::NSystematicsStats> statsMap;
+    std::vector<std::string>                         parameters = cfg["parameters"].get<std::vector<std::string>>();
+    for (auto & parName : parameters) {
+      statsMap[parName] = Ndmspc::NSystematicsStats(
+          parName.c_str(), TString::Format("%s %s", parName.c_str(), point->GetString().c_str()).Data(),
+          (int)cfg["parameter"][parName]["histo"][0].get<double>(), cfg["parameter"][parName]["histo"][1].get<double>(),
+          cfg["parameter"][parName]["histo"][2].get<double>());
+    }
+    while ((linBin = iter->Next()) >= 0) {
+      ngntIn->GetEntry(linBin);
+      ngntIn->GetBinning()->GetPoint()->Print("S");
+      bool isReference = true;
+      for (auto & n : cfg["sys"][point->GetBinLabel("sys")]) {
+        int idx = cfg["ref"][n.get<std::string>()]["bin"].get<int>();
+
+        if (ngntIn->GetBinning()->GetPoint()->GetBin(n.get<std::string>()) != idx) {
+          isReference = false;
+          break;
+        }
+      }
+
+      NLogDebug("Processing linBin %lld, isReference: %s", linBin, isReference ? "true" : "false");
+      Ndmspc::NParameters * pointParamsIn =
+          (Ndmspc::NParameters *)ngntIn->GetStorageTree()->GetBranch("_params")->GetObject();
+      if (pointParamsIn) {
+        pointParamsIn->Print();
+        for (int bin = 1; bin <= pointParamsIn->GetHisto()->GetNbinsX(); bin++) {
+          std::string parName = pointParamsIn->GetHisto()->GetXaxis()->GetBinLabel(bin);
+          double      value   = pointParamsIn->GetHisto()->GetBinContent(bin);
+          double      error   = pointParamsIn->GetHisto()->GetBinError(bin);
+          if (isReference) {
+            statsMap[parName].SetReference(value, error, true);
+          }
+          else {
+            statsMap[parName].AddMeasurement(value, error);
+          }
+        }
+      }
+    }
+    for (auto & parName : parameters) {
+      statsMap[parName].Compute();
+    }
+
+    Ndmspc::NParameters * pointParams = point->GetParameters();
+    if (pointParams) {
+
+      for (auto & parName : parameters) {
+        pointParams->SetParameter((parName + "Mean").c_str(), statsMap[parName].GetMean(kTRUE),
+                                  statsMap[parName].GetMeanStdError(kTRUE));
+        pointParams->SetParameter((parName + "MeanAbsDev").c_str(),
+                                  statsMap[parName].GetMeanAbsDeviationFromReference());
+        pointParams->SetParameter((parName + "MaxAbsDev").c_str(), statsMap[parName].GetMaxAbsDeviationFromReference());
+
+        pointParams->SetParameter((parName + "MeanRelAbsDev").c_str(),
+                                  statsMap[parName].GetMeanRelDeviationFromReference());
+        pointParams->SetParameter((parName + "MaxRelAbsDev").c_str(),
+                                  statsMap[parName].GetMaxRelDeviationFromReference());
+
+        NLogInfo(
+            "%s: mean = %f, meanStdError = %f, meanAbsDev = %f, maxAbsDev = %f, meanRelAbsDev = %f, maxRelAbsDev = %f",
+            parName.c_str(), statsMap[parName].GetMean(kTRUE), statsMap[parName].GetMeanStdError(kTRUE),
+            statsMap[parName].GetMeanAbsDeviationFromReference(), statsMap[parName].GetMaxAbsDeviationFromReference(),
+            statsMap[parName].GetMeanRelDeviationFromReference(), statsMap[parName].GetMaxRelDeviationFromReference());
+        outputPoint->Add(statsMap[parName].GetHisto());
+        outputPoint->Add(statsMap[parName].GetDevHisto());
+        outputPoint->Add(statsMap[parName].GetRelDevHisto());
+      }
+    }
+
+    outputPoint->Add(new TH1D("hInfo", TString::Format("h_%s", point->GetString().c_str()).Data(), 2, 0, 2));
+    // // outputPoint->Add(c);
+  };
+
+  // Define the begin function which is executed before processing all points
+  Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    // NLogInfo("Starting processing ...");
+    TH1::AddDirectory(kFALSE);
+  };
+
+  // Define the end function which is executed after processing all points
+  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    // NLogInfo("Finished processing ...");
+  };
+  // execute the processing function
+  ngnt->Process(processFunc, cfg, "", beginFunc, endFunc);
+
+  // Clean up
+  delete ngnt;
+}
+
 } // namespace Ndmspc

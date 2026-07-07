@@ -36,6 +36,33 @@ using json = nlohmann::json;
   Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kTrace, format, ##__VA_ARGS__)
 
 /**
+ * @def NLogTrace2
+ * @brief Logs a message with TRACE severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogTrace2(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kTrace2, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogTrace3
+ * @brief Logs a message with TRACE severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogTrace3(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kTrace3, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogTrace4
+ * @brief Logs a message with TRACE severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogTrace4(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kTrace4, format, ##__VA_ARGS__)
+
+/**
  * @def NLogDebug
  * @brief Logs a message with DEBUG severity.
  * @param format The printf-style format string.
@@ -45,6 +72,33 @@ using json = nlohmann::json;
   Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kDebug, format, ##__VA_ARGS__)
 
 /**
+ * @def NLogDebug2
+ * @brief Logs a message with DEBUG severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogDebug2(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kDebug2, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogDebug3
+ * @brief Logs a message with DEBUG severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogDebug3(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kDebug3, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogDebug4
+ * @brief Logs a message with DEBUG severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogDebug4(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kDebug4, format, ##__VA_ARGS__)
+
+/**
  * @def NLogInfo
  * @brief Logs a message with INFO severity.
  * @param format The printf-style format string.
@@ -52,6 +106,35 @@ using json = nlohmann::json;
  */
 #define NLogInfo(format, ...) \
   Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kInfo, format, ##__VA_ARGS__)
+
+
+/**
+ * @def NLogInfo2
+ * @brief Logs a message with INFO severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogInfo2(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kInfo2, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogInfo3
+ * @brief Logs a message with INFO severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogInfo3(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kInfo3, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogInfo4
+ * @brief Logs a message with INFO severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogInfo4(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kInfo4, format, ##__VA_ARGS__)
+
 
 /**
  * @def NLogWarning
@@ -63,6 +146,33 @@ using json = nlohmann::json;
   Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kWarn, format, ##__VA_ARGS__)
 
 /**
+ * @def NLogWarning2
+ * @brief Logs a message with WARNING severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogWarning2(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kWarn2, format, ##__VA_ARGS__) 
+
+/**
+ * @def NLogWarning3
+ * @brief Logs a message with WARNING severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogWarning3(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kWarn3, format, ##__VA_ARGS__) 
+
+/**
+ * @def NLogWarning4
+ * @brief Logs a message with WARNING severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogWarning4(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kWarn4, format, ##__VA_ARGS__) 
+
+/**
  * @def NLogError
  * @brief Logs a message with ERROR severity.
  * @param format The printf-style format string.
@@ -72,6 +182,34 @@ using json = nlohmann::json;
   Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kError, format, ##__VA_ARGS__)
 
 /**
+ * @def NLogError2
+ * @brief Logs a message with ERROR severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogError2(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kError2, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogError3
+ * @brief Logs a message with ERROR severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogError3(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kError3, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogError4
+ * @brief Logs a message with ERROR severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogError4(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kError4, format, ##__VA_ARGS__)
+
+
+/**
  * @def NLogFatal
  * @brief Logs a message with FATAL severity.
  * @param format The printf-style format string.
@@ -79,6 +217,33 @@ using json = nlohmann::json;
  */
 #define NLogFatal(format, ...) \
   Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kFatal, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogFatal2
+ * @brief Logs a message with FATAL severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogFatal2(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kFatal2, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogFatal3
+ * @brief Logs a message with FATAL severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogFatal3(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kFatal3, format, ##__VA_ARGS__)
+
+/**
+ * @def NLogFatal4
+ * @brief Logs a message with FATAL severity.
+ * @param format The printf-style format string.
+ * @param ... Arguments for the format string.
+ */
+#define NLogFatal4(format, ...) \
+  Ndmspc::NLogger::Log(__FILE__, __LINE__, Ndmspc::logs::Severity::kFatal4, format, ##__VA_ARGS__)
 
 /**
  * @def NLogPrint
@@ -122,30 +287,30 @@ namespace logs {
  * for fine-grained control. Default minimum severity is kInfo.
  */
 enum class Severity {
-  kTrace = 0, ///< Most verbose trace level
-  kTrace2,    ///< Trace level 2
-  kTrace3,    ///< Trace level 3
-  kTrace4,    ///< Trace level 4
-  kDebug,     ///< Debug information (includes file:line)
-  kDebug2,    ///< Debug level 2
-  kDebug3,    ///< Debug level 3
-  kDebug4,    ///< Debug level 4
-  kInfo,      ///< Informational messages (default)
-  kInfo2,     ///< Info level 2
-  kInfo3,     ///< Info level 3
-  kInfo4,     ///< Info level 4
-  kWarn,      ///< Warning messages
-  kWarn2,     ///< Warning level 2
-  kWarn3,     ///< Warning level 3
-  kWarn4,     ///< Warning level 4
-  kError,     ///< Error messages
-  kError2,    ///< Error level 2
-  kError3,    ///< Error level 3
-  kError4,    ///< Error level 4
-  kFatal,     ///< Fatal errors
-  kFatal2,    ///< Fatal level 2
-  kFatal3,    ///< Fatal level 3
-  kFatal4     ///< Fatal level 4
+  kTrace4 = 0, ///< Most verbose trace level
+  kTrace3,    ///< Trace level 2
+  kTrace2,    ///< Trace level 3
+  kTrace,    ///< Trace level 4
+  kDebug4,     ///< Debug information (includes file:line)
+  kDebug3,    ///< Debug level 2
+  kDebug2,    ///< Debug level 3
+  kDebug,    ///< Debug level 4
+  kInfo4,      ///< Informational messages (default)
+  kInfo3,     ///< Info level 2
+  kInfo2,     ///< Info level 3
+  kInfo,     ///< Info level 4
+  kWarn4,      ///< Warning messages
+  kWarn3,     ///< Warning level 2
+  kWarn2,     ///< Warning level 3
+  kWarn,     ///< Warning level 4
+  kError4,     ///< Error messages
+  kError3,    ///< Error level 2
+  kError2,    ///< Error level 3
+  kError,    ///< Error level 4
+  kFatal4,     ///< Fatal errors
+  kFatal3,    ///< Fatal level 2
+  kFatal2,    ///< Fatal level 3
+  kFatal     ///< Fatal level 4
 };
 
 /// Map of severity level strings to enum values

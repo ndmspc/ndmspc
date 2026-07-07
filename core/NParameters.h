@@ -87,14 +87,13 @@ class NParameters : public TNamed {
    * @brief Return the list of parameter names.
    * @return Vector of parameter name strings.
    */
-  std::vector<std::string> GetNames() const { return fNames; }
+  std::vector<std::string> GetNames() const;
 
   private:
   TH1D *                   fHisto{nullptr}; ///< Histogram with parameters
-  std::vector<std::string> fNames{};        ///< Names of parameters
 
   /// \cond CLASSIMP
-  ClassDefOverride(NParameters, 2);
+  ClassDefOverride(NParameters, 3);
   /// \endcond;
 };
 } // namespace Ndmspc

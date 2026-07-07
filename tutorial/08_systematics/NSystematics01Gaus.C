@@ -9,7 +9,7 @@
 #include <TH1D.h>
 #include <TF1.h>
 
-void NSingleBinning01Gaus(std::string outFile = "NSingleBinning01Gaus.root", bool onlyOddPoints = false)
+void NSystematics01Gaus(std::string outFile = "NSystematics01Gaus.root", Int_t nSeeds = 5, Int_t nRepeats = 3, bool useZeroSeed = false, bool onlyOddPoints = false)
 {
   json cfg;
   cfg["onlyOddPoints"] = onlyOddPoints;
@@ -28,6 +28,25 @@ void NSingleBinning01Gaus(std::string outFile = "NSingleBinning01Gaus.root", boo
       Ndmspc::NUtils::CreateAxisFromLabels("entries", "Entries", {"100", "1000", "10000", "100000", "1000000"});
   axes->Add(a3);
 
+  std::vector<std::string> seedLabels;
+  int iStart=0;
+  if (!useZeroSeed) {
+    iStart=1;
+    nSeeds++;
+  }
+  for (int i = iStart; i < nSeeds; i++) {
+    seedLabels.push_back(std::to_string(i));
+  }
+  TAxis * a4 = Ndmspc::NUtils::CreateAxisFromLabels("seed", "Seed", seedLabels);
+  axes->Add(a4);
+
+  std::vector<std::string> repeatLabels;
+  for (int i = 1; i <= nRepeats; i++) {
+    repeatLabels.push_back(std::to_string(i));
+  }
+  TAxis * a5 = Ndmspc::NUtils::CreateAxisFromLabels("repeat", "Repeat", repeatLabels);
+  axes->Add(a5);
+
   // Create an NGnTree from the list of axes
   Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(axes, outFile);
 
@@ -37,6 +56,9 @@ void NSingleBinning01Gaus(std::string outFile = "NSingleBinning01Gaus.root", boo
   b["mean"]    = {{1}};
   b["sigma"]   = {{1}};
   b["entries"] = {{1}};
+  b["seed"] = {{1}};
+  b["repeat"] = {{1}};
+
   // Create the binning definition with name "default" in the NGnTree
   ngnt->GetBinning()->AddBinningDefinition("default", b);
 
@@ -60,12 +82,15 @@ void NSingleBinning01Gaus(std::string outFile = "NSingleBinning01Gaus.root", boo
     // Retrieve mean and sigma from the bin centers of current point
     double mean  = std::stof(point->GetBinLabel("mean"));
     double sigma = std::stof(point->GetBinLabel("sigma"));
+    int nSeed = std::stoi(point->GetBinLabel("seed"));
+    // int nRepeat = std::stoi(point->GetBinLabel("repeat"));
 
     // Retrieve number of entries
     int nEntries = std::stoi(point->GetBinLabel("entries"));
 
     // each thread gets its own RNG (thread-safe)
-    thread_local TRandom3 rnd(0);
+    thread_local TRandom3 rnd; // different seed for each repeat and seed combination
+    rnd.SetSeed(nSeed); // set the seed for the random number generator
     for (int i = 0; i < nEntries; i++) {
       double x = rnd.Gaus(mean, sigma);
       h->Fill(x);

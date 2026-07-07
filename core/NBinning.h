@@ -317,6 +317,13 @@ class NBinning : public TObject {
    */
   bool SetCfg(const json & cfg);
 
+  /**
+   * @brief Get the index of an axis by name.
+   * @param name Axis name to search for.
+   * @return Zero-based axis index, or -1 if the axis is not found.
+   */
+  int GetAxisIndex(const std::string & name) const;
+
   private:
   THnSparse *                          fMap{nullptr};              ///< Mapping histogram
   THnSparse *                          fContent{nullptr};          ///< Content histogram

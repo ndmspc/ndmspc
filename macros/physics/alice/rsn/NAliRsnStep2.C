@@ -7,8 +7,8 @@
 #include <NGnTree.h>
 #include <NLogger.h>
 #include <NUtils.h>
-#include <AnalysisUtils.h>
-#include <AnalysisFunctions.h>
+#include <NAnalysisUtils.h>
+#include <NAnalysisFunctions.h>
 
 void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string outFile = "NAliRsnStep2_ngnt.root")
 {
@@ -171,14 +171,14 @@ void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string out
 
     bool accepted = false;
     if (!fitType.compare("std")) {
-      TF1 * fVoigtPol2 = Ndmspc::AnalysisFunctions::VoigtPol2("fVoigtPol2", 0.998, 1.042);
+      TF1 * fVoigtPol2 = Ndmspc::NAnalysisFunctions::VoigtPol2("fVoigtPol2", 0.998, 1.042);
       fVoigtPol2->SetParameters(0.0, 1.019461, 0.00426, 0.0008, 0.0, 0.0, 0.0);
-      accepted = Ndmspc::AnalysisUtils::ExtractSignal(hSigBg, hBg, fVoigtPol2, cfg, outputPoint,
+      accepted = Ndmspc::NAnalysisUtils::ExtractSignal(hSigBg, hBg, fVoigtPol2, cfg, outputPoint,
                                                       point->GetParameters()->GetHisto());
     }
     else if (!fitType.compare("rootfit")) {
       accepted =
-          Ndmspc::AnalysisUtils::ExtractSignalRooFit(hSigBg, hBg, cfg, outputPoint, point->GetParameters()->GetHisto());
+          Ndmspc::NAnalysisUtils::ExtractSignalRooFit(hSigBg, hBg, cfg, outputPoint, point->GetParameters()->GetHisto());
     }
 
     if (!accepted) {

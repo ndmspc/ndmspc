@@ -11,10 +11,6 @@
 
 void NBinnings01Gaus(std::string outFile = "NBinnings01Gaus.root", bool onlyOddPoints = false)
 {
-  ///
-  /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash
-  ///   e.g. export ROOT_MAX_THREADS=4
-  ///
 
   gErrorIgnoreLevel = kError;
 

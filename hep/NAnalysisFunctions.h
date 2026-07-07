@@ -7,16 +7,16 @@
 namespace Ndmspc {
 
 ///
-/// \class AnalysisFunctions
+/// \class NAnalysisFunctions
 ///
-/// \brief AnalysisFunctions object
+/// \brief NAnalysisFunctions object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
-class AnalysisFunctions : public TObject {
+class NAnalysisFunctions : public TObject {
   public:
-  // AnalysisFunctions();
-  // virtual ~AnalysisFunctions();
+  // NAnalysisFunctions();
+  // virtual ~NAnalysisFunctions();
 
   static Double_t Pol1(double * x, double * par);
   static TF1 *    Pol1(const char * name, double xmin, double xmax);
@@ -39,7 +39,7 @@ class AnalysisFunctions : public TObject {
                        double probMin = 0.01, double corrMax = 0.8);
 
   /// \cond CLASSIMP
-  ClassDef(AnalysisFunctions, 1);
+  ClassDef(NAnalysisFunctions, 1);
   /// \endcond;
 };
 } // namespace Ndmspc

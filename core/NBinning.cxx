@@ -1234,4 +1234,18 @@ void NBinning::SetCurrentDefinitionName(const std::string & name)
   fPoint->Reset();
 }
 
+int NBinning::GetAxisIndex(const std::string & name) const
+{
+  ///
+  /// Get axis index by name
+  ///
+  for (size_t i = 0; i < fAxes.size(); i++) {
+    if (name.compare(fAxes[i]->GetName()) == 0) {
+      return i;
+    }
+  }
+  // NLogError("NBinning::GetAxisIndex: Axis '%s' not found", name.c_str());
+  return -1; 
+}
+
 } // namespace Ndmspc
