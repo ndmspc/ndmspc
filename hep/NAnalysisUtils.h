@@ -8,27 +8,28 @@
 namespace Ndmspc {
 
 ///
-/// \class AnalysisUtils
+/// \class NAnalysisUtils
 ///
-/// \brief AnalysisUtils object
+/// \brief NAnalysisUtils object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
-class AnalysisUtils : public TObject {
+class NAnalysisUtils : public TObject {
   public:
-  // AnalysisUtils();
-  // virtual ~AnalysisUtils();
+  // NAnalysisUtils();
+  // virtual ~NAnalysisUtils();
 
   static bool ExtractSignal(TH1 * sigBg, TH1 * bg, TF1 * fitFunc, json & cfg, TList * output = nullptr,
                             TH1 * results = nullptr);
 
-  static bool ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList * output = nullptr,
-                            TH1 * results = nullptr);
+  static bool ExtractSignalRooFit(TH1 * sigBg, TH1 * bg, json & cfg, TList * output = nullptr, TH1 * results = nullptr);
+
+  static void ProcessSystematics(const std::string & cfgFile);
 
   static void ResetHistograms(TList * list);
 
   /// \cond CLASSIMP
-  ClassDef(AnalysisUtils, 1);
+  ClassDef(NAnalysisUtils, 1);
   /// \endcond;
 };
 } // namespace Ndmspc

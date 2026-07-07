@@ -11,11 +11,6 @@
 
 void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomization01Gaus.root")
 {
-  ///
-  /// One can set export ROOT_MAX_THREADS=4 to run with 4 threads before starting this macro in bash
-  ///   e.g. export ROOT_MAX_THREADS=4
-  ///
-
   json cfg;
   cfg["nEntries"] = nEntries;
 

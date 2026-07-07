@@ -5,7 +5,7 @@
 #pragma link off all functions;
 #pragma link off all typedefs;
 
-#pragma link C++ class Ndmspc::AnalysisFunctions + ;
-#pragma link C++ class Ndmspc::AnalysisUtils + ;
+#pragma link C++ class Ndmspc::NAnalysisFunctions + ;
+#pragma link C++ class Ndmspc::NAnalysisUtils + ;
 
 #endif

@@ -1,93 +1,93 @@
-#include "AnalysisFunctions.h"
+#include "NAnalysisFunctions.h"
 #include <TMath.h>
 #include <TF1.h>
 #include <TFitResult.h>
 #include "NLogger.h"
 
 /// \cond CLASSIMP
-ClassImp(Ndmspc::AnalysisFunctions);
+ClassImp(Ndmspc::NAnalysisFunctions);
 /// \endcond
 
 namespace Ndmspc {
-// AnalysisFunctions::AnalysisFunctions() : TObject() {}
-// AnalysisFunctions::~AnalysisFunctions() {}
-inline Double_t AnalysisFunctions::Pol1(double * x, double * par)
+// NAnalysisFunctions::NAnalysisFunctions() : TObject() {}
+// NAnalysisFunctions::~NAnalysisFunctions() {}
+inline Double_t NAnalysisFunctions::Pol1(double * x, double * par)
 {
   return par[0] + x[0] * par[1];
 }
-TF1 * AnalysisFunctions::Pol1(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::Pol1(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::Pol1, xmin, xmax, 2);
+  TF1 * f = new TF1(name, NAnalysisFunctions::Pol1, xmin, xmax, 2);
   return f;
 }
-inline Double_t AnalysisFunctions::Pol2(double * x, double * par)
+inline Double_t NAnalysisFunctions::Pol2(double * x, double * par)
 {
   return par[0] + x[0] * par[1] + x[0] * x[0] * par[2];
 }
-TF1 * AnalysisFunctions::Pol2(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::Pol2(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::Pol2, xmin, xmax, 3);
+  TF1 * f = new TF1(name, NAnalysisFunctions::Pol2, xmin, xmax, 3);
   return f;
 }
-inline Double_t AnalysisFunctions::BreitWigner(double * x, double * par)
+inline Double_t NAnalysisFunctions::BreitWigner(double * x, double * par)
 {
   return par[0] * TMath::BreitWigner(x[0], par[1], par[2]);
 }
-TF1 * AnalysisFunctions::BreitWigner(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::BreitWigner(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::BreitWigner, xmin, xmax, 3);
+  TF1 * f = new TF1(name, NAnalysisFunctions::BreitWigner, xmin, xmax, 3);
   return f;
 }
-inline Double_t AnalysisFunctions::Voigt(double * x, double * par)
+inline Double_t NAnalysisFunctions::Voigt(double * x, double * par)
 {
   return par[0] * TMath::Voigt(x[0] - par[1], par[3], par[2]);
 }
-TF1 * AnalysisFunctions::Voigt(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::Voigt(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::Voigt, xmin, xmax, 4);
+  TF1 * f = new TF1(name, NAnalysisFunctions::Voigt, xmin, xmax, 4);
   return f;
 }
 
-inline Double_t AnalysisFunctions::VoigtPol1(double * x, double * par)
+inline Double_t NAnalysisFunctions::VoigtPol1(double * x, double * par)
 {
   return par[0] * TMath::Voigt(x[0] - par[1], par[3], par[2]) + Pol1(x, &par[4]);
 }
-TF1 * AnalysisFunctions::VoigtPol1(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::VoigtPol1(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::VoigtPol1, xmin, xmax, 6);
+  TF1 * f = new TF1(name, NAnalysisFunctions::VoigtPol1, xmin, xmax, 6);
   return f;
 }
-inline Double_t AnalysisFunctions::VoigtPol2(double * x, double * par)
+inline Double_t NAnalysisFunctions::VoigtPol2(double * x, double * par)
 {
   return par[0] * TMath::Voigt(x[0] - par[1], par[3], par[2]) + Pol2(x, &par[4]);
 }
-TF1 * AnalysisFunctions::VoigtPol2(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::VoigtPol2(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::VoigtPol2, xmin, xmax, 7);
+  TF1 * f = new TF1(name, NAnalysisFunctions::VoigtPol2, xmin, xmax, 7);
 
   return f;
 }
-inline Double_t AnalysisFunctions::GausPol1(double * x, double * par)
+inline Double_t NAnalysisFunctions::GausPol1(double * x, double * par)
 {
   return par[0] * TMath::Gaus(x[0], par[1], par[2]) + Pol1(x, &par[3]);
 }
-TF1 * AnalysisFunctions::GausPol1(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::GausPol1(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::GausPol1, xmin, xmax, 4);
+  TF1 * f = new TF1(name, NAnalysisFunctions::GausPol1, xmin, xmax, 4);
   return f;
 }
 
-inline Double_t AnalysisFunctions::GausPol2(double * x, double * par)
+inline Double_t NAnalysisFunctions::GausPol2(double * x, double * par)
 {
   return par[0] * TMath::Gaus(x[0], par[1], par[2]) + Pol2(x, &par[3]);
 }
-TF1 * AnalysisFunctions::GausPol2(const char * name, double xmin, double xmax)
+TF1 * NAnalysisFunctions::GausPol2(const char * name, double xmin, double xmax)
 {
-  TF1 * f = new TF1(name, AnalysisFunctions::GausPol2, xmin, xmax, 5);
+  TF1 * f = new TF1(name, NAnalysisFunctions::GausPol2, xmin, xmax, 5);
   return f;
 }
 
-int AnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi2nMin, double chi2nMax, double probMin,
+int NAnalysisFunctions::IsFitGood(TF1 * func, TFitResultPtr fitResult, double chi2nMin, double chi2nMax, double probMin,
                                  double corrMax)
 {
   if (fitResult.Get() == nullptr) {

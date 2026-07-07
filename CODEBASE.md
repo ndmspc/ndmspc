@@ -58,8 +58,8 @@ The heart of the framework, implementing n-dimensional analysis capabilities:
 
 High-Energy Physics specific analysis tools:
 
-- **AnalysisFunctions** - Common HEP analysis functions
-- **AnalysisUtils** - Utility functions for particle physics analysis
+- **NAnalysisFunctions** - Common HEP analysis functions
+- **NAnalysisUtils** - Utility functions for particle physics analysis
 
 ### 4. HTTP Module (`http/`)
 

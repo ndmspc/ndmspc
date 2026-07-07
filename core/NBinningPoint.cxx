@@ -88,9 +88,19 @@ void NBinningPoint::Print(Option_t * option) const
   }
   TString opt = option;
   opt.ToUpper();
+  if (opt.Contains("S")) {
+    NLogInfo("%s", GetString().c_str());
+    return;
+  }
+  if (opt.Contains("C")) {
+    NLogInfo("NBinningPoint: %s",
+             NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
+    return;
+  }
 
   NLogInfo("NBinningPoint: %s",
            NUtils::GetCoordsString(NUtils::ArrayToVector(fContentCoords, fContentNDimensions)).c_str());
+
   NLogInfo("  Storage coordinates: %s",
            NUtils::GetCoordsString(NUtils::ArrayToVector(fStorageCoords, fNDimensions)).c_str());
   NLogInfo("  Entry number: %lld", fEntryNumber);
@@ -127,8 +137,9 @@ bool NBinningPoint::RecalculateStorageCoords(Long64_t entry, bool useBinningDefC
   }
   for (size_t i = 0; i < axisRanges.size(); ++i) {
     if (axisRanges[i].size() < 3) {
-      NLogError("NBinningPoint::RecalculateStorageCoords: Invalid axis range format at axis=%zu size=%zu for entry=%lld",
-                i, axisRanges[i].size(), fEntryNumber);
+      NLogError(
+          "NBinningPoint::RecalculateStorageCoords: Invalid axis range format at axis=%zu size=%zu for entry=%lld", i,
+          axisRanges[i].size(), fEntryNumber);
       return false;
     }
   }

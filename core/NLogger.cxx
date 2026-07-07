@@ -299,11 +299,29 @@ std::string NLogger::SeverityToString(logs::Severity level)
 {
   switch (level) {
   case logs::Severity::kTrace: return "TRACE";
+  case logs::Severity::kTrace2: return "TRACE2";
+  case logs::Severity::kTrace3: return "TRACE3";
+  case logs::Severity::kTrace4: return "TRACE4";
   case logs::Severity::kDebug: return "DEBUG";
+  case logs::Severity::kDebug2: return "DEBUG2";
+  case logs::Severity::kDebug3: return "DEBUG3";
+  case logs::Severity::kDebug4: return "DEBUG4";
   case logs::Severity::kInfo: return "INFO";
+  case logs::Severity::kInfo2: return "INFO2";
+  case logs::Severity::kInfo3: return "INFO3";
+  case logs::Severity::kInfo4: return "INFO4";
   case logs::Severity::kWarn: return "WARN";
+  case logs::Severity::kWarn2: return "WARN2";
+  case logs::Severity::kWarn3: return "WARN3";
+  case logs::Severity::kWarn4: return "WARN4";
   case logs::Severity::kError: return "ERROR";
+  case logs::Severity::kError2: return "ERROR2";
+  case logs::Severity::kError3: return "ERROR3";
+  case logs::Severity::kError4: return "ERROR4";
   case logs::Severity::kFatal: return "FATAL";
+  case logs::Severity::kFatal2: return "FATAL2";
+  case logs::Severity::kFatal3: return "FATAL3";
+  case logs::Severity::kFatal4: return "FATAL4";
   default: return "UNKNOWN";
   }
 }

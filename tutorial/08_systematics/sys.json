@@ -1,0 +1,43 @@
+{
+    "inFile": "NSystematics01Gaus.root",
+    "outFile": "NSystematics02Gaus.root",
+    "parameter": {
+        "meanFit": {
+            "histo": [
+                100,
+                -3.0,
+                3.0
+            ]
+        },
+        "sigmaFit": {
+            "histo": [
+                100,
+                0.0,
+                5.0
+            ]
+        }
+    },
+    "ref": {
+        "seed": {
+            "bin": 2
+        },
+        "repeat": {
+            "bin": 1
+        },
+        "entries": {
+            "bin": 5
+        }
+    },
+    "sys": {
+        "seed": [
+            "seed"
+        ],
+        "repeat": [
+            "repeat"
+        ],
+        "seed_repeat": [
+            "seed",
+            "repeat"
+        ]
+    }
+}
