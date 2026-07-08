@@ -62,7 +62,7 @@ void NParameters::Print(Option_t * /*option*/) const
     std::string parName = xaxis->GetBinLabel(bin);
     double      value   = fHisto->GetBinContent(bin);
     double      error   = fHisto->GetBinError(bin);
-    NLogInfo("Parameter '%s': %.6f +/- %.6f", parName.c_str(), value, error);
+    NLogInfo("Parameter '%s': %e +/- %e", parName.c_str(), value, error);
   }
 }
 

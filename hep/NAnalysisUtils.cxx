@@ -585,18 +585,32 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
   ngntIn->GetEntry(0);
   Ndmspc::NParameters * pointParamsIn =
       (Ndmspc::NParameters *)ngntIn->GetStorageTree()->GetBranch("_params")->GetObject();
-  NLogInfo("Parameters in the input file: %s", Ndmspc::NUtils::Join(pointParamsIn->GetNames(), ',').c_str());
+
+  std::vector<std::string> parNamesIn = pointParamsIn->GetNames();
+  std::vector<std::string> myParNames;
+  for (auto & [key, value] : cfg["parameter"].items()) {
+
+    // check if key is in parNamesIn
+    if (std::find(parNamesIn.begin(), parNamesIn.end(), key) == parNamesIn.end()) {
+      NLogWarning("Parameter '%s' is not in the input file, skipping", key.c_str());
+      continue;
+    }
+
+    myParNames.push_back(key);
+  }
+
+  NLogInfo("Parameters in the input file (filtered): %s", Ndmspc::NUtils::Join(myParNames, ',').c_str());
 
   std::vector<std::string> parNames;
-  for (auto & name : pointParamsIn->GetNames()) {
-    NLogInfo("Adding parameter: %s", name.c_str());
+  for (auto & name : myParNames) {
+    // NLogInfo("Adding parameter: %s", name.c_str());
     parNames.push_back(std::string(name) + "Mean");
     parNames.push_back(std::string(name) + "MeanAbsDev");
     parNames.push_back(std::string(name) + "MeanRelAbsDev");
     parNames.push_back(std::string(name) + "MaxAbsDev");
     parNames.push_back(std::string(name) + "MaxRelAbsDev");
   }
-  cfg["parameters"] = pointParamsIn->GetNames();
+  cfg["parameters"] = myParNames;
 
   ngnt->InitParameters(parNames);
 
@@ -615,6 +629,9 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
     }
 
     auto hnsIn = ngntIn->GetBinning()->GetContent();
+
+    hnsIn->Print();
+    return;
 
     Long64_t                      linBin = 0;
     std::vector<std::vector<int>> rangesTmp;
@@ -636,7 +653,7 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
         }
 
         // print the remaining axis names
-        NLogDebug("Remaining axis names: %s", Ndmspc::NUtils::Join(axisNames, ',').c_str());
+        // NLogDebug("Remaining axis names: %s", Ndmspc::NUtils::Join(axisNames, ',').c_str());
 
         for (auto & axisName : axisNames) {
           int iAxis = ngntIn->GetBinning()->GetAxisIndex(axisName);
@@ -646,8 +663,8 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
           rangesTmp.push_back({axisIndex, 1, 1});
           rangesTmp.push_back({axisIndex + 1, 1, 1});
           rangesTmp.push_back({axisIndex + 2, idx, idx});
-          NLogDebug("Processing axis: %s (%s), index: %d, coords: %d, %d, %d", axisName.c_str(), sysLabel.c_str(),
-                    axisIndex, 1, 1, idx);
+          NLogDebug("Processing axis: %s (%s), iAxis: %d, axisIndex: %d, coords: %d, %d, %d", axisName.c_str(), sysLabel.c_str(),iAxis,
+                  axisIndex, 1, 1, idx);
         }
       }
       else {
@@ -656,8 +673,8 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
         rangesTmp.push_back({axisIndex, c[iAxis], c[iAxis]});
         rangesTmp.push_back({axisIndex + 1, c[iAxis + 1], c[iAxis + 1]});
         rangesTmp.push_back({axisIndex + 2, c[iAxis + 2], c[iAxis + 2]});
-        // NLogDebug("Processing axis: %s, index: %d, coords: %d, %d, %d", name.c_str(), axisIndex, c[axisIndex],
-        //           c[axisIndex + 1], c[axisIndex + 2]);
+        NLogDebug("Processing axis: %s, iAxis: %d, axisIndex: %d, coords: %d, %d, %d", name.c_str(), iAxis, axisIndex, c[iAxis],
+                  c[iAxis + 1], c[iAxis + 2]);
       }
     }
 
@@ -667,6 +684,7 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
 
     std::map<std::string, Ndmspc::NSystematicsStats> statsMap;
     std::vector<std::string>                         parameters = cfg["parameters"].get<std::vector<std::string>>();
+
     for (auto & parName : parameters) {
       statsMap[parName] = Ndmspc::NSystematicsStats(
           parName.c_str(), TString::Format("%s %s", parName.c_str(), point->GetString().c_str()).Data(),
@@ -674,7 +692,11 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
           cfg["parameter"][parName]["histo"][2].get<double>());
     }
     while ((linBin = iter->Next()) >= 0) {
-      ngntIn->GetEntry(linBin);
+      if (ngntIn->GetEntry(linBin) <= 0) {
+        continue;
+      }
+
+      ngntIn->GetBinning()->GetPoint()->Print("C");
       ngntIn->GetBinning()->GetPoint()->Print("S");
       bool isReference = true;
       for (auto & n : cfg["sys"][point->GetBinLabel("sys")]) {
@@ -686,15 +708,15 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
         }
       }
 
-      NLogDebug("Processing linBin %lld, isReference: %s", linBin, isReference ? "true" : "false");
+      // NLogDebug("Processing linBin %lld, isReference: %s", linBin, isReference ? "true" : "false");
       Ndmspc::NParameters * pointParamsIn =
           (Ndmspc::NParameters *)ngntIn->GetStorageTree()->GetBranch("_params")->GetObject();
       if (pointParamsIn) {
-        pointParamsIn->Print();
-        for (int bin = 1; bin <= pointParamsIn->GetHisto()->GetNbinsX(); bin++) {
-          std::string parName = pointParamsIn->GetHisto()->GetXaxis()->GetBinLabel(bin);
-          double      value   = pointParamsIn->GetHisto()->GetBinContent(bin);
-          double      error   = pointParamsIn->GetHisto()->GetBinError(bin);
+        // pointParamsIn->Print();
+        for (auto & parName : parameters) {
+          int    bin   = pointParamsIn->GetHisto()->GetXaxis()->FindBin(parName.c_str());
+          double value = pointParamsIn->GetHisto()->GetBinContent(bin);
+          double error = pointParamsIn->GetHisto()->GetBinError(bin);
           if (isReference) {
             statsMap[parName].SetReference(value, error, true);
           }
@@ -722,12 +744,8 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
                                   statsMap[parName].GetMeanRelDeviationFromReference());
         pointParams->SetParameter((parName + "MaxRelAbsDev").c_str(),
                                   statsMap[parName].GetMaxRelDeviationFromReference());
+        statsMap[parName].Print();
 
-        NLogInfo(
-            "%s: mean = %f, meanStdError = %f, meanAbsDev = %f, maxAbsDev = %f, meanRelAbsDev = %f, maxRelAbsDev = %f",
-            parName.c_str(), statsMap[parName].GetMean(kTRUE), statsMap[parName].GetMeanStdError(kTRUE),
-            statsMap[parName].GetMeanAbsDeviationFromReference(), statsMap[parName].GetMaxAbsDeviationFromReference(),
-            statsMap[parName].GetMeanRelDeviationFromReference(), statsMap[parName].GetMaxRelDeviationFromReference());
         outputPoint->Add(statsMap[parName].GetHisto());
         outputPoint->Add(statsMap[parName].GetDevHisto());
         outputPoint->Add(statsMap[parName].GetRelDevHisto());

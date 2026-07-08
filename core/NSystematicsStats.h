@@ -25,6 +25,7 @@ class NSystematicsStats : public TNamed {
 
   void Compute();
   void Reset(Option_t * option = "");
+  virtual void Print(Option_t * option = "") const override;
 
   Double_t GetMean(Bool_t useWeights = kTRUE) const;
   Double_t GetStdDev(Bool_t useWeights = kTRUE) const;
