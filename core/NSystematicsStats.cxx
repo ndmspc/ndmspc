@@ -28,9 +28,51 @@ NSystematicsStats::NSystematicsStats() : TNamed("systematicsStats", "Systematics
 NSystematicsStats::NSystematicsStats(const char * name, const char * title, int nBins, Double_t min, Double_t max)
     : TNamed(name, title)
 {
-  fHisto = new TH1D(Form("%s_histo", name), title, nBins, min, max);
-  fDevHisto = new TH1D(Form("%s_devHisto", name), Form("Dev %s", title), nBins*10, min/2, max/2);
+  fHisto       = new TH1D(Form("%s_histo", name), title, nBins, min, max);
+  fDevHisto    = new TH1D(Form("%s_devHisto", name), Form("Dev %s", title), nBins * 10, min / 2, max / 2);
   fRelDevHisto = new TH1D(Form("%s_relDevHisto", name), Form("RelDev %s", title), 201, -1.005, 1.005);
+}
+
+void NSystematicsStats::Reset(Option_t * option)
+{
+  fValues.clear();
+  fErrors.clear();
+  fHisto->Reset();
+  fDevHisto->Reset();
+  fRelDevHisto->Reset();
+  fHasReference   = kFALSE;
+  fReferenceValue = 0.0;
+  fReferenceError = 0.0;
+  fDirty          = kTRUE;
+
+  TNamed::Clear(option);
+}
+
+void NSystematicsStats::Print(Option_t * /*option*/) const
+{
+  EnsureComputed();
+  NLogInfo("NSystematicsStats: %s", GetName());
+  NLogInfo("  Valid sample count: %d", fValidSampleCount);
+  NLogInfo("  Weighted mean: %e +/- %e", fWeightedMean, fWeightedMeanStdError);
+  NLogInfo("  Weighted std dev: %e", fWeightedStdDev);
+  NLogInfo("  Unweighted mean: %e +/- %e", fUnweightedMean, fUnweightedMeanStdError);
+  NLogInfo("  Unweighted std dev: %e", fUnweightedStdDev);
+
+  if (fHasReference) {
+    
+    NLogInfo("  Mean abs deviation from reference: %e", fMeanAbsDeviationFromReference);
+    NLogInfo("  Max abs deviation from reference: %e", fMaxAbsDeviationFromReference);
+    NLogInfo("  Mean rel deviation from reference: %e", fMeanRelDeviationFromReference);
+    NLogInfo("  Max rel deviation from reference: %e", fMaxRelDeviationFromReference);
+
+    NLogInfo("    Reference value: \t%e +/- %e", fReferenceValue, fReferenceError);
+  }
+
+  // print all values and errors
+  for (size_t i = 0; i < fValues.size(); ++i) {
+    NLogInfo("    Measurement %zu: \t%e +/- %e", i, fValues[i], fErrors[i]);
+  }
+
 }
 
 void NSystematicsStats::AddMeasurement(Double_t value, Double_t error)
@@ -165,8 +207,8 @@ void NSystematicsStats::Compute()
   //   %f",
   //            fUnweightedMean, fUnweightedStdDev, fUnweightedMeanStdError);
   // print fHasReference
-  NLogDebug("NSystematicsStats::Compute: Has reference = %s, Reference value = %f, Reference error = %f",
-            fHasReference ? "true" : "false", fReferenceValue, fReferenceError);
+  // NLogDebug("NSystematicsStats::Compute: Has reference = %s, Reference value = %f, Reference error = %f",
+  //           fHasReference ? "true" : "false", fReferenceValue, fReferenceError);
 
   if (fHasReference && IsFinite(fReferenceValue)) {
     fDevHisto->Reset();
@@ -195,7 +237,7 @@ void NSystematicsStats::Compute()
 
       if (!refZero) {
         const Double_t relAbsDev = absDev / absRef;
-        fRelDevHisto->Fill(dev/absRef);
+        fRelDevHisto->Fill(dev / absRef);
         sumRelDev += relAbsDev;
         if (relAbsDev > maxRelDev) {
           maxRelDev = relAbsDev;
@@ -208,9 +250,9 @@ void NSystematicsStats::Compute()
     if (nDev > 0) {
       fMeanAbsDeviationFromReference = sumAbsDev / static_cast<Double_t>(nDev);
       fMaxAbsDeviationFromReference  = maxAbsDev;
-      NLogDebug(
-          "NSystematicsStats::Compute: Mean abs deviation from reference = %f, Max abs deviation from reference = %f",
-          fMeanAbsDeviationFromReference, fMaxAbsDeviationFromReference);
+      // NLogDebug(
+      //     "NSystematicsStats::Compute: Mean abs deviation from reference = %f, Max abs deviation from reference = %f",
+      //     fMeanAbsDeviationFromReference, fMaxAbsDeviationFromReference);
 
       if (!refZero) {
         fMeanRelDeviationFromReference = sumRelDev / static_cast<Double_t>(nDev);
@@ -220,20 +262,6 @@ void NSystematicsStats::Compute()
   }
 
   fDirty = kFALSE;
-}
-
-void NSystematicsStats::Reset(Option_t * option)
-{
-  fValues.clear();
-  fErrors.clear();
-
-  fHasReference   = kFALSE;
-  fReferenceValue = 0.0;
-  fReferenceError = 0.0;
-
-  fDirty = kTRUE;
-
-  TNamed::Clear(option);
 }
 
 void NSystematicsStats::EnsureComputed() const
