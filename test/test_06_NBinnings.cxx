@@ -199,9 +199,9 @@ TEST(NBinnings01GausModesTest, ValidatesScenarioFromEnvironment)
   ASSERT_GT(nEntries, 0) << "No entries were produced";
 
   Long64_t nEntriesContent = ngnt->GetBinning()->GetContent()->GetNbins();
-  if (onlyOddPoints) {
-    nEntriesContent  /= 2;
-  }
+  // if (onlyOddPoints) {
+  //   nEntriesContent  /= 2;
+  // }
 
   ASSERT_GT(nEntriesContent, 0) << "No entries were produced";
 

@@ -234,7 +234,7 @@ Long64_t NStorageTree::GetEntry(Long64_t entry, NBinningPoint * point, bool chec
   ProcInfo_t info;
   gSystem->GetProcInfo(&info);
   NLogDebug2("NStorageTree::GetEntry: [entry=%lld] Bytes read : %.3f MB [RSS]: %ld kB file='%s'", entry,
-            (double)bytessum / (1024 * 1024), info.fMemResident, fFileName.empty() ? "memory" : fFileName.c_str());
+             (double)bytessum / (1024 * 1024), info.fMemResident, fFileName.empty() ? "memory" : fFileName.c_str());
 
   // NLogDebug("NStorageTree::GetEntry: [entry=%lld] Bytes read : %.3f MB  file='%s'", entry,
   //           (double)bytessum / (1024 * 1024), fFileName.empty() ? "memory" : fFileName.c_str());
@@ -315,8 +315,8 @@ Int_t NStorageTree::Fill(NBinningPoint * point, NStorageTree * hnstIn, bool igno
   ProcInfo_t info;
   gSystem->GetProcInfo(&info);
   NLogDebug2("NStorageTree::Fill: [entry=%lld] Bytes written : %.3f MB [RSS]: %ld kB file='%s'", entry,
-            (Double_t)nBytes / (1024 * 1024), info.fMemResident,
-            fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
+             (Double_t)nBytes / (1024 * 1024), info.fMemResident,
+             fTree->GetCurrentFile() ? fTree->GetCurrentFile()->GetName() : "memory");
 
   return nBytes;
 }
@@ -527,6 +527,10 @@ Long64_t NStorageTree::Merge(TCollection * list)
     return 0;
   }
 
+  // fBinning->GetContent()->Reset();
+  THnSparse * binningContentNew = (THnSparse *)fBinning->GetContent()->Clone();
+  binningContentNew->Reset();
+
   NLogTrace("NStorageTree::Merge: Number of entries in content: %lld", cSparse->GetNbins());
   Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
   Long64_t                                        linBin  = 0;
@@ -646,11 +650,17 @@ Long64_t NStorageTree::Merge(TCollection * list)
         Fill(point, obj, true, {}, false);
         NLogTrace("NHnSparseTree::Merge: Filling point %s linBin=%d idx=%d entry_number=%d...", binCoordsStr.c_str(),
                   linBin, idx, point->GetEntryNumber());
+
+        binningContentNew->SetBinContent(point->GetCoords(), point->GetEntryNumber());
       }
     }
     NLogTrace("NHnSparseTree::Merge: END linBin=%lld ===================================", linBin);
     next.Reset(); // Reset the iterator to start from the beginning again
   }
+
+  delete fBinning->GetContent();
+  fBinning->SetContent(binningContentNew);
+
   // closing all merged files
   while ((obj = dynamic_cast<NStorageTree *>(next()))) {
     NLogTrace("NStorageTree::Merge: Closing file '%s' ...", obj->GetFileName().c_str());
