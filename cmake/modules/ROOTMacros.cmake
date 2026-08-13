@@ -5,7 +5,6 @@ cmake_policy(SET CMP0003 NEW) # See "cmake --help-policy CMP0003" for more detai
 cmake_policy(SET CMP0011 NEW) # See "cmake --help-policy CMP0011" for more details
 cmake_policy(SET CMP0009 NEW) # See "cmake --help-policy CMP0009" for more details
 
-
 set(THISDIR ${CMAKE_CURRENT_LIST_DIR})
 
 set(lib lib)
@@ -62,6 +61,12 @@ endif()
 
 set(CMAKE_VERBOSE_MAKEFILES OFF)
 set(CMAKE_INCLUDE_CURRENT_DIR OFF)
+
+# in CMAKE_INSTALL_HEADER_DIR is not set, use the default value
+if(NOT CMAKE_INSTALL_HEADER_DIR)
+  set(CMAKE_INSTALL_HEADER_DIR ${CMAKE_INSTALL_PREFIX}/include)
+endif()
+
 
 include(CMakeParseArguments)
 
@@ -172,6 +177,7 @@ macro(REFLEX_GENERATE_DICTIONARY dictionary)
   endif()
 
   set(include_dirs -I${CMAKE_CURRENT_SOURCE_DIR})
+  set(include_dirs ${include_dirs} -I${CMAKE_INSTALL_HEADER_DIR})
   get_directory_property(incdirs INCLUDE_DIRECTORIES)
   foreach( d ${incdirs})
     set(include_dirs ${include_dirs} -I${d})
@@ -939,7 +945,7 @@ function(find_python_module module)
   set(PY_${module_upper}_FOUND ${PY_${module_upper}_FOUND} PARENT_SCOPE)
 endfunction()
 
-function(RootLib PACKAGE SRCS DEPLIBS HEADER_PREFIX)
+function(RootLib PACKAGE SRCS DEPLIBS)
   include_directories( "${CMAKE_CURRENT_SOURCE_DIR}")
   link_directories( "${CMAKE_CURRENT_BINARY_DIR}")
 
@@ -954,9 +960,7 @@ function(RootLib PACKAGE SRCS DEPLIBS HEADER_PREFIX)
   target_link_libraries (${PACKAGE} ${ROOT_LIBRARIES} ${DEPLIBS})
   set_target_properties(${PACKAGE} PROPERTIES PUBLIC_HEADER "${HDRS}")
 
-  set(MY_HEADER_DIR ${CMAKE_INSTALL_PREFIX}/include/${PROJECT_NAME}${HEADER_PREFIX})
-
-  install(TARGETS ${PACKAGE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RUNTIME PUBLIC_HEADER DESTINATION ${MY_HEADER_DIR})
+  install(TARGETS ${PACKAGE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RUNTIME PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_HEADER_DIR})
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}_rdict.pcm ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}.rootmap DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endfunction()
 
