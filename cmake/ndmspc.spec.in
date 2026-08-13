@@ -107,6 +107,7 @@ cd build
 cmake ../ \
 -DCMAKE_INSTALL_PREFIX=/usr \
 -DCMAKE_BUILD_TYPE=Release \
+-DUSE_HEADER_PREFIX=ON \
 -DBUILD_DOCUMENTATION=OFF \
 -DWITH_TEST=OFF \
 %if %{with_ui}
