@@ -374,7 +374,7 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
   log_line << "[" << time_buf << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
            << "[" << SeverityToString(level) << "] ";
 
-  if (level <= logs::Severity::kDebug4) {
+  if (level <= logs::Severity::kDebug) {
     log_line << "[" << std::filesystem::path(file).filename().string() << ":" << line << "] ";
   }
 

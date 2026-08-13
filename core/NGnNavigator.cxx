@@ -1951,18 +1951,22 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
     std::string posfix = NUtils::Join(projNames, '-');
 
-    std::string canvasName = Form("c_%s", posfix.c_str());
+    std::string canvasName = TString::Format("c_%s", posfix.c_str()).Data();
     NLogTrace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
 
     // Delete existing canvas with same name to prevent crash during auto-deletion
     TCanvas * existingCanvas = (TCanvas *)gROOT->GetListOfCanvases()->FindObject(canvasName.c_str());
     if (existingCanvas) {
       NLogTrace("Deleting existing canvas '%s'", canvasName.c_str());
+      gROOT->GetListOfCanvases()->Remove(existingCanvas);
       delete existingCanvas;
     }
 
-    c = new TCanvas(canvasName.c_str(), canvasName.c_str(), canvasWidth, canvasHeight);
-    c->SetBit(kMustCleanup, kFALSE);
+    // Use NUtils::CreateCanvas (TThread::Lock/UnLock-guarded) instead of a raw
+    // "new TCanvas(...)" here: creating/painting a TCanvas without locking is
+    // not safe with ROOT::EnableThreadSafety() and can crash deep inside the
+    // X11 backend (TGX11::DrawBoxW) during TCanvas::Build()/PaintBorder().
+    c = NUtils::CreateCanvas(canvasName, canvasName, canvasWidth, canvasHeight);
     outputList->Add(c);
     // c->DivideSquare(nPads);
 

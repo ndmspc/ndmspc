@@ -60,6 +60,7 @@ int main(int argc, char ** argv)
   // Or standard C:
   signal(SIGTERM, handle_sigterm);
 
+  gROOT->SetBatch(kTRUE);
   TApplication rootApp("myapp", 0, nullptr);
   // if (getenv("NDMSPC_CACHE")) {
   //   std::string              cache               = getenv("NDMSPC_CACHE");

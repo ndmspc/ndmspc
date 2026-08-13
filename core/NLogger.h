@@ -288,29 +288,29 @@ namespace logs {
  */
 enum class Severity {
   kTrace4 = 0, ///< Most verbose trace level
-  kTrace3,    ///< Trace level 2
-  kTrace2,    ///< Trace level 3
-  kTrace,    ///< Trace level 4
-  kDebug4,     ///< Debug information (includes file:line)
-  kDebug3,    ///< Debug level 2
-  kDebug2,    ///< Debug level 3
-  kDebug,    ///< Debug level 4
-  kInfo4,      ///< Informational messages (default)
-  kInfo3,     ///< Info level 2
-  kInfo2,     ///< Info level 3
-  kInfo,     ///< Info level 4
-  kWarn4,      ///< Warning messages
-  kWarn3,     ///< Warning level 2
-  kWarn2,     ///< Warning level 3
-  kWarn,     ///< Warning level 4
-  kError4,     ///< Error messages
-  kError3,    ///< Error level 2
-  kError2,    ///< Error level 3
-  kError,    ///< Error level 4
-  kFatal4,     ///< Fatal errors
-  kFatal3,    ///< Fatal level 2
-  kFatal2,    ///< Fatal level 3
-  kFatal     ///< Fatal level 4
+  kTrace3,     ///< Trace level 2
+  kTrace2,     ///< Trace level 3
+  kTrace,      ///< Least verbose trace level
+  kDebug4,     ///< Most verbose debug level
+  kDebug3,     ///< Debug level 2
+  kDebug2,     ///< Debug level 3
+  kDebug,      ///< Least verbose debug level; includes file:line
+  kInfo4,      ///< Most verbose informational level
+  kInfo3,      ///< Info level 2
+  kInfo2,      ///< Info level 3
+  kInfo,       ///< Least verbose informational level (default)
+  kWarn4,      ///< Most verbose warning level
+  kWarn3,      ///< Warning level 2
+  kWarn2,      ///< Warning level 3
+  kWarn,       ///< Least verbose warning level
+  kError4,     ///< Most verbose error level
+  kError3,     ///< Error level 2
+  kError2,     ///< Error level 3
+  kError,      ///< Least verbose error level
+  kFatal4,     ///< Most verbose fatal level
+  kFatal3,     ///< Fatal level 2
+  kFatal2,     ///< Fatal level 3
+  kFatal       ///< Least verbose fatal level
 };
 
 /// Map of severity level strings to enum values
