@@ -324,6 +324,12 @@ class NBinning : public TObject {
    */
   int GetAxisIndex(const std::string & name) const;
 
+  /**
+   * @brief Set the internal content histogram.
+   * @param content Pointer to the THnSparse histogram used as bin content storage.
+   */
+  void SetContent(THnSparse * content) { fContent = content; }
+
   private:
   THnSparse *                          fMap{nullptr};              ///< Mapping histogram
   THnSparse *                          fContent{nullptr};          ///< Content histogram

@@ -163,7 +163,7 @@ class NGnThreadData : public NThreadData {
   NGnEndFuncPtr              fEndFunc{nullptr};      ///< Function pointer to the end function
   NGnTree *                  fHnSparseBase{nullptr}; ///< Pointer to the base class
   Long64_t                   fNProcessed{0};         ///< Number of processed entries
-  NBinning *                 fBiningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
+  NBinning *                 fBinningSource{nullptr}; ///< Pointer to the source binning (from the original NGnTree)
   json                       fCfg{};                 ///< Configuration object
   bool                       fIsPureCopy{false};     ///< Flag indicating pure copy mode
   std::string                fResultsFilename{};     ///< Shared-FS path to copy result to after Close(true) (TCP mode)

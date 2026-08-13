@@ -44,9 +44,9 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
 
   fIsPureCopy = ngnt->IsPureCopy();
 
-  fBiningSource = binningIn;
+  fBinningSource = binningIn;
 
-  if (fBiningSource == nullptr) {
+  if (fBinningSource == nullptr) {
     NLogError("NGnThreadData::Init: Binning Source is nullptr !!!");
     return false;
   }
@@ -156,8 +156,8 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     return;
   }
 
-  // NBinning *     binning    = fBiningSource;
-  NBinningDef * binningDef = fBiningSource->GetDefinition();
+  // NBinning *     binning    = fBinningSource;
+  NBinningDef * binningDef = fBinningSource->GetDefinition();
   if (binningDef == nullptr) {
     NLogError("NGnThreadData::Process: Binning definition is not set in NGnThreadData !!!");
     return;
@@ -178,7 +178,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     entry = fCurrentDefinitionIds[coords[0]];
   }
   else {
-    entry = fBiningSource->GetDefinition()->GetId(coords[0]);
+    entry = fBinningSource->GetDefinition()->GetId(coords[0]);
   }
 
   if (fProcessedBinIds.count(entry)) {
@@ -215,7 +215,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   // Long64_t        entry = binningDef->GetId(coords[0]);
   // NLogDebug("NGnThreadData::Process: [%zu] Entry in global content mapping: %lld",
   //                        GetAssignedIndex(), entry);
-  fBiningSource->GetContent()->GetBinContent(entry, point->GetCoords());
+  fBinningSource->GetContent()->GetBinContent(entry, point->GetCoords());
   point->RecalculateStorageCoords(entry, false);
   point->SetCfg(fCfg); // Set configuration to the point
                        // point->Print("C");
@@ -310,8 +310,8 @@ void NGnThreadData::SetCurrentDefinitionName(const std::string & name)
   if (fHnSparseBase && fHnSparseBase->GetBinning()) {
     fHnSparseBase->GetBinning()->SetCurrentDefinitionName(name);
   }
-  if (fBiningSource) {
-    fBiningSource->SetCurrentDefinitionName(name);
+  if (fBinningSource) {
+    fBinningSource->SetCurrentDefinitionName(name);
   }
 }
 
@@ -411,10 +411,10 @@ Long64_t NGnThreadData::Merge(TCollection * list)
 
   Long64_t      bin;
   NBinningPoint point(fHnSparseBase->GetBinning());
-  fHnSparseBase->GetBinning()->GetContent()->Reset();
-  for (Long64_t i = 0; i < fBiningSource->GetContent()->GetNbins(); ++i) {
 
-    fBiningSource->GetContent()->GetBinContent(i, point.GetCoords());
+  fHnSparseBase->GetBinning()->GetContent()->Reset();
+  for (Long64_t i = 0; i < fBinningSource->GetContent()->GetNbins(); ++i) {
+    fBinningSource->GetContent()->GetBinContent(i, point.GetCoords());
     bin = fHnSparseBase->GetBinning()->GetContent()->GetBin(point.GetCoords());
     NLogTrace("NGnThreadData::Merge: Adding bin=%lld to content_bin=%lld", bin, i);
     fHnSparseBase->GetBinning()->GetContent()->SetBinContent(bin, i);
@@ -493,7 +493,7 @@ Long64_t NGnThreadData::Merge(TCollection * list)
   // Set default setting
   fHnSparseBase->GetBinning()->GetPoint()->Reset();
   fHnSparseBase->GetBinning()->SetCurrentDefinitionName(fHnSparseBase->GetBinning()->GetDefinitionNames().front());
-
+  fHnSparseBase->GetBinning()->Print();
   NLogTrace("NGnThreadData::Merge: END ------------------------------------------------");
 
   /// \cond CLASSIMP
