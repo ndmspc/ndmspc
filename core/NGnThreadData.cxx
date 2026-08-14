@@ -27,7 +27,13 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
   SetAssignedIndex(id);
   SetThreadId(std::this_thread::get_id());
 
+  // if root version is higher then 6.40 we can add ROOT::Experimental::DisableObjectAutoRegistration() to avoid the
+  // ROOT auto registration of objects in the TDirectory
+#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
+  ROOT::Experimental::DisableObjectAutoRegistration();
+#else
   TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+#endif
 
   // if (!func) {
   //   NLogError("NGnThreadData::Init: Process function is not set !!!");
@@ -121,7 +127,14 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   /// Process method
   /// This method is called for each set of coordinates
   /// It initializes the NHnSparseTree if not already done
-  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+
+  // if root version is higher then 6.40 we can add ROOT::Experimental::DisableObjectAutoRegistration() to avoid the
+  // ROOT auto registration of objects in the TDirectory
+// #if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
+//   ROOT::Experimental::DisableObjectAutoRegistration();
+// #else
+//   TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+// #endif
 
   // Ensure this thread has a current pad so that user code calling h->Fit()
   // does not trigger the non-thread-safe TCanvas::MakeDefCanvas().
