@@ -409,7 +409,11 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     // NLogInfo("Starting processing ...");
-    TH1::AddDirectory(kFALSE);
+#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
+  ROOT::Experimental::DisableObjectAutoRegistration();
+#else
+  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+#endif
   };
 
   // Define the end function which is executed after processing all points
@@ -541,7 +545,11 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   const bool runOutput = NLogger::GetRunOutput();
   bool       batch     = gROOT->IsBatch();
   gROOT->SetBatch(kTRUE);
-  TH1::AddDirectory(kFALSE);
+#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
+  ROOT::Experimental::DisableObjectAutoRegistration();
+#else
+  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+#endif
 
   std::string storagePostfix = fTreeStorage ? fTreeStorage->GetPostfix() : "";
   if (storagePostfix.empty() && fTreeStorage) {
