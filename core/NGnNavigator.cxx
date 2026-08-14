@@ -162,7 +162,13 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   ///
 
   NLogTrace("NGnNavigator::Reshape: Reshaping navigator for level=%d levels=%zu", level, levels.size());
-  TH1::AddDirectory(kFALSE);
+  // if root version is higher then 6.40 we can add ROOT::Experimental::DisableObjectAutoRegistration() to avoid the
+  // ROOT auto registration of objects in the TDirectory
+#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
+  ROOT::Experimental::DisableObjectAutoRegistration();
+#else
+  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+#endif
   NTreeBranch * branch = fGnTree->GetStorageTree()->GetBranch("_outputPoint");
   if (!branch) {
     // fallback to old branch name for backward compatibility
@@ -413,7 +419,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
           else if (nDims == 2) {
             int bx = firstCoord[axesIds[0]];
             int by = firstCoord[axesIds[1]];
-            if (hProj->GetBinContent(bx, by) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY()) {
+            if (hProj->GetBinContent(bx, by) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 &&
+                by <= hProj->GetNbinsY()) {
               hProj->SetBinContent(bx, by, hProj->GetBinContent(bx, by) + 1.0);
             }
           }
@@ -422,8 +429,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
             int by = firstCoord[axesIds[1]];
             int bz = firstCoord[axesIds[2]];
 
-            if (hProj->GetBinContent(bx, by, bz) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 && by <= hProj->GetNbinsY() &&
-                bz >= 1 && bz <= hProj->GetNbinsZ()) {
+            if (hProj->GetBinContent(bx, by, bz) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 &&
+                by <= hProj->GetNbinsY() && bz >= 1 && bz <= hProj->GetNbinsZ()) {
               hProj->SetBinContent(bx, by, bz, hProj->GetBinContent(bx, by, bz) + 1.0);
             }
           }

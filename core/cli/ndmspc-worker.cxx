@@ -163,6 +163,10 @@ int main(int argc, char ** argv)
 {
   configure_parent_death_guard();
 
+  // Must be set before TApplication is constructed: otherwise TApplication
+  // initializes gVirtualX as the real TGX11 (connecting to the X server).
+  // Workers are headless and must never attempt real X11 rendering.
+  gROOT->SetBatch(kTRUE);
   TApplication rootApp("ndmspc-worker", 0, nullptr);
 
   CLI::App app{app_description()};

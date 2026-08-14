@@ -92,8 +92,14 @@ static std::string app_version()
 
 int main(int argc, char ** argv)
 {
-  TApplication rootApp("ndmspc-run", 0, nullptr);
+  // Must be set before TApplication is constructed: otherwise TApplication
+  // already initializes gVirtualX as the real TGX11 (connecting to the X
+  // server) before batch mode takes effect. That real X11 connection would
+  // then be inherited by every forked IPC worker process, and reusing the
+  // same X11 socket from a forked child corrupts the X protocol state and
+  // crashes deep inside TGX11 (e.g. DrawBoxW) once a worker creates a canvas.
   gROOT->SetBatch(kTRUE);
+  TApplication rootApp("ndmspc-run", 0, nullptr);
 
   CLI::App app{app_description()};
   app.set_version_flag("--version", app_version(), "Print version information and exit");
