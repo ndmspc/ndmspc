@@ -19,6 +19,7 @@ Source0:    %{name}-%{version}.tar.gz
 %if 0%{?rhel} == 9 || 0%{?almalinux} == 9
 %global with_numcal 1
 %global with_taxi 0
+%global with_ui 0
 %else
 %global with_numcal 1
 %global with_taxi 1
