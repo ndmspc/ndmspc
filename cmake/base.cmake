@@ -7,7 +7,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
 "${PROJECT_SOURCE_DIR}/cmake/modules"
 CACHE STRING "Modules for CMake" FORCE)
 
-option(USE_HEADER_PREFIX "Enable header directory with project name" OFF)
+option(USE_HEADER_PREFIX "Enable header directory with project name" ON)
 
 if(USE_HEADER_PREFIX)
   set(CMAKE_INSTALL_HEADER_DIR ${CMAKE_INSTALL_PREFIX}/include/${PROJECT_NAME})
