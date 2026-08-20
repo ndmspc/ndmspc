@@ -11,14 +11,16 @@
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
-#include "TROOT.h"
-#include "TApplication.h"
-#include "TSystem.h"
-#include "NLogger.h"
-#include "NUtils.h"
-#include "ndmspc.h"
-#include "NDimensionalIpcRunner.h"
 #include <zmq.h>
+
+#include <TROOT.h>
+#include <TApplication.h>
+#include <TSystem.h>
+
+#include "ndmspc.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NUtils.h"
+#include "ndmspc/core/NDimensionalIpcRunner.h"
 
 static std::string app_description()
 {

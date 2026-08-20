@@ -8,7 +8,6 @@ find_package(CUBA REQUIRED)
 
 set(MY_INCLUDE_DIRS
   ${CUBA_INCLUDE_DIRS}
-  ${CMAKE_SOURCE_DIR}/..
 )
 include_directories(${MY_INCLUDE_DIRS})
 set(MY_EXTERNAL_LIBS

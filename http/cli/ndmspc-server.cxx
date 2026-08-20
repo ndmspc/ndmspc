@@ -3,7 +3,7 @@
 #include <TSystem.h>
 #include <TFile.h>
 #include <TApplication.h>
-#include "ndmspc/core/cli/CLI11.hpp"
+#include "CLI11.hpp"
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NStressHistograms.h"
