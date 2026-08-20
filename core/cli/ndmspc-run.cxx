@@ -1,4 +1,3 @@
-#include <CLI11.hpp>
 #include <chrono>
 #include <csignal>
 #include <sys/wait.h>
@@ -8,12 +7,13 @@
 #include <cstdio>
 #include <unistd.h>
 #include <cstdlib>
-#include "TROOT.h"
-#include "TApplication.h"
-#include "TSystem.h"
-#include "NLogger.h"
-#include "NUtils.h"
+#include <TROOT.h>
+#include <TApplication.h>
+#include <TSystem.h>
+#include "CLI11.hpp"
 #include "ndmspc.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NUtils.h"
 
 namespace {
 

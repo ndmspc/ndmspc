@@ -9,7 +9,7 @@
 #include <TInterpreter.h>
 #include <TGlobal.h>
 #include <dlfcn.h>
-#include "ndmspc/core/cli/CLI11.hpp"
+#include "CLI11.hpp"
 #include "ndmspc/numcal/NNumcalManager.h"
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc.h"

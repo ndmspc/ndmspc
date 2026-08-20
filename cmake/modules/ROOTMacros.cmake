@@ -951,22 +951,29 @@ function(find_python_module module)
 endfunction()
 
 function(RootLib PACKAGE SRCS DEPLIBS)
-  # add include dir as one directory higher than the source dir to include the main header
-  include_directories("${PROJECT_SOURCE_DIR}/..")
+
+  string(REPLACE ".cxx" ".h" HDRS "${SRCS}")
+  file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})  
+  # copy headers to ${CMAKE_SOURCE_DIR}/cmake/include/${CMAKE_PROJECT_NAME}/${relative}
+  file(MAKE_DIRECTORY "${CMAKE_SOURCE_DIR}/cmake/include/${CMAKE_PROJECT_NAME}/${relative}")
+  foreach(f ${HDRS})
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/${f}" DESTINATION "${CMAKE_SOURCE_DIR}/cmake/include/${CMAKE_PROJECT_NAME}/${relative}")
+  endforeach()
+  include_directories("${CMAKE_SOURCE_DIR}/cmake/include")
   # include_directories( "${CMAKE_CURRENT_SOURCE_DIR}")
   link_directories( "${CMAKE_CURRENT_BINARY_DIR}")
 
   include_directories(${ROOT_INCLUDE_DIR})
   link_directories( ${ROOT_LIBRARY_DIR} )
 
-  string(REPLACE ".cxx" ".h" HDRS "${SRCS}")
+
   ROOT_GENERATE_DICTIONARY( G__${PACKAGE} ${HDRS} MODULE ${PACKAGE} LINKDEF ${PACKAGE}LinkDef.h)
   list(APPEND SRCS G__${PACKAGE}.cxx)
   add_library (${PACKAGE} SHARED ${SRCS} ${HDRS})
   target_link_libraries (${PACKAGE} ${ROOT_LIBRARIES} ${DEPLIBS})
   set_target_properties(${PACKAGE} PROPERTIES PUBLIC_HEADER "${HDRS}")
 
-  file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})  
+
   install(TARGETS ${PACKAGE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RUNTIME PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_HEADER_DIR}/${relative})
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}_rdict.pcm ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}.rootmap DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endfunction()
