@@ -1,9 +1,10 @@
 #include "NGnWorkspace.h"
 #include "NGnHttpServer.h"
 
-#include "NLogger.h"
 #include <algorithm>
 #include <fstream>
+
+#include "ndmspc/core/NLogger.h"
 
 namespace Ndmspc {
 

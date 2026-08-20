@@ -5,9 +5,9 @@
 #include <TMath.h>
 #include <TH1D.h>
 #include <TF1.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomization01Gaus.root")
 {

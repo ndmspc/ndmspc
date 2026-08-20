@@ -1,8 +1,8 @@
-#ifndef Ndmspc_NMonJobs_H
-#define Ndmspc_NMonJobs_H
+#ifndef Ndmspc_NMonJobManager_H
+#define Ndmspc_NMonJobManager_H
 #include <TNamed.h>
-#include "NLogger.h"
-#include "NMonJob.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/mon/NMonJob.h"
 
 
 namespace Ndmspc {

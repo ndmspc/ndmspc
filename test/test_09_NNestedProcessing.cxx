@@ -4,7 +4,7 @@
 #include <TSystem.h>
 
 #include "07_nested_processing/NNestedProcessing01Gaus.C"
-#include "../core/NGnTree.h"
+#include "ndmspc/core/NGnTree.h"
 
 using namespace std::filesystem;
 

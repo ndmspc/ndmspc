@@ -1,12 +1,13 @@
 #include <TAxis.h>
 #include <TObjArray.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>
-#include "TRandom.h"
+#include <TRandom.h>
+
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NStorage01Gaus(std::string outFile = "NStorage01Gaus.root")
 {

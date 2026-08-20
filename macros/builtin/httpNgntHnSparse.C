@@ -2,10 +2,10 @@
 #include <map>
 #include <string>
 #include <TBufferJSON.h>
-#include <NUtils.h>
-#include <NGnTree.h>
-#include <NGnNavigator.h>
-#include <NGnHttpServer.h>
+#include <ndmspc/core/NUtils.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NGnNavigator.h>
+#include <ndmspc/http/NGnHttpServer.h>
 
 void httpNgntHnSparse()
 {

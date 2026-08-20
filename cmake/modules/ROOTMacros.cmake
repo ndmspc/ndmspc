@@ -240,7 +240,12 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
       set(headerfiles ${headerfiles} ${fp})
     endif()
   endforeach()
-  string(REPLACE "${CMAKE_CURRENT_SOURCE_DIR}/inc/" ""  rheaderfiles "${headerfiles}")
+
+  file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+  foreach(f ${headerfiles})
+    set(rheaderfiles ${rheaderfiles} "ndmspc/${relative}/${f}")
+  endforeach()
+
   #---Get the list of include directories------------------
   get_directory_property(incdirs INCLUDE_DIRECTORIES)
   if(CMAKE_PROJECT_NAME STREQUAL ROOT)
@@ -946,7 +951,9 @@ function(find_python_module module)
 endfunction()
 
 function(RootLib PACKAGE SRCS DEPLIBS)
-  include_directories( "${CMAKE_CURRENT_SOURCE_DIR}")
+  # add include dir as one directory higher than the source dir to include the main header
+  include_directories("${PROJECT_SOURCE_DIR}/..")
+  # include_directories( "${CMAKE_CURRENT_SOURCE_DIR}")
   link_directories( "${CMAKE_CURRENT_BINARY_DIR}")
 
   include_directories(${ROOT_INCLUDE_DIR})
@@ -955,12 +962,12 @@ function(RootLib PACKAGE SRCS DEPLIBS)
   string(REPLACE ".cxx" ".h" HDRS "${SRCS}")
   ROOT_GENERATE_DICTIONARY( G__${PACKAGE} ${HDRS} MODULE ${PACKAGE} LINKDEF ${PACKAGE}LinkDef.h)
   list(APPEND SRCS G__${PACKAGE}.cxx)
-
   add_library (${PACKAGE} SHARED ${SRCS} ${HDRS})
   target_link_libraries (${PACKAGE} ${ROOT_LIBRARIES} ${DEPLIBS})
   set_target_properties(${PACKAGE} PROPERTIES PUBLIC_HEADER "${HDRS}")
 
-  install(TARGETS ${PACKAGE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RUNTIME PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_HEADER_DIR})
+  file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})  
+  install(TARGETS ${PACKAGE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RUNTIME PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_HEADER_DIR}/${relative})
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}_rdict.pcm ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}.rootmap DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endfunction()
 

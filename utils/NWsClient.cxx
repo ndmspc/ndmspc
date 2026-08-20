@@ -2,8 +2,8 @@
 #include <algorithm>
 #include <cstring>
 #include <TSystem.h>
+#include "ndmspc/core/NLogger.h"
 #include "NWsClient.h"
-#include "NLogger.h"
 
 // The global LWS callback function.
 static int lws_callback_client_impl(struct lws * wsi, enum lws_callback_reasons reason, void * /*user*/, void * in,

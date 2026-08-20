@@ -1,5 +1,5 @@
 #include "NMonJobManager.h"
-#include "NUtils.h"
+#include "ndmspc/core/NUtils.h"
 
 
 /// \cond CLASSIMP

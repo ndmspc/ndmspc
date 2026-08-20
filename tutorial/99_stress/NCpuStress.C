@@ -1,13 +1,14 @@
 #include <TAxis.h>
 #include <TObjArray.h>
 #include <TFitResult.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>
 #include <TF1.h>
+
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NCpuStress(std::string outFile = "NCpuStress.root", Long64_t nEntries = 1e7, int rebinMean = 1,
                 int rebinSigma = 1, int nBinsMean = 10, int nBinsSigma = 10)

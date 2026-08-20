@@ -5,9 +5,9 @@
 #include <TFile.h>
 #include <THnSparse.h>
 #include <TCanvas.h>
-#include "NGnTree.h"
-#include "NLogger.h"
-#include "NUtils.h"
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.root",
                 std::string filename = "cernstaff.root")
 {

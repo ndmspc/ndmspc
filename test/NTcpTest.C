@@ -1,9 +1,9 @@
 #include <TAxis.h>
 #include <TSystem.h>
 #include <TObjArray.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NTcpTest(std::string outFile = "NTcpTest.root", std::string bins = "10,10,5,5", int timeout = 200, bool oddsOnly = false)
 {

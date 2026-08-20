@@ -11,9 +11,9 @@
 ///
 /// To add custom handlers alongside the built-in ones, create your own macro:
 ///
-///   #include <NGnRouteContext.h>
-///   #include <NGnSchemaBuilder.h>
-///   #include <NGnHttpServer.h>
+///   #include <ndmspc/http/NGnRouteContext.h>
+///   #include <ndmspc/http/NGnSchemaBuilder.h>
+///   #include <ndmspc/http/NGnHttpServer.h>
 ///
 ///   void httpMyCustom() {
 ///     auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
@@ -34,18 +34,20 @@
 #include <map>
 #include <string>
 #include <vector>
-#include <NGnRouteContext.h>
-#include <NGnSchemaBuilder.h>
-#include <NGnHttpServer.h>
-#include <NGnTree.h>
-#include <NGnNavigator.h>
-#include <NParameters.h>
-#include <NUtils.h>
 #include <TBufferJSON.h>
 #include <TH1.h>
 #include <TList.h>
 #include <TString.h>
 #include <TSystem.h>
+
+#include <ndmspc/http/NGnRouteContext.h>
+#include <ndmspc/http/NGnSchemaBuilder.h>
+#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NGnNavigator.h>
+#include <ndmspc/core/NParameters.h>
+#include <ndmspc/core/NUtils.h>
+
 
 // ============================================================================
 //  Helper functions (formerly NGnHandlerUtils)

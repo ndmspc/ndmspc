@@ -2,8 +2,8 @@
 #include <cstdio>
 #include <fstream>
 #include "05_single_bining/NSingleBinning01Gaus.C"
-#include "NGnNavigator.h"
-#include "NGnTree.h"
+#include "ndmspc/core/NGnNavigator.h"
+#include "ndmspc/core/NGnTree.h"
 
 class NSingleBinning01GausTest : public ::testing::Test {
   protected:

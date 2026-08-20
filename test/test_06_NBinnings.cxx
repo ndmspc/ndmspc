@@ -16,7 +16,7 @@
 #include <TSystem.h>
 
 #include "06_binnings/NBinnings01Gaus.C"
-#include "NGnTree.h"
+#include "ndmspc/core/NGnTree.h"
 
 namespace {
 

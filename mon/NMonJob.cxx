@@ -1,5 +1,5 @@
+#include "ndmspc/core/NUtils.h"
 #include "NMonJob.h"
-#include "NUtils.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NMonJob);

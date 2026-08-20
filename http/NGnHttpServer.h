@@ -1,10 +1,8 @@
 #ifndef Ndmspc_NGnHttpServer_H
 #define Ndmspc_NGnHttpServer_H
-#include "NLogger.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/http/NGnWorkspace.h"
 #include "NHttpServer.h"
-// #include "NGnHistoryEntry.h"
-#include "NGnWorkspace.h"
-#include "NGnWorkspace.h"
 
 namespace Ndmspc {
 

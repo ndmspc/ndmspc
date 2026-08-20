@@ -7,9 +7,9 @@
 #include <TFile.h>
 #include <THnSparse.h>
 #include <TCanvas.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NTaxiDownload(std::string outFile = "NTaxiDownload.root", std::string outputPrefix = "$HOME/.ngnt_taxi",
                    std::string inputPrefix = "root://eos.ndmspc.io//eos/ndmspc/scratch/taxi/src",

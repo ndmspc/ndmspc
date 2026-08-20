@@ -6,11 +6,11 @@
 #include <TNamed.h>
 #include <nlohmann/json.hpp>
 
-#include "NumcalResult.h"
-#include "VegasIntegrator.h"
-#include "SuaveIntegrator.h"
-#include "DivonneIntegrator.h"
-#include "CuhreIntegrator.h"
+#include "ndmspc/numcal/NumcalResult.h"
+#include "ndmspc/numcal/VegasIntegrator.h"
+#include "ndmspc/numcal/SuaveIntegrator.h"
+#include "ndmspc/numcal/DivonneIntegrator.h"
+#include "ndmspc/numcal/CuhreIntegrator.h"
 
 namespace Ndmspc {
 

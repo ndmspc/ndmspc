@@ -1,9 +1,9 @@
 #ifndef Ndmspc_NGnSchemaBuilder_H
 #define Ndmspc_NGnSchemaBuilder_H
 
-#include "NUtils.h"
 #include <string>
 #include <vector>
+#include "ndmspc/core/NUtils.h"
 
 namespace Ndmspc {
 

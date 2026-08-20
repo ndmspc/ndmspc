@@ -1,15 +1,18 @@
 #include <string>
 #include <vector>
-#include <NBinning.h>
+
 #include <TSystem.h>
 #include <TInterpreter.h>
 #include <TROOT.h>
 #include <TFile.h>
 #include <THnSparse.h>
 #include <TCanvas.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
+
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
+#include <ndmspc/core/NBinning.h>
+
 void NTaxiAnalyze(std::string inputFile = "NTaxiConvert.root",
                   std::string outFile = "NTaxiAnalyze.root")
 {

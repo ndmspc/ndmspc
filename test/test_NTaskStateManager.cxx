@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <vector>
-#include "NTaskStateManager.h"
+#include "ndmspc/core/NTaskStateManager.h"
 
 using namespace Ndmspc;
 
