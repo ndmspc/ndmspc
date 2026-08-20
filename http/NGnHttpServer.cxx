@@ -3,9 +3,9 @@
 #include <set>
 #include <algorithm>
 #include <cctype>
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/http/NGnHistoryEntry.h"
 #include "NGnHttpServer.h"
-#include "NGnHistoryEntry.h"
-#include "NLogger.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NGnHttpServer);

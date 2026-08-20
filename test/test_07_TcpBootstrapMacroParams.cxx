@@ -20,7 +20,7 @@
 
 #include <TSystem.h>
 
-#include "NDimensionalIpcRunner.h"
+#include "ndmspc/core/NDimensionalIpcRunner.h"
 
 #include <zmq.h>
 

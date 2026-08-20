@@ -1,7 +1,7 @@
 #ifndef Ndmspc_NGnHistoryEntry_H
 #define Ndmspc_NGnHistoryEntry_H
 #include <TNamed.h>
-#include <NUtils.h>
+#include "ndmspc/core/NUtils.h"
 
 namespace Ndmspc {
 

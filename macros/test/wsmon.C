@@ -1,9 +1,10 @@
 #include <string>
 #include <TROOT.h>
 #include <TSystem.h>
-#include <NUtils.h>
-#include "NWsClient.h"
-#include "NLogger.h"
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
+#include <ndmspc/http/NWsClient.h>
+
 ///
 /// Start server in another terminal:
 /// $ ndmspc-cli serve stress

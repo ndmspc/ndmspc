@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 #include <TFile.h>
 #include <THnSparse.h>
-#include "NGnTree.h"
+#include "ndmspc/core/NGnTree.h"
 
 class NGnTreeTest : public ::testing::Test {
   protected:

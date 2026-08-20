@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <vector>
 #include <map>
-#include "TObjArray.h"
+#include <TObjArray.h>
 #include "NBinningDef.h"
 #include "NBinningPoint.h"
 

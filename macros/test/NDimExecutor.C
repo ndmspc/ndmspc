@@ -5,9 +5,9 @@
 #include <chrono>
 #include <thread>
 #include <mutex>
-#include "NLogger.h"
-#include "NDimensionalExecutor.h"
-#include "NThreadData.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NDimensionalExecutor.h"
+#include "ndmspc/core/NThreadData.h"
 using namespace Ndmspc;
 
 // Mutex to protect cout

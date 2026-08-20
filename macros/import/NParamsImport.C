@@ -1,8 +1,8 @@
 #include <string>
 #include <vector>
 #include <TFile.h>
-#include <NLogger.h>
-#include <NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NGnTree.h>
 
 void NParamsImport(bool dryrun = false,
            const std::string & filename =

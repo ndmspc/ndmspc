@@ -1,4 +1,4 @@
-#include <NGnHttpServer.h>
+#include <ndmspc/http/NGnHttpServer.h>
 #include <NMonJobManager.h>
 #include <NMonJob.h>
 

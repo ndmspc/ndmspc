@@ -1,6 +1,6 @@
-#include "NumcalResult.h"
-#include "NLogger.h"
 #include <iostream>
+#include "ndmspc/core/NLogger.h"
+#include "NumcalResult.h"
 
 namespace Ndmspc {
 NumcalResult::NumcalResult() : TNamed("", "") {}

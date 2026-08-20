@@ -1,7 +1,7 @@
 #include <TAxis.h>
 #include <TObjArray.h>
-#include <NGnTree.h>
-#include <NLogger.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
 
 void NExecutor1D(std::string outFile = "NExecutor1D.root")
 {

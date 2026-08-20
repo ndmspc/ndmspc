@@ -1,8 +1,8 @@
-#include "NAnalysisFunctions.h"
 #include <TMath.h>
 #include <TF1.h>
 #include <TFitResult.h>
-#include "NLogger.h"
+#include "ndmspc/core/NLogger.h"
+#include "NAnalysisFunctions.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NAnalysisFunctions);

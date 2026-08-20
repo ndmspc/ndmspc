@@ -1,4 +1,3 @@
-#include <CLI11.hpp>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -10,8 +9,9 @@
 #include <TInterpreter.h>
 #include <TGlobal.h>
 #include <dlfcn.h>
-#include "NNumcalManager.h"
-#include "NLogger.h"
+#include "ndmspc/core/cli/CLI11.hpp"
+#include "ndmspc/numcal/NNumcalManager.h"
+#include "ndmspc/core/NLogger.h"
 #include "ndmspc.h"
 
 std::string app_description()

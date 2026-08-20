@@ -1,5 +1,5 @@
-#ifndef NdmspcCoreNTaxi_H
-#define NdmspcCoreNTaxi_H
+#ifndef NdmspcTaxiNTaxi_H
+#define NdmspcTaxiNTaxi_H
 
 #include <set>
 #include <vector>
@@ -12,7 +12,7 @@
 #include <THnSparse.h>
 #include <TBufferJSON.h>
 #include <TString.h>
-#include "NLogger.h"
+#include "ndmspc/core/NLogger.h"
 
 namespace Ndmspc {
 ///

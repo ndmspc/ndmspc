@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 #include "TMath.h"
-#include <NUtils.h>
+
 #include <TSystem.h>
 #include <TROOT.h>
 #include <TH1.h>
@@ -9,8 +9,10 @@
 #include <TH3.h>
 #include <TCanvas.h>
 #include <TBufferJSON.h>
-#include "NWsClient.h"
-#include "NLogger.h"
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
+#include <ndmspc/http/NWsClient.h>
+
 ///
 /// Start server in another terminal:
 /// $ ndmspc-cli serve stress

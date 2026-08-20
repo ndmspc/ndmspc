@@ -1,12 +1,12 @@
 #include <string>
 #include <vector>
-#include "TNamed.h"
-#include "TObjArray.h"
-#include "TString.h"
+#include <TNamed.h>
+#include <TObjArray.h>
+#include <TString.h>
 #include <TROOT.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/NAliRsnDownload_ngnt.root")
 {

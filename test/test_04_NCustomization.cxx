@@ -2,8 +2,8 @@
 #include <cstdio>
 #include <fstream>
 #include "04_customization/NCustomization01Gaus.C"
-#include "NGnNavigator.h"
-#include "NGnTree.h"
+#include "ndmspc/core/NGnNavigator.h"
+#include "ndmspc/core/NGnTree.h"
 
 class NStorage01GausTest : public ::testing::Test {
   protected:

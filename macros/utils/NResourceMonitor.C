@@ -1,8 +1,9 @@
-#include <NGnTree.h>
-#include <NBinningDef.h>
-#include <NGnNavigator.h>
-#include <NLogger.h>
-#include "THnSparse.h"
+#include <THnSparse.h>
+
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NBinningDef.h>
+#include <ndmspc/core/NGnNavigator.h>
+#include <ndmspc/core/NLogger.h>
 void NResourceMonitor(std::string filename, std::string binningName = "",
                       const std::string & ws = "ws://localhost:8080/ws/root.websocket")
 {

@@ -5,7 +5,7 @@
 #include <TString.h>
 #include <TBase64.h>
 #include <curl/curl.h>
-#include "NLogger.h"
+#include "ndmspc/core/NLogger.h"
 #include "NHttpRequest.h"
 
 namespace Ndmspc {

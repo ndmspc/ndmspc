@@ -9,7 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
-#include <NGnHttpServer.h>
+#include <ndmspc/http/NGnHttpServer.h>
 #include <TSystem.h>
 
 struct FormCsvAppendResult {

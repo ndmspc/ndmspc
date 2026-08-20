@@ -1,11 +1,11 @@
 #include <TAxis.h>
 #include <TObjArray.h>
 #include <TFitResult.h>
-#include <NGnTree.h>
-#include <NLogger.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
 #include <NSystematicsStats.h>
-#include <NAnalysisUtils.h>
-#include <NUtils.h>
+#include <ndmspc/hep/NAnalysisUtils.h>
+#include <ndmspc/core/NUtils.h>
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>

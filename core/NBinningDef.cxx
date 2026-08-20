@@ -1,5 +1,5 @@
 #include "NBinningDef.h"
-#include "TObjArray.h"
+#include <TObjArray.h>
 #include "TObject.h"
 #include "NDimensionalExecutor.h"
 #include "NLogger.h"

@@ -1,8 +1,8 @@
 #include <TAxis.h>
 #include <TObjArray.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NExecutor2D(std::string outFile = "NExecutor2D.root")
 {
