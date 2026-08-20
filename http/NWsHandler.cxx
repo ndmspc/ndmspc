@@ -3,8 +3,8 @@
 #include <TTimer.h>
 #include <chrono>
 #include <unordered_map>
-#include "NLogger.h"
-#include "NUtils.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NUtils.h"
 // ClassImp(Ndmspc::NWsHandler);
 //
 namespace Ndmspc {

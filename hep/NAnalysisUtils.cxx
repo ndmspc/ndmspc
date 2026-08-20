@@ -16,13 +16,13 @@
 #include <RooHistPdf.h>
 #include <RooChebychev.h>
 
-#include "NUtils.h"
-#include "NGnTree.h"
-#include "NParameters.h"
-#include "NLogger.h"
-#include "NSystematicsStats.h"
-#include "NAnalysisFunctions.h"
-#include "NAnalysisUtils.h"
+#include "ndmspc/core/NUtils.h"
+#include "ndmspc/core/NGnTree.h"
+#include "ndmspc/core/NParameters.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NSystematicsStats.h"
+#include "ndmspc/hep/NAnalysisFunctions.h"
+#include "ndmspc/hep/NAnalysisUtils.h"
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NAnalysisUtils);

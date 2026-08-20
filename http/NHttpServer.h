@@ -1,13 +1,15 @@
 #ifndef NdmspcCoreNHttpServer_H
 #define NdmspcCoreNHttpServer_H
 
-#include <THttpServer.h>
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
-#include "NCloudEvent.h"
-#include "NWsHandler.h"
+
+#include <THttpServer.h>
+
+#include "ndmspc/http/NCloudEvent.h"
+#include "ndmspc/http/NWsHandler.h"
 
 class THttpCallArg;
 namespace Ndmspc {

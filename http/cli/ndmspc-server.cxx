@@ -1,14 +1,14 @@
-#include <CLI11.hpp>
 #include <csignal>
 #include "TROOT.h"
-#include <NLogger.h>
 #include <TSystem.h>
 #include <TFile.h>
 #include <TApplication.h>
-#include "NUtils.h"
-#include "NStressHistograms.h"
-#include "NGnHttpServer.h"
-#include "NLogger.h"
+#include "ndmspc/core/cli/CLI11.hpp"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NUtils.h"
+#include "ndmspc/http/NStressHistograms.h"
+#include "ndmspc/http/NGnHttpServer.h"
+
 #include "ndmspc.h"
 
 static inline void EnsureServerRunning(Ndmspc::NHttpServer * serv, int port)

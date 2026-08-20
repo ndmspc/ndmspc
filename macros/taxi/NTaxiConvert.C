@@ -1,17 +1,18 @@
 #include <string>
 #include <vector>
-#include <NBinning.h>
-#include <NStorageTree.h>
+
 #include <TSystem.h>
 #include <TInterpreter.h>
 #include <TROOT.h>
 #include <TFile.h>
 #include <THnSparse.h>
 #include <TCanvas.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
-#include <NTaxi.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
+#include <ndmspc/core/NStorageTree.h>
+#include <ndmspc/core/NBinning.h>
+#include <ndmspc/taxi/NTaxi.h>
 THnSparse * CreateTaxiTHnSparse();
 void        NTaxiConvert(std::string inputFile = "NTaxiDownload.root",
                          std::string outFile = "NTaxiConvert.root")

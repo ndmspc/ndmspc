@@ -1,4 +1,4 @@
-#include "NNumcalManager.h"
+#include "ndmspc/numcal/NNumcalManager.h"
 
 #include <ginac/ginac.h>
 

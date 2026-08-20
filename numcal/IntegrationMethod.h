@@ -7,8 +7,8 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
+#include "ndmspc/core/NLogger.h"
 #include "NumcalResult.h"
-#include "NLogger.h"
 
 namespace Ndmspc {
 

@@ -22,8 +22,8 @@
 #include <TMacro.h>
 #include <TSystem.h>
 
-#include "NGnTree.h"
-#include "NUtils.h"
+#include "ndmspc/core/NGnTree.h"
+#include "ndmspc/core/NUtils.h"
 
 namespace {
 

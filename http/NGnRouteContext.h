@@ -4,8 +4,8 @@
 #include <string>
 #include <map>
 #include <vector>
-#include "NUtils.h"
-#include "NLogger.h"
+#include "ndmspc/core/NUtils.h"
+#include "ndmspc/core/NLogger.h"
 
 class TObject;
 

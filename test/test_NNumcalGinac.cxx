@@ -3,7 +3,7 @@
 #include <ginac/ginac.h>
 #include <gtest/gtest.h>
 
-#include "NNumcalManager.h"
+#include "ndmspc/numcal/NNumcalManager.h"
 
 namespace {
 

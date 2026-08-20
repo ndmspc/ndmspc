@@ -2,7 +2,7 @@
 #define NdmspcHttpNCloudEvent_H
 
 #include <TObject.h>
-#include "NLogger.h"
+#include "ndmspc/core/NLogger.h"
 
 class THttpCallArg;
 namespace Ndmspc {

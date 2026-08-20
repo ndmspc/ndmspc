@@ -1,10 +1,10 @@
 #include <map>
 #include <string>
 #include <TBufferJSON.h>
-#include <NGnTree.h>
-#include <NGnNavigator.h>
-#include <NGnHttpServer.h>
-#include <NParameters.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NGnNavigator.h>
+#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/core/NParameters.h>
 
 void httpNgntBase()
 {

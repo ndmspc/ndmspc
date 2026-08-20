@@ -1,13 +1,13 @@
 #include <TAxis.h>
 #include <TObjArray.h>
 #include <TFitResult.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
 #include <TRandom3.h>
 #include <TMath.h>
 #include <TH1D.h>
 #include <TF1.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NParameter01Gaus(std::string outFile = "NParameter01Gaus.root")
 {

@@ -5,11 +5,14 @@
 #include <mutex>  // For std::mutex
 #include <chrono> // For std::chrono::system_clock
 #include <cstdio>
+
 #include <THttpWSHandler.h>
 #include <TString.h>
 #include <THttpCallArg.h>  // For THttpCallArg from ROOT
-#include "NWsClientInfo.h" // Include our client info class in the same namespace
-#include "NUtils.h"
+
+#include "ndmspc/core/NUtils.h"
+#include "ndmspc/http/NWsClientInfo.h" // Include our client info class in the same namespace
+
 
 class THttpCallArg;
 class TTimer;

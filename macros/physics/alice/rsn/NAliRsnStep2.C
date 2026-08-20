@@ -1,14 +1,14 @@
 #include <string>
 #include <vector>
-#include "TNamed.h"
-#include "TObjArray.h"
-#include "TString.h"
+#include <TNamed.h>
+#include <TObjArray.h>
+#include <TString.h>
 #include <TROOT.h>
-#include <NGnTree.h>
-#include <NLogger.h>
-#include <NUtils.h>
-#include <NAnalysisUtils.h>
-#include <NAnalysisFunctions.h>
+#include <ndmspc/core/NGnTree.h>
+#include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
+#include <ndmspc/hep/NAnalysisUtils.h>
+#include <ndmspc/hep/NAnalysisFunctions.h>
 
 void NAliRsnStep2(std::string inFile = "NAliRsnStep1_ngnt.root", std::string outFile = "NAliRsnStep2_ngnt.root")
 {
