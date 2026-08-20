@@ -165,7 +165,7 @@ make install DESTDIR=%{buildroot}
 %files
 %if %{with_numcal}
 %exclude %{_libdir}/libNdmspcNumcal*
-%exclude %{_includedir}/ndmspc/NNumcalManager.h
+%exclude %{_includedir}/ndmspc/numcal/*.h
 %endif
 %{_libdir}/*
 %{_bindir}/ndmspc-server
@@ -188,14 +188,14 @@ make install DESTDIR=%{buildroot}
 %if %{with_numcal}
 %files numcal
 %{_libdir}/libNdmspcNumcal*
-%{_includedir}/ndmspc/NNumcalManager.h
+%{_includedir}/ndmspc/numcal/*.h
 %{_bindir}/ndmspc-numcal
 %endif
 
 %if %{with_taxi}
 %files taxi
 %{_libdir}/libNdmspcTaxi*
-%{_includedir}/ndmspc/NTaxi.h
+%{_includedir}/ndmspc/taxi/*.h
 %{_datadir}/%{name}/macros/taxi/*
 %endif
 
