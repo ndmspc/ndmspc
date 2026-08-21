@@ -11,7 +11,7 @@
 #include <TApplication.h>
 #include <TSystem.h>
 #include "CLI11.hpp"
-#include "ndmspc.h"
+#include "ndmspc/ndmspc.h"
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
 

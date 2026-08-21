@@ -12,7 +12,7 @@
 #include "CLI11.hpp"
 #include "ndmspc/numcal/NNumcalManager.h"
 #include "ndmspc/core/NLogger.h"
-#include "ndmspc.h"
+#include "ndmspc/ndmspc.h"
 
 std::string app_description()
 {

@@ -27,16 +27,15 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #endif
-#include "NLogger.h"
-// #include "NHttpRequest.h"
-#include "ndmspc.h"
 #ifdef WITH_PARQUET
 #include <arrow/api.h>
 #include <arrow/io/api.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/exception.h>
 #endif
-#include "NUtils.h"
+#include "ndmspc/ndmspc.h"
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NUtils.h"
 
 using std::ifstream;
 

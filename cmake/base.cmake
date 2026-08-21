@@ -1,10 +1,10 @@
 # CMAKE base
 # cmake_policy(SET CMP0074 OLD)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
-"${PROJECT_SOURCE_DIR}/common/cmake/modules"
+"${CMAKE_SOURCE_DIR}/common/cmake/modules"
 CACHE STRING "Modules for CMake" FORCE)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
-"${PROJECT_SOURCE_DIR}/cmake/modules"
+"${CMAKE_SOURCE_DIR}/cmake/modules"
 CACHE STRING "Modules for CMake" FORCE)
 
 set(CMAKE_INSTALL_HEADER_DIR ${CMAKE_INSTALL_PREFIX}/include/${CMAKE_PROJECT_NAME})
@@ -14,18 +14,18 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 # Main header
 configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.h.in"
-  "${PROJECT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.h"
+  "${CMAKE_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.h.in"
+  "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${CMAKE_PROJECT_NAME}.h"
 )
 INSTALL(FILES
-  "${PROJECT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.h"
+  "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${CMAKE_PROJECT_NAME}.h"
   DESTINATION "${CMAKE_INSTALL_HEADER_DIR}"
 )
 
 # Spec file
 configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.spec.in"
-  "${PROJECT_SOURCE_DIR}/${CMAKE_PROJECT_NAME}.spec"
+  "${CMAKE_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.spec.in"
+  "${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}.spec"
 )
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -59,7 +59,8 @@ endif()
 add_compile_options(${STRICT_WARNING_FLAGS})
 
 # add the binary tree to the search path for include files
-include_directories("${PROJECT_BINARY_DIR}")
+# include_directories("${CMAKE_BINARY_DIR}")
+include_directories("${CMAKE_BINARY_DIR}/include")
 
 # Setting libdir
 set(CMAKE_INSTALL_LIBDIR lib)
