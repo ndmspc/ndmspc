@@ -9,7 +9,7 @@
 #include "ndmspc/http/NStressHistograms.h"
 #include "ndmspc/http/NGnHttpServer.h"
 
-#include "ndmspc.h"
+#include "ndmspc/ndmspc.h"
 
 static inline void EnsureServerRunning(Ndmspc::NHttpServer * serv, int port)
 {

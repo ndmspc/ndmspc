@@ -17,7 +17,7 @@
 #include <TApplication.h>
 #include <TSystem.h>
 
-#include "ndmspc.h"
+#include "ndmspc/ndmspc.h"
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/core/NDimensionalIpcRunner.h"
