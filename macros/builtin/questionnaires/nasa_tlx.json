@@ -1,0 +1,92 @@
+{
+  "type": "object",
+  "title": "NASA-TLX",
+  "q_type": "nasa_tlx",
+  "description": "NASA Task Load Index",
+  "properties": {
+    "NASA_Task_Load_Index": {
+      "description": "NASA Task Load Index",
+      "type": "object",
+      "properties": {
+        "Mental_Demand": {
+          "description": "Mental Demand: How mentally demanding was the task?",
+          "default": "50",
+          "enum": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "enumDescriptions": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "very low",
+          "labelAfter": "very high"
+        },
+        "Physical_Demand": {
+          "description": "Physical Demand: How physically demanding was the task?",
+          "default": "50",
+          "enum": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "enumDescriptions": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "very low",
+          "labelAfter": "very high"
+        },
+        "Temporal_Demand": {
+          "description": "Temporal Demand: How hurried or rushed was the pace of the task?",
+          "default": "50",
+          "enum": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "enumDescriptions": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "very low",
+          "labelAfter": "very high"
+        },
+        "Performance": {
+          "description": "Performance: How successful were you in accomplishing what you were asked to do?",
+          "default": "50",
+          "enum": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "enumDescriptions": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "perfect",
+          "labelAfter": "failure"
+        },
+        "Effort": {
+          "description": "Effort: How hard did you have to work to accomplish your level of performance?",
+          "default": "50",
+          "enum": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "enumDescriptions": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "very low",
+          "labelAfter": "very high"
+        },
+        "Frustration": {
+          "description": "Frustration: How insecure, discouraged, irritated, stressed, and annoyed were you?",
+          "default": "50",
+          "enum": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "enumDescriptions": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "very low",
+          "labelAfter": "very high"
+        }
+      }
+    }
+  }
+}

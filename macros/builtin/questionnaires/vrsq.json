@@ -1,0 +1,221 @@
+{
+  "type": "object",
+  "title": "VRSQ",
+  "q_type": "vrsq",
+  "description": "Virtual Reality Sickness Questionnaire",
+  "properties": {
+    "Your_VR_experience_with_NDMVR_Virtual_Reality_Sickness_Questionnaire": {
+      "description": "Your VR experience with NDMVR:  Virtual Reality Sickness Questionnaire ",
+      "type": "object",
+      "properties": {
+        "General_discomfort": {
+          "description": "General discomfort",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Fatigue": {
+          "description": "Fatigue",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Eyestrain": {
+          "description": "Eyestrain",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Difficulty_focusing": {
+          "description": "Difficulty focusing",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Headache": {
+          "description": "Headache",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Fullness_of_head": {
+          "description": "Fullness of head",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Blurred_vision": {
+          "description": "Blurred vision",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Dizzy_eyes_closed": {
+          "description": "Dizzy (eyes closed)",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        },
+        "Vertigo": {
+          "description": "Vertigo",
+          "default": "0",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "enumDescriptions": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very"
+        }
+      }
+    }
+  }
+}

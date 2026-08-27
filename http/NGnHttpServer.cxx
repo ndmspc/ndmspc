@@ -112,6 +112,15 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       arg->SetContent("{\"error\": \"Invalid JSON format\"}");
       return;
     }
+
+    if (!query.empty()) {
+      if (in.is_null()) in = json::object();
+      if (in.is_object()) {
+        in["_query"] = query;
+        NLogTrace("Passing query to HTTP handler: %s", query.c_str());
+      }
+    }
+
     NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
     // Special-case: provide an OpenAPI-compatible inspector schema endpoint
