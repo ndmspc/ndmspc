@@ -1,0 +1,391 @@
+{
+  "type": "object",
+  "title": "IPQ",
+  "q_type": "ipq",
+  "description": "Your VR experience with NDMVR: Igroup Presence Questionnaire",
+  "properties": {
+    "Your_VR_experience_with_NDMVR_Igroup_Presence_Questionnaire": {
+      "description": "Your VR experience with NDMVR: Igroup Presence Questionnaire",
+      "type": "object",
+      "properties": {
+        "In_the_computer_generated_world_I_had_a_sense_of_being_there": {
+          "description": "In the computer generated world I had a sense of \"being there\".",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not at all",
+          "labelAfter": "very much"
+        },
+        "Somehow_I_felt_that_the_virtual_world_surrounded_me": {
+          "description": "Somehow I felt that the virtual world surrounded me.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        },
+        "I_felt_like_I_was_just_perceiving_pictures": {
+          "description": "I felt like I was just perceiving pictures.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        },
+        "I_did_not_feel_present_in_the_virtual_space": {
+          "description": "I did not feel present in the virtual space.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "did not feel present",
+          "labelAfter": "felt present"
+        },
+        "I_had_a_sense_of_acting_in_the_virtual_space_rather_than_operating_something_from_outside": {
+          "description": "I had a sense of acting in the virtual space, rather than operating something from outside.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        },
+        "I_felt_present_in_the_virtual_space": {
+          "description": "I felt present in the virtual space.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        },
+        "How_aware_were_you_of_the_real_world_surrounding_while_navigating_in_the_virtual_world_ie_sounds_room_temperature_other_people_etc": {
+          "description": "How aware were you of the real world surrounding while navigating in the virtual world? (i.e. sounds, room temperature, other people, etc.)?",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "extremely aware",
+          "labelAfter": "not aware at all"
+        },
+        "I_was_not_aware_of_my_real_environment": {
+          "description": "I was not aware of my real environment.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        },
+        "I_still_paid_attention_to_the_real_environment": {
+          "description": "I still paid attention to the real environment.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        },
+        "I_was_completely_captivated_by_the_virtual_world": {
+          "description": "I was completely captivated by the virtual world.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        },
+        "How_real_did_the_virtual_world_seem_to_you": {
+          "description": "How real did the virtual world seem to you?",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "about as real as an imagined world",
+          "labelAfter": "indistinguishable from the real world"
+        },
+        "How_much_did_your_experience_in_the_virtual_environment_seem_consistent_with_your_real_world_experience": {
+          "description": "How much did your experience in the virtual environment seem consistent with your real world experience ?",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "not consistent",
+          "labelAfter": "very consistent"
+        },
+        "The_virtual_world_seemed_more_realistic_than_the_real_world": {
+          "description": "The virtual world seemed more realistic than the real world.",
+          "default": "1",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "enumDescriptions": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "fully disagree",
+          "labelAfter": "fully agree"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "type": "object",
+  "title": "SUS",
+  "q_type": "sus",
+  "description": "System Usability Scale",
+  "properties": {
+    "System_Usability_Scale": {
+      "description": "System Usability Scale",
+      "type": "object",
+      "properties": {
+        "I_think_that_I_would_like_to_use_this_system_frequently": {
+          "description": "I think that I would like to use this system frequently.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_found_the_system_unnecessarily_complex": {
+          "description": "I found the system unnecessarily complex.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_thought_the_system_was_easy_to_use": {
+          "description": "I thought the system was easy to use.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_think_that_I_would_need_the_support_of_a_technical_person_to_use_this_system": {
+          "description": "I think that I would need the support of a technical person to use this system.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_found_the_various_functions_in_this_system_were_well_integrated": {
+          "description": "I found the various functions in this system were well integrated.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_thought_there_was_too_much_inconsistency_in_this_system": {
+          "description": "I thought there was too much inconsistency in this system.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_would_imagine_that_most_people_would_learn_to_use_this_system_very_quickly": {
+          "description": "I would imagine that most people would learn to use this system very quickly.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_found_the_system_very_cumbersome_to_use": {
+          "description": "I found the system very cumbersome to use.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_felt_very_confident_using_the_system": {
+          "description": "I felt very confident using the system.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        },
+        "I_needed_to_learn_a_lot_of_things_before_I_could_get_going_with_this_system": {
+          "description": "I needed to learn a lot of things before I could get going with this system.",
+          "default": "3",
+          "enum": ["1", "2", "3", "4", "5"],
+          "enumDescriptions": ["1", "2", "3", "4", "5"],
+          "format": "select",
+          "render": "radio",
+          "type": "string",
+          "orientation": "horizontal",
+          "textPosition": "bottom",
+          "labelBefore": "strongly disagree",
+          "labelAfter": "strongly agree"
+        }
+      }
+    }
+  }
+}
