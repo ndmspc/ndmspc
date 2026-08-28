@@ -1,0 +1,20 @@
+set(MODULE AiLLM)
+set(PACKAGE Ndmspc${MODULE})
+file(GLOB SRCS CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
+
+set(MY_INCLUDE_DIRS
+  ${NLOHMANN_JSON_INCLUDE_DIRS}
+  ${OpenSSL_INCLUDE_DIRS}
+  ${CMAKE_BINARY_DIR}/_deps/httplib-src/
+)
+set(MY_EXTERNAL_LIBS
+  ${OpenSSL_LIBRARIES}
+)
+
+include_directories(${MY_INCLUDE_DIRS})
+
+RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
+target_compile_definitions(${PACKAGE} PUBLIC
+        CPPHTTPLIB_OPENSSL_SUPPORT
+)
+
