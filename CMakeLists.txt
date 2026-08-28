@@ -16,6 +16,7 @@ option(WITH_MON "Compile with MON part" OFF)
 # option(WITH_PARQUET "Compile with Parquet support" OFF)
 option(WITH_TAXI "Compile with Taxi support" OFF)
 option(WITH_NUMCAL "Compile with numcal support" OFF)
+option(WITH_AI "Compile with AI support" OFF)
 option(WITH_TEST "Compile with tests" OFF)
 
 option(WITH_JUPYROOT "Compile with JupyROOT support" OFF)
@@ -25,7 +26,7 @@ option(BUILD_DOCUMENTATION "Create and install the HTML based API documentation 
 option(ENABLE_STRICT_WARNINGS "Enable strict warning flags" OFF)
 
 include(cmake/base.cmake)
-include(cmake/deps.cmake)
+
 
 add_subdirectory(core)
 
@@ -53,6 +54,13 @@ if(WITH_TAXI)
   add_subdirectory(taxi)
 endif()
 
+if(WITH_AI)
+  add_subdirectory(ai)
+endif()
+
+if(WITH_UI)
+  add_subdirectory(ui)
+endif()
 
 if(WITH_TEST)
   find_package(GTest)
@@ -64,10 +72,6 @@ endif()
 
 if(BUILD_DOCUMENTATION)
   add_subdirectory(doc)
-endif()
-
-if(WITH_UI)
-  add_subdirectory(ui)
 endif()
 
 # profile.d

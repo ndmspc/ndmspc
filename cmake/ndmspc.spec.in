@@ -12,6 +12,7 @@ Source0:    %{name}-%{version}.tar.gz
 %global with_ui 1
 %global with_utils 0
 %global with_jupyroot 0
+%global with_ai 1
 %if 0%{?rhel} == 10 || 0%{?almalinux} == 10
 %global with_numcal 0
 %global with_taxi 1
@@ -20,6 +21,7 @@ Source0:    %{name}-%{version}.tar.gz
 %global with_numcal 1
 %global with_taxi 0
 %global with_ui 0
+%global with_ai 0
 %else
 %global with_numcal 1
 %global with_taxi 1
@@ -27,8 +29,8 @@ Source0:    %{name}-%{version}.tar.gz
 %endif
 
 BuildRequires: systemd-rpm-macros
-BuildRequires: git, gcc-c++, cmake
-BuildRequires: json-devel zeromq-devel
+BuildRequires: git, gcc-c++, cmake, openssl-devel
+BuildRequires: json-devel, zeromq-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
 BuildRequires: root-roofit root-roofit-more
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
@@ -131,10 +133,16 @@ cmake ../ \
 -DWITH_TAXI=OFF \
 %endif
 %if %{with_numcal}
--DWITH_NUMCAL=ON
+-DWITH_NUMCAL=ON \
 %else
--DWITH_NUMCAL=OFF
+-DWITH_NUMCAL=OFF \
 %endif
+%if %{with_ai}
+-DWITH_AI=ON
+%else
+-DWITH_AI=OFF
+%endif
+
 
 make %{?_smp_mflags}
 cd ../
@@ -171,6 +179,11 @@ make install DESTDIR=%{buildroot}
 %{_bindir}/ndmspc-server
 %{_bindir}/ndmspc-run
 %{_bindir}/ndmspc-worker
+%if %{with_ai}
+%{_bindir}/ndmspc-chat
+%exclude %{_datadir}/doc/httplib/README.md
+%exclude %{_datadir}/licenses/httplib/LICENSE
+%endif
 %{_includedir}/*
 %exclude %{_datadir}/%{name}/macros/taxi/*
 %exclude %{_datadir}/%{name}/ndmspc-ui/*

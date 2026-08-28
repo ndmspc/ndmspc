@@ -21,6 +21,7 @@ WITH_HEP=${WITH_HEP-true}
 WITH_UTILS=${WITH_UTILS-false}
 WITH_TAXI=${WITH_TAXI-false}
 WITH_NUMCAL=${WITH_NUMCAL-false}
+WITH_AI=${WITH_AI-false}
 
 PRINT_DEBUG=${PRINT_DEBUG-false}
 MY_CMAKE_OPTS=""
@@ -100,6 +101,10 @@ for ARG in "$@"; do
     "utils")
       echo "Forcing build with utils support"
       WITH_UTILS=true
+      ;;
+    "ai")
+      echo "Forcing build with AI support"
+      WITH_AI=true
       ;;
     "all")
       echo "Forcing build with all optional components"
@@ -192,6 +197,9 @@ if [[ $WITH_HEP == true ]]; then
 fi
 if [[ $WITH_UTILS == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_UTILS:bool=ON"
+fi
+if [[ $WITH_AI == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_AI:bool=ON"
 fi
 
 

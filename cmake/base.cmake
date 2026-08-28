@@ -1,5 +1,7 @@
 # CMAKE base
 # cmake_policy(SET CMP0074 OLD)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
 "${CMAKE_SOURCE_DIR}/common/cmake/modules"
 CACHE STRING "Modules for CMake" FORCE)
@@ -84,9 +86,18 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CPACK_SOURCE_IGNORE_FILES
 "/build/;/.git/;/.vscode/;/bin/;/lib/;lib64/;/tmp/;/.cache/;/.ndmspc/;~$;.*\\.root$;${CPACK_SOURCE_IGNORE_FILES}"
 )
-add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
-include(CPack)
 
+include(cmake/deps.cmake)
+
+add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+if(NOT CMAKE_CPACK_MODULE_INCLUDED)
+    set(CMAKE_CPACK_MODULE_INCLUDED TRUE CACHE BOOL "Indicates if CPack module has been included.")
+    # Now include CPack. This will process the CPack.cmake module.
+    include(CPack)
+    message(STATUS "CPack module included by top-level CMakeLists.txt")
+else()
+    message(STATUS "CPack module already included by another source.")
+endif()
 
 add_custom_target(rpm
 COMMAND rpmbuild -ta
