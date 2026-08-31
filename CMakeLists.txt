@@ -1,12 +1,11 @@
-cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
-if(NOT CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}"
-      CACHE PATH "Default installation" FORCE)
-endif()
 
-project(ndmspc VERSION 1.3.0 DESCRIPTION "NDMSPC")
-set(PROJECT_VERSION_RELEASE 0)
+set(PROJECT_VERSION "1.4.0" CACHE STRING "Project version")
+set(PROJECT_VERSION_RELEASE "1" CACHE STRING "Project release version")
+project(ndmspc VERSION ${PROJECT_VERSION} DESCRIPTION "NDMSPC")
+
+message(STATUS "Project version: ${PROJECT_VERSION}-${PROJECT_VERSION_RELEASE}")
 
 option(WITH_HTTP "Compile with HTTP part" ON)
 option(WITH_UI "Compile with UI part" OFF)
@@ -16,7 +15,7 @@ option(WITH_MON "Compile with MON part" OFF)
 # option(WITH_PARQUET "Compile with Parquet support" OFF)
 option(WITH_TAXI "Compile with Taxi support" OFF)
 option(WITH_NUMCAL "Compile with numcal support" OFF)
-option(WITH_AI "Compile with AI support" OFF)
+option(WITH_AI "Compile with AI support" ON)
 option(WITH_TEST "Compile with tests" OFF)
 
 option(WITH_JUPYROOT "Compile with JupyROOT support" OFF)

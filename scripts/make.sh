@@ -4,6 +4,12 @@ set -o pipefail
 
 PROJECT_DIR="$(dirname $(dirname $(readlink -m $0)))"
 
+MY_PROJECT_VER=${MY_PROJECT_VER-""}
+MY_PROJECT_VER_RELEASE=${MY_PROJECT_VER_RELEASE-""}
+MY_CMAKE_OPTS=""
+MY_MAKE_OPTS=""
+MY_BUILDSYS="make"
+MY_CMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE-"Debug"}
 USING_CLANG=false
 BEING_STRICT=false
 
@@ -21,16 +27,17 @@ WITH_HEP=${WITH_HEP-true}
 WITH_UTILS=${WITH_UTILS-false}
 WITH_TAXI=${WITH_TAXI-false}
 WITH_NUMCAL=${WITH_NUMCAL-false}
-WITH_AI=${WITH_AI-false}
+WITH_AI=${WITH_AI-true}
 
 PRINT_DEBUG=${PRINT_DEBUG-false}
-MY_CMAKE_OPTS=""
-MY_MAKE_OPTS=""
-MY_BUILDSYS="make"
-MY_CMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE-"Debug"}
 
-CXX=""
-CC=""
+CC=${CC:-"$(command -v gcc || true)"}
+CXX=${CXX:-"$(command -v g++ || true)"}
+
+if [[ -z "$CC" || -z "$CXX" ]]; then
+  echo "Unable to find both gcc and g++ in PATH. Set CC and CXX explicitly."
+  exit 1
+fi
 
 for ARG in "$@"; do
   case $ARG in
@@ -176,6 +183,18 @@ if [[ $BUILDING_DOC == true ]]; then
   echo "Building with documentation"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DBUILD_DOCUMENTATION:bool=ON"
 fi
+
+# Set MY_PROJECT_VER
+if [[ -n "$MY_PROJECT_VER" ]]; then
+  echo "Setting project version to $MY_PROJECT_VER"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DPROJECT_VERSION:STRING=${MY_PROJECT_VER}"
+fi
+
+if [[ -n "$MY_PROJECT_VER_RELEASE" ]]; then
+  echo "Setting project release version to $MY_PROJECT_VER_RELEASE"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DPROJECT_VERSION_RELEASE:STRING=${MY_PROJECT_VER_RELEASE}"
+fi
+
 if [[ $WITH_TEST == true ]]; then
   echo "Building with testing support"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_TEST:bool=ON"
@@ -198,8 +217,8 @@ fi
 if [[ $WITH_UTILS == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_UTILS:bool=ON"
 fi
-if [[ $WITH_AI == true ]]; then
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_AI:bool=ON"
+if [[ $WITH_AI == false ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_AI:bool=OFF"
 fi
 
 
@@ -210,18 +229,18 @@ if [[ ! -d $PROJECT_DIR/build ]]; then
   mkdir $PROJECT_DIR/build
 fi
 MY_PROG_NAME="ndmspc"
-if [ -n "$MY_PROJECT_VER" ]; then
-  MY_VER_MAJOR=$(echo "$MY_PROJECT_VER" | cut -d '.' -f1)
-  MY_VER_MINOR=$(echo "$MY_PROJECT_VER" | cut -d '.' -f2)
-  MY_VER_PATCH=$(echo "$MY_PROJECT_VER" | cut -d '.' -f3 | cut -d '-' -f1)
-  MY_VER_RELEASE=$(echo "$MY_PROJECT_VER" | cut -sd '-' -f2)
-  [ -n "$MY_VER_RELEASE" ] || MY_VER_RELEASE="1"
-  [[ $MY_VER_RELEASE =~ ^[[:digit:]] ]] || MY_TWEAK_RELEASE=".0"
-  [[ $MY_VER_RELEASE =~ ^[[:digit:]] ]] || MY_VER_RELEASE="0.1.$MY_VER_RELEASE"
-  sed -i 's/^project(.*/project('$MY_PROG_NAME' VERSION '$MY_VER_MAJOR'.'$MY_VER_MINOR'.'$MY_VER_PATCH''$MY_TWEAK_RELEASE' DESCRIPTION "NDMSPC")/' CMakeLists.txt
-  sed -i 's/^set(PROJECT_VERSION_RELEASE.*/set(PROJECT_VERSION_RELEASE '$MY_VER_RELEASE')/' CMakeLists.txt
-  echo "Custom version : $MY_VER_MAJOR.$MY_VER_MINOR.$MY_VER_PATCH-$MY_VER_RELEASE"
-fi
+# if [ -n "$MY_PROJECT_VER" ]; then
+#   MY_VER_MAJOR=$(echo "$MY_PROJECT_VER" | cut -d '.' -f1)
+#   MY_VER_MINOR=$(echo "$MY_PROJECT_VER" | cut -d '.' -f2)
+#   MY_VER_PATCH=$(echo "$MY_PROJECT_VER" | cut -d '.' -f3 | cut -d '-' -f1)
+#   MY_VER_RELEASE=$(echo "$MY_PROJECT_VER" | cut -sd '-' -f2)
+#   [ -n "$MY_VER_RELEASE" ] || MY_VER_RELEASE="1"
+#   [[ $MY_VER_RELEASE =~ ^[[:digit:]] ]] || MY_TWEAK_RELEASE=".0"
+#   [[ $MY_VER_RELEASE =~ ^[[:digit:]] ]] || MY_VER_RELEASE="0.1.$MY_VER_RELEASE"
+#   sed -i 's/^project(.*/project('$MY_PROG_NAME' VERSION '$MY_VER_MAJOR'.'$MY_VER_MINOR'.'$MY_VER_PATCH''$MY_TWEAK_RELEASE' DESCRIPTION "NDMSPC")/' CMakeLists.txt
+#   sed -i 's/^set(PROJECT_VERSION_RELEASE.*/set(PROJECT_VERSION_RELEASE '$MY_VER_RELEASE')/' CMakeLists.txt
+#   echo "Custom version : $MY_VER_MAJOR.$MY_VER_MINOR.$MY_VER_PATCH-$MY_VER_RELEASE"
+# fi
 
 cd $PROJECT_DIR/build || {
   echo "Missing build directory!"
@@ -242,7 +261,7 @@ fi
 
 echo "----------------------------------------------------------------------"
 
-[[ ${USING_CLANG} == true ]] && export CC CXX
+export CC CXX
 cmake -DCMAKE_INSTALL_PREFIX=${PROJECT_DIR} ${MY_CMAKE_OPTS} ../
 
 ${MY_BUILDSYS} -j$(nproc) ${MY_MAKE_OPTS}

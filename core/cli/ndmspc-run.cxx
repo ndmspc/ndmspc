@@ -10,7 +10,7 @@
 #include <TROOT.h>
 #include <TApplication.h>
 #include <TSystem.h>
-#include "CLI11.hpp"
+#include <CLI/CLI.hpp>
 #include "ndmspc/ndmspc.h"
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"

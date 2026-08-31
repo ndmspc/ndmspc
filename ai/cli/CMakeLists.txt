@@ -1,5 +1,5 @@
 set(MY_INCLUDE_DIRS
-  ${CMAKE_BINARY_DIR}/_deps/httplib-src/
+  ${HTTPLIB_INCLUDE_DIRS}
 )
 
 set(MY_EXTERNAL_LIBS
