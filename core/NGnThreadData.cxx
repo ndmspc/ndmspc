@@ -29,11 +29,7 @@ bool NGnThreadData::Init(size_t id, NGnProcessFuncPtr func, NGnBeginFuncPtr func
 
   // if root version is higher then 6.40 we can add ROOT::Experimental::DisableObjectAutoRegistration() to avoid the
   // ROOT auto registration of objects in the TDirectory
-#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
-  ROOT::Experimental::DisableObjectAutoRegistration();
-#else
-  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
-#endif
+  NUtils::DisableObjectAutoRegistration();
 
   // if (!func) {
   //   NLogError("NGnThreadData::Init: Process function is not set !!!");
@@ -130,11 +126,7 @@ void NGnThreadData::Process(const std::vector<int> & coords)
 
   // if root version is higher then 6.40 we can add ROOT::Experimental::DisableObjectAutoRegistration() to avoid the
   // ROOT auto registration of objects in the TDirectory
-// #if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
-//   ROOT::Experimental::DisableObjectAutoRegistration();
-// #else
-//   TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
-// #endif
+  NUtils::DisableObjectAutoRegistration();
 
   // Ensure this thread has a current pad so that user code calling h->Fit()
   // does not trigger the non-thread-safe TCanvas::MakeDefCanvas().

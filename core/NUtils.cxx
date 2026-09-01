@@ -126,6 +126,20 @@ bool NUtils::EnableMT(Int_t numthreads)
   return previouslyEnabled;
 }
 
+void NUtils::DisableObjectAutoRegistration()
+{
+  ///
+  /// Disable automatic object registration in ROOT
+  ///
+
+#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
+  ROOT::Experimental::DisableObjectAutoRegistration();
+#else
+  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
+#endif
+
+}
+
 bool NUtils::IsFileSupported(std::string filename)
 {
   ///

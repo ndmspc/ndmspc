@@ -92,13 +92,12 @@ void NCustomization01Gaus(int nEntries = 1e5, std::string outFile = "NCustomizat
 
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
-    NLogInfo("Starting processing ...");
-    TH1::AddDirectory(kFALSE);
+    // NLogInfo("Starting processing ...");
   };
 
   // Define the end function which is executed after processing all points
   Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
-    NLogInfo("Finished processing ...");
+    // NLogInfo("Finished processing ...");
   };
 
   // execute the processing function

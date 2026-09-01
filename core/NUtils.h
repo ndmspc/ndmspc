@@ -37,6 +37,14 @@ class NUtils : TObject {
   static bool EnableMT(Int_t numthreads = -1);
 
   /**
+   * @brief Disable ROOT's automatic object registration for the current process.
+   *
+   * This is useful when the application wants to avoid ROOT auto-registering
+   * objects in directories and instead manage object lifetime explicitly.
+   */
+  static void DisableObjectAutoRegistration();
+
+  /**
    * @brief Check if a path is accessible.
    * @param path Path to check.
    * @return True if accessible, false otherwise.

@@ -160,15 +160,12 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
   ///
   /// Reshape the navigator
   ///
+  NUtils::DisableObjectAutoRegistration();
 
   NLogTrace("NGnNavigator::Reshape: Reshaping navigator for level=%d levels=%zu", level, levels.size());
   // if root version is higher then 6.40 we can add ROOT::Experimental::DisableObjectAutoRegistration() to avoid the
   // ROOT auto registration of objects in the TDirectory
-#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
-  ROOT::Experimental::DisableObjectAutoRegistration();
-#else
-  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
-#endif
+
   NTreeBranch * branch = fGnTree->GetStorageTree()->GetBranch("_outputPoint");
   if (!branch) {
     // fallback to old branch name for backward compatibility

@@ -78,7 +78,6 @@ void NTaxiDownload(std::string outFile = "NTaxiDownload.root", std::string outpu
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
 
     if (!point) {
       NLogError("NTaxiDownload: Point is nullptr !!!");

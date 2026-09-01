@@ -37,7 +37,6 @@ void        NTaxiConvert(std::string inputFile = "NTaxiDownload.root",
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();
     json cfg = point->GetCfg();
 
@@ -59,7 +58,6 @@ void        NTaxiConvert(std::string inputFile = "NTaxiDownload.root",
       hns->SetName("hns_taxi");
       hns->SetTitle(TString::Format("THnSparse Taxi Data: %s", point->GetString().c_str()).Data());
       // hns->Print();
-      TH1::AddDirectory(kFALSE);
       outputPoint->Add(new TH1S("filename", fileTypeYearMonth.c_str(), 1, 0, 1));
       Ndmspc::NStorageTree * ts = point->GetTreeStorage();
       if (ts && ts->GetBranch("hns"))
