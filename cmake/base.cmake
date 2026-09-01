@@ -90,16 +90,16 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 
 set(CPACK_SOURCE_IGNORE_FILES
   "/build/"
-  "/\\.git/"
-  "/\\.vscode/"
+  "/[.]git/"
+  "/[.]vscode/"
   "/bin/"
   "/lib/"
   "lib64/"
   "/tmp/"
-  "/\\.cache/"
-  "/\\.ndmspc/"
+  "/[.]cache/"
+  "/[.]ndmspc/"
   "~$"
-  "\\.root$"
+  "[.]root$"
   ${CPACK_SOURCE_IGNORE_FILES}
 )
 
