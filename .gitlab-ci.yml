@@ -57,8 +57,8 @@ build-rpm-copr:
   script:
     - export COPR_LOGIN COPR_TOKEN COPR_USER
     - scripts/copr.sh $COPR_DEBUG
-    - export MY_PROJECT_VER=${CI_COMMIT_REF_NAME/v/}
-    - export MY_PROJECT_VER_RELEASE=$(echo $MY_PROJECT_VER | cut -sd '-' -f2)
+    - export MY_PROJECT_VER=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f1)
+    - export MY_PROJECT_VER_RELEASE=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f2)
     - scripts/make.sh rpm
     - if [ -z "$MY_PROJECT_VER_RELEASE" ];then copr-cli build ndmspc/stable build/SRPMS/*.src.rpm --nowait; fi
     - if [ -n "$MY_PROJECT_VER_RELEASE" ];then copr-cli build ndmspc/testing build/SRPMS/*.src.rpm --nowait; fi
@@ -71,8 +71,8 @@ base-image:
     - images
   script:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - export MY_PROJECT_VER=${CI_COMMIT_REF_NAME/v/}
-    - export MY_PROJECT_VER_RELEASE=$(echo $MY_PROJECT_VER | cut -sd '-' -f2)
+    - export MY_PROJECT_VER=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f1)
+    - export MY_PROJECT_VER_RELEASE=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f2)
     - podman build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" -f ci/Dockerfile.base --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE/base:latest --tag $CI_REGISTRY_IMAGE/base:next .
     - podman push $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
@@ -89,8 +89,8 @@ prod-image:
     - images
   script:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - export MY_PROJECT_VER=${CI_COMMIT_REF_NAME/v/}
-    - export MY_PROJECT_VER_RELEASE=$(echo $MY_PROJECT_VER | cut -sd '-' -f2)
+    - export MY_PROJECT_VER=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f1)
+    - export MY_PROJECT_VER_RELEASE=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f2)
     - podman build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" -f ci/Dockerfile --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
     - podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
