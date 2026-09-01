@@ -206,9 +206,9 @@ int main(int argc, char ** argv)
     serv->SetUseHistory(!noHistory);
     serv->SetCors("*");
     if (htmlDir.empty()) {
-      htmlDir = TString::Format("%s/share/ndmspc/ndmspc-ui",
-                                gSystem->Getenv("NDMSPC_DIR") ? gSystem->Getenv("NDMSPC_DIR") : "/usr")
-                    .Data();
+      const char * env       = gSystem->Getenv("NDMSPC_DIR");
+      std::string  ndmspcDir = (env && *env) ? env : "/usr";
+      htmlDir                = TString::Format("%s/share/ndmspc/ndmspc-ui", ndmspcDir.c_str()).Data();
     }
 
     if (!htmlDir.empty() && gSystem->AccessPathName(htmlDir.c_str()) == 0) {
@@ -218,15 +218,27 @@ int main(int argc, char ** argv)
     }
 
     if (macroFilename.empty()) {
-      const char * ndmspcDir = gSystem->Getenv("NDMSPC_DIR");
-      std::string  baseDir   = (ndmspcDir && *ndmspcDir) ? ndmspcDir : "/usr/share/ndmspc";
-      macroFilename = TString::Format("%s/macros/builtin/httpNgntBase.C,%s/macros/builtin/httpNgnt.C", baseDir.c_str(),
-                                      baseDir.c_str())
-                          .Data();
-      NLogInfo("No macro file given, using default NGNT macros: '%s'", macroFilename.c_str());
+      const char * env1      = gSystem->Getenv("NDMSPC_DIR");
+      std::string  ndmspcDir = (env1 && *env1) ? env1 : "";
+
+      if (ndmspcDir.empty()) {
+        const char * env2 = gSystem->Getenv("NDMSPC__HOME");
+        ndmspcDir         = (env2 && *env2) ? env2 : "/usr/share/ndmspc";
+      }
+      // check if ndmspcDir is exists
+      if (gSystem->AccessPathName(ndmspcDir.c_str()) == 0) {
+        macroFilename = TString::Format("%s/macros/builtin/httpNgntBase.C,%s/macros/builtin/httpNgnt.C",
+                                        ndmspcDir.c_str(), ndmspcDir.c_str())
+                            .Data();
+        NLogInfo("No macro file given, using default macros ...");
+      } else {
+        // just warn and continue, user may provide macro file later
+        NLogError("No macro file given and default macros not found in '%s'. Please provide a macro file with -m option.", ndmspcDir.c_str());
+        exit(1);
+      }
     }
 
-    NLogInfo("NGNT server heartbeat: %d ms, macro file '%s'", heartbeat_ms, macroFilename.c_str());
+    NLogInfo("NDMSPC server heartbeat: %d ms", heartbeat_ms);
 
     // Your local map
     std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
