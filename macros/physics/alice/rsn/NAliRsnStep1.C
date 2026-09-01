@@ -213,7 +213,6 @@ void NAliRsnStep1(
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     // NLogInfo("Starting processing ...");
-    TH1::AddDirectory(kFALSE);
   };
 
   // Define the end function which is executed after processing all points

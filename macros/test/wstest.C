@@ -29,10 +29,6 @@ bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::stri
   if (ROOT::IsImplicitMTEnabled()) {
     std::cout << "IMT is enabled with " << ROOT::GetThreadPoolSize() << " threads" << std::endl;
   }
-
-  // TH1::AddDirectory(kFALSE);
-  //
-
   Ndmspc::NWsClient client;
   if (!client.Connect(url)) {
     NLogError("Failed to connect to '%s' !!!", url.c_str());

@@ -17,7 +17,6 @@ void Gaus(int nEntries = 10000, double mean = 0.0, double sigma = 1.0, std::stri
 {
 
   gROOT->SetBatch(kTRUE); // Run in batch mode to avoid opening GUI windows
-  TH1::AddDirectory(kFALSE); // Avoid memory leaks by not adding histograms to the current directory
 
   std::string title = TString::Format("Gaussian Fit: nEntries=%d, mean=%.2f, sigma=%.2f", nEntries, mean, sigma).Data();
   TCanvas *c1 = new TCanvas("cGaus", title.c_str(), 800, 600);

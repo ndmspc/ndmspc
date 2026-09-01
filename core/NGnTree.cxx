@@ -409,11 +409,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     // NLogInfo("Starting processing ...");
-#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
-  ROOT::Experimental::DisableObjectAutoRegistration();
-#else
-  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
-#endif
+    NUtils::DisableObjectAutoRegistration();
   };
 
   // Define the end function which is executed after processing all points
@@ -545,11 +541,9 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
   const bool runOutput = NLogger::GetRunOutput();
   bool       batch     = gROOT->IsBatch();
   gROOT->SetBatch(kTRUE);
-#if ROOT_VERSION_CODE >= ROOT_VERSION(6, 40, 0)
-  ROOT::Experimental::DisableObjectAutoRegistration();
-#else
-  TH1::AddDirectory(kFALSE); // Disable ROOT auto directory management
-#endif
+
+  NUtils::DisableObjectAutoRegistration();
+
 
   std::string storagePostfix = fTreeStorage ? fTreeStorage->GetPostfix() : "";
   if (storagePostfix.empty() && fTreeStorage) {
@@ -1716,7 +1710,6 @@ void NGnTree::Play(int timeout, std::string binning, std::vector<int> outputPoin
 //   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * /*outputPoint*/,
 //                                              int /*threadId*/) {
 //     // NLogInfo("Thread ID: %d", threadId);
-//     TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
 //     point->Print();
 //     json cfg = point->GetCfg();
 
@@ -2107,7 +2100,7 @@ NGnTree * NGnTree::ImportNgnt(const std::string & findPath, const std::string & 
     outputPoint->Add(new TH1S("source_file", filename.c_str(), 1, 0.5, 1.5));
   };
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
+    NUtils::DisableObjectAutoRegistration();
   };
 
   Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * point, int /*threadId*/) {

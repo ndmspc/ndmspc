@@ -3,7 +3,7 @@
 #include <TList.h>
 #include <TRandom.h>
 #include <TSystem.h>
-
+#include <ndmspc/core/NUtils.h>
 void printRSS(const char * label = "")
 {
   ProcInfo_t info;
@@ -42,7 +42,8 @@ TList * createCanvasesWithHistos(int nCanvases, int nHistosPerCanvas, int nEntri
 // Function to write TList to TTree and file
 void writeTreeCanvas(int nEntries = 10, int nCanvases = 1, int nHistosPerCanvas = 1, int nEntriesPerHisto = 1000)
 {
-  TH1::AddDirectory(kFALSE); // Avoid issues with histograms being associated with the current directory
+  Ndmspc::NUtils::DisableObjectAutoRegistration();
+
 
   //   TList * l = createCanvasesWithHistos(nCanvases, nHistosPerCanvas, nEntriesPerHisto);
   //   Printf("Created %d canvases with %d histograms each. Final list contains %d objects.", nCanvases,

@@ -16,17 +16,17 @@ void NSystematics02Gaus(std::string inFile = "NSystematics01Gaus.root", std::str
   json cfg;
   cfg["inFile"] = inFile;
 
-  cfg["parameter"]["meanFit"]["histo"]        = {100, -3.0, 3.0};
-  cfg["parameter"]["sigmaFit"]["histo"]       = {100, 0.0, 5.0};
+  cfg["parameter"]["meanFit"]["histo"]  = {100, -3.0, 3.0};
+  cfg["parameter"]["sigmaFit"]["histo"] = {100, 0.0, 5.0};
   // cfg["parameter"]["meanFit"]["histoAbsDev"]  = {100, 0.0, 100.0};
   // cfg["parameter"]["sigmaFit"]["histoAbsDev"] = {100, 0.0, 100.0};
   // cfg["parameter"]["meanFit"]["histoRelDev"]  = {100, 0.0, 1.0};
   // cfg["parameter"]["sigmaFit"]["histoRelDev"] = {100, 0.0, 1.0};
-  cfg["ref"]["seed"]["bin"]                   = 2;
-  cfg["ref"]["repeat"]["bin"]                 = 1;
-  cfg["ref"]["entries"]["bin"]                = 5;
-  cfg["sys"]["seed"]                          = {"seed"};
-  cfg["sys"]["repeat"]                        = {"repeat"};
+  cfg["ref"]["seed"]["bin"]    = 2;
+  cfg["ref"]["repeat"]["bin"]  = 1;
+  cfg["ref"]["entries"]["bin"] = 5;
+  cfg["sys"]["seed"]           = {"seed"};
+  cfg["sys"]["repeat"]         = {"repeat"};
   // cfg["sys"]["seed_repeat"]         = {"seed", "repeat"};
   // cfg["sys"]["entries"]             = {"entries"};
   // cfg["sys"]["entries_repeat"]      = {"entries", "repeat"};
@@ -170,10 +170,10 @@ void NSystematics02Gaus(std::string inFile = "NSystematics01Gaus.root", std::str
     std::map<std::string, Ndmspc::NSystematicsStats> statsMap;
     std::vector<std::string>                         parameters = cfg["parameters"].get<std::vector<std::string>>();
     for (auto & parName : parameters) {
-      statsMap[parName] = Ndmspc::NSystematicsStats(parName.c_str(), TString::Format("%s %s", parName.c_str(),point->GetString().c_str()).Data(),
-                                                    (int)cfg["parameter"][parName]["histo"][0].get<double>(),
-                                                    cfg["parameter"][parName]["histo"][1].get<double>(),
-                                                    cfg["parameter"][parName]["histo"][2].get<double>());
+      statsMap[parName] = Ndmspc::NSystematicsStats(
+          parName.c_str(), TString::Format("%s %s", parName.c_str(), point->GetString().c_str()).Data(),
+          (int)cfg["parameter"][parName]["histo"][0].get<double>(), cfg["parameter"][parName]["histo"][1].get<double>(),
+          cfg["parameter"][parName]["histo"][2].get<double>());
     }
     while ((linBin = iter->Next()) >= 0) {
       ngntIn->GetEntry(linBin);
@@ -243,7 +243,6 @@ void NSystematics02Gaus(std::string inFile = "NSystematics01Gaus.root", std::str
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     // NLogInfo("Starting processing ...");
-    TH1::AddDirectory(kFALSE);
   };
 
   // Define the end function which is executed after processing all points

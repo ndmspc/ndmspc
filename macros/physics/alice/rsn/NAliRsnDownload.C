@@ -69,7 +69,6 @@ void NAliRsnDownload(int nThreads = 1, std::string outFile = "/tmp/NAliRsnDownlo
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
     point->Print();
     json        cfg                 = point->GetCfg();
     std::string basePath            = cfg["basePath"].get<std::string>();

@@ -663,8 +663,8 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
           rangesTmp.push_back({axisIndex, 1, 1});
           rangesTmp.push_back({axisIndex + 1, 1, 1});
           rangesTmp.push_back({axisIndex + 2, idx, idx});
-          NLogDebug("Processing axis: %s (%s), iAxis: %d, axisIndex: %d, coords: %d, %d, %d", axisName.c_str(), sysLabel.c_str(),iAxis,
-                  axisIndex, 1, 1, idx);
+          NLogDebug("Processing axis: %s (%s), iAxis: %d, axisIndex: %d, coords: %d, %d, %d", axisName.c_str(),
+                    sysLabel.c_str(), iAxis, axisIndex, 1, 1, idx);
         }
       }
       else {
@@ -673,8 +673,8 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
         rangesTmp.push_back({axisIndex, c[iAxis], c[iAxis]});
         rangesTmp.push_back({axisIndex + 1, c[iAxis + 1], c[iAxis + 1]});
         rangesTmp.push_back({axisIndex + 2, c[iAxis + 2], c[iAxis + 2]});
-        NLogDebug("Processing axis: %s, iAxis: %d, axisIndex: %d, coords: %d, %d, %d", name.c_str(), iAxis, axisIndex, c[iAxis],
-                  c[iAxis + 1], c[iAxis + 2]);
+        NLogDebug("Processing axis: %s, iAxis: %d, axisIndex: %d, coords: %d, %d, %d", name.c_str(), iAxis, axisIndex,
+                  c[iAxis], c[iAxis + 1], c[iAxis + 2]);
       }
     }
 
@@ -759,7 +759,6 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
   // Define the begin function which is executed before processing all points
   Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
     // NLogInfo("Starting processing ...");
-    TH1::AddDirectory(kFALSE);
   };
 
   // Define the end function which is executed after processing all points

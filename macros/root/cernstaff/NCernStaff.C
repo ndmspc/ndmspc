@@ -88,7 +88,6 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE); // Prevent histograms from being associated with the current directory
 
     if (!point) {
       NLogError("NCernStaff: Point is nullptr !!!");

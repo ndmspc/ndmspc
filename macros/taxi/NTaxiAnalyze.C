@@ -38,7 +38,6 @@ void NTaxiAnalyze(std::string inputFile = "NTaxiConvert.root",
   Ndmspc::NHnSparseProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * output, TList * outputPoint,
                                                    int threadId) {
     // NLogInfo("Thread ID: %d", threadId);
-    TH1::AddDirectory(kFALSE);
 
     if (!point) {
       NLogError("NTaxiAnalyze: Point is nullptr !!!");
