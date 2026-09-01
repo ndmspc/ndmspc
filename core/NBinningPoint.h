@@ -2,6 +2,7 @@
 #define Ndmspc_NBinningPoint_H
 #include <TObject.h>
 #include "NLogger.h"
+#include "NLogString.h"
 #include "NParameters.h"
 
 namespace Ndmspc {
@@ -283,6 +284,23 @@ class NBinningPoint : public TObject {
    */
   json & GetTempCfg() { return fTempCfg; }
 
+  /**
+   * @brief Get this point's log entry (added to the output list by the processing framework
+   * after the user process function returns, if it has any content).
+   * @return Pointer to the point's NLogString instance.
+   */
+  NLogString * GetLog() { return &fLog; }
+
+  /**
+   * @brief Append a formatted line to this point's log.
+   * @param fmt Printf-style format string.
+   */
+#if defined(__GNUC__)
+  void AddLog(const char * fmt, ...) __attribute__((format(printf, 2, 3)));
+#else
+  void AddLog(const char * fmt, ...);
+#endif
+
   private:
   json                             fCfg{};                  ///< Configuration object
   NGnTree *                        fInput{nullptr};         ///< Input NGnTree object
@@ -301,6 +319,7 @@ class NBinningPoint : public TObject {
   NParameters *                    fParameters{nullptr};    ///< Parameter axis (if any)
   std::map<std::string, TObject *> fTempObjects;            ///<! Outputs map
   json                             fTempCfg{};              ///< Temporary configuration object
+  NLogString                       fLog{"log", "Log"};      ///<! Scratch log entry for the current entry
 
   /// \cond CLASSIMP
   ClassDef(NBinningPoint, 1);
