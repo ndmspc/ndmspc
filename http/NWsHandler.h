@@ -25,6 +25,34 @@ namespace Ndmspc {
  * Inherits from THttpWSHandler to manage WebSocket events, broadcast messages,
  * and maintain client information in a thread-safe manner.
  *
+ * ### WS_DATA API request/reply protocol
+ * Incoming `WS_DATA` messages are treated as HTTP API calls when the payload parses as a
+ * JSON object containing a non-empty `path`. They are converted to a THttpCallArg and routed
+ * through `NGnHttpServer::ProcessRequest`, i.e. the same handler that would serve
+ * `POST /api/<path>`. Any message that is not valid JSON or lacks `path` falls back to the
+ * legacy chat-relay demo (broadcast to other clients).
+ *
+ * Request (sent by client over the websocket):
+ * @code
+ * {
+ *   "requestId": "optional-client-id",     // optional, any JSON value, echoed back verbatim
+ *   "method": "POST",                      // optional, default "POST" (or "GET"/"DELETE")
+ *   "path": "group/action",                // required, same path used for HTTP /api/<path>
+ *   "query": "k=v&...",                    // optional, raw query string
+ *   "payload": { }                         // optional, becomes the JSON POST body
+ * }
+ * @endcode
+ *
+ * Reply (sent back only to the requesting client):
+ * @code
+ * {
+ *   "event": "ngnt_reply",
+ *   "requestId": "optional-client-id",     // echoed from the request, or null
+ *   "contentType": "application/json",     // arg->GetContentType() from ProcessRequest
+ *   "payload": { }                         // parsed JSON response body, or raw string
+ * }
+ * @endcode
+ *
  * @author Martin Vala <mvala@cern.ch>
  */
 class NWsHandler : public THttpWSHandler {

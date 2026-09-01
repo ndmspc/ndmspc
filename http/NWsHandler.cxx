@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
+#include "ndmspc/http/NGnHttpServer.h"
 // ClassImp(Ndmspc::NWsHandler);
 //
 namespace Ndmspc {
@@ -104,6 +105,61 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
     ULong_t     senderWsId = arg->GetWSId();
     std::string receivedStr((const char *)arg->GetPostData(), arg->GetPostDataLength());
     NLogTrace("WS_DATA from ID %lld: %s", senderWsId, receivedStr.c_str());
+
+    // Route JSON messages carrying a "path" through the same HTTP API dispatch used for
+    // real HTTP requests; anything else falls back to the legacy chat-relay demo below.
+    // Note: an empty "path" is valid and maps to the API root (welcome/state) endpoint.
+    json apiRequest;
+    bool isApiRequest = false;
+    try {
+      apiRequest   = json::parse(receivedStr);
+      isApiRequest = apiRequest.is_object() && apiRequest.contains("path") && apiRequest["path"].is_string();
+    }
+    catch (const json::parse_error &) {
+      isApiRequest = false;
+    }
+
+    if (isApiRequest) {
+      json requestId = apiRequest.contains("requestId") ? apiRequest["requestId"] : json(nullptr);
+      std::string method  = apiRequest.value("method", "POST");
+      std::string path    = apiRequest["path"].get<std::string>();
+      std::string query   = apiRequest.value("query", "");
+      json        payload = apiRequest.contains("payload") ? apiRequest["payload"] : json::object();
+
+      if (!Ndmspc::gNGnHttpServer) {
+        NLogError("Cannot route WS_DATA to HTTP API: gNGnHttpServer is not set");
+        return kTRUE;
+      }
+
+      auto httpArg = std::make_shared<THttpCallArg>();
+      httpArg->SetMethod(method.c_str());
+      // Mirror NGnHttpServer::ProcessRequest's fullpath = "/" + path + "/" + filename + "/"
+      // construction: keep path fixed to "api" and put the actual route in filename, same
+      // shape as the already-tested empty-path case (both parts get collapsed correctly).
+      httpArg->SetPathName("api");
+      httpArg->SetFileName(path.c_str());
+      if (!query.empty()) httpArg->SetQuery(query.c_str());
+      httpArg->SetWSId(senderWsId);
+      httpArg->SetPostData(payload.dump());
+
+      Ndmspc::gNGnHttpServer->ProcessRequest(httpArg);
+
+      std::string content((const char *)httpArg->GetContent(), httpArg->GetContentLength());
+      json        reply;
+      reply["event"]       = "ngnt_reply";
+      reply["requestId"]   = requestId;
+      reply["contentType"] = httpArg->GetContentType();
+      try {
+        reply["payload"] = json::parse(content);
+      }
+      catch (const json::parse_error &) {
+        reply["payload"] = content;
+      }
+
+      NLogTrace("Replying to WS_DATA API request from ID %lld for path: %s", senderWsId, path.c_str());
+      SendCharStarWS(senderWsId, reply.dump().c_str());
+      return kTRUE;
+    }
 
     std::string senderUsername = "Unknown";
     auto        it             = fClients.find(senderWsId);
