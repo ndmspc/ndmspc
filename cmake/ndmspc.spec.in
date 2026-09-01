@@ -30,7 +30,10 @@ Source0:    %{name}-%{version}.tar.gz
 
 BuildRequires: systemd-rpm-macros
 BuildRequires: git, gcc-c++, cmake, openssl-devel
-BuildRequires: json-devel, zeromq-devel, cpp-httplib-devel, cli11-devel
+BuildRequires: json-devel, zeromq-devel
+%if 0%{?rhel} >= 10 || 0%{?almalinux} >= 10
+BuildRequires: cpp-httplib-devel, cli11-devel
+%endif
 BuildRequires: root, root-net-http, root-net-httpsniff
 BuildRequires: root-roofit root-roofit-more
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
