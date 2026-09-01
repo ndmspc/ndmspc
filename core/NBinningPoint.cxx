@@ -1,7 +1,9 @@
 #include <vector>
+#include <cstdarg>
 #include <TAxis.h>
 #include "NBinningDef.h"
 #include "NLogger.h"
+#include "NLogString.h"
 #include "NStorageTree.h"
 #include "NUtils.h"
 #include "NBinning.h"
@@ -76,6 +78,7 @@ void NBinningPoint::Reset()
     fLabels[i]        = "";
   }
   fEntryNumber = -1;
+  fLog.Reset();
 }
 
 void NBinningPoint::Print(Option_t * option) const
@@ -428,6 +431,14 @@ TObject * NBinningPoint::GetTempObject(const std::string & name) const
     return it->second;
   }
   return nullptr;
+}
+
+void NBinningPoint::AddLog(const char * fmt, ...)
+{
+  va_list args;
+  va_start(args, fmt);
+  fLog.AddLineV(fmt, args);
+  va_end(args);
 }
 
 } // namespace Ndmspc

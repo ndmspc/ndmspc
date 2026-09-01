@@ -1,10 +1,12 @@
 
 #include <mutex>
+#include <cstring>
 #include <TROOT.h>
 #include <TCanvas.h>
 #include <TSystem.h>
 #include <THnSparse.h>
 #include "NBinningPoint.h"
+#include "NLogString.h"
 #include "NStorageTree.h"
 #include "NLogger.h"
 #include "NUtils.h"
@@ -239,6 +241,12 @@ void NGnThreadData::Process(const std::vector<int> & coords)
   fResourceMonitor->Start();
 
   fProcessFunc(point, fHnSparseBase->GetOutput(), outputPoint, GetAssignedIndex());
+
+  // Add the point's log (populated via point->AddLog() in the user function, if any) to the output list.
+  if (strlen(point->GetLog()->GetString()) > 0) {
+    outputPoint->Add(new NLogString(*point->GetLog()));
+    point->GetLog()->Reset();
+  }
 
   fResourceMonitor->End();
   fResourceMonitor->Fill(point->GetStorageCoords(), GetAssignedIndex());

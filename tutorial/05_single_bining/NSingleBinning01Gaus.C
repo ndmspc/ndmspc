@@ -8,7 +8,8 @@
 #include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NLogger.h>
 #include <ndmspc/core/NUtils.h>
-
+#include <ndmspc/core/NParameters.h>
+#include <ndmspc/core/NBinningPoint.h>
 void NSingleBinning01Gaus(std::string outFile = "NSingleBinning01Gaus.root", bool onlyOddPoints = false)
 {
   json cfg;
@@ -92,6 +93,9 @@ void NSingleBinning01Gaus(std::string outFile = "NSingleBinning01Gaus.root", boo
     }
     outputPoint->Add(h);
     outputPoint->Add(c);
+    point->AddLog("# Fit results: %s", point->GetString().c_str());
+    point->AddLog("\tmean = %.3f ± %.3f", fitResult->Parameter(1), fitResult->Error(1));
+    point->AddLog("\tsigma = %.3f ± %.3f", fitResult->Parameter(2), fitResult->Error(2));
   };
 
   // Define the begin function which is executed before processing all points
