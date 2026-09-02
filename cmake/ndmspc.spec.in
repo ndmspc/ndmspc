@@ -155,6 +155,9 @@ rm -rf %{buildroot}
 cd build
 make install DESTDIR=%{buildroot}
 
+rm -f %{buildroot}/%{_datadir}/doc/httplib/README.md
+rm -f %{buildroot}/%{_datadir}/licenses/httplib/LICENSE
+
 %post
 %systemd_post ndmspc-http@*.service
 
@@ -184,8 +187,6 @@ make install DESTDIR=%{buildroot}
 %{_bindir}/ndmspc-worker
 %if %{with_ai}
 %{_bindir}/ndmspc-chat
-%exclude %{_datadir}/doc/httplib/README.md
-%exclude %{_datadir}/licenses/httplib/LICENSE
 %endif
 %{_includedir}/*
 %exclude %{_datadir}/%{name}/macros/taxi/*
