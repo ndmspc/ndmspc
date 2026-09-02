@@ -39,7 +39,8 @@ namespace Ndmspc {
  *   "method": "POST",                      // optional, default "POST" (or "GET"/"DELETE")
  *   "path": "group/action",                // required, same path used for HTTP /api/<path>
  *   "query": "k=v&...",                    // optional, raw query string
- *   "payload": { }                         // optional, becomes the JSON POST body
+ *   "payload": { },                        // optional, becomes the JSON POST body
+ *   "headers": { "X-Custom": "value" }     // optional, forwarded as request headers (string values only)
  * }
  * @endcode
  *
