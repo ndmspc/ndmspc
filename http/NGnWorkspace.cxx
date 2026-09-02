@@ -6,6 +6,10 @@
 
 #include "ndmspc/core/NLogger.h"
 
+/// \cond CLASSIMP
+ClassImp(Ndmspc::NGnWorkspace);
+/// \endcond
+
 namespace Ndmspc {
 
 NGnWorkspace::NGnWorkspace(const char * name, const char * title, NGnHttpServer * server)
@@ -60,23 +64,28 @@ bool NGnWorkspace::RemoveEntry(int index)
   delete entry;
   fEntries.erase(fEntries.begin() + index);
 
-  // Remove any workspace JSON keys that have no corresponding history entry
-  // (e.g. schema previews added by a handler that was just removed)
+  // Remove schemas for entries that have been deleted. History entries use
+  // full route names ("ngnt/open"), while workspace keys use the route name
+  // relative to that group ("open").
   std::vector<std::string> orphanedKeys;
   for (auto it = fWorkspace.begin(); it != fWorkspace.end(); ++it) {
     bool hasEntry = false;
     for (const auto & e : fEntries) {
-      if (it.key() == std::string(e->GetName())) {
+      std::string entryKey = e->GetName();
+      const auto  slashPos = entryKey.find('/');
+      if (slashPos != std::string::npos) entryKey = entryKey.substr(slashPos + 1);
+
+      if (it.key() == entryKey) {
         hasEntry = true;
         break;
       }
     }
     if (!hasEntry) orphanedKeys.push_back(it.key());
   }
-  // for (const auto & key : orphanedKeys) {
-  //   NLogTrace("Removing orphaned workspace key: %s", key.c_str());
-  //   fWorkspace.erase(key);
-  // }
+  for (const auto & key : orphanedKeys) {
+    NLogTrace("Removing orphaned workspace key: %s", key.c_str());
+    fWorkspace.erase(key);
+  }
 
   return true;
 }
@@ -141,11 +150,13 @@ json NGnWorkspace::GetInspectorSchema() const
   std::string group;
   if (!fEntries.empty()) {
     std::string nameStr = fEntries[0]->GetName();
-    auto pos = nameStr.find('/');
-    if (pos != std::string::npos) group = nameStr.substr(0, pos);
-    else group = nameStr;
+    auto        pos     = nameStr.find('/');
+    if (pos != std::string::npos)
+      group = nameStr.substr(0, pos);
+    else
+      group = nameStr;
   }
-  inspector["group"] = group.empty() ? "": group;
+  inspector["group"] = group.empty() ? "" : group;
 
   // Properties: build OpenAPI/JSON-Schema style properties from fWorkspace
   inspector["properties"] = json::object();
@@ -160,7 +171,7 @@ json NGnWorkspace::GetInspectorSchema() const
   // History: simplify to list of workspace keys (short names) preserving order
   json history = json::array();
   for (const auto & entry : fEntries) {
-    std::string name = entry->GetName();
+    std::string name  = entry->GetName();
     std::string wsKey = name;
     if (!group.empty()) {
       std::string prefix = group + "/";
@@ -173,12 +184,12 @@ json NGnWorkspace::GetInspectorSchema() const
   out["inspector"] = inspector;
 
   // Attach metadata from state if present, otherwise empty object
-  if (fState.is_object() && !fState.empty()) out["metadata"] = fState;
-  else out["metadata"] = json::object();
+  if (fState.is_object() && !fState.empty())
+    out["metadata"] = fState;
+  else
+    out["metadata"] = json::object();
 
   return out;
 }
 
 } // namespace Ndmspc
-
-ClassImp(Ndmspc::NGnWorkspace);

@@ -8,7 +8,7 @@ spec:
     metadata:
       annotations:
         autoscaling.knative.dev/min-scale: "0"
-        autoscaling.knative.dev/max-scale: "1"
+        autoscaling.knative.dev/max-scale: "10"
         autoscaling.knative.dev/metric: "concurrency"
         autoscaling.knative.dev/target: "1"
         autoscaling.knative.dev/target-utilization-percentage: "100"
