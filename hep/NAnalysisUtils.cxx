@@ -630,8 +630,8 @@ void NAnalysisUtils::ProcessSystematics(const std::string & cfgFile)
 
     auto hnsIn = ngntIn->GetBinning()->GetContent();
 
-    hnsIn->Print();
-    return;
+    // hnsIn->Print();
+    // return;
 
     Long64_t                      linBin = 0;
     std::vector<std::vector<int>> rangesTmp;
