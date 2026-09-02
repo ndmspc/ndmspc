@@ -2,14 +2,42 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run test_04_NCustomization",
-      "type": "gdb",
+      "name": "ndmspc-run macro",
+      "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/build/test/test_04_NCustomization.cxx",
-      "args": [],
+      "program": "${workspaceFolder}/build/core/cli/ndmspc-run",
+      "args": [
+        "${input:macro}",
+        "-v"
+      ],
       "cwd": "${workspaceFolder}",
-      "stopAtBeginningOfMainSubprogram": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
       "stopAtEntry": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "macro",
+      "type": "pickString",
+      "description": "Select a ROOT macro",
+      "options": [
+        "${workspaceFolder}/tutorial/01_executor/NExecutor1D.C",
+        "${workspaceFolder}/tutorial/01_executor/NExecutor2D.C",
+        "${workspaceFolder}/tutorial/01_executor/NExecutor5D.C",
+        "${workspaceFolder}/tutorial/02_storage/NStorage01Gaus.C",
+        "${workspaceFolder}/tutorial/03_parameter/Gaus.C",
+        "${workspaceFolder}/tutorial/03_parameter/NParameter01Gaus.C",
+        "${workspaceFolder}/tutorial/04_customization/NCustomization01Gaus.C",
+        "${workspaceFolder}/tutorial/05_single_bining/NSingleBinning01Gaus.C",
+        "${workspaceFolder}/tutorial/06_binnings/NBinnings01Gaus.C",
+        "${workspaceFolder}/tutorial/06_binnings/NBinnings01GausStress.C",
+        "${workspaceFolder}/tutorial/07_nested_processing/NNestedProcessing01Gaus.C",
+        "${workspaceFolder}/tutorial/08_systematics/NSystematics01Gaus.C",
+        "${workspaceFolder}/tutorial/08_systematics/NSystematics02Gaus.C",
+        "${workspaceFolder}/tutorial/08_systematics/NSystematics02GausCfg.C",
+        "${workspaceFolder}/tutorial/99_stress/NCpuStress.C"
+      ]
     }
   ]
 }

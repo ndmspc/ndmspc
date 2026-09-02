@@ -13,6 +13,7 @@
     {
       "name": "default",
       "configurePreset": "default",
+      "targets": ["install"],
       "jobs": 0
     }
   ]

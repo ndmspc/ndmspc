@@ -148,8 +148,8 @@ int main(int argc, char ** argv)
   //   (`NDMSPC_LOG_CONSOLE=0`).
   // - If `NDMSPC_LOG_CONSOLE` is set and `NDMSPC_LOG_RUN` is not set: default
   //   `NDMSPC_LOG_RUN=0`.
-  // - If both are set, respect the user's values. `--verbose` overrides
-  //   console output and forces console on.
+  // - If both are set, respect the user's values. `--verbose` subsequently
+  //   overrides both values to enable console output and disable run output.
   const char * origRunEnv = gSystem->Getenv("NDMSPC_LOG_RUN");
   const char * origConsoleEnv = gSystem->Getenv("NDMSPC_LOG_CONSOLE");
   const bool hadRun = origRunEnv != nullptr;
@@ -179,12 +179,20 @@ int main(int argc, char ** argv)
     }
   }
 
+  // Verbose mode is an explicit logging configuration: prefer console output
+  // and suppress the run log, irrespective of any inherited settings.
+  if (verbose) {
+    gSystem->Setenv("NDMSPC_LOG_CONSOLE", "1");
+    gSystem->Setenv("NDMSPC_LOG_RUN", "0");
+    origConsoleEnv = "1";
+    origRunEnv     = "0";
+  }
+
   // Apply to runtime logger.
   Ndmspc::NLogger::SetRunOutput(std::string(origRunEnv) == "1");
 
-  // Console output: honor explicit env var, but allow `--verbose` to override.
+  // Console output follows the configured environment.
   bool consoleEnabled = std::string(origConsoleEnv ? origConsoleEnv : "0") == "1";
-  if (verbose) consoleEnabled = true;
   Ndmspc::NLogger::SetConsoleOutput(consoleEnabled);
 
   // Set env vars from CLI args (only if not already set in the environment)
