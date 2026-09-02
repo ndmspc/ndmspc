@@ -125,6 +125,9 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       std::string path    = apiRequest["path"].get<std::string>();
       std::string query   = apiRequest.value("query", "");
       json        payload = apiRequest.contains("payload") ? apiRequest["payload"] : json::object();
+      json        headers = apiRequest.contains("headers") && apiRequest["headers"].is_object()
+                                 ? apiRequest["headers"]
+                                 : json::object();
 
       if (!Ndmspc::gNGnHttpServer) {
         NLogError("Cannot route WS_DATA to HTTP API: gNGnHttpServer is not set");
@@ -141,6 +144,16 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       if (!query.empty()) httpArg->SetQuery(query.c_str());
       httpArg->SetWSId(senderWsId);
       httpArg->SetPostData(payload.dump());
+
+      if (!headers.empty()) {
+        // SetRequestHeader expects the raw "Name: value\r\n..." block read by GetRequestHeader
+        std::string headerBlock;
+        for (auto it = headers.begin(); it != headers.end(); ++it) {
+          if (!it.value().is_string()) continue;
+          headerBlock += it.key() + ": " + it.value().get<std::string>() + "\r\n";
+        }
+        httpArg->SetRequestHeader(headerBlock.c_str());
+      }
 
       Ndmspc::gNGnHttpServer->ProcessRequest(httpArg);
 
