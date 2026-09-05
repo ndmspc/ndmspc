@@ -5,6 +5,10 @@
 #include <mutex>  // For std::mutex
 #include <chrono> // For std::chrono::system_clock
 #include <cstdio>
+#include <memory>
+#include <vector>
+
+#include "ndmspc/http/NOidcAuthenticator.h"
 
 #include <THttpWSHandler.h>
 #include <TString.h>
@@ -17,6 +21,11 @@
 class THttpCallArg;
 class TTimer;
 namespace Ndmspc {
+
+struct NWsPendingClient {
+  std::chrono::steady_clock::time_point readyAt;
+  bool authenticationInProgress{false};
+};
 
 /**
  * @class NWsHandler
@@ -63,7 +72,9 @@ class NWsHandler : public THttpWSHandler {
    * @param name Optional handler name.
    * @param title Optional handler title.
    */
-  NWsHandler(const char * name = nullptr, const char * title = nullptr);
+  NWsHandler(const char * name = nullptr, const char * title = nullptr,
+             std::shared_ptr<IOidcTokenVerifier> verifier = nullptr,
+             std::chrono::seconds authenticationTimeout = std::chrono::seconds(15));
 
   /**
    * @brief Destructor.
@@ -105,8 +116,20 @@ class NWsHandler : public THttpWSHandler {
   Bool_t HandleTimer(TTimer * timer) override;
 
   protected:
+  void HandleAuthentication(ULong_t wsId, const json & message);
+  void ActivateAnonymousClient(ULong_t wsId);
+  void SendWelcomeAndAnnounce(ULong_t wsId, const std::string & username);
+  void SendAuthenticationError(ULong_t wsId, const std::string & code, const std::string & message, bool retryable);
+  void RemoveClientAndAnnounce(ULong_t wsId);
+  void ExpireConnections();
+  json BuildClientsMessage() const;
+  std::vector<ULong_t> ClientIds() const;
+
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
-  std::mutex                       fMutex;      ///< Mutex for thread-safe client map access
+  std::map<ULong_t, NWsPendingClient> fPendingClients; ///<! Runtime pending authentication state
+  mutable std::mutex               fMutex;      ///<! Mutex for thread-safe client map access
+  std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Runtime token verifier
+  std::chrono::seconds fAuthenticationTimeout; ///<! Runtime authentication timeout
   Int_t                            fServCnt{0}; ///< Service counter
   std::chrono::system_clock::time_point fServerStartedAt; ///< Server start time
   // network stats snapshot for computing speeds
@@ -119,7 +142,7 @@ class NWsHandler : public THttpWSHandler {
   bool                             fHavePrevFile{false}; ///< whether previous file snapshot exists
 
   /// \cond CLASSIMP
-  ClassDefOverride(NWsHandler, 1);
+  ClassDefOverride(NWsHandler, 2);
   /// \endcond;
 };
 

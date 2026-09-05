@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
 
-set(PROJECT_VERSION "1.4.0" CACHE STRING "Project version")
+set(PROJECT_VERSION "9999.0.0" CACHE STRING "Project version")
 set(PROJECT_VERSION_RELEASE "1" CACHE STRING "Project release version")
 project(ndmspc VERSION ${PROJECT_VERSION} DESCRIPTION "NDMSPC")
 

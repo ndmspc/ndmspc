@@ -13,6 +13,8 @@
 #     GIT_REPOSITORY <git-url>     # used when USE_FAST_FETCH is OFF, tag = VERSION
 #     INCLUDE_SUBDIR <path>        # path under the fetched source with the headers, "." for repo root
 #     [REQUIRED]
+#     [NO_ADD_SUBDIRECTORY]        # fetch only (no add_subdirectory): expose headers only,
+#                                  # do not register the dependency's own install() rules
 #   )
 #
 # On return sets, in the caller's scope: <NAME>_FOUND, <NAME>_INCLUDE_DIRS, <NAME>_LIBRARIES
@@ -20,7 +22,7 @@
 include_guard(GLOBAL)
 
 function(ndmspc_find_or_fetch)
-  set(options REQUIRED)
+  set(options REQUIRED NO_ADD_SUBDIRECTORY)
   set(oneValueArgs NAME VERSION URL GIT_REPOSITORY INCLUDE_SUBDIR)
   cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "" ${ARGN})
 
@@ -46,12 +48,21 @@ function(ndmspc_find_or_fetch)
 
   include(FetchContent)
 
+  if(ARG_NO_ADD_SUBDIRECTORY)
+    # Point at a directory without a CMakeLists.txt so FetchContent_MakeAvailable
+    # downloads but does not add the dependency's CMake subproject (see below).
+    set(_source_subdir_arg SOURCE_SUBDIR cmake/no-add-subdirectory-sentinel)
+  else()
+    set(_source_subdir_arg "")
+  endif()
+
   if(USE_FAST_FETCH)
     message(STATUS "${ARG_NAME}: resolved via FetchContent tarball (${ARG_VERSION})")
     FetchContent_Declare(
       ${_name_lower}
       URL ${ARG_URL}
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+      ${_source_subdir_arg}
     )
   else()
     message(STATUS "${ARG_NAME}: resolved via FetchContent git tag (${ARG_VERSION})")
@@ -59,9 +70,13 @@ function(ndmspc_find_or_fetch)
       ${_name_lower}
       GIT_REPOSITORY ${ARG_GIT_REPOSITORY}
       GIT_TAG ${ARG_VERSION}
+      ${_source_subdir_arg}
     )
   endif()
 
+  # Download-only mode (NO_ADD_SUBDIRECTORY): the SOURCE_SUBDIR sentinel above makes
+  # FetchContent_MakeAvailable skip add_subdirectory(), so header-only dependencies
+  # never register their own install() rules in the NDMSPC install.
   FetchContent_MakeAvailable(${_name_lower})
 
   if(ARG_INCLUDE_SUBDIR STREQUAL ".")

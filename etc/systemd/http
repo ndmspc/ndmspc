@@ -1,3 +1,6 @@
 NDMSPC_HTTP_OPTS=""
 ROOT_INCLUDE_PATH=/usr/include/ndmspc:/usr/include/root
+# NDMSPC_OIDC_ISSUER=https://keycloak.example/realms/ndmspc
+# NDMSPC_OIDC_AUDIENCE=ndmspc
+# NDMSPC_OIDC_CA_FILE=/etc/pki/ca-trust/source/anchors/keycloak-ca.pem
 

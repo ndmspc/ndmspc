@@ -16,9 +16,11 @@ namespace Ndmspc {
 class NWsClientInfo {
   private:
   ULong_t     fWsId;         ///< Unique WebSocket client ID
+  std::string fSubject;
   std::string fUsername;     ///< Username associated with the client
   int         fMessageCount; ///< Number of messages sent/received
   std::chrono::system_clock::time_point fConnectedAt; ///< Connection start time
+  std::chrono::system_clock::time_point fTokenExpiresAt;
 
   public:
   /**
@@ -32,6 +34,8 @@ class NWsClientInfo {
    * @param username Username for the client.
    */
   NWsClientInfo(ULong_t id, const std::string & username);
+  NWsClientInfo(ULong_t id, std::string subject, std::string username,
+                std::chrono::system_clock::time_point tokenExpiresAt);
 
   /**
    * @brief Get the WebSocket client ID.
@@ -44,6 +48,11 @@ class NWsClientInfo {
    * @return Username string.
    */
   const std::string & GetUsername() const;
+  const std::string & GetSubject() const;
+  std::chrono::system_clock::time_point GetTokenExpiresAt() const;
+  bool IsTokenValidAt(std::chrono::system_clock::time_point now) const;
+  void ReplaceIdentity(std::string subject, std::string username,
+                       std::chrono::system_clock::time_point tokenExpiresAt);
 
   /**
    * @brief Get the message count for the client.
