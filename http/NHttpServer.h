@@ -3,12 +3,15 @@
 
 #include <thread>
 #include <atomic>
+#include <memory>
 #include <mutex>
+#include <chrono>
 #include <condition_variable>
 
 #include <THttpServer.h>
 
 #include "ndmspc/http/NCloudEvent.h"
+#include "ndmspc/http/NOidcConfig.h"
 #include "ndmspc/http/NWsHandler.h"
 
 class THttpCallArg;
@@ -31,8 +34,26 @@ class NHttpServer : public THttpServer {
    * @param engine Engine specification string (default: "http:8080").
    * @param ws Enable WebSocket support (default: true).
    * @param heartbeat_ms Heartbeat interval in milliseconds (default: 10000).
+   * @param oidcConfig OIDC configuration (empty disables authentication).
+   * @param startEngine When false the engine is not started yet; call
+   *        StartEngine() once initialization (e.g. HTTP handler registration)
+   *        is complete. This avoids serving requests before the server is
+   *        fully set up, which can race with handler-map population.
    */
-  NHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000);
+  NHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000,
+              NOidcConfig oidcConfig = {}, bool startEngine = true);
+
+  /**
+   * @brief (Re)start the HTTP engine with the given specification.
+   *
+   * Intended for servers constructed with startEngine=false: after all
+   * handlers are registered the engine is created here, which starts
+   * listening and (for WebSocket servers) the heartbeat thread.
+   *
+   * @param engine Engine specification string, e.g. "http:8080?top=ndmspc".
+   * @return True when an engine is now running.
+   */
+  bool StartEngine(const char * engine);
 
   /**
    * @brief Gets the WebSocket handler.
@@ -40,6 +61,18 @@ class NHttpServer : public THttpServer {
    */
   NWsHandler * GetWebSocketHandler() const { return fNWsHandler; }
   bool         WebSocketBroadcast(json message);
+
+  /**
+   * @brief Gets the shared OIDC token verifier (may be null in anonymous mode).
+   *
+   * The same verifier guards both WebSocket and HTTP requests.
+   */
+  std::shared_ptr<IOidcTokenVerifier> GetOidcVerifier() const { return fOidcVerifier; }
+
+  /**
+   * @brief Whether OIDC authentication is enabled for this server.
+   */
+  bool OidcEnabled() const { return static_cast<bool>(fOidcVerifier); }
 
   /**
    * @brief Set the heartbeat interval (ms). Recreates timer if running.
@@ -67,8 +100,20 @@ class NHttpServer : public THttpServer {
    */
   void StopHeartbeatThread();
 
+  /**
+   * @brief Create the WebSocket handler and start the heartbeat (internal).
+   *
+   * Called from the constructor when the engine starts immediately, or from
+   * StartEngine() when construction was deferred.
+   */
+  void SetupWebSocketAndHeartbeat();
+
   protected:
   NWsHandler *      fNWsHandler{nullptr}; ///<! WebSocket handler instance
+  std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Shared OIDC token verifier (HTTP + WS)
+  bool              fWsEnabled{false};   ///<! Whether WebSocket support was requested
+  bool              fEngineStarted{false}; ///<! Whether the HTTP engine has been created
+  std::chrono::seconds fAuthenticationTimeout{15}; ///<! WS authentication timeout
   int               fHeartbeatMs{10000};  ///<! Heartbeat interval in milliseconds
   std::thread *     fHeartbeatThread{nullptr};
   std::atomic<bool> fHeartbeatRunning{false};

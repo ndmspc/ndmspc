@@ -7,6 +7,8 @@ set(MY_INCLUDE_DIRS
   ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
+  ${HTTPLIB_INCLUDE_DIRS}
+  ${JWT_CPP_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/cmake/include
   ${CMAKE_SOURCE_DIR}/core
   ${CMAKE_SOURCE_DIR}/tutorial
@@ -52,6 +54,11 @@ foreach(src ${SRCS})
   target_include_directories(${testname} PRIVATE ${MY_INCLUDE_DIRS})
   target_link_directories(${testname} PRIVATE ${ROOT_LIBRARY_DIR})
   target_link_libraries(${testname} gtest_main ${MY_EXTERNAL_LIBS})
+  if(WITH_HTTP AND src MATCHES "test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator")
+    target_link_libraries(${testname} NdmspcHttp)
+    target_compile_definitions(${testname} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+    set_target_properties(${testname} PROPERTIES BUILD_RPATH "${CMAKE_BINARY_DIR}/http;${CMAKE_BINARY_DIR}/core")
+  endif()
   if(src MATCHES "^test_0[1-5]_")
     add_test(NAME ${testname}_thread1 COMMAND ${testname})
     set_tests_properties(${testname}_thread1 PROPERTIES ENVIRONMENT "NDMSPC_EXECUTION_MODE=thread;ROOT_MAX_THREADS=1")
@@ -108,6 +115,10 @@ foreach(src ${SRCS})
 
   else()
     add_test(NAME ${testname} COMMAND ${testname})
+    if(WITH_HTTP AND src MATCHES "test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator")
+      set_tests_properties(${testname} PROPERTIES
+        ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/http:${CMAKE_BINARY_DIR}/core:$ENV{LD_LIBRARY_PATH}")
+    endif()
   endif()
 endforeach()
 

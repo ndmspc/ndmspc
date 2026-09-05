@@ -1,5 +1,7 @@
 #ifndef Ndmspc_NGnHttpServer_H
 #define Ndmspc_NGnHttpServer_H
+#include <map>
+#include <mutex>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NGnWorkspace.h"
 #include "NHttpServer.h"
@@ -38,7 +40,8 @@ class NGnHistory;
 class NGnHttpServer : public NHttpServer {
 
   public:
-  NGnHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000);
+  NGnHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000,
+                NOidcConfig oidcConfig = {}, bool startEngine = true);
 
   virtual void Print(Option_t * option = "") const override;
   virtual void Clear(Option_t * option = "") override { NHttpServer::Clear(option); }
@@ -52,13 +55,20 @@ class NGnHttpServer : public NHttpServer {
 
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
 
-  void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers) { fHttpHandlers = handlers; }
+  /// @brief Replace the HTTP handler map (thread-safe).
+  void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers);
+
+  /// @brief Copy of the HTTP handler map (thread-safe).
+  std::map<std::string, Ndmspc::NGnHttpFuncPtr> GetHttpHandlers() const;
+
+  /// @brief Look up a handler by path without inserting (thread-safe).
+  /// @return The handler function pointer, or nullptr when not registered.
+  Ndmspc::NGnHttpFuncPtr FindHttpHandler(const std::string & name) const;
 
   void      AddInputObject(const std::string & name, TObject * obj) { fObjectsMap[name] = obj; }
   bool      RemoveInputObject(const std::string & name);
   TObject * GetInputObject(const std::string & name);
 
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> GetHttpHandlers() const { return fHttpHandlers; }
   std::map<std::string, TObject *> &            GetObjectsMap() { return fObjectsMap; }
   json &                                        GetWorkspace() { return fWorkspace.GetWorkspace(); }
   json &                                        GetState() { return fWorkspace.GetState(); }
@@ -67,6 +77,7 @@ class NGnHttpServer : public NHttpServer {
   const std::string &                           GetGroup() const { return fGroup; }
 
   private:
+  mutable std::mutex                            fHandlersMutex;    ///<! Guards fHttpHandlers
   std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
   NGnWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)

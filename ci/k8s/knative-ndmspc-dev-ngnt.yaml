@@ -7,7 +7,7 @@ spec:
   template:
     metadata:
       annotations:
-        autoscaling.knative.dev/min-scale: "0"
+        # autoscaling.knative.dev/min-scale: "1"
         autoscaling.knative.dev/max-scale: "10"
         autoscaling.knative.dev/metric: "concurrency"
         autoscaling.knative.dev/target: "1"
@@ -15,11 +15,14 @@ spec:
         autoscaling.knative.dev/window: "6s"
         autoscaling.knative.dev/scale-down-delay: "0s"
         autoscaling.knative.dev/scale-to-zero-pod-retention-period: "0s"
+        # Keep connections alive
+        networking.knative.dev/ingress.class: kourier.ingress.networking.knative.dev
     spec:
       containerConcurrency: 1
       containers:
-        - image: registry.gitlab.com/ndmspc/ndmspc/base:next
-          # - image: localhost:5001/ndmspc/ndmspc:latest
+        # - image: registry.gitlab.com/ndmspc/ndmspc/base:next
+        # - image: localhost:5001/ndmspc/ndmspc:latest
+        - image: registry.gitlab.com/ndmspc/ndmspc/base:v1.4.0-rc5
           env:
             - name: NDMSPC_LOG_LEVEL
               value: DEBUG
@@ -40,3 +43,28 @@ spec:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
+---
+apiVersion: networking.internal.knative.dev/v1alpha1
+kind: ClusterDomainClaim
+metadata:
+  name: cern-test.ndmspc.io
+spec:
+  namespace: default
+
+---
+apiVersion: serving.knative.dev/v1beta1
+kind: DomainMapping
+metadata:
+  name: cern-test.ndmspc.io
+  namespace: default
+  annotations:
+    kourier.knative.dev/disable-http2: "true"
+    # networking.knative.dev/enable-auto-tls: "false"
+    # Force HTTP/1.1 for WebSocket compatibility
+    #networking.knative.dev/http-protocol: "http1"
+spec:
+  ref:
+    name: ndmspc-ngnt-service
+    kind: Service
+    apiVersion: serving.knative.dev/v1
+---

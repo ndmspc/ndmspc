@@ -1,4 +1,7 @@
 #include <csignal>
+#include <chrono>
+#include <cstdlib>
+#include <stdexcept>
 #include "TROOT.h"
 #include <TSystem.h>
 #include <TFile.h>
@@ -54,6 +57,57 @@ void handle_sigterm(int sig)
   gSystem->Exit(0);
 }
 
+std::string EnvString(const char * name)
+{
+  const char * value = std::getenv(name);
+  return value ? value : "";
+}
+
+long EnvLong(const char * name, long defaultValue)
+{
+  const auto value = EnvString(name);
+  if (value.empty()) return defaultValue;
+  size_t consumed = 0;
+  const auto parsed = std::stol(value, &consumed);
+  if (consumed != value.size()) throw std::invalid_argument(std::string(name) + " must be an integer");
+  return parsed;
+}
+
+Ndmspc::NOidcConfig OidcConfigFromEnvironment()
+{
+  Ndmspc::NOidcConfig config;
+  config.issuer = EnvString("NDMSPC_OIDC_ISSUER");
+  config.audience = EnvString("NDMSPC_OIDC_AUDIENCE");
+  config.caFile = EnvString("NDMSPC_OIDC_CA_FILE");
+  config.clockSkew = std::chrono::seconds(EnvLong("NDMSPC_OIDC_CLOCK_SKEW_SECONDS", 30));
+  config.jwksRefresh = std::chrono::seconds(EnvLong("NDMSPC_OIDC_JWKS_REFRESH_SECONDS", 300));
+  config.jwksMaxStale = std::chrono::seconds(EnvLong("NDMSPC_OIDC_JWKS_MAX_STALE_SECONDS", 86400));
+  config.authenticationTimeout = std::chrono::seconds(EnvLong("NDMSPC_OIDC_AUTH_TIMEOUT_SECONDS", 15));
+  config.httpTimeout = std::chrono::milliseconds(EnvLong("NDMSPC_OIDC_HTTP_TIMEOUT_MS", 5000));
+  config.allowInsecureHttp = Ndmspc::NUtils::ParseBoolEnv(std::getenv("NDMSPC_OIDC_ALLOW_INSECURE_HTTP"));
+  return config;
+}
+
+void AddOidcOptions(CLI::App * command, Ndmspc::NOidcConfig & config)
+{
+  command->add_option("--oidc-issuer", config.issuer, "OIDC issuer URL");
+  command->add_option("--oidc-audience", config.audience, "Required OIDC token audience");
+  command->add_option("--oidc-ca-file", config.caFile, "OIDC TLS CA certificate file");
+  command->add_option_function<long>("--oidc-clock-skew", [&config](long value) { config.clockSkew = std::chrono::seconds(value); }, "OIDC clock skew in seconds");
+  command->add_option_function<long>("--oidc-jwks-refresh", [&config](long value) { config.jwksRefresh = std::chrono::seconds(value); }, "JWKS refresh interval in seconds");
+  command->add_option_function<long>("--oidc-jwks-max-stale", [&config](long value) { config.jwksMaxStale = std::chrono::seconds(value); }, "Maximum JWKS staleness in seconds");
+  command->add_option_function<long>("--oidc-auth-timeout", [&config](long value) { config.authenticationTimeout = std::chrono::seconds(value); }, "WebSocket authentication timeout in seconds");
+  command->add_option_function<long>("--oidc-http-timeout", [&config](long value) { config.httpTimeout = std::chrono::milliseconds(value); }, "OIDC HTTP timeout in milliseconds");
+  command->add_flag("--oidc-allow-insecure-http", config.allowInsecureHttp, "Allow HTTP issuer for development");
+}
+
+void PrepareOidcConfig(Ndmspc::NOidcConfig & config)
+{
+  config.Normalize();
+  config.Validate();
+  if (config.Enabled()) NLogInfo("OIDC authentication enabled for issuer '%s' and audience '%s'", config.issuer.c_str(), config.audience.c_str());
+}
+
 int main(int argc, char ** argv)
 {
 
@@ -76,6 +130,7 @@ int main(int argc, char ** argv)
     port = atoi(gSystem->Getenv("PORT"));
   }
   bool     batch = true;
+  auto oidcConfig = OidcConfigFromEnvironment();
   CLI::App app{app_description()};
   app.set_version_flag("--version", app_version(), "Print version information and exit");
   app.require_subcommand(1); // 1 or more
@@ -91,8 +146,10 @@ int main(int argc, char ** argv)
   }
   server_default->add_option("-p,--port", port, "Server port (default: 8080)");
   server_default->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
-  auto server_default_fun = ([&rootApp, &port]() {
-    Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
+  AddOidcOptions(server_default, oidcConfig);
+  auto server_default_fun = ([&rootApp, &port, &oidcConfig]() {
+    PrepareOidcConfig(oidcConfig);
+    Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, 10000, oidcConfig);
     if (serv == nullptr) {
       NLogError("Server was not created !!!");
       exit(1);
@@ -143,12 +200,14 @@ int main(int argc, char ** argv)
   int seed = 0;
   server_stress->add_option("-s,--seed", seed, "Random seed (default: 0)");
   server_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
-  server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch]() {
+  AddOidcOptions(server_stress, oidcConfig);
+  server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch, &oidcConfig]() {
     NLogInfo("Using stress processing method.");
     NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
 
     gROOT->SetBatch(batch);
-    Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data());
+    PrepareOidcConfig(oidcConfig);
+    Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, 10000, oidcConfig);
     if (serv == nullptr) {
       NLogError("Server was not created !!!");
       exit(1);
@@ -190,17 +249,18 @@ int main(int argc, char ** argv)
   server_ngnt->add_option("--no-history", noHistory, "Disable history in processing requests")->default_val("false");
   int heartbeat_ms = 10000;
   server_ngnt->add_option("--heartbeat", heartbeat_ms, "Heartbeat interval in milliseconds (default: 10000)");
+  AddOidcOptions(server_ngnt, oidcConfig);
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &oidcConfig]() {
     gROOT->SetBatch(batch);
+    PrepareOidcConfig(oidcConfig);
 
     Ndmspc::NGnHttpServer * serv =
-        new Ndmspc::NGnHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, heartbeat_ms);
+        new Ndmspc::NGnHttpServer("", true, heartbeat_ms, oidcConfig, false);
     if (serv == nullptr) {
       NLogError("Server was not created !!!");
       exit(1);
     }
-    EnsureServerRunning(serv, port);
     log_server_version("ngnt", port);
 
     serv->SetUseHistory(!noHistory);
@@ -261,6 +321,12 @@ int main(int argc, char ** argv)
     NLogInfo("%zu macro(s) executed.", macros.size());
     serv->SetHttpHandlers(handlers);
 
+    // All handlers are registered now: start the HTTP engine. Nothing has been
+    // listening up to this point, so no request could have raced with the
+    // handler-map population above.
+    serv->StartEngine(TString::Format("http:%d?top=ndmspc", port).Data());
+    EnsureServerRunning(serv, port);
+
     if (serv->IsTerminated()) {
       NLogError("Server is zombie, exiting ...");
       exit(1);
@@ -288,6 +354,14 @@ int main(int argc, char ** argv)
   }
   catch (const CLI::ParseError & e) {
     return app.exit(e);
+  }
+  catch (const std::exception & e) {
+    NLogError("Server startup failed: %s", e.what());
+    if (oidcConfig.Enabled()) {
+      NLogError("Cannot initialize OIDC authentication. Verify that Keycloak is running, the issuer URL is reachable, and the realm exists.");
+      NLogError("Expected discovery document: %s/.well-known/openid-configuration", oidcConfig.issuer.c_str());
+    }
+    return 1;
   }
 
   return 0;

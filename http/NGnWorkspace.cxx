@@ -58,7 +58,8 @@ bool NGnWorkspace::RemoveEntry(int index)
   NLogTrace("Removing workspace entry: %s", entry->GetName());
   NLogTrace("Config: %s", in.dump().c_str());
   NLogTrace("Invoking HTTP handler for DELETE on entry: %s", entry->GetName());
-  fServer->GetHttpHandlers()[entry->GetName()]("DELETE", in, out, wsOut, fServer->GetObjectsMap());
+  const auto handlerFn = fServer->FindHttpHandler(entry->GetName());
+  if (handlerFn) handlerFn("DELETE", in, out, wsOut, fServer->GetObjectsMap());
 
   // if (fWorkspace.contains(entry->GetName())) fWorkspace.erase(entry->GetName());
   delete entry;

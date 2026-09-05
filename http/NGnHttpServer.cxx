@@ -3,8 +3,11 @@
 #include <set>
 #include <algorithm>
 #include <cctype>
+#include <utility>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NGnHistoryEntry.h"
+#include "ndmspc/http/NOidcHttpAuthenticator.h"
+#include "ndmspc/ndmspc.h"
 #include "NGnHttpServer.h"
 
 /// \cond CLASSIMP
@@ -14,10 +17,30 @@ ClassImp(Ndmspc::NGnHttpServer);
 namespace Ndmspc {
 NGnHttpHandlerMap * gNdmspcHttpHandlers = nullptr;
 NGnHttpServer *     gNGnHttpServer      = nullptr;
-NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms) : NHttpServer(engine, ws, heartbeat_ms)
+NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcConfig oidcConfig, bool startEngine)
+    : NHttpServer(engine, ws, heartbeat_ms, std::move(oidcConfig), startEngine)
 {
   Ndmspc::gNGnHttpServer = this;
   fWorkspace.SetServer(this);
+}
+
+void NGnHttpServer::SetHttpHandlers(std::map<std::string, NGnHttpFuncPtr> handlers)
+{
+  std::lock_guard<std::mutex> lock(fHandlersMutex);
+  fHttpHandlers = std::move(handlers);
+}
+
+std::map<std::string, NGnHttpFuncPtr> NGnHttpServer::GetHttpHandlers() const
+{
+  std::lock_guard<std::mutex> lock(fHandlersMutex);
+  return fHttpHandlers;
+}
+
+NGnHttpFuncPtr NGnHttpServer::FindHttpHandler(const std::string & name) const
+{
+  std::lock_guard<std::mutex> lock(fHandlersMutex);
+  const auto it = fHttpHandlers.find(name);
+  return it != fHttpHandlers.end() ? it->second : nullptr;
 }
 
 void NGnHttpServer::Print(Option_t * option) const
@@ -73,6 +96,19 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   std::string query = arg->GetQuery();
   NLogTrace("Processing %s request for path: %s query: %s", method.Data(), fullpath.Data(), query.c_str());
 
+  // Enforce OIDC bearer authentication on plain HTTP /api requests.
+  // Requests bridged from an authenticated WebSocket connection (nonzero WS id)
+  // carry their identity already and are not re-checked here. The root info and
+  // inspector-schema endpoints stay anonymous so UIs can bootstrap.
+  const bool isWsBridged = arg->GetWSId() != 0;
+  if (fOidcVerifier && !isWsBridged && !fullpath.IsNull() && fullpath != "openapi/inspector" &&
+      fullpath != "inspector/openapi") {
+    if (!NOidcHttpAuthenticator::ApplyToRequest(fOidcVerifier, arg.get())) {
+      NLogDebug("OIDC authentication failed for %s request to /api/%s", method.Data(), fullpath.Data());
+      return;
+    }
+  }
+
   json out;
   json wsOut;
   if (fullpath.IsNull()) {
@@ -85,9 +121,24 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     out["state"]["users"]     = fNWsHandler ? fNWsHandler->GetClientCount() : 0;
     out["state"]["workspace"] = GetWorkspace();
 
+    // Server identity (same string as the CLI --version banner).
+    out["state"]["server"]["name"]    = NDMSPC_NAME;
+    out["state"]["server"]["version"] = std::string(NDMSPC_VERSION) + "-" + NDMSPC_VERSION_RELEASE;
+
+    // Expose current authentication mode to clients (bootstrap endpoint stays
+    // anonymous so UIs can discover whether a token is required).
+    out["state"]["authentication"]["enabled"] = fOidcVerifier != nullptr;
+    if (arg->GetUserName()) {
+      out["state"]["authentication"]["username"] = arg->GetUserName();
+    }
+    if (fOidcVerifier) {
+      out["state"]["authentication"]["type"] = "bearer";
+    }
+
     // Derive group from handler keys if not yet set by a handler call
     if (fGroup.empty()) {
-      for (const auto & h : fHttpHandlers) {
+      const auto handlersCopy = GetHttpHandlers();
+      for (const auto & h : handlersCopy) {
         auto pos = h.first.find('/');
         if (pos != std::string::npos) {
           fGroup = h.first.substr(0, pos);
@@ -124,7 +175,8 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
     NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
     // Special-case: provide an OpenAPI-compatible inspector schema endpoint
-    if (fullpath == "openapi/inspector" || fullpath == "inspector/openapi") {
+    const bool isInspectorSchema = fullpath == "openapi/inspector" || fullpath == "inspector/openapi";
+    if (isInspectorSchema) {
       json openapi;
       openapi["openapi"] = "3.0.0";
       openapi["info"]["title"] = std::string("NGn Inspector for ") + GetName();
@@ -140,11 +192,17 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       }
       out = openapi;
     }
-    else if (fHttpHandlers.find(fullpath.Data()) == fHttpHandlers.end()) {
-      NLogError("Unsupported action: %s", fullpath.Data());
-      arg->SetContentType("application/json");
-      arg->SetContent("{\"error\": \"Unsupported action\"}");
-      return;
+    else {
+      // Resolve the registered handler without inserting (a request-time
+      // insertion would mutate the map and race with concurrent lookups).
+      const Ndmspc::NGnHttpFuncPtr handlerFn = FindHttpHandler(fullpath.Data());
+      if (handlerFn == nullptr) {
+        NLogError("Unsupported action: %s", fullpath.Data());
+        arg->SetContentType("application/json");
+        arg->SetContent("{\"error\": \"Unsupported action\"}");
+        return;
+      }
+      handlerFn(method.Data(), in, out, wsOut, fObjectsMap);
     }
 
     // fObjectsMap["_httpServer"] = this;
@@ -159,8 +217,6 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         fWorkspace.AddEntry(historyEntry);
       }
     }
-
-    fHttpHandlers[fullpath.Data()](method.Data(), in, out, wsOut, fObjectsMap);
 
     if (fUseHistory) {
       NLogTrace("HTTP handler output for path %s: %s", fullpath.Data(), out.dump().c_str());
