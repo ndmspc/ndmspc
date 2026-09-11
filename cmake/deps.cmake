@@ -1,4 +1,4 @@
-set(HTTPLIB_VERSION "v0.18.1")
+set(HTTPLIB_VERSION "v0.54.1")
 set(JWT_CPP_VERSION "v0.7.2")
 set(NLOHMANN_JSON_VERSION "v3.11.3")
 set(CLI11_VERSION "v2.5.0")
@@ -30,6 +30,15 @@ ndmspc_find_or_fetch(
 if (WITH_HTTP OR WITH_AI)
   find_package(OpenSSL REQUIRED)
 
+  # httplib >= 0.54 is required for the WebSocket client's client-certificate
+  # (mTLS) support, which older system packages (e.g. 0.48) do not provide.
+  # Default to the pinned upstream release; FindHTTPLIB.cmake additionally rejects
+  # system headers older than the required version.
+  option(USE_SYSTEM_HTTPLIB "Use system-installed HTTPLIB" OFF)
+
+  # Fetched without its CMake subproject: httplib is header-only, so its install()
+  # rules must never register (NDMSPC's install prefix is the source root, and they
+  # would otherwise copy httplib.h, cmake config and doc/license files into it).
   ndmspc_find_or_fetch(
     NAME HTTPLIB
     VERSION ${HTTPLIB_VERSION}
@@ -37,6 +46,7 @@ if (WITH_HTTP OR WITH_AI)
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
     INCLUDE_SUBDIR .
     REQUIRED
+    NO_ADD_SUBDIRECTORY
   )
 endif()
 

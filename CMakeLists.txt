@@ -10,7 +10,6 @@ message(STATUS "Project version: ${PROJECT_VERSION}-${PROJECT_VERSION_RELEASE}")
 option(WITH_HTTP "Compile with HTTP part" ON)
 option(WITH_UI "Compile with UI part" OFF)
 option(WITH_HEP "Compile with HEP part" ON)
-option(WITH_UTILS "Compile with utils part" OFF)
 option(WITH_MON "Compile with MON part" OFF)
 # option(WITH_PARQUET "Compile with Parquet support" OFF)
 option(WITH_TAXI "Compile with Taxi support" OFF)
@@ -39,10 +38,6 @@ endif()
 
 if(WITH_HEP)
   add_subdirectory(hep)
-endif()
-
-if(WITH_UTILS)
-  add_subdirectory(utils)
 endif()
 
 if(WITH_NUMCAL)

@@ -11,6 +11,8 @@
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NStressHistograms.h"
 #include "ndmspc/http/NGnHttpServer.h"
+#include "ndmspc/http/NX509Authenticator.h"
+#include "ndmspc/http/NX509Config.h"
 
 #include "ndmspc/ndmspc.h"
 
@@ -79,6 +81,7 @@ Ndmspc::NOidcConfig OidcConfigFromEnvironment()
   config.issuer = EnvString("NDMSPC_OIDC_ISSUER");
   config.audience = EnvString("NDMSPC_OIDC_AUDIENCE");
   config.caFile = EnvString("NDMSPC_OIDC_CA_FILE");
+  config.caPath = EnvString("NDMSPC_OIDC_CA_PATH");
   config.clockSkew = std::chrono::seconds(EnvLong("NDMSPC_OIDC_CLOCK_SKEW_SECONDS", 30));
   config.jwksRefresh = std::chrono::seconds(EnvLong("NDMSPC_OIDC_JWKS_REFRESH_SECONDS", 300));
   config.jwksMaxStale = std::chrono::seconds(EnvLong("NDMSPC_OIDC_JWKS_MAX_STALE_SECONDS", 86400));
@@ -88,11 +91,27 @@ Ndmspc::NOidcConfig OidcConfigFromEnvironment()
   return config;
 }
 
+Ndmspc::NX509Config X509ConfigFromEnvironment()
+{
+  Ndmspc::NX509Config config;
+  config.certFile = EnvString("NDMSPC_X509_CERT");
+  config.keyFile = EnvString("NDMSPC_X509_KEY");
+  config.caFile = EnvString("NDMSPC_X509_CA_FILE");
+  config.caPath = EnvString("NDMSPC_X509_CA_PATH");
+  config.verifyOptional =
+      Ndmspc::NUtils::ParseBoolEnv(std::getenv("NDMSPC_X509_VERIFY_OPTIONAL"));
+  const std::string identity = EnvString("NDMSPC_X509_IDENTITY");
+  if (!identity.empty()) config.identity = identity;
+  config.internalPort = static_cast<int>(EnvLong("NDMSPC_X509_INTERNAL_PORT", 8081));
+  return config;
+}
+
 void AddOidcOptions(CLI::App * command, Ndmspc::NOidcConfig & config)
 {
   command->add_option("--oidc-issuer", config.issuer, "OIDC issuer URL");
   command->add_option("--oidc-audience", config.audience, "Required OIDC token audience");
   command->add_option("--oidc-ca-file", config.caFile, "OIDC TLS CA certificate file");
+  command->add_option("--oidc-ca-path", config.caPath, "OIDC TLS CA directory (hashed certificates)");
   command->add_option_function<long>("--oidc-clock-skew", [&config](long value) { config.clockSkew = std::chrono::seconds(value); }, "OIDC clock skew in seconds");
   command->add_option_function<long>("--oidc-jwks-refresh", [&config](long value) { config.jwksRefresh = std::chrono::seconds(value); }, "JWKS refresh interval in seconds");
   command->add_option_function<long>("--oidc-jwks-max-stale", [&config](long value) { config.jwksMaxStale = std::chrono::seconds(value); }, "Maximum JWKS staleness in seconds");
@@ -101,11 +120,28 @@ void AddOidcOptions(CLI::App * command, Ndmspc::NOidcConfig & config)
   command->add_flag("--oidc-allow-insecure-http", config.allowInsecureHttp, "Allow HTTP issuer for development");
 }
 
-void PrepareOidcConfig(Ndmspc::NOidcConfig & config)
+void AddX509Options(CLI::App * command, Ndmspc::NX509Config & config)
+{
+  command->add_option("--x509-cert", config.certFile, "X509 server certificate (PEM)");
+  command->add_option("--x509-key", config.keyFile, "X509 server private key (PEM)");
+  command->add_option("--x509-ca-file", config.caFile, "X509 CA bundle for verifying client certificates");
+  command->add_option("--x509-ca-path", config.caPath, "X509 CA directory (hashed certificates) for verifying client certificates");
+  command->add_flag("--x509-verify-optional", config.verifyOptional, "Do not require a client certificate (verify when presented)");
+  command->add_option("--x509-identity", config.identity, "Identity attribute extracted from the client cert subject: 'cn' (default) or 'dn'");
+  command->add_option("--x509-internal-port", config.internalPort, "Loopback port for the internal ROOT engine (default: 8081)");
+}
+
+void PrepareOidcConfig(Ndmspc::NOidcConfig & config, const Ndmspc::NX509Config & x509Config)
 {
   config.Normalize();
   config.Validate();
+  x509Config.Validate();
+  // Mutual TLS (X509) and OIDC are mutually exclusive authentication modes.
+  if (config.Enabled() && x509Config.Enabled()) {
+    throw std::invalid_argument("OIDC and X509 authentication are mutually exclusive; configure only one");
+  }
   if (config.Enabled()) NLogInfo("OIDC authentication enabled for issuer '%s' and audience '%s'", config.issuer.c_str(), config.audience.c_str());
+  if (x509Config.Enabled()) NLogInfo("X509 (mutual TLS) authentication enabled with identity from '%s'", x509Config.identity.c_str());
 }
 
 int main(int argc, char ** argv)
@@ -131,6 +167,7 @@ int main(int argc, char ** argv)
   }
   bool     batch = true;
   auto oidcConfig = OidcConfigFromEnvironment();
+  auto x509Config = X509ConfigFromEnvironment();
   CLI::App app{app_description()};
   app.set_version_flag("--version", app_version(), "Print version information and exit");
   app.require_subcommand(1); // 1 or more
@@ -147,8 +184,13 @@ int main(int argc, char ** argv)
   server_default->add_option("-p,--port", port, "Server port (default: 8080)");
   server_default->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   AddOidcOptions(server_default, oidcConfig);
-  auto server_default_fun = ([&rootApp, &port, &oidcConfig]() {
-    PrepareOidcConfig(oidcConfig);
+  AddX509Options(server_default, x509Config);
+  auto server_default_fun = ([&rootApp, &port, &oidcConfig, &x509Config]() {
+    PrepareOidcConfig(oidcConfig, x509Config);
+    if (x509Config.Enabled()) {
+      NLogError("X509 mode is only supported by the 'start ngnt' subcommand");
+      exit(1);
+    }
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, 10000, oidcConfig);
     if (serv == nullptr) {
       NLogError("Server was not created !!!");
@@ -201,12 +243,17 @@ int main(int argc, char ** argv)
   server_stress->add_option("-s,--seed", seed, "Random seed (default: 0)");
   server_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
   AddOidcOptions(server_stress, oidcConfig);
-  server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch, &oidcConfig]() {
+  AddX509Options(server_stress, x509Config);
+  server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch, &oidcConfig, &x509Config]() {
     NLogInfo("Using stress processing method.");
     NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
 
     gROOT->SetBatch(batch);
-    PrepareOidcConfig(oidcConfig);
+    PrepareOidcConfig(oidcConfig, x509Config);
+    if (x509Config.Enabled()) {
+      NLogError("X509 mode is only supported by the 'start ngnt' subcommand");
+      exit(1);
+    }
     Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, 10000, oidcConfig);
     if (serv == nullptr) {
       NLogError("Server was not created !!!");
@@ -250,10 +297,11 @@ int main(int argc, char ** argv)
   int heartbeat_ms = 10000;
   server_ngnt->add_option("--heartbeat", heartbeat_ms, "Heartbeat interval in milliseconds (default: 10000)");
   AddOidcOptions(server_ngnt, oidcConfig);
+  AddX509Options(server_ngnt, x509Config);
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &oidcConfig]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &oidcConfig, &x509Config]() {
     gROOT->SetBatch(batch);
-    PrepareOidcConfig(oidcConfig);
+    PrepareOidcConfig(oidcConfig, x509Config);
 
     Ndmspc::NGnHttpServer * serv =
         new Ndmspc::NGnHttpServer("", true, heartbeat_ms, oidcConfig, false);
@@ -324,6 +372,37 @@ int main(int argc, char ** argv)
     // All handlers are registered now: start the HTTP engine. Nothing has been
     // listening up to this point, so no request could have raced with the
     // handler-map population above.
+    if (x509Config.Enabled()) {
+      // X509 (mutual TLS) mode: the ROOT engine stays private on loopback with
+      // OIDC disabled; the httplib front-door on the public port terminates TLS,
+      // verifies client certificates, extracts the subject as the username, and
+      // forwards HTTP + WebSocket traffic here.
+      const std::string internalBase = TString::Format("http://127.0.0.1:%d", x509Config.internalPort).Data();
+      serv->StartEngine(TString::Format("http:127.0.0.1:%d?top=ndmspc", x509Config.internalPort).Data());
+      EnsureServerRunning(serv, x509Config.internalPort);
+      if (serv->IsTerminated()) {
+        NLogError("Server is zombie, exiting ...");
+        exit(1);
+      }
+      NLogInfo("Internal ROOT engine listening on loopback port %d", x509Config.internalPort);
+
+      Ndmspc::NX509Authenticator frontDoor(x509Config);
+      if (!frontDoor.Start("0.0.0.0", port, internalBase)) {
+        NLogError("Failed to start the X509 (mutual TLS) front-door on port %d", port);
+        exit(1);
+      }
+      NLogInfo("X509 server is running and ready to use on port %d ...", port);
+
+      int timeout = 100;
+      while (!gSystem->ProcessEvents()) {
+        gSystem->Sleep(timeout);
+      }
+      serv->SetReadOnly(kFALSE);
+      serv->Print();
+      rootApp.Run();
+      return;
+    }
+
     serv->StartEngine(TString::Format("http:%d?top=ndmspc", port).Data());
     EnsureServerRunning(serv, port);
 

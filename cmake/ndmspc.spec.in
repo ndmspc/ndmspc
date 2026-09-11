@@ -10,7 +10,6 @@ License:	LGPL v3+
 Source0:    %{name}-%{version}.tar.gz
 
 %global with_ui 1
-%global with_utils 0
 %global with_jupyroot 0
 %global with_ai 1
 %if 0%{?rhel} == 10 || 0%{?almalinux} == 10
@@ -31,7 +30,7 @@ Source0:    %{name}-%{version}.tar.gz
 BuildRequires: systemd-rpm-macros
 BuildRequires: git, gcc-c++, cmake, openssl-devel
 BuildRequires: json-devel, zeromq-devel
-%if 0%{?rhel} >= 10 || 0%{?almalinux} >= 10
+%if 0%{?rhel} > 10 || 0%{?almalinux} > 10
 BuildRequires: cpp-httplib-devel, cli11-devel
 %endif
 BuildRequires: root, root-net-http, root-net-httpsniff
@@ -43,11 +42,6 @@ Requires:      root-roofit root-roofit-more
 BuildRequires: nodejs, npm
 %endif
 
-
-%if %{with_utils}
-BuildRequires: openssl-devel, libcurl-devel, libwebsockets-devel
-Requires:      libwebsockets-devel
-%endif
 
 %if %{with_taxi}
 BuildRequires: parquet-libs-devel
@@ -120,11 +114,6 @@ cmake ../ \
 %else
 -DWITH_UI=OFF \
 %endif
-%if %{with_utils}
--DWITH_UTILS=ON \
-%else
--DWITH_UTILS=OFF \
-%endif
 %if %{with_jupyroot}
 -DWITH_JUPYROOT=ON \
 %else
@@ -185,6 +174,7 @@ rm -f %{buildroot}/%{_datadir}/licenses/httplib/LICENSE
 %{_bindir}/ndmspc-server
 %{_bindir}/ndmspc-run
 %{_bindir}/ndmspc-worker
+%{_bindir}/ndmspc-ws-client
 %if %{with_ai}
 %{_bindir}/ndmspc-chat
 %endif

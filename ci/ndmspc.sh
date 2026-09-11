@@ -1,20 +1,17 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v1.2.0"
+tag: "v1.4.0"
 requires:
   - ROOT
   - JAliEn-ROOT
-  - nlohmann_json
-  - libwebsockets
-  - curl
-  - libuv
   - ZeroMQ
+  - nlohmann_json
 #  - arrow
 build_requires:
   - CMake
   - ninja
   - alibuild-recipe-tools
-  - "OpenSSL:(?!osx)"
+#  - "OpenSSL:(?!osx)"
 license: GPL-3.0
 source: https://gitlab.com/ndmspc/ndmspc.git
 incremental_recipe: |
@@ -26,7 +23,6 @@ incremental_recipe: |
 case $ARCHITECTURE in
   osx*)
         [[ -n $OPENSSL_ROOT ]] || OPENSSL_ROOT=$(brew --prefix openssl@3)
-        [[ -n $LIBWEBSOCKETS_ROOT ]] || LIBWEBSOCKETS_ROOT=$(brew --prefix libwebsockets)
   ;;
 esac
 
@@ -35,16 +31,13 @@ if [[ $ALIBUILD_NDMSPC_TESTS ]]; then
   CXXFLAGS="${CXXFLAGS} -Werror -Wno-error=deprecated-declarations"
 fi
 
+unset OPENSSL_ROOT
 cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"                \
       -G Ninja                                                          \
       ${CMAKE_BUILD_TYPE:+"-DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"}       \
       ${CXXSTD:+"-DCMAKE_CXX_STANDARD=$CXXSTD"}                         \
-      ${PROTOBUF_ROOT:+"-DPROTOBUF_ROOT=$PROTOBUF_ROOT"}                \
-      ${LIBUV_ROOT:+"-DLIBUV_ROOT=$LIBUV_ROOT"}                         \
-      ${LIBWEBSOCKETS_ROOT:+"-DLIBWEBSOCKETS_ROOT=$LIBWEBSOCKETS_ROOT"} \
-      ${NLOHMANN_JSON_ROOT:+"-DNLOHMANN_JSON_ROOT=$NLOHMANN_JSON_ROOT"} \
-      ${CURL_ROOT:+"-DCURL_ROOT=$CURL_ROOT"}                            \
-      -DWITH_PARQUET=OFF                                                \
+      -DWITH_HTTP:bool=O \
+      -DWITH_AI:bool=OFF \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 cmake --build . -- ${JOBS+-j $JOBS} install
@@ -68,6 +61,6 @@ setenv NDMSPC_DIR \$::env(NDMSPC_BASEDIR)/\$::env(NDMSPC_RELEASE)
 setenv NDMSPC_MACRO_DIR \$::env(NDMSPC_DIR)/macros
 setenv NDMSPC_TUTORIAL_DIR \$::env(NDMSPC_DIR)/tutorial
 prepend-path ROOT_DYN_PATH \$PKG_ROOT/lib
-prepend-path ROOT_INCLUDE_PATH \$PKG_ROOT/include/ndmspc
+prepend-path ROOT_INCLUDE_PATH \$PKG_ROOT/include
 EoF
 mkdir -p $INSTALLROOT/etc/modulefiles && rsync -a --delete etc/modulefiles/ $INSTALLROOT/etc/modulefiles

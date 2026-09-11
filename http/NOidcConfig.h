@@ -10,6 +10,7 @@ struct NOidcConfig {
   std::string issuer;
   std::string audience;
   std::string caFile;
+  std::string caPath;
   std::chrono::seconds clockSkew{30};
   std::chrono::seconds jwksRefresh{300};
   std::chrono::seconds jwksMaxStale{86400};

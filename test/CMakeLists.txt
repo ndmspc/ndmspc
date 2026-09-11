@@ -4,7 +4,6 @@ set(MY_INCLUDE_DIRS
   ${ROOT_INCLUDE_DIRS}
   ${CURL_INCLUDE_DIRS}
   ${OpenSSL_INCLUDE_DIRS}
-  ${LIBWEBSOCKETS_INCLUDE_DIRS}
   ${OPENTELEMETRY_CPP_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
   ${HTTPLIB_INCLUDE_DIRS}
@@ -20,7 +19,6 @@ set(MY_EXTERNAL_LIBS
   ${OPENTELEMETRY_CPP_LIBRARIES}
   ${CURL_LIBRARIES}
   ${OpenSSL_LIBRARIES}
-  ${LIBWEBSOCKETS_LIBRARIES}
   # nlohmann_json::nlohmann_json
   NdmspcCore
 )
@@ -54,10 +52,15 @@ foreach(src ${SRCS})
   target_include_directories(${testname} PRIVATE ${MY_INCLUDE_DIRS})
   target_link_directories(${testname} PRIVATE ${ROOT_LIBRARY_DIR})
   target_link_libraries(${testname} gtest_main ${MY_EXTERNAL_LIBS})
-  if(WITH_HTTP AND src MATCHES "test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator")
+  if(WITH_HTTP AND src MATCHES "test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator|test_NX509|test_NOidcToken")
     target_link_libraries(${testname} NdmspcHttp)
     target_compile_definitions(${testname} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
     set_target_properties(${testname} PROPERTIES BUILD_RPATH "${CMAKE_BINARY_DIR}/http;${CMAKE_BINARY_DIR}/core")
+  endif()
+  if(WITH_HTTP AND src MATCHES "test_NWsClient|test_NOidcToken")
+    target_link_libraries(${testname} NdmspcHttp NdmspcCore)
+    target_compile_definitions(${testname} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+    set_target_properties(${testname} PROPERTIES BUILD_RPATH "$$ORIGIN/../utils;${CMAKE_BINARY_DIR}/http;${CMAKE_BINARY_DIR}/core")
   endif()
   if(src MATCHES "^test_0[1-5]_")
     add_test(NAME ${testname}_thread1 COMMAND ${testname})
@@ -115,9 +118,14 @@ foreach(src ${SRCS})
 
   else()
     add_test(NAME ${testname} COMMAND ${testname})
-    if(WITH_HTTP AND src MATCHES "test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator")
-      set_tests_properties(${testname} PROPERTIES
-        ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/http:${CMAKE_BINARY_DIR}/core:$ENV{LD_LIBRARY_PATH}")
+    if(WITH_HTTP AND src MATCHES "test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator|test_NX509|test_NOidcToken")
+      if(src MATCHES "test_NWsClient|test_NOidcToken")
+        set_tests_properties(${testname} PROPERTIES
+          ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/utils:${CMAKE_BINARY_DIR}/http:${CMAKE_BINARY_DIR}/core:$ENV{LD_LIBRARY_PATH}")
+      else()
+        set_tests_properties(${testname} PROPERTIES
+          ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/http:${CMAKE_BINARY_DIR}/core:$ENV{LD_LIBRARY_PATH}")
+      endif()
     endif()
   endif()
 endforeach()
