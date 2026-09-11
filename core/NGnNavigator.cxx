@@ -47,6 +47,11 @@ NGnNavigator::NGnNavigator(const char * name, const char * title, std::vector<st
     (void)_warmup;
     sThStackWarmedUp = true;
   }
+
+  // Averaging of deeper-level parameter values/errors is on by default; allow a global
+  // opt-out via the environment (e.g. to serve very large navigators more cheaply).
+  const char * envAverage = gSystem->Getenv("NDMSPC_EXPORT_AVERAGES");
+  fAverageParameters      = envAverage ? NUtils::ParseBoolEnv(envAverage) : true;
 }
 NGnNavigator::~NGnNavigator()
 {
@@ -64,6 +69,19 @@ NGnNavigator::~NGnNavigator()
   for (auto & [key, vec] : fObjectContentMap) {
     for (TObject * obj : vec) {
       delete obj;
+    }
+  }
+}
+
+void NGnNavigator::SetAverageParameters(bool averageParameters)
+{
+  ///
+  /// Set parameter averaging for this navigator and all its descendants
+  ///
+  fAverageParameters = averageParameters;
+  for (auto * child : fChildren) {
+    if (child) {
+      child->SetAverageParameters(averageParameters);
     }
   }
 }
@@ -189,6 +207,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
     current->SetNLevels(fNLevels);
     current->SetLevels(levels);
     current->SetGnTree(fGnTree);
+    current->SetAverageParameters(GetAverageParameters());
   }
   // current->Print();
   // return current;
@@ -497,6 +516,7 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         currentChild->SetNLevels(levels.size());
         currentChild->SetParent(current);
         currentChild->SetGnTree(fGnTree);
+        currentChild->SetAverageParameters(current->GetAverageParameters());
         // o = new NGnNavigator(hns->GetListOfAxes());
         // if (fParent->GetChildren().size() != nCells) fParent->SetChildrenSize(nCells);
         // fParent->SetChild(o, indexInProj); // Set the child at the index
@@ -837,6 +857,18 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
     return;
   }
 
+  // Resolve whether deeper-level parameter values/errors are averaged into this level.
+  // Precedence: cfg["averages"] (per export/request) > navigator flag > environment default.
+  // The resolved value is written back into cfg so recursion uses the same decision.
+  bool averageParameters = obj->GetAverageParameters();
+  if (cfg.is_object() && cfg.contains("averages") && cfg["averages"].is_boolean()) {
+    averageParameters = cfg["averages"].get<bool>();
+  }
+  if (!cfg.is_object()) {
+    cfg = json::object();
+  }
+  cfg["averages"] = averageParameters;
+
   TH1 * h = obj->GetProjection();
   if (h == nullptr) {
     NLogError("NGnNavigator::ExportJson: Projection is nullptr !!!");
@@ -1063,7 +1095,45 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   std::map<std::string, double> paramMaxGlobal;
   std::map<std::string, double> paramMinEGlobal;
   std::map<std::string, double> paramMaxEGlobal;
-  bool                          firstChild = true;
+  // Average parameter values/errors of the immediate deeper level, one entry per child slot
+  std::map<std::string, std::vector<double>> paramValuesAvg;
+  std::map<std::string, std::vector<double>> paramErrorsAvg;
+  size_t                                     childIndex = 0;
+  // Unweighted mean over the non-zero child values and its error (variance of the mean: sum(sigma^2)/N^2)
+  auto meanAndError = [](const json & values, const json & errors) -> std::pair<double, double> {
+    if (!values.is_array()) {
+      return {0.0, 0.0};
+    }
+    double sumValues      = 0.0;
+    double sumVariances   = 0.0;
+    size_t n              = 0;
+    for (size_t k = 0; k < values.size(); k++) {
+      if (!values[k].is_number()) {
+        continue;
+      }
+      double v = values[k].get<double>();
+      if (v == 0.0 || std::isnan(v)) {
+        continue;
+      }
+      sumValues += v;
+      double variance = 0.0;
+      if (errors.is_array() && k < errors.size() && errors[k].is_number()) {
+        variance = errors[k].get<double>();
+        if (std::isnan(variance) || variance < 0.0) {
+          variance = 0.0;
+        }
+      }
+      sumVariances += variance;
+      n++;
+    }
+    if (n == 0) {
+      return {0.0, 0.0};
+    }
+    double mean  = sumValues / static_cast<double>(n);
+    double error = sumVariances / (static_cast<double>(n) * static_cast<double>(n));
+    return {mean, error};
+  };
+  bool firstChild = true;
   for (const auto & child : obj->GetChildren()) {
     json childJson;
     if (child != nullptr) {
@@ -1102,11 +1172,43 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
               paramMaxEGlobal[param] = std::max(paramMaxEGlobal[param], cmax);
             }
           }
+
+          // Average this child's values/errors into the slot for the current child index
+          if (averageParameters) {
+            auto & vvec = paramValuesAvg[param];
+            auto & evec = paramErrorsAvg[param];
+            while (vvec.size() < childIndex) vvec.push_back(0.0);
+            while (evec.size() < childIndex) evec.push_back(0.0);
+            auto [valueMean, valueError] = meanAndError(arr.contains("values") ? arr["values"] : json(),
+                                                        arr.contains("errors") ? arr["errors"] : json());
+            vvec.push_back(valueMean);
+            evec.push_back(valueError);
+          }
         }
       }
     }
     firstChild = false;
     j["children"]["content"].push_back(childJson);
+    childIndex++;
+  }
+
+  // Store averaged values/errors at this level (deepest level keeps its own raw values)
+  if (averageParameters) {
+    for (auto & [param, vec] : paramValuesAvg) {
+      while (vec.size() < childIndex) vec.push_back(0.0);
+    }
+    for (auto & [param, vec] : paramErrorsAvg) {
+      while (vec.size() < childIndex) vec.push_back(0.0);
+    }
+    for (auto & [param, vec] : paramValuesAvg) {
+      if (j.contains("fArrays") && j["fArrays"].contains(param) && j["fArrays"][param].contains("values")) {
+        continue;
+      }
+      j["fArrays"][param]["values"] = vec;
+      if (paramErrorsAvg.count(param)) {
+        j["fArrays"][param]["errors"] = paramErrorsAvg[param];
+      }
+    }
   }
 
   // Store aggregated min/max at this level if any
@@ -1219,6 +1321,7 @@ json NGnNavigator::GetInfoJson() const
   j["nChildren"] = fChildren.size();
   j["objects"]   = GetObjectNames();
   j["params"]    = GetParameterNames();
+  j["averages"]  = fAverageParameters;
   auto parent    = const_cast<NGnNavigator *>(this)->GetParent();
   j["levels"]    = parent ? parent->GetLevels() : fLevels;
   return j;

@@ -395,6 +395,26 @@ class NGnNavigator : public TNamed {
   void SetLevel(size_t l) { fLevel = l; }
 
   /**
+   * @brief Whether deeper-level parameter values/errors are averaged into higher levels on export.
+   *
+   * Default is true (can be set globally via the NDMSPC_EXPORT_AVERAGES environment variable).
+   * Disable it for large navigators to avoid the extra JSON size and CPU cost; higher levels
+   * then only carry the aggregated min/max/minE/maxE.
+   *
+   * @return true when averaging is enabled.
+   */
+  bool GetAverageParameters() const { return fAverageParameters; }
+
+  /**
+   * @brief Enable or disable averaging of deeper-level parameter values/errors on export.
+   *
+   * Applies to this navigator and all its descendants.
+   *
+   * @param averageParameters true to average (default), false to skip.
+   */
+  void SetAverageParameters(bool averageParameters);
+
+  /**
    * @brief Get the current levels as a vector of vectors of integers.
    * @return A vector of vectors of int representing the levels.
    */
@@ -482,8 +502,10 @@ class NGnNavigator : public TNamed {
   size_t                        fLastIndexSelected{0};  ///< last selected index in the object
   Int_t                         fTrigger{kButton1Down}; ///< last triggered event
 
+  bool fAverageParameters{true}; ///< Average deeper-level parameter values/errors on export
+
   /// \cond CLASSIMP
-  ClassDefOverride(NGnNavigator, 2);
+  ClassDefOverride(NGnNavigator, 3);
   /// \endcond;
 };
 } // namespace Ndmspc

@@ -211,6 +211,9 @@ json BuildMapSchema(const std::string & mappingPad = "pad1", const std::string &
       .Default(mappingPad)
       .String("contentPad")
       .Default(contentPad)
+      .Boolean("averages")
+      .Description("Average deeper-level parameter values/errors into higher levels (disable for large navigators)")
+      .Default(true)
       .Build();
 }
 
@@ -459,9 +462,19 @@ void httpNgnt()
       TString listStr  = TBufferJSON::ConvertToJSON(l);
       json    listJson = json::parse(listStr.Data());
 
+      // Averaging can be disabled per request (or via the map workspace default) for large navigators
+      bool averages = nav->GetAverageParameters();
+      {
+        json wsDef = ctx.GetWorkspaceDefault(mapKey, "averages");
+        if (wsDef.is_boolean()) averages = wsDef.get<bool>();
+      }
+      if (httpIn.contains("averages") && httpIn["averages"].is_boolean()) averages = httpIn["averages"].get<bool>();
+
       if (nav->GetLevel() == 0) {
         json nested;
-        nav->ExportToJson(nested, nav, std::vector<std::string>{});
+        json exportCfg;
+        exportCfg["averages"] = averages;
+        nav->ExportToJson(nested, nav, std::vector<std::string>{}, exportCfg);
         listJson["nested"] = nested;
         // Dump to file for debugging
         const char * tmpFile = gSystem->Getenv("NDMSPC_NGNG_EXPORT_JSON_FILE");
@@ -493,6 +506,7 @@ void httpNgnt()
 
       Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "mappingPad", mappingPad);
       Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "contentPad", contentPad);
+      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "averages", averages);
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
 
       if (!ctx.Workspace().contains(spectraKey)) {
