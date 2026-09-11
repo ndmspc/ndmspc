@@ -17,6 +17,7 @@ namespace Ndmspc {
 ///     .Hint("Axes: [0] pt  [1] eta")
 ///     .String("file").Default("data.root")
 ///     .Number("margin").Default(1.0)
+///     .Boolean("averages").Default(true)
 ///     .Select("mode", {"V","VE","D"}).Default("V")
 ///     .MultiSelect("parameters", paramNames).Default(json::array({paramNames.front()}))
 ///     .Array("levels").Items("array").ItemItems("integer").Default(defaultLevels)
@@ -54,6 +55,13 @@ public:
   {
     fCurrentProp                        = name;
     fSchema["properties"][name]["type"] = "integer";
+    return *this;
+  }
+
+  NGnSchemaBuilder & Boolean(const std::string & name)
+  {
+    fCurrentProp                        = name;
+    fSchema["properties"][name]["type"] = "boolean";
     return *this;
   }
 
