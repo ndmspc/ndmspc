@@ -31,6 +31,7 @@ void NOidcConfig::Validate() const
   }
   if (jwksMaxStale < jwksRefresh) throw std::invalid_argument("OIDC JWKS max stale interval must not be shorter than refresh interval");
   if (!caFile.empty() && !std::filesystem::is_regular_file(caFile)) throw std::invalid_argument("OIDC CA file is not readable");
+  if (!caPath.empty() && !std::filesystem::is_directory(caPath)) throw std::invalid_argument("OIDC CA path is not a readable directory");
 }
 
 } // namespace Ndmspc

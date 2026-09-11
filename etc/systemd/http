@@ -3,4 +3,9 @@ ROOT_INCLUDE_PATH=/usr/include/ndmspc:/usr/include/root
 # NDMSPC_OIDC_ISSUER=https://keycloak.example/realms/ndmspc
 # NDMSPC_OIDC_AUDIENCE=ndmspc
 # NDMSPC_OIDC_CA_FILE=/etc/pki/ca-trust/source/anchors/keycloak-ca.pem
+# NDMSPC_OIDC_CA_PATH=/etc/pki/ca-trust/extracted/pem
+# NDMSPC_X509_CERT=/etc/ndmspc/server.pem
+# NDMSPC_X509_KEY=/etc/ndmspc/server.key
+# NDMSPC_X509_CA_FILE=/etc/ndmspc/ca.pem
+# NDMSPC_X509_CA_PATH=/cvmfs/alice.cern.ch/etc/grid-security/certificates
 

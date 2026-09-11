@@ -7,19 +7,22 @@
 #
 # It also defines the imported targets OpenSSL::SSL and OpenSSL::Crypto.
 
+# HINTS, not PATHS: the dependency root must be searched before the default
+# system paths, otherwise a system OpenSSL shadows the AliBuild-provided one
+# (which find_package exports as OPENSSL_ROOT).
 find_path(OpenSSL_INCLUDE_DIRS
   NAMES openssl/ssl.h
-  PATHS $ENV{OPENSSL_ROOT}/include /usr/local/include /usr/include
+  HINTS $ENV{OPENSSL_ROOT}/include /usr/local/include /usr/include
 )
 
 find_library(OpenSSL_SSL_LIBRARY
   NAMES ssl
-  PATHS $ENV{OPENSSL_ROOT}/lib /usr/local/lib /usr/lib
+  HINTS $ENV{OPENSSL_ROOT}/lib /usr/local/lib /usr/lib
 )
 
 find_library(OpenSSL_CRYPTO_LIBRARY
   NAMES crypto
-  PATHS $ENV{OPENSSL_ROOT}/lib /usr/local/lib /usr/lib
+  HINTS $ENV{OPENSSL_ROOT}/lib /usr/local/lib /usr/lib
 )
 
 include(FindPackageHandleStandardArgs)

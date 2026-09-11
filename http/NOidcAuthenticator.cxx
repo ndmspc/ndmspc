@@ -110,7 +110,7 @@ NOidcHttpResult NOidcHttpClient::Get(const std::string & url)
   client.set_write_timeout(seconds.count(), micros.count());
   client.set_follow_location(false);
   client.enable_server_certificate_verification(true);
-  if (!fConfig.caFile.empty()) client.set_ca_cert_path(fConfig.caFile);
+  if (!fConfig.caFile.empty() || !fConfig.caPath.empty()) client.set_ca_cert_path(fConfig.caFile, fConfig.caPath);
   const auto response = client.Get(parts.path);
   if (!response) {
     throw std::runtime_error("OIDC request to '" + url + "' failed: " + httplib::to_string(response.error()));

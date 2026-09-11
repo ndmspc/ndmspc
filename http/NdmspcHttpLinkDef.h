@@ -13,4 +13,6 @@
 #pragma link C++ class Ndmspc::NGnWorkspace + ;
 #pragma link C++ class Ndmspc::NGnHttpServer + ;
 
+#pragma link C++ class Ndmspc::NHttpRequest + ;
+#pragma link C++ class Ndmspc::NWsClient + ;
 #endif
