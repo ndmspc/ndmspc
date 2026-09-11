@@ -10,6 +10,7 @@ set(NDMSPC_UI_PRODUCED_OUTPUT_DIR "dist") # <<< IMPORTANT: VERIFY AND ADJUST THI
 
 # Create a marker file for build completion
 set(NDMSPC_UI_BUILD_MARKER ${NDMSPC_UI_SRC_DIR}/npm_build_completed.marker)
+set(NDMSPC_UI_NPM_BUILD_LOG ${CMAKE_BINARY_DIR}/npm_build.log)
 
 # --- External Project Setup for Cloning ---
 ExternalProject_Add(
@@ -32,11 +33,22 @@ add_custom_command(
     # One descriptive COMMENT for the entire set of commands
     COMMENT "Installing and building ndmspc-ui with npm"
 
-    COMMAND ${NPM_EXECUTABLE} install --silent
+    COMMAND ${CMAKE_COMMAND} -E rm -f ${NDMSPC_UI_BUILD_MARKER}
     WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
     VERBATIM
 
-    COMMAND ${NPM_EXECUTABLE} run build > ${CMAKE_BINARY_DIR}/npm_build.log 2>&1
+    # --include=dev keeps devDependencies when NODE_ENV=production is set;
+    # --legacy-peer-deps works around @react-three/fiber peer react ">=19 <19.3"
+    # while ndmspc-ui allows react ^19.2.6 (resolving to 19.3).
+    COMMAND ${NPM_EXECUTABLE} install --include=dev --legacy-peer-deps
+    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
+    VERBATIM
+
+    COMMAND sh -c "${NPM_EXECUTABLE} run build 2>&1 | tee ${NDMSPC_UI_NPM_BUILD_LOG}"
+    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
+    VERBATIM
+
+    COMMAND ${CMAKE_COMMAND} -E touch ${NDMSPC_UI_BUILD_MARKER}
     WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
     VERBATIM
 )

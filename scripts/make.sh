@@ -180,6 +180,16 @@ fi
 
 # Set MY_PROJECT_VER
 if [[ -n "$MY_PROJECT_VER" ]]; then
+  # CMake's project(VERSION ...) only accepts numeric versions, so split a
+  # tag-style prerelease suffix (e.g. 1.4.0-rc6) into PROJECT_VERSION_RELEASE.
+  if [[ "$MY_PROJECT_VER" == *-* ]]; then
+    MY_PROJECT_VER_RELEASE="${MY_PROJECT_VER_RELEASE:-${MY_PROJECT_VER#*-}}"
+    MY_PROJECT_VER="${MY_PROJECT_VER%%-*}"
+  fi
+  if [[ ! "$MY_PROJECT_VER" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+    echo "Invalid project version '$MY_PROJECT_VER': expected a numeric version like 1.4.0, optionally with a -suffix (e.g. 1.4.0-rc6)."
+    exit 1
+  fi
   echo "Setting project version to $MY_PROJECT_VER"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DPROJECT_VERSION:STRING=${MY_PROJECT_VER}"
 fi

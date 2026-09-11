@@ -1,6 +1,6 @@
 # FROM registry.gitlab.com/ndmspc/user/al9:dep AS builder
 FROM registry.gitlab.com/ndmspc/user/al10:dep AS builder
-ARG MY_PROJECT_VER=0.0.0-rc0
+ARG MY_PROJECT_VER=9999.0.0
 # Only copy what is needed for the build to reduce context size
 COPY . /builder/
 WORKDIR /builder
