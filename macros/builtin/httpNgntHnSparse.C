@@ -12,6 +12,21 @@ void httpNgntHnSparse()
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
+  // MCP tool metadata (see httpNgnt.C for the convention)
+  Ndmspc::RegisterMcpTool("open", {
+      .description = "Open or close a ROOT file. POST with 'file' opens it, GET reports whether a file is open, "
+                     "DELETE closes it.",
+      .methods     = {"GET", "POST", "DELETE"},
+  });
+  Ndmspc::RegisterMcpTool("object", {
+      .description = "Load an object from the opened file by name ('obj').",
+      .methods     = {"GET", "POST", "DELETE", "PATCH"},
+  });
+  Ndmspc::RegisterMcpTool("project", {
+      .description = "Project the loaded THnSparse onto the selected 'axes'.",
+      .methods     = {"GET", "POST", "DELETE", "PATCH"},
+  });
+
   handlers["open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                         std::map<std::string, TObject *> &) {
     auto    server = Ndmspc::gNGnHttpServer;

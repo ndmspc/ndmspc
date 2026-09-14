@@ -1,4 +1,5 @@
 #include <TROOT.h>
+#include <chrono>
 #include <sstream>
 #include <set>
 #include <algorithm>
@@ -6,6 +7,7 @@
 #include <utility>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NGnHistoryEntry.h"
+#include "ndmspc/http/NMcpServer.h"
 #include "ndmspc/http/NOidcHttpAuthenticator.h"
 #include "ndmspc/ndmspc.h"
 #include "NGnHttpServer.h"
@@ -16,6 +18,7 @@ ClassImp(Ndmspc::NGnHttpServer);
 
 namespace Ndmspc {
 NGnHttpHandlerMap * gNdmspcHttpHandlers = nullptr;
+NMcpToolMap *       gNdmspcMcpTools     = nullptr;
 NGnHttpServer *     gNGnHttpServer      = nullptr;
 NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcConfig oidcConfig, bool startEngine)
     : NHttpServer(engine, ws, heartbeat_ms, std::move(oidcConfig), startEngine)
@@ -152,10 +155,50 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   }
   else {
 
+    std::string rawContent;
+    {
+      const char * postData = (const char *)arg->GetPostData();
+      if (postData != nullptr) rawContent = postData;
+    }
+
+    // Special-case: MCP (Model Context Protocol) endpoint. Each JSON-RPC message is
+    // handled in-process; tool calls are routed back through ProcessRequest, so the
+    // action's own history/workspace/broadcast bookkeeping already happened and this
+    // envelope level must not repeat it. The raw body is handed to the MCP server
+    // (before the generic parse below) so malformed JSON yields a JSON-RPC parse
+    // error (-32700), matching the stdio transport.
+    if (fullpath == "mcp") {
+      if (!fMcpEnabled) {
+        NLogDebug("Rejecting /api/mcp request: MCP endpoint is disabled");
+        arg->SetContentType("application/json");
+        arg->SetContent("{\"error\": \"MCP endpoint is disabled\"}");
+        return;
+      }
+      Ndmspc::NMcpServer mcp(this);
+      json              response = rawContent.empty() ? mcp.Handle(json(nullptr)) : mcp.HandleText(rawContent);
+
+      arg->AddHeader("Access-Control-Allow-Origin", GetCors());
+      if (!rawContent.empty()) {
+        try {
+          const json message = json::parse(rawContent);
+          if (message.is_object() && message.value("method", "") == "initialize") {
+            arg->AddHeader("Mcp-Session-Id",
+                           TString::Format("ndmspc-%p-%lld", static_cast<void *>(this),
+                                           static_cast<long long>(std::chrono::steady_clock::now().time_since_epoch().count()))
+                               .Data());
+          }
+        }
+        catch (const json::parse_error &) {
+        }
+      }
+      arg->SetContentType("application/json");
+      arg->SetContent(response.is_null() ? "" : response.dump());
+      return;
+    }
+
     json in;
     try {
-      std::string content = (const char *)arg->GetPostData();
-      if (!content.empty()) in = json::parse(content);
+      if (!rawContent.empty()) in = json::parse(rawContent);
     }
     catch (json::parse_error & e) {
       NLogError("JSON parse error: %s", e.what());
@@ -202,6 +245,15 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         arg->SetContent("{\"error\": \"Unsupported action\"}");
         return;
       }
+      // Roll back any existing entry for this route (and every newer entry)
+      // before running the handler. Their DELETE handlers delete the stale
+      // in-memory objects and close the underlying files. Doing this first
+      // prevents those DELETE handlers from tearing down the objects this
+      // request is about to create under the same keys.
+      if (fUseHistory && !method.CompareTo("POST")) {
+        fWorkspace.RemoveEntry(fullpath.Data());
+      }
+
       handlerFn(method.Data(), in, out, wsOut, fObjectsMap);
     }
 

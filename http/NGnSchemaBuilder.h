@@ -140,9 +140,19 @@ public:
 
   // --- Static helpers for post-build updates ---
 
-  /// Update one property default in an existing schema.
+  /// Set the `default` of a property that the schema already declares.
+  ///
+  /// A property missing from the schema means the caller forgot to build it
+  /// first. Writing the default anyway would create a stub carrying only
+  /// `default` and silently losing its `type`, which breaks the clients that
+  /// render the schema. Warn and leave the schema untouched instead.
   static void SetDefault(json & schema, const std::string & prop, const json & val)
   {
+    if (!schema.contains("properties") || !schema["properties"].contains(prop)) {
+      NLogWarning("NGnSchemaBuilder::SetDefault: property '%s' is not declared in the schema, ignoring default",
+                  prop.c_str());
+      return;
+    }
     schema["properties"][prop]["default"] = val;
   }
 
