@@ -32,7 +32,6 @@ build-al10:
     - main
     - tags
 
-
 base-image-test:
   stage: build
   tags:
@@ -47,13 +46,12 @@ base-image-test:
     - main
     - develop
 
-
 build-rpm-copr:
   stage: deploy
   tags:
     - ndmspc-hosted
   image:
-    name: $CI_REGISTRY/ndmspc/user/al9:dep
+    name: $CI_REGISTRY/ndmspc/user/al10:dep
   script:
     - export COPR_LOGIN COPR_TOKEN COPR_USER
     - scripts/copr.sh $COPR_DEBUG
@@ -102,7 +100,7 @@ prod-image:
     - tags
 
 pages:
-  image: registry.gitlab.com/ndmspc/user/fc43:dep
+  image: registry.gitlab.com/ndmspc/user/fc44:dep
   stage: deploy
   tags:
     - ndmspc-hosted

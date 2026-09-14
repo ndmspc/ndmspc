@@ -40,11 +40,11 @@ add_custom_command(
     # --include=dev keeps devDependencies when NODE_ENV=production is set;
     # --legacy-peer-deps works around @react-three/fiber peer react ">=19 <19.3"
     # while ndmspc-ui allows react ^19.2.6 (resolving to 19.3).
-    COMMAND ${NPM_EXECUTABLE} install --include=dev --legacy-peer-deps
+    COMMAND ${NPM_EXECUTABLE} install --silent --include=dev --legacy-peer-deps
     WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
     VERBATIM
 
-    COMMAND sh -c "${NPM_EXECUTABLE} run build 2>&1 | tee ${NDMSPC_UI_NPM_BUILD_LOG}"
+    COMMAND sh -c "${NPM_EXECUTABLE} run build --silent > ${NDMSPC_UI_NPM_BUILD_LOG} 2>&1"
     WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
     VERBATIM
 

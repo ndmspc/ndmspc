@@ -48,7 +48,7 @@ fi
 
 echo
 echo "== 2/2 HTTP transport (POST /api/mcp on port $PORT) =="
-"$SERVER_BIN" start ngnt -p "$PORT" --with-mcp -m "$MACROS" >"$LOG" 2>&1 &
+"$SERVER_BIN" start ngnt -p "$PORT" --mcp true -m "$MACROS" >"$LOG" 2>&1 &
 server_pid=$!
 cleanup() {
   kill "$server_pid" 2>/dev/null

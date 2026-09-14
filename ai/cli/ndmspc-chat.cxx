@@ -13,15 +13,12 @@ int main(int /*argc*/, char ** /*argv*/)
   NLogInfo("NDMSPC CLI - NDM Storage Tree Chat Client");
     try {
         // Configure ChatClient (OpenAI recommended for JSON reliability)
-        Ndmspc::AI::ChatConfig config {
-            .base = {
-                .provider = Ndmspc::AI::ApiProvider::OPENAI,
-                .api_key = safe_getenv("OPENAI_API_KEY"),
-                .host = "https://api.openai.com"
-            },
-            .model_name = "gpt-4o-mini",
-            .max_output_tokens = 500
-        };
+        Ndmspc::AI::ChatConfig config{};
+        config.base.provider = Ndmspc::AI::ApiProvider::OPENAI;
+        config.base.api_key = safe_getenv("OPENAI_API_KEY");
+        config.base.host = "https://api.openai.com";
+        config.model_name = "gpt-4o-mini";
+        config.max_output_tokens = 500;
 
         // Alternative: Use Ollama (local, free, no API key needed)
         // Note: Ollama may be less reliable with JSON formatting
