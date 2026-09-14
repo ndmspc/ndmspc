@@ -287,6 +287,11 @@ void httpNgntForm()
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
+  // MCP tool metadata (see httpNgnt.C for the convention)
+  Ndmspc::RegisterMcpTool("form",
+                          "Submit a questionnaire response; it is appended to the CSV file "
+                          "(NDMSPC_FORM_CSV_PATH).");
+
   handlers["form"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
     if (method.find("GET") != std::string::npos) {

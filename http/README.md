@@ -456,3 +456,114 @@ The client is built on cpp-httplib, whose TLS layer offers a single chain-verifi
 switch. `--allow-self-signed` therefore behaves like `--allow-insecure` (chain verification
 is disabled); it cannot accept a self-signed CA while still verifying the rest of the chain.
 `--skip-hostname-check` remains a separate switch.
+
+## MCP server
+
+The registered ngnt actions are also exposed through the **Model Context Protocol** (MCP),
+so an LLM agent can drive the same server session as the browser UI. Two transports are
+available:
+
+- **Streamable HTTP** — in-process endpoint on the running server at `POST /api/mcp`. It
+  shares the live session (opened `NGnTree`, navigator, workspace and state point) and
+  honours the same authentication as every other `/api/*` route.
+- **stdio** — the `ndmspc-mcp` launcher, a self-contained process an MCP client spawns.
+  It embeds the server machinery (no network listener), loads the built-in macros and
+  serves JSON-RPC 2.0 on stdin/stdout.
+
+Supported JSON-RPC methods: `initialize`, `notifications/initialized`, `tools/list`,
+`tools/call`, `ping`.
+
+### Tools
+
+One tool is created per registered handler, named by replacing `/` with `_`
+(`ngnt/open` → `ngnt_open`). Each tool's `inputSchema` is taken from the workspace
+inspector schema and extended with a `method` property (`GET`/`POST`/`PATCH`/`DELETE`,
+default `POST`), because the ngnt actions are verb-sensitive. Internal routes (`debug`,
+`openapi/inspector`, `inspector/openapi`) are hidden; `health` and `state` are exposed.
+
+Every `tools/call` is routed through the normal request path (the same dispatch used by
+the HTTP API and the WebSocket bridge), so history entries, workspace updates and
+WebSocket broadcasts are identical to those produced by a UI client.
+
+### Annotating tools from a macro
+
+Descriptions and other MCP metadata live in the **handler macro**, not in C++. Register
+them next to the handler, keyed by the same action name used in the handler map:
+
+```cpp
+#include <ndmspc/http/NGnHttpServer.h>
+
+void httpMyCustom()
+{
+  auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
+
+  Ndmspc::RegisterMcpTool("myplugin/summary", "Return a summary of the current state.");
+  // or with more control:
+  Ndmspc::RegisterMcpTool("myplugin/summary", {
+      .description = "Return a summary of the current state.",
+      .title       = "Summary",
+      .methods     = {"GET"},
+      .hidden      = false,
+      .inputSchema = {{"properties", {{"verbose", {{"type", "boolean"}}}}}},
+  });
+
+  handlers["myplugin/summary"] = [](std::string method, json & in, json & out, json & wsOut,
+                        std::map<std::string, TObject *> & objects) { /* ... */ };
+}
+```
+
+`NMcpToolInfo` fields:
+
+| Field | Meaning |
+|---|---|
+| `description` | Tool description shown to the model (falls back to a generic string). |
+| `title` | Optional MCP `title`; defaults to the action-derived tool name. |
+| `methods` | Allowed HTTP verbs; narrows the tool's `method` enum. Empty = all four. |
+| `hidden` | Exclude the action from MCP entirely (neither listed nor callable). |
+| `inputSchema` | Extra JSON-Schema properties merged on top of the auto-derived schema. |
+
+Changing a description requires only editing the macro and reloading — no recompilation of
+the server. Actions with no registered metadata keep the generic description, and
+`debug`/`openapi/inspector`/`inspector/openapi` stay excluded by default.
+
+### HTTP transport
+
+The endpoint is **off by default** and opt-in with `--with-mcp`:
+
+```bash
+ndmspc-server start ngnt --with-mcp -p 8080     # or: NDMSPC_MCP=1 ndmspc-server start ngnt
+
+curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
+curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ngnt_open","arguments":{"method":"POST","file":"test.root"}}}'
+```
+
+Without `--with-mcp`, requests to `/api/mcp` return
+`{"error": "MCP endpoint is disabled"}` and the rest of the API is unaffected. The switch
+is also available programmatically via `NGnHttpServer::SetMcpEnabled(true)`. The stdio
+launcher `ndmspc-mcp` is unaffected — it is an MCP server by definition.
+
+Responses are plain `application/json` (the spec also permits an SSE stream; this server
+returns JSON). `initialize` responses carry an `Mcp-Session-Id` header. When OIDC is
+enabled, include the bearer token (`Authorization: Bearer ...`), like any other `/api/*`
+call — the endpoint is not exempt from authentication.
+
+### stdio transport
+
+```bash
+ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/builtin/httpNgnt*.C
+ndmspc-mcp -m /path/httpNgntBase.C,/path/httpNgnt.C
+ndmspc-mcp --all-tools                                      # also expose debug/openapi actions
+```
+
+Only JSON-RPC messages are written to stdout; the logger and any `Print()` output from the
+macros are redirected to stderr. Point an MCP client at the binary:
+
+```json
+{ "mcpServers": { "ndmspc-ngnt": { "command": "/path/to/bin/ndmspc-mcp" } } }
+```
+
+See [`examples/mcp`](examples/mcp) for a runnable example covering both transports.

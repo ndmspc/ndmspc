@@ -11,6 +11,21 @@ void httpNgntBase()
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
+  // MCP tool metadata (see httpNgnt.C for the convention)
+  Ndmspc::RegisterMcpTool("health", {
+      .description = "Server health and workspace snapshot (GET prints the server, POST/PATCH return the workspace).",
+      .methods     = {"GET", "POST", "PATCH", "DELETE"},
+  });
+  Ndmspc::RegisterMcpTool("state", {
+      .description = "Inspect or reset server state: GET returns the workspace inspector schema, PATCH updates "
+                     "the heartbeat, DELETE resets the server.",
+      .methods     = {"GET", "PATCH", "DELETE"},
+  });
+  Ndmspc::RegisterMcpTool("debug", {
+      .description = "Echo an arbitrary request back (debug helper).",
+      .hidden      = true,
+  });
+
   // Store lambdas (must be non-capturing to convert to function pointer)
   handlers["health"] = [](std::string method, json & /*httpIn*/, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {

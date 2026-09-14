@@ -17,6 +17,10 @@
 ///
 ///   void httpMyCustom() {
 ///     auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
+///
+///     // Describe the action for MCP clients (ndmspc-mcp / POST /api/mcp).
+///     Ndmspc::RegisterMcpTool("myplugin/summary", "Return a summary of the current state.");
+///
 ///     handlers["myplugin/summary"] = [](std::string method, json & in, json & out, json & wsOut,
 ///                              std::map<std::string, TObject *> & objects) {
 ///       Ndmspc::NGnRouteContext ctx(method, in, out, wsOut, objects);
@@ -28,6 +32,16 @@
 ///   }
 ///
 /// Then load: ndmspc-server start ngnt -m "httpNgnt.C,httpMyCustom.C"
+///
+/// RegisterMcpTool accepts a full Ndmspc::NMcpToolInfo, e.g.
+///   Ndmspc::RegisterMcpTool("myplugin/summary", {
+///       .description = "Return a summary of the current state.",
+///       .title       = "Summary",
+///       .methods     = {"GET"},
+///       .hidden      = false,
+///       .inputSchema = {{"properties", {{"verbose", {{"type", "boolean"}}}}}},
+///   });
+/// Call it right before (or after) the corresponding handlers[...] assignment.
 ///
 
 #include <algorithm>
@@ -255,6 +269,62 @@ void httpNgnt()
   std::string group    = "ngnt";
 
   // ===========================================================================
+  //  MCP tool metadata
+  //  Surfaced by `ndmspc-mcp` (stdio) and POST /api/mcp (HTTP). Descriptions
+  //  live here in the macro, not in C++, so they can be changed without
+  //  recompiling the server. `methods` narrows the tool's `method` enum.
+  // ===========================================================================
+  Ndmspc::RegisterMcpTool(group + "/open", {
+      .description = "Open or close an NGnTree ROOT file. POST with 'file' opens it, GET reports the "
+                     "currently opened file and its structure, DELETE closes it.",
+      .methods     = {"GET", "POST", "DELETE"},
+      .inputSchema = {{"properties",
+                       {{"file",
+                         {{"type", "string"},
+                          {"description", "Path to the NGnTree ROOT file to open (POST only)."}}}}}},
+  });
+  Ndmspc::RegisterMcpTool(group + "/reshape", {
+      .description = "Reshape the opened tree into a navigator. POST with 'binningName' and 'levels' "
+                     "builds the navigator, GET returns its info, DELETE clears it.",
+      .methods     = {"GET", "POST", "DELETE"},
+      .inputSchema = {{"properties",
+                       {{"binningName",
+                         {{"type", "string"}, {"description", "Binning definition name (optional)."}}},
+                        {"levels",
+                         {{"type", "array"},
+                          {"description", "Nested levels array, e.g. [[0,1,2],[3,4]]."},
+                          {"items", {{"type", "array"}, {"items", {{"type", "integer"}}}}}}}}}},
+  });
+  Ndmspc::RegisterMcpTool(group + "/map", {
+      .description = "Project the current navigator level onto pads. POST renders the projection "
+                     "(mappingPad, contentPad, averages), PATCH drills down using a point/level/bin, "
+                     "DELETE clears the map.",
+      .methods     = {"POST", "PATCH", "DELETE"},
+      .inputSchema = {{"properties",
+                       {{"mappingPad", {{"type", "string"}, {"description", "Pad that shows the map."}}},
+                        {"contentPad", {{"type", "string"}, {"description", "Pad that shows the content."}}},
+                        {"averages", {{"type", "boolean"}, {"description", "Average deeper levels into higher levels."}}}}}},
+  });
+  Ndmspc::RegisterMcpTool(group + "/spectra", {
+      .description = "Render spectra histograms for selected parameters (POST/PATCH) with 'parameters', "
+                     "'startPad', 'axismargin' and 'minmaxMode'.",
+      .methods     = {"POST", "PATCH", "DELETE"},
+      .inputSchema = {{"properties",
+                       {{"parameters", {{"type", "array"}, {"items", {{"type", "string"}}}}},
+                        {"startPad", {{"type", "string"}, {"description", "First pad index, e.g. 'pad3'."}}},
+                        {"axismargin", {{"type", "number"}}},
+                        {"minmaxMode", {{"type", "string"}, {"enum", {"V", "VE", "D"}}}}}}},
+  });
+  Ndmspc::RegisterMcpTool(group + "/point", {
+      .description = "Fetch entry-level data points. GET returns the projection, POST with 'entry' and "
+                     "'contentPad' returns the entry content.",
+      .methods     = {"GET", "POST"},
+      .inputSchema = {{"properties",
+                       {{"entry", {{"type", "integer"}, {"description", "Entry index to fetch (POST)."}}},
+                        {"contentPad", {{"type", "string"}}}}}},
+  });
+
+  // ===========================================================================
   //  /api/ngnt/open — Open/close NGnTree files
   // ===========================================================================
 
@@ -307,6 +377,7 @@ void httpNgnt()
           ctx.Success();
           return;
         }
+        ngnt->Close(false);
         server->RemoveInputObject("ngnt");
       }
 
@@ -325,7 +396,7 @@ void httpNgnt()
       ctx.Workspace()[openKey]["properties"]["file"]["default"] = file;
       wsOut["workspace"][openKey]                               = ctx.Workspace()[openKey];
 
-      if (!ctx.Workspace().contains(reshapeKey)) {
+      if (!ctx.Workspace()[reshapeKey].contains("type")) {
         ctx.Workspace()[reshapeKey] = BuildReshapeSchema(ngnt);
       }
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
@@ -337,6 +408,7 @@ void httpNgnt()
     if (ctx.IsDelete()) {
       if (ngnt) {
         NLogTrace("Closing NGnTree %s", ngnt->GetStorageTree()->GetFileName().c_str());
+        ngnt->Close(false);
         server->RemoveInputObject("ngnt");
       }
       ctx.Success();
@@ -374,7 +446,8 @@ void httpNgnt()
         ctx.Success();
       }
       else {
-        ctx.Result("File %s not opened", ngnt ? ngnt->GetStorageTree()->GetFileName().c_str() : "unknown");
+        ctx.Result("Navigator not created for file %s; POST reshape first",
+                   ngnt->GetStorageTree()->GetFileName().c_str());
       }
       return;
     }
@@ -404,7 +477,7 @@ void httpNgnt()
       Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "binningName", binningName);
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
-      if (!ctx.Workspace().contains(mapKey)) {
+      if (!ctx.Workspace()[mapKey].contains("type")) {
         ctx.Workspace()[mapKey] = BuildMapSchema();
       }
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
@@ -504,12 +577,20 @@ void httpNgnt()
       wsOut["payload"]["map"]["targetPad"]  = mappingPad;
       wsOut["payload"]["map"]["contentPad"] = contentPad;
 
+      // A repeated map POST first drops the previous "map" entry, which also
+      // drops it as an orphaned workspace key, so the schema has to be built
+      // again here. Writing the defaults into a missing schema would otherwise
+      // create stubs that carry only a default and lose their `type`.
+      if (!ctx.Workspace()[mapKey].contains("type")) {
+        ctx.Workspace()[mapKey] = BuildMapSchema(mappingPad, contentPad);
+      }
+
       Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "mappingPad", mappingPad);
       Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "contentPad", contentPad);
       Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "averages", averages);
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
 
-      if (!ctx.Workspace().contains(spectraKey)) {
+      if (!ctx.Workspace()[spectraKey].contains("type")) {
         ctx.Workspace()[spectraKey] = BuildSpectraSchema(ngnt);
       }
       wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
@@ -758,8 +839,14 @@ void httpNgnt()
         if (!wsDef.is_null()) parameters = wsDef.get<std::vector<std::string>>();
       }
       else {
-        ctx.Workspace()[spectraKey]["properties"]["parameters"]["default"] = parameters;
-        wsOut["workspace"][spectraKey]                                     = ctx.Workspace()[spectraKey];
+        // The spectra schema can be absent here (its entry may have been
+        // dropped as an orphaned workspace key), so build it before setting a
+        // default on it instead of creating a property stub without a `type`.
+        if (!ctx.Workspace()[spectraKey].contains("type")) {
+          ctx.Workspace()[spectraKey] = BuildSpectraSchema(ngnt, parameters);
+        }
+        Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "parameters", parameters);
+        wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
       }
       NLogTrace("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
 

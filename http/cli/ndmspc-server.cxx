@@ -296,10 +296,16 @@ int main(int argc, char ** argv)
   server_ngnt->add_option("--no-history", noHistory, "Disable history in processing requests")->default_val("false");
   int heartbeat_ms = 10000;
   server_ngnt->add_option("--heartbeat", heartbeat_ms, "Heartbeat interval in milliseconds (default: 10000)");
+  bool withMcp = false;
+  if (const char * mcpEnv = std::getenv("NDMSPC_MCP"); mcpEnv != nullptr && *mcpEnv != '\0') {
+    withMcp = Ndmspc::NUtils::ParseBoolEnv(mcpEnv);
+  }
+  server_ngnt->add_flag("--with-mcp", withMcp,
+                        "Expose the MCP endpoint (POST /api/mcp); disabled by default (NDMSPC_MCP=1 enables)");
   AddOidcOptions(server_ngnt, oidcConfig);
   AddX509Options(server_ngnt, x509Config);
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &oidcConfig, &x509Config]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp, &oidcConfig, &x509Config]() {
     gROOT->SetBatch(batch);
     PrepareOidcConfig(oidcConfig, x509Config);
 
@@ -312,6 +318,8 @@ int main(int argc, char ** argv)
     log_server_version("ngnt", port);
 
     serv->SetUseHistory(!noHistory);
+    serv->SetMcpEnabled(withMcp);
+    if (withMcp) NLogInfo("MCP endpoint enabled (POST /api/mcp)");
     serv->SetCors("*");
     if (htmlDir.empty()) {
       const char * env       = gSystem->Getenv("NDMSPC_DIR");
@@ -352,6 +360,9 @@ int main(int argc, char ** argv)
     std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
     // Set the global pointer to your local map
     Ndmspc::gNdmspcHttpHandlers = &handlers;
+    // MCP tool metadata declared by the macros (descriptions, allowed verbs, ...)
+    Ndmspc::NMcpToolMap mcpTools;
+    Ndmspc::gNdmspcMcpTools = &mcpTools;
 
     std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroFilename, ',');
 

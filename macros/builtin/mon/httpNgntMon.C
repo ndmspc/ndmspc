@@ -7,6 +7,9 @@ void httpNgntMon()
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
+  // MCP tool metadata (see httpNgnt.C for the convention)
+  Ndmspc::RegisterMcpTool("jobs", "List or manage monitoring jobs (GET lists jobs, other verbs act on them).");
+
   // Store lambdas (must be non-capturing to convert to function pointer)
   handlers["jobs"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                         std::map<std::string, TObject *> &) {

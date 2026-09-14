@@ -2,6 +2,9 @@
 #define Ndmspc_NGnHttpServer_H
 #include <map>
 #include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NGnWorkspace.h"
 #include "NHttpServer.h"
@@ -28,6 +31,50 @@ using NGnHttpHandlerMap = std::map<std::string, NGnHttpFuncPtr>;
  * @brief Global pointer to the HTTP handler map.
  */
 extern NGnHttpHandlerMap * gNdmspcHttpHandlers;
+
+/**
+ * @brief MCP metadata for one registered HTTP handler action.
+ *
+ * Handler macros declare this alongside the handler itself so the Model Context
+ * Protocol layer (NMcpServer) can describe the action without hardcoding strings
+ * in C++:
+ *
+ * \code
+ *   Ndmspc::RegisterMcpTool("ngnt/open", {
+ *       .description = "Open or close an NGnTree ROOT file.",
+ *       .methods     = {"GET", "POST", "DELETE"},
+ *   });
+ * \endcode
+ */
+struct NMcpToolInfo {
+  std::string              description{};  ///< Human-readable tool description
+  std::string              title{};        ///< Optional MCP "title" (defaults to the action name)
+  std::vector<std::string> methods{};      ///< Allowed HTTP verbs; empty = all four
+  bool                     hidden{false};  ///< Exclude this action from MCP entirely
+  json                     inputSchema{};  ///< Optional extra input-schema properties merged in
+};
+
+/// @brief Map of handler action (e.g. "ngnt/open") to its MCP metadata.
+using NMcpToolMap = std::map<std::string, NMcpToolInfo>;
+
+/// @brief Global pointer to the MCP metadata map, set by the CLI before macros load.
+extern NMcpToolMap * gNdmspcMcpTools;
+
+/// @brief Register (or replace) the MCP metadata for a handler action.
+/// @note No-op when gNdmspcMcpTools is null, so macros loaded outside a wired CLI
+///       (e.g. by ndmspc-run) do not crash.
+inline void RegisterMcpTool(const std::string & action, NMcpToolInfo info)
+{
+  if (gNdmspcMcpTools != nullptr) (*gNdmspcMcpTools)[action] = std::move(info);
+}
+
+/// @brief Convenience overload for the common case of a description only.
+inline void RegisterMcpTool(const std::string & action, const std::string & description)
+{
+  NMcpToolInfo info;
+  info.description = description;
+  RegisterMcpTool(action, std::move(info));
+}
 
 ///
 /// \class NGnHttpServer
@@ -76,13 +123,19 @@ class NGnHttpServer : public NHttpServer {
   void                                          SetGroup(const std::string & group) { fGroup = group; }
   const std::string &                           GetGroup() const { return fGroup; }
 
+  /// @brief Enable or disable the MCP endpoint (POST /api/mcp). Disabled by default.
+  void SetMcpEnabled(bool enabled) { fMcpEnabled = enabled; }
+  /// @brief Whether the MCP endpoint (POST /api/mcp) is enabled.
+  bool IsMcpEnabled() const { return fMcpEnabled; }
+
   private:
   mutable std::mutex                            fHandlersMutex;    ///<! Guards fHttpHandlers
   std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
   NGnWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
-  bool fUseHistory{true}; ///<! Flag to indicate whether to use history in processing requests
-  std::string fGroup;     ///<! Group prefix for workspace routes
+  bool fUseHistory{true};  ///<! Flag to indicate whether to use history in processing requests
+  bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled
+  std::string fGroup;      ///<! Group prefix for workspace routes
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);
