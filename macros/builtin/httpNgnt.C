@@ -78,6 +78,29 @@ Ndmspc::NGnNavigator * TraverseNavigator(Ndmspc::NGnNavigator * root, const std:
   return nav;
 }
 
+// Resolves the drill-down point for a map/spectra PATCH request.
+//
+// Programmatic clients (MCP) send the full path in 'point'; when it is omitted,
+// 'level' truncates the stored state point. Histogram clicks instead send the
+// *base* point for the clicked level plus the clicked cell as 'args.bin', so the
+// bin has to be appended to complete the path.
+std::vector<int> ResolveDrillPoint(const Ndmspc::NGnRouteContext & ctx, const json & httpIn)
+{
+  const bool       hasPoint = httpIn.contains("point") && httpIn["point"].is_array();
+  std::vector<int> point    = hasPoint ? httpIn["point"].get<std::vector<int>>() : ctx.GetStatePoint();
+  const bool       hasBin =
+      httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("bin");
+
+  const int level = ctx.GetInt("level");
+  if (level >= 0 && point.size() > static_cast<size_t>(level) && (!hasPoint || hasBin)) {
+    point.resize(level);
+  }
+  if (hasBin) {
+    point.push_back(httpIn["args"]["bin"].get<int>());
+  }
+  return point;
+}
+
 json BuildMapClickAction(const std::vector<int> & point, int level, const std::string & group = "")
 {
   json action;
@@ -303,7 +326,15 @@ void httpNgnt()
       .inputSchema = {{"properties",
                        {{"mappingPad", {{"type", "string"}, {"description", "Pad that shows the map."}}},
                         {"contentPad", {{"type", "string"}, {"description", "Pad that shows the content."}}},
-                        {"averages", {{"type", "boolean"}, {"description", "Average deeper levels into higher levels."}}}}}},
+                        {"averages", {{"type", "boolean"}, {"description", "Average deeper levels into higher levels."}}},
+                        {"point",
+                         {{"type", "array"},
+                          {"items", {{"type", "integer"}}},
+                          {"description", "Canonical drill-down point: full path of child indices to select."}}},
+                        {"level",
+                         {{"type", "integer"},
+                          {"description", "Target navigator level; used with the stored state point when 'point' "
+                                          "is omitted."}}}}}},
   });
   Ndmspc::RegisterMcpTool(group + "/spectra", {
       .description = "Render spectra histograms for selected parameters (POST/PATCH) with 'parameters', "
@@ -313,7 +344,15 @@ void httpNgnt()
                        {{"parameters", {{"type", "array"}, {"items", {{"type", "string"}}}}},
                         {"startPad", {{"type", "string"}, {"description", "First pad index, e.g. 'pad3'."}}},
                         {"axismargin", {{"type", "number"}}},
-                        {"minmaxMode", {{"type", "string"}, {"enum", {"V", "VE", "D"}}}}}}},
+                        {"minmaxMode", {{"type", "string"}, {"enum", {"V", "VE", "D"}}}},
+                        {"point",
+                         {{"type", "array"},
+                          {"items", {{"type", "integer"}}},
+                          {"description", "Canonical drill-down point: full path of child indices to select."}}},
+                        {"level",
+                         {{"type", "integer"},
+                          {"description", "Target navigator level; used with the stored state point when 'point' "
+                                          "is omitted."}}}}}},
   });
   Ndmspc::RegisterMcpTool(group + "/point", {
       .description = "Fetch entry-level data points. GET returns the projection, POST with 'entry' and "
@@ -602,18 +641,7 @@ void httpNgnt()
     if (ctx.IsPatch()) {
       NLogTrace("[Server] PATCH map received: %s", httpIn.dump().c_str());
 
-      std::vector<int> point = ctx.GetStatePoint();
-
-      int level = ctx.GetInt("level");
-      if (level >= 0) {
-        point.resize(level);
-      }
-
-      if (httpIn.contains("args")) {
-        int bin = httpIn["args"]["bin"].get<int>();
-        point.push_back(bin);
-        NLogTrace("[Server] PATCH map added bin to point: %d", bin);
-      }
+      std::vector<int> point = ResolveDrillPoint(ctx, httpIn);
 
       ctx.SetStatePoint(point);
       NLogTrace("[Server] Final point for PATCH map: %s", json(point).dump().c_str());
@@ -805,23 +833,15 @@ void httpNgnt()
     if (ctx.IsPatch()) {
       NLogTrace("[Server] PATCH spectra received: %s", httpIn.dump().c_str());
 
-      std::vector<int> point = ctx.GetStatePoint();
-
-      int level = ctx.GetInt("level");
-      if (level < 0) {
+      const bool hasPoint = httpIn.contains("point") && httpIn["point"].is_array();
+      const bool hasBin = httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("bin");
+      if (!hasPoint && !hasBin && ctx.GetInt("level") < 0) {
         NLogTrace("[Server] PATCH spectra no level specified");
         ctx.Result("Missing level for PATCH spectra");
         return;
       }
-      if (point.size() > static_cast<size_t>(level)) {
-        point.resize(level);
-      }
 
-      int newBin = -1;
-      if (httpIn.contains("args")) {
-        newBin = httpIn["args"]["bin"].get<int>();
-      }
-      point.push_back(newBin);
+      std::vector<int> point = ResolveDrillPoint(ctx, httpIn);
       NLogTrace("[Server] Final point for PATCH spectra: %s", json(point).dump().c_str());
 
       ctx.SetStatePoint(point);

@@ -296,12 +296,14 @@ int main(int argc, char ** argv)
   server_ngnt->add_option("--no-history", noHistory, "Disable history in processing requests")->default_val("false");
   int heartbeat_ms = 10000;
   server_ngnt->add_option("--heartbeat", heartbeat_ms, "Heartbeat interval in milliseconds (default: 10000)");
-  bool withMcp = false;
+  bool withMcp = true;
   if (const char * mcpEnv = std::getenv("NDMSPC_MCP"); mcpEnv != nullptr && *mcpEnv != '\0') {
     withMcp = Ndmspc::NUtils::ParseBoolEnv(mcpEnv);
   }
-  server_ngnt->add_flag("--with-mcp", withMcp,
-                        "Expose the MCP endpoint (POST /api/mcp); disabled by default (NDMSPC_MCP=1 enables)");
+  server_ngnt->add_option("--mcp", withMcp,
+                          "Expose the MCP endpoint (POST /api/mcp); enabled by default (--mcp false or "
+                          "NDMSPC_MCP=0 disables)")
+      ->default_val(withMcp ? "true" : "false");
   AddOidcOptions(server_ngnt, oidcConfig);
   AddX509Options(server_ngnt, x509Config);
 

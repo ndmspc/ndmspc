@@ -528,10 +528,11 @@ the server. Actions with no registered metadata keep the generic description, an
 
 ### HTTP transport
 
-The endpoint is **off by default** and opt-in with `--with-mcp`:
+The endpoint is **on by default** and can be disabled with `--mcp false`:
 
 ```bash
-ndmspc-server start ngnt --with-mcp -p 8080     # or: NDMSPC_MCP=1 ndmspc-server start ngnt
+ndmspc-server start ngnt -p 8080                # MCP endpoint enabled (default)
+ndmspc-server start ngnt --mcp false -p 8080    # or: NDMSPC_MCP=0 ndmspc-server start ngnt
 
 curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
@@ -541,9 +542,9 @@ curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ngnt_open","arguments":{"method":"POST","file":"test.root"}}}'
 ```
 
-Without `--with-mcp`, requests to `/api/mcp` return
+With `--mcp false` (or `NDMSPC_MCP=0`), requests to `/api/mcp` return
 `{"error": "MCP endpoint is disabled"}` and the rest of the API is unaffected. The switch
-is also available programmatically via `NGnHttpServer::SetMcpEnabled(true)`. The stdio
+is also available programmatically via `NGnHttpServer::SetMcpEnabled(false)`. The stdio
 launcher `ndmspc-mcp` is unaffected — it is an MCP server by definition.
 
 Responses are plain `application/json` (the spec also permits an SSE stream; this server
