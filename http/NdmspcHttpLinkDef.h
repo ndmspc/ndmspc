@@ -14,5 +14,6 @@
 #pragma link C++ class Ndmspc::NGnHttpServer + ;
 
 #pragma link C++ class Ndmspc::NHttpRequest + ;
+#pragma link C++ struct Ndmspc::NHttpResponse + ;
 #pragma link C++ class Ndmspc::NWsClient + ;
 #endif
