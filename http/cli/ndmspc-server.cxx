@@ -304,10 +304,22 @@ int main(int argc, char ** argv)
                           "Expose the MCP endpoint (POST /api/mcp); enabled by default (--mcp false or "
                           "NDMSPC_MCP=0 disables)")
       ->default_val(withMcp ? "true" : "false");
+  // Room router: off unless asked for. It adds macros/builtin/httpRoom.C, which
+  // serves /api/room/* and creates one Knative Service per room.
+  bool withRooms = false;
+  if (const char * roomsEnv = std::getenv("NDMSPC_ROOMS"); roomsEnv != nullptr && *roomsEnv != '\0') {
+    withRooms = Ndmspc::NUtils::ParseBoolEnv(roomsEnv);
+  }
+  server_ngnt->add_option("--rooms", withRooms,
+                          "Also load the room router macro (macros/builtin/httpRoom.C), serving "
+                          "/api/room/* and creating one Knative Service per room; disabled by default "
+                          "(--rooms true or NDMSPC_ROOMS=1). Kubernetes only: the server exits when "
+                          "KUBERNETES_SERVICE_HOST is unset")
+      ->default_val(withRooms ? "true" : "false");
   AddOidcOptions(server_ngnt, oidcConfig);
   AddX509Options(server_ngnt, x509Config);
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp, &oidcConfig, &x509Config]() {
+  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp, &withRooms, &oidcConfig, &x509Config]() {
     gROOT->SetBatch(batch);
     PrepareOidcConfig(oidcConfig, x509Config);
 
@@ -335,24 +347,34 @@ int main(int argc, char ** argv)
       serv->SetDefaultPage(TString::Format("%s/index.html", htmlDir.c_str()).Data());
     }
 
-    if (macroFilename.empty()) {
-      const char * env1      = gSystem->Getenv("NDMSPC_DIR");
-      std::string  ndmspcDir = (env1 && *env1) ? env1 : "";
+    // The directory holding the installed macros. Needed for --rooms even when
+    // -m was given, so it is resolved up front.
+    const char * envMacros = gSystem->Getenv("NDMSPC_DIR");
+    std::string  ndmspcMacrosDir = (envMacros && *envMacros) ? envMacros : "";
+    if (ndmspcMacrosDir.empty()) {
+      const char * envHome = gSystem->Getenv("NDMSPC__HOME");
+      ndmspcMacrosDir      = (envHome && *envHome) ? envHome : "/usr/share/ndmspc";
+    }
 
-      if (ndmspcDir.empty()) {
-        const char * env2 = gSystem->Getenv("NDMSPC__HOME");
-        ndmspcDir         = (env2 && *env2) ? env2 : "/usr/share/ndmspc";
-      }
-      // check if ndmspcDir is exists
-      if (gSystem->AccessPathName(ndmspcDir.c_str()) == 0) {
+    if (macroFilename.empty()) {
+      // check if ndmspcMacrosDir is exists
+      if (gSystem->AccessPathName(ndmspcMacrosDir.c_str()) == 0) {
         macroFilename = TString::Format("%s/macros/builtin/httpNgntBase.C,%s/macros/builtin/httpNgnt.C",
-                                        ndmspcDir.c_str(), ndmspcDir.c_str())
+                                        ndmspcMacrosDir.c_str(), ndmspcMacrosDir.c_str())
                             .Data();
         NLogInfo("No macro file given, using default macros ...");
       } else {
         // just warn and continue, user may provide macro file later
-        NLogError("No macro file given and default macros not found in '%s'. Please provide a macro file with -m option.", ndmspcDir.c_str());
+        NLogError("No macro file given and default macros not found in '%s'. Please provide a macro file with -m option.", ndmspcMacrosDir.c_str());
         exit(1);
+      }
+    }
+
+    if (withRooms) {
+      const std::string roomMacro = ndmspcMacrosDir + "/macros/builtin/httpRoom.C";
+      if (macroFilename.find(roomMacro) == std::string::npos) {
+        macroFilename += "," + roomMacro;
+        NLogInfo("Rooms enabled: loading '%s'", roomMacro.c_str());
       }
     }
 

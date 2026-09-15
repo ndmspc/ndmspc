@@ -96,6 +96,10 @@ int main(int argc, char ** argv)
   std::string transport = "stdio";
   bool        allTools  = false;
   bool        verbose   = false;
+  bool        withRooms = false;
+  if (const char * roomsEnv = std::getenv("NDMSPC_ROOMS"); roomsEnv != nullptr && *roomsEnv != '\0') {
+    withRooms = Ndmspc::NUtils::ParseBoolEnv(roomsEnv);
+  }
 
   CLI::App app{AppDescription()};
   app.set_version_flag("--version", AppVersion(), "Print version information and exit");
@@ -105,6 +109,10 @@ int main(int argc, char ** argv)
   app.add_option("--transport", transport, "Transport to serve (default: stdio)")
       ->check(CLI::IsMember({"stdio"}));
   app.add_flag("--all-tools", allTools, "Also expose internal actions (debug, openapi) as tools");
+  app.add_flag("--rooms", withRooms,
+               "Also load the room router macro (macros/builtin/httpRoom.C) and expose the room_* tools; "
+               "disabled by default (--rooms or NDMSPC_ROOMS=1). Kubernetes only: the process exits when "
+               "KUBERNETES_SERVICE_HOST is unset");
   app.add_flag("-v,--verbose", verbose, "Enable verbose logging on stderr");
   CLI11_PARSE(app, argc, argv);
 
@@ -129,6 +137,14 @@ int main(int argc, char ** argv)
       return 1;
     }
     macroFilename = dir + "/macros/builtin/httpNgntBase.C," + dir + "/macros/builtin/httpNgnt.C";
+  }
+
+  if (withRooms) {
+    const std::string roomMacro = NdmspcDir() + "/macros/builtin/httpRoom.C";
+    if (macroFilename.find(roomMacro) == std::string::npos) {
+      macroFilename += "," + roomMacro;
+      NLogInfo("ndmspc-mcp: rooms enabled, loading '%s'", roomMacro.c_str());
+    }
   }
 
   auto server = std::make_unique<Ndmspc::NGnHttpServer>(/*engine=*/"", /*ws=*/true, /*heartbeat_ms=*/10000,

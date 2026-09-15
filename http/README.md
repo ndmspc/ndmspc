@@ -555,7 +555,8 @@ call — the endpoint is not exempt from authentication.
 ### stdio transport
 
 ```bash
-ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/builtin/httpNgnt*.C
+ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/builtin/httpNgntBase.C,httpNgnt.C
+ndmspc-mcp --rooms                                         # additionally load the room router macro (httpRoom.C)
 ndmspc-mcp -m /path/httpNgntBase.C,/path/httpNgnt.C
 ndmspc-mcp --all-tools                                      # also expose debug/openapi actions
 ```
