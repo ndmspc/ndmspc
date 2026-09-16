@@ -2,7 +2,10 @@
 # Start the ngnt HTTP server with the MCP endpoint enabled (POST /api/mcp).
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# `cd` writes the resolved directory to stdout when CDPATH is set and the path is
+# relative (CDPATH commonly ends up containing "."), which would be captured here -
+# so redirect it.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
 PROJECT_DIR="$(readlink -m "$SCRIPT_DIR/../../..")"
 
 PORT="${PORT:-8080}"

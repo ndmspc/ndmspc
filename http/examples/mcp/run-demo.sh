@@ -4,7 +4,10 @@
 #   2. HTTP   — POST /api/mcp on a running ngnt server answers initialize/tools/list.
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# `cd` writes the resolved directory to stdout when CDPATH is set and the path is
+# relative (CDPATH commonly ends up containing "."), which would be captured here -
+# so redirect it.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
 PROJECT_DIR="$(readlink -m "$SCRIPT_DIR/../../..")"
 
 MCP_BIN="${MCP_BIN:-$PROJECT_DIR/bin/ndmspc-mcp}"

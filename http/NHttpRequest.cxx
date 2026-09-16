@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -99,7 +100,7 @@ std::string UpperCase(std::string value)
 template <typename Fn>
 auto WithClient(const UrlParts & parts, const std::string & cert_path, const std::string & key_path,
                 const std::string & key_password_file, bool insecure, const std::string & ca_file,
-                const std::string & ca_path, Fn && fn)
+                const std::string & ca_path, int connectMs, int readMs, Fn && fn)
 {
   if (parts.https) {
     // Only use the client certificate (and its password) when both files are given.
@@ -109,14 +110,15 @@ auto WithClient(const UrlParts & parts, const std::string & cert_path, const std
     client.enable_server_certificate_verification(!insecure);
     if (!ca_file.empty() || !ca_path.empty()) client.set_ca_cert_path(ca_file, ca_path);
     client.set_follow_location(true);
-    client.set_connection_timeout(10);
-    client.set_read_timeout(60);
+    // httplib's plain overloads take seconds, so pass a duration to keep the unit explicit.
+    client.set_connection_timeout(std::chrono::milliseconds(connectMs));
+    client.set_read_timeout(std::chrono::milliseconds(readMs));
     return fn(client);
   }
   httplib::Client client(parts.host, parts.port);
   client.set_follow_location(true);
-  client.set_connection_timeout(10);
-  client.set_read_timeout(60);
+  client.set_connection_timeout(std::chrono::milliseconds(connectMs));
+  client.set_read_timeout(std::chrono::milliseconds(readMs));
   return fn(client);
 }
 } // namespace
@@ -126,6 +128,12 @@ NHttpRequest::NHttpRequest() {}
 
 Ndmspc::NHttpRequest::~NHttpRequest() {}
 
+void Ndmspc::NHttpRequest::SetTimeout(int connectMs, int readMs)
+{
+  if (connectMs > 0) fConnectTimeoutMs = connectMs;
+  if (readMs > 0) fReadTimeoutMs = readMs;
+}
+
 std::string Ndmspc::NHttpRequest::get(const std::string & url, const std::string & cert_path,
                                       const std::string & key_path, const std::string & key_password_file,
                                       bool insecure)
@@ -133,7 +141,7 @@ std::string Ndmspc::NHttpRequest::get(const std::string & url, const std::string
   const auto parts = ParseUrl(url);
   httplib::Headers headers;
   headers.emplace("Content-Type", "application/json");
-  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, "", "",
+  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, "", "", fConnectTimeoutMs, fReadTimeoutMs,
                            [&](auto & client) { return client.Get(parts.path, headers); });
   if (!result) {
     throw std::runtime_error("NHttpRequest GET '" + url + "' failed: " + httplib::to_string(result.error()));
@@ -146,7 +154,7 @@ std::string Ndmspc::NHttpRequest::post(const std::string & url, const std::strin
                                        const std::string & key_password_file, bool insecure)
 {
   const auto parts = ParseUrl(url);
-  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, "", "",
+  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, "", "", fConnectTimeoutMs, fReadTimeoutMs,
                            [&](auto & client) { return client.Post(parts.path, post_data, "application/json"); });
   if (!result) {
     throw std::runtime_error("NHttpRequest POST '" + url + "' failed: " + httplib::to_string(result.error()));
@@ -158,7 +166,7 @@ int Ndmspc::NHttpRequest::head(const std::string & url, const std::string & cert
                                const std::string & key_password_file, bool insecure)
 {
   const auto parts = ParseUrl(url);
-  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, "", "",
+  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, "", "", fConnectTimeoutMs, fReadTimeoutMs,
                            [&](auto & client) { return client.Head(parts.path); });
   if (!result) {
     throw std::runtime_error("NHttpRequest HEAD '" + url + "' failed: " + httplib::to_string(result.error()));
@@ -188,7 +196,7 @@ NHttpResponse Ndmspc::NHttpRequest::request(const std::string & method, const st
     httpHeaders.emplace(header.first, header.second);
   }
 
-  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, ca_file, ca_path,
+  auto result = WithClient(parts, cert_path, key_path, key_password_file, insecure, ca_file, ca_path, fConnectTimeoutMs, fReadTimeoutMs,
                            [&](auto & client) {
                              if (verb == "GET") return client.Get(parts.path, httpHeaders);
                              if (verb == "HEAD") return client.Head(parts.path, httpHeaders);

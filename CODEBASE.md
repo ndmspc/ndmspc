@@ -339,6 +339,9 @@ cd build && ctest
 ```bash
 # Start the HTTP server
 ./bin/ndmspc-server
+
+# Terminal UI for the room router (rooms need an in-cluster Kubernetes API)
+./bin/ndmspc-room-tui --url http://localhost:8080
 ```
 
 ## Project Status

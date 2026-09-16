@@ -11,6 +11,8 @@
 ///        /api/room/status    (GET      — report a room's state)
 ///        /api/room/list      (GET      — list tracked rooms)
 ///        /api/room/close     (DELETE   — delete a room)
+///        /api/room/backup    (GET      — export the rooms and their sessions)
+///        /api/room/restore   (POST     — ensure and replay the rooms in a document)
 ///
 /// Usage:
 ///   ndmspc-server start ngnt -m "httpNgntBase.C,httpRoom.C"
@@ -20,6 +22,14 @@
 /// exists) the gateway would route the call to the room instead of the router.
 /// The client then navigates to the returned `url` (i.e. appends `?<param>=<id>`
 /// to the page/socket it wants served by the room).
+///
+/// /api/room/backup returns one document holding every tracked room and its
+/// session; /api/room/restore takes such a document, ensures every room in it
+/// from the current skeleton and replays its session. Restoring is additive: a
+/// room not named in the document is untouched, a room that already has a file
+/// open is left alone, and nothing is deleted. The document carries no ROOT data
+/// - only which file was open, its navigator and its drill-down - so it stays
+/// small enough to keep in version control.
 ///
 /// Configuration (environment):
 ///   NDMSPC_ROOM_NAMESPACE   namespace for the room objects        (default: default)
@@ -36,6 +46,41 @@
 /// securityContext); this macro only stamps names/revisions. Its
 /// `room-skeleton.json` key must contain:
 ///   { "routeParentRef": {...}, "routeHostname": "...", "serviceSpec": {...} }
+///
+/// Session restore
+/// ---------------
+/// A room scales to zero when idle, so it comes back as an empty process: the file it
+/// had open, its navigator and its drill-down are gone. The router therefore remembers
+/// a room's session and replays it when the room is next opened, so `room/open` hands
+/// back a room holding what it held before.
+///
+/// The snapshot is compact and replayable - the opened file, the request bodies of the
+/// actions that define state (ngnt/open, ngnt/reshape) and the drill-down point - and is
+/// stored as the `ndmspc.io/room-state` annotation on the room's own Knative Service, so
+/// it survives a router restart (NdmspcRoomAdopt reads it back) and travels with the room.
+/// Annotating a Service does not create a revision.
+///
+/// It is captured while the room is running and replayed when it wakes. Two routes cover the
+/// two ways that happens: a client that calls room/open gets the restored session in that
+/// call, and a client that goes straight for `?<param>=<id>` (HTTP or WebSocket) wakes the
+/// room without the router seeing it, so the room restores itself on its first request from
+/// the snapshot served by the hidden /api/room/state endpoint. Two rules make it safe:
+///
+///   * a room with nothing open is never captured, so a freshly started pod cannot
+///     overwrite a good snapshot with emptiness - which would otherwise happen on every
+///     wake, since a room is empty for the first seconds of its life;
+///   * a room that already has a file open is never restored over, so a live session
+///     always wins.
+///
+/// The room-side half needs NDMSPC_ROOM (which room this is) and NDMSPC_ROOM_STATE_URL (the
+/// router to report to), both of which this macro injects into the room's container.
+///
+/// Three details keep it working in practice. The router reads a snapshot back from the Service
+/// annotation when its in-memory registry is empty (a restart, or a scale-from-zero), instead of
+/// telling a room that has one that it has none. The opportunistic capture runs off the request
+/// path, because the router serves one request at a time and a capture inside room/list would
+/// cycle with a room that is calling the router back to restore itself. And a room bounds how
+/// long it waits for the router, so a cold one cannot stall a client.
 ///
 /// Kubernetes only: loading this macro aborts startup when
 /// KUBERNETES_SERVICE_HOST is unset, since the router needs the in-cluster API
@@ -58,6 +103,7 @@
 #include <ndmspc/http/NGnHttpServer.h>
 #include <ndmspc/http/NGnRouteContext.h>
 #include <ndmspc/http/NHttpRequest.h>
+#include <ndmspc/http/NRoomSession.h>
 #include <ndmspc/core/NLogger.h>
 
 // ===========================================================================
@@ -128,6 +174,7 @@ struct NdmspcRoomState {
   std::string value;
   std::string revision;
   long        lastSeen{0};
+  std::string snapshot; ///< Last captured session, replayed when the room wakes
 };
 
 static std::map<std::string, NdmspcRoomState> gNdmspcRooms;
@@ -138,6 +185,20 @@ static long NdmspcRoomNow()
   return static_cast<long>(
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
           .count());
+}
+
+// Reads an integer member of a JSON object, falling back when it is absent or not an integer.
+static int NdmspcRoomInt(const json & object, const char * key, int fallback = 0)
+{
+  if (!object.is_object() || !object.contains(key) || !object[key].is_number_integer()) return fallback;
+  return object[key].get<int>();
+}
+
+// Reads a member of a JSON object, falling back when it is absent.
+static json NdmspcRoomMember(const json & object, const char * key, const json & fallback = json())
+{
+  if (!object.is_object() || !object.contains(key)) return fallback;
+  return object[key];
 }
 
 static std::string NdmspcRoomReadFile(const std::string & path)
@@ -295,6 +356,31 @@ static std::string NdmspcRoomSkeletonPath()
   return "/api/v1/namespaces/" + NdmspcRoomCfg().ns + "/configmaps/" + NdmspcRoomCfg().skeleton;
 }
 
+// Holds a room's last session, so an idle (scaled to zero) room can be brought back with
+// the file, navigator and drill-down it had. Kept on the room's own Knative Service:
+// annotating a Service does not create a revision, so this cannot disturb a running room,
+// and the snapshot survives a router restart because NdmspcRoomAdopt reads it back.
+static const char kNdmspcRoomStateAnnotation[] = "ndmspc.io/room-state";
+
+// The address that serves a room directly, in-cluster. Knative creates one Service per
+// revision, named after it - which is exactly what the room's HTTPRoute targets - so this
+// reaches the room without going through the gateway (and scales it up on the way).
+static std::string NdmspcRoomBaseUrl(const std::string & revision)
+{
+  if (revision.empty()) return {};
+  return "http://" + revision + "." + NdmspcRoomCfg().ns + ".svc.cluster.local:80";
+}
+
+// The router's own address as seen from a room, which a room uses to report its session and
+// to fetch it back when it wakes. Knative exports the Service name as K_SERVICE, so the
+// router does not need to be told its own name.
+static std::string NdmspcRoomRouterBaseUrl()
+{
+  const std::string service = NdmspcRoomEnv("K_SERVICE", "");
+  if (service.empty()) return {};
+  return "http://" + service + "." + NdmspcRoomCfg().ns + ".svc.cluster.local:80";
+}
+
 // Reads and parses the skeleton ConfigMap ("room-skeleton.json" key).
 static bool NdmspcRoomSkeleton(json & out, std::string & error)
 {
@@ -348,6 +434,80 @@ static bool NdmspcRoomApply(const std::string & collection, const std::string & 
   return true;
 }
 
+// Stores a room's session snapshot on its own Knative Service.
+static bool NdmspcRoomAnnotate(const std::string & name, const std::string & snapshot, std::string & error)
+{
+  json patch;
+  patch["metadata"]["annotations"][kNdmspcRoomStateAnnotation] = snapshot;
+
+  const auto response =
+      NdmspcRoomApi("PATCH", NdmspcRoomSvcPath(name), patch.dump(), "application/merge-patch+json");
+  if (response.status < 200 || response.status >= 300) {
+    error = "PATCH " + NdmspcRoomSvcPath(name) + " failed (HTTP " + std::to_string(response.status) +
+            "): " + response.body;
+    return false;
+  }
+  return true;
+}
+
+// Returns a room's stored session snapshot.
+//
+// The registry is process-local, so a router restart (or a scale-from-zero) loses it while the
+// snapshot itself survives on the room's own Service - read it back from there rather than
+// telling a room that has one that it has none.
+static std::string NdmspcRoomSnapshot(const std::string & name, const std::string & id)
+{
+  std::string text;
+  {
+    std::lock_guard<std::mutex> lock(gNdmspcRoomsMutex);
+    const auto                  it = gNdmspcRooms.find(name);
+    if (it != gNdmspcRooms.end()) text = it->second.snapshot;
+  }
+  if (!text.empty()) return text;
+
+  const auto response = NdmspcRoomApi("GET", NdmspcRoomSvcPath(name));
+  if (response.status == 200) {
+    try {
+      const json svc         = json::parse(response.body);
+      const json annotations = svc.value("metadata", json::object()).value("annotations", json::object());
+      text                   = annotations.value(kNdmspcRoomStateAnnotation, std::string());
+    }
+    catch (const std::exception &) {
+    }
+  }
+  if (text.empty()) return text;
+
+  {
+    std::lock_guard<std::mutex> lock(gNdmspcRoomsMutex);
+    NdmspcRoomState &           state = gNdmspcRooms[name];
+    state.name                        = name;
+    state.value                       = id;
+    state.snapshot                    = text;
+    if (state.lastSeen == 0) state.lastSeen = NdmspcRoomNow();
+  }
+  NLogInfo("[room] %s: read its stored session back from the Service", name.c_str());
+  return text;
+}
+
+// Remembers a room's session: in the registry, and on the room's Service so it outlives this
+// process. Annotating cannot disturb the room (it does not change the spec, so no new revision).
+static void NdmspcRoomStoreSnapshot(const std::string & name, const std::string & id, const std::string & text)
+{
+  {
+    std::lock_guard<std::mutex> lock(gNdmspcRoomsMutex);
+    NdmspcRoomState &           state = gNdmspcRooms[name];
+    state.name                        = name;
+    state.value                       = id;
+    state.snapshot                    = text;
+    if (state.lastSeen == 0) state.lastSeen = NdmspcRoomNow();
+  }
+
+  std::string error;
+  if (!NdmspcRoomAnnotate(name, text, error)) {
+    NLogWarning("[room] cannot store the session of %s: %s", name.c_str(), error.c_str());
+  }
+}
+
 static json NdmspcRoomServiceObject(const std::string & name, const std::string & value, const json & skeleton)
 {
   json service;
@@ -358,21 +518,26 @@ static json NdmspcRoomServiceObject(const std::string & name, const std::string 
   service["metadata"]["labels"]["ndmspc.io/room"] = value;
   service["spec"]                   = skeleton.value("serviceSpec", json::object());
 
-  // Tag the server with the room id so a room can tell which room it is.
+  // Tag the server with the room id so a room can tell which room it is, and tell it where
+  // to report its session. A value the skeleton already sets wins.
   json & containers = service["spec"]["template"]["spec"]["containers"];
   if (!containers.is_array() || containers.empty()) containers = json::array({json::object()});
   json & env = containers[0]["env"];
   if (!env.is_array()) env = json::array();
-  bool hasRoom = false;
-  for (const auto & item : env) {
-    if (item.value("name", "") == "NDMSPC_ROOM") hasRoom = true;
-  }
-  if (!hasRoom) {
-    json roomEnv;
-    roomEnv["name"]  = "NDMSPC_ROOM";
-    roomEnv["value"] = value;
-    env.push_back(roomEnv);
-  }
+
+  auto ensureEnv = [&env](const std::string & key, const std::string & value) {
+    if (value.empty()) return;
+    for (const auto & item : env) {
+      if (item.value("name", "") == key) return;
+    }
+    json entry;
+    entry["name"]  = key;
+    entry["value"] = value;
+    env.push_back(entry);
+  };
+  ensureEnv("NDMSPC_ROOM", value);
+  ensureEnv("NDMSPC_ROOM_STATE_URL", NdmspcRoomRouterBaseUrl());
+
   return service;
 }
 
@@ -430,10 +595,24 @@ static bool NdmspcRoomWaitReady(const std::string & name, std::string & revision
     const auto response = NdmspcRoomApi("GET", NdmspcRoomSvcPath(name));
     if (response.status == 200) {
       try {
-        const json svc    = json::parse(response.body);
-        const json status = svc.value("status", json::object());
-        revision          = status.value("latestReadyRevisionName", "");
-        if (!revision.empty()) return true;
+        const json        svc        = json::parse(response.body);
+        const json        status     = svc.value("status", json::object());
+        const json        metadata   = svc.value("metadata", json::object());
+        const std::string created    = status.value("latestCreatedRevisionName", "");
+        const std::string ready      = status.value("latestReadyRevisionName", "");
+        const int         generation = NdmspcRoomInt(metadata, "generation");
+        const int         observed   = NdmspcRoomInt(status, "observedGeneration");
+
+        // The room serves the spec just applied only once the controller has observed that
+        // generation and the newest revision is the ready one. Waiting merely for "some ready
+        // revision" would pin this room's HTTPRoute - and the ?room= traffic with it - to the
+        // previous revision after any spec change (a new image, a new env var), silently
+        // leaving the room on the old code. Comparing created with ready is not enough on its
+        // own: both still describe the previous spec until the status catches up.
+        if (generation > 0 && observed >= generation && !created.empty() && created == ready) {
+          revision = ready;
+          return true;
+        }
         for (const auto & condition : status.value("conditions", json::array())) {
           if (condition.value("type", "") == "Ready") lastMessage = condition.value("message", "");
         }
@@ -502,6 +681,9 @@ static void NdmspcRoomAdopt()
           state.revision = item.value("status", json::object()).value("latestReadyRevisionName", "");
         }
         if (state.lastSeen == 0) state.lastSeen = NdmspcRoomNow();
+        if (state.snapshot.empty()) {
+          state.snapshot = metadata.value("annotations", json::object()).value(kNdmspcRoomStateAnnotation, "");
+        }
         ++adopted;
       }
     }
@@ -590,6 +772,115 @@ static bool NdmspcRoomClose(const std::string & value, std::string & error)
   return true;
 }
 
+// Captures a room's session and remembers it, so it can be replayed when the room is next
+// opened. Only ever called for a room that is running: a request to a scaled-to-zero room
+// would wake it, which is exactly what min-scale 0 exists to avoid.
+//
+// This runs on a detached thread. The capture calls the room, and a room that has just woken
+// calls the router back (to restore its own session), so doing this inside room/list would put
+// the router - which serves one request at a time - in a cycle with the room and starve that
+// fetch. Off the request path the router is free to answer.
+static void NdmspcRoomCaptureNow(const std::string & name, const std::string & value,
+                                 const std::string & revision)
+{
+  const std::string baseUrl = NdmspcRoomBaseUrl(revision);
+  if (baseUrl.empty()) return;
+
+  Ndmspc::NHttpRequest http;
+  std::string         error;
+  const json          snapshot = Ndmspc::NRoomSession::Capture(http, baseUrl, value, error);
+  if (snapshot.is_null()) {
+    // NRoomSession reports nothing for a room that has no file open, so a freshly
+    // started pod can never overwrite a good snapshot with emptiness.
+    if (!error.empty()) {
+      NLogWarning("[room] cannot capture the session of %s: %s", name.c_str(), error.c_str());
+    }
+    return;
+  }
+
+  const std::string text = Ndmspc::NRoomSession::Encode(snapshot);
+  if (text.empty()) return;
+
+  {
+    std::lock_guard<std::mutex> lock(gNdmspcRoomsMutex);
+    const auto                  it = gNdmspcRooms.find(name);
+    if (it == gNdmspcRooms.end()) return;
+    if (it->second.snapshot == text) return; // unchanged since the last poll
+    it->second.snapshot = text;
+  }
+
+  std::string file;
+  if (snapshot.contains("file") && snapshot["file"].is_string()) file = snapshot["file"].get<std::string>();
+  NLogInfo("[room] captured the session of %s (file '%s')", name.c_str(), file.c_str());
+
+  std::string patchError;
+  if (!NdmspcRoomAnnotate(name, text, patchError)) {
+    NLogWarning("[room] cannot store the session of %s: %s", name.c_str(), patchError.c_str());
+  }
+}
+
+// Captures a room's session off the request path (see NdmspcRoomCaptureNow).
+static void NdmspcRoomCapture(const std::string & name, const std::string & value, const std::string & revision)
+{
+  if (NdmspcRoomBaseUrl(revision).empty()) return;
+  std::thread([name, value, revision]() { NdmspcRoomCaptureNow(name, value, revision); }).detach();
+}
+
+// Replays a room's stored session into it once it is ready - this is what brings an idle
+// room back holding the file, navigator and drill-down it had. A room that is already in
+// use is left alone: the live session always wins.
+static void NdmspcRoomRestore(const std::string & value, json & payload)
+{
+  const std::string name = NdmspcRoomName(NdmspcRoomCfg(), value);
+
+  std::string text;
+  std::string revision;
+  {
+    std::lock_guard<std::mutex> lock(gNdmspcRoomsMutex);
+    const auto                  it = gNdmspcRooms.find(name);
+    if (it == gNdmspcRooms.end()) return;
+    text     = it->second.snapshot;
+    revision = it->second.revision;
+  }
+
+  if (text.empty()) return;
+
+  const std::string baseUrl = NdmspcRoomBaseUrl(revision);
+  if (baseUrl.empty()) return;
+
+  json snapshot;
+  if (!Ndmspc::NRoomSession::Decode(text, snapshot)) {
+    NLogWarning("[room] ignoring an unreadable session snapshot for %s", name.c_str());
+    return;
+  }
+
+  Ndmspc::NHttpRequest http;
+  std::string         error;
+
+  std::string                       file;
+  const Ndmspc::NRoomSession::State state = Ndmspc::NRoomSession::Probe(http, baseUrl, file, error);
+  if (state == Ndmspc::NRoomSession::State::Active) {
+    NLogInfo("[room] %s already has '%s' open; keeping the live session", name.c_str(), file.c_str());
+    payload["session"] = "live";
+    return;
+  }
+  if (state == Ndmspc::NRoomSession::State::Unreachable) {
+    NLogWarning("[room] cannot check %s before restoring its session: %s", name.c_str(), error.c_str());
+    payload["restoreError"] = error;
+    return;
+  }
+
+  if (!Ndmspc::NRoomSession::Restore(http, baseUrl, snapshot, error)) {
+    NLogError("[room] cannot restore the session of %s: %s", name.c_str(), error.c_str());
+    payload["restoreError"] = error;
+    return;
+  }
+
+  NLogInfo("[room] restored the session of %s", name.c_str());
+  payload["restored"] = true;
+  payload["session"]  = "restored";
+}
+
 static std::string NdmspcRoomRequestId(json & in)
 {
   if (in.contains("room") && in["room"].is_string()) return in["room"].get<std::string>();
@@ -652,6 +943,30 @@ void httpRoom()
       .methods     = {"DELETE"},
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
+  // Internal plumbing: a room reports its session here and fetches it back when it wakes.
+  // Hidden because it is not a user-facing room action.
+  Ndmspc::RegisterMcpTool("room/state", {
+      .description = "Internal: store or fetch a room's session snapshot.",
+      .methods     = {"GET", "POST"},
+      .hidden      = true,
+      .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
+  });
+  Ndmspc::RegisterMcpTool("room/backup", {
+      .description = "Export every tracked room and its session as one JSON document, for backup or "
+                     "for restoring onto another deployment. It carries no ROOT data, only the "
+                     "session (file, navigator, drill-down).",
+      .methods     = {"GET"},
+  });
+  Ndmspc::RegisterMcpTool("room/restore", {
+      .description = "Ensure every room named in a document from room/backup and replay its session. "
+                     "Additive: rooms already present are left alone, nothing is deleted, and a "
+                     "live session is never overwritten.",
+      .methods     = {"POST"},
+      .inputSchema = {{"properties",
+                       {{"document",
+                         {{"type", "object"},
+                          {"description", "A document produced by room/backup."}}}}}},
+  });
 
   // -------------------------------------------------------------------------
   //  /api/room/open — ensure a room and hand back its URL
@@ -683,6 +998,11 @@ void httpRoom()
       return;
     }
     NLogInfo("[room] room '%s' ready (%s)", id.c_str(), payload.value("revision", "").c_str());
+
+    // Bring the room back holding the session it had before it scaled to zero. This may be
+    // the call that wakes it, which is the point.
+    NdmspcRoomRestore(id, payload);
+
     out["result"]  = "success";
     out["payload"] = payload;
   };
@@ -718,8 +1038,9 @@ void httpRoom()
       const auto                  it = gNdmspcRooms.find(name);
       out["payload"]["tracked"]      = (it != gNdmspcRooms.end());
       if (it != gNdmspcRooms.end()) {
-        out["payload"]["revision"] = it->second.revision;
-        out["payload"]["lastSeen"] = it->second.lastSeen;
+        out["payload"]["revision"]    = it->second.revision;
+        out["payload"]["lastSeen"]    = it->second.lastSeen;
+        out["payload"]["hasSnapshot"] = !it->second.snapshot.empty();
       }
     }
 
@@ -797,6 +1118,12 @@ void httpRoom()
                                      .value("actualReplicas", 0);
             room["replicas"] = replicas;
             room["active"]   = replicas > 0;
+            // Capture the session while the room is running. This loop already knows
+            // whether the room has pods, which is what makes it safe to talk to it: a
+            // request to a scaled-to-zero room would wake it.
+            if (replicas > 0) {
+              NdmspcRoomCapture(room.value("name", ""), room.value("room", ""), revision);
+            }
           }
         }
       }
@@ -853,5 +1180,218 @@ void httpRoom()
     out["result"]  = "success";
     out["payload"]["room"] = id;
     out["payload"]["name"] = NdmspcRoomName(NdmspcRoomCfg(), id);
+  };
+
+  // -------------------------------------------------------------------------
+  //  /api/room/state — the session snapshot a room reports and fetches back
+  // -------------------------------------------------------------------------
+  //
+  // Not a user-facing action: a room pushes its session here after it changes, and reads it
+  // back when it starts, so a room that scaled to zero can come back as it was left.
+  //
+  // The room id travels in the body, never as a query: a `?room=` query would be matched by
+  // the room's own HTTPRoute and routed to the room instead of to the router. A POST that
+  // carries a `snapshot` stores it; a POST without one reads the stored snapshot back. The
+  // read is a POST because NDMSPC's HTTP client forwards the body for POST but not for GET,
+  // so a GET could only ever be used by hand with curl (GET is still accepted for that).
+  handlers["room/state"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                              std::map<std::string, TObject *> &) {
+    const std::string id = NdmspcRoomRequestId(in);
+    if (id.empty()) {
+      out["result"] = "failure";
+      out["error"]  = "Missing room id (send it in the body, not in the query)";
+      return;
+    }
+    const std::string name = NdmspcRoomName(NdmspcRoomCfg(), id);
+
+    const bool isPost   = method.find("POST") != std::string::npos;
+    const bool isGet    = method.find("GET") != std::string::npos;
+    const json snapshot = (in.is_object() && in.contains("snapshot")) ? in["snapshot"] : json();
+
+    if (isPost && snapshot.is_object() && !snapshot.empty()) {
+      const std::string text = Ndmspc::NRoomSession::Encode(snapshot);
+      if (text.empty()) {
+        out["result"] = "failure";
+        out["error"]  = "The session snapshot is empty or too large to store";
+        return;
+      }
+      NdmspcRoomStoreSnapshot(name, id, text);
+      NLogInfo("[room] %s reported its session (file '%s')", name.c_str(),
+               snapshot.value("file", std::string()).c_str());
+      out["result"]          = "success";
+      out["payload"]["room"] = id;
+      out["payload"]["name"] = name;
+      return;
+    }
+
+    if (isPost || isGet) {
+      const std::string text         = NdmspcRoomSnapshot(name, id);
+      json              stored;
+      const bool        hasSnapshot = Ndmspc::NRoomSession::Decode(text, stored);
+      out["result"]                 = "success";
+      out["payload"]["room"]        = id;
+      out["payload"]["name"]        = name;
+      out["payload"]["hasSnapshot"] = hasSnapshot;
+      if (hasSnapshot) out["payload"]["snapshot"] = stored;
+      return;
+    }
+
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/state";
+  };
+
+  // -------------------------------------------------------------------------
+  //  /api/room/backup — export the rooms and their sessions as one document
+  // -------------------------------------------------------------------------
+  //
+  // The document holds the room set and each room's session, so it can be restored onto this
+  // deployment after losing the rooms, or onto a new one. It is not a Kubernetes manifest dump:
+  // rooms are re-created from the current skeleton and their routes re-pinned, because a
+  // backed-up HTTPRoute pins a revision name that will not exist after a rebuild. It carries no
+  // data - ROOT files are not persisted - so what comes back is the session, not files.
+  //
+  // Nothing is called on the rooms, so exporting never wakes an idle room.
+  handlers["room/backup"] = [](std::string method, json & /*in*/, json & out, json & /*wsOut*/,
+                               std::map<std::string, TObject *> &) {
+    if (method.find("GET") == std::string::npos && method.find("POST") == std::string::npos) {
+      out["result"] = "failure";
+      out["error"]  = "Unsupported HTTP method for room/backup";
+      return;
+    }
+
+    const NdmspcRoomConfig & cfg = NdmspcRoomCfg();
+
+    // Copy the registry under the lock, then read each session outside it.
+    std::vector<NdmspcRoomState> rooms;
+    {
+      std::lock_guard<std::mutex> lock(gNdmspcRoomsMutex);
+      for (const auto & entry : gNdmspcRooms) rooms.push_back(entry.second);
+    }
+
+    json document;
+    document["version"]             = 1;
+    document["createdAt"]           = NdmspcRoomNow();
+    document["router"]["namespace"] = cfg.ns;
+    document["router"]["prefix"]    = cfg.prefix;
+    document["router"]["param"]     = cfg.param;
+    document["router"]["ttl"]       = cfg.idleTtlSec;
+    document["rooms"]               = json::array();
+
+    for (const auto & room : rooms) {
+      json entry;
+      entry["room"]     = room.value;
+      entry["name"]     = room.name;
+      entry["revision"] = room.revision; // informational: recomputed when the room is restored
+      entry["lastSeen"] = room.lastSeen; // informational: reset when the room is restored
+
+      json       snapshot;
+      const bool hasSnapshot = Ndmspc::NRoomSession::Decode(NdmspcRoomSnapshot(room.name, room.value), snapshot);
+      if (hasSnapshot) entry["snapshot"] = snapshot;
+      document["rooms"].push_back(std::move(entry));
+    }
+
+    NLogInfo("[room] exported %zu room(s)", rooms.size());
+    out["result"]  = "success";
+    out["payload"] = document;
+  };
+
+  // -------------------------------------------------------------------------
+  //  /api/room/restore — ensure every room in a document and replay its session
+  // -------------------------------------------------------------------------
+  //
+  // Additive and convergent: rooms are created (or rolled) from the current skeleton and their
+  // sessions replayed, rooms not named in the document are untouched, nothing is deleted, and a
+  // room that already has a file open is left alone. Per-room failures are reported rather than
+  // aborting the whole restore.
+  handlers["room/restore"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                                std::map<std::string, TObject *> &) {
+    if (method.find("POST") == std::string::npos) {
+      out["result"] = "failure";
+      out["error"]  = "Unsupported HTTP method for room/restore";
+      return;
+    }
+
+    // The document is the request body itself, or under "document" (how the MCP tool carries it).
+    const json document = in.is_object() && in.contains("document") ? NdmspcRoomMember(in, "document") : in;
+    if (!document.is_object()) {
+      out["result"] = "failure";
+      out["error"]  = "Missing the restore document";
+      return;
+    }
+    const json rooms = NdmspcRoomMember(document, "rooms");
+    if (!rooms.is_array()) {
+      out["result"] = "failure";
+      out["error"]  = "Missing 'rooms' array in the restore document";
+      return;
+    }
+
+    const int version = NdmspcRoomInt(document, "version", 1);
+    if (version != 1) {
+      out["result"] = "failure";
+      out["error"]  = "Unsupported restore document version " + std::to_string(version);
+      return;
+    }
+
+    const NdmspcRoomConfig & cfg    = NdmspcRoomCfg();
+    const json               router = NdmspcRoomMember(document, "router");
+    if (router.is_object()) {
+      const std::string param  = router.value("param", cfg.param);
+      const std::string prefix = router.value("prefix", cfg.prefix);
+      if (param != cfg.param || prefix != cfg.prefix) {
+        out["result"] = "failure";
+        out["error"]  = "The document came from a router configured differently (param '" + param +
+                        "', prefix '" + prefix + "'); it would create wrongly named rooms here";
+        return;
+      }
+    }
+
+    json restored = json::array();
+    json failed   = json::array();
+
+    for (const auto & entry : rooms) {
+      if (!entry.is_object()) continue;
+      const std::string id = entry.value("room", "");
+      if (id.empty()) continue;
+
+      json        payload;
+      std::string error;
+      if (!NdmspcRoomEnsure(id, payload, error)) {
+        NLogError("[room] restore of '%s' failed: %s", id.c_str(), error.c_str());
+        json failure;
+        failure["room"]  = id;
+        failure["error"] = error;
+        failed.push_back(std::move(failure));
+        continue;
+      }
+
+      // Keep the session with the room: in the registry, on the Service annotation (so it
+      // survives this process), and replayed into the room itself.
+      const json snapshot = NdmspcRoomMember(entry, "snapshot");
+      if (snapshot.is_object() && !snapshot.empty()) {
+        const std::string text = Ndmspc::NRoomSession::Encode(snapshot);
+        if (!text.empty()) NdmspcRoomStoreSnapshot(NdmspcRoomName(cfg, id), id, text);
+      }
+
+      json session;
+      NdmspcRoomRestore(id, session); // left alone when the room already has a file open
+
+      json done;
+      done["room"]     = id;
+      done["name"]     = payload.value("name", "");
+      done["revision"] = payload.value("revision", "");
+      done["session"]  = session.value("session", "");
+      if (session.contains("restoreError")) {
+        done["error"] = session["restoreError"];
+        failed.push_back(std::move(done));
+      }
+      else {
+        restored.push_back(std::move(done));
+      }
+    }
+
+    NLogInfo("[room] restored %zu room(s), %zu failed", restored.size(), failed.size());
+    out["result"]              = "success";
+    out["payload"]["restored"] = restored;
+    out["payload"]["failed"]   = failed;
   };
 }

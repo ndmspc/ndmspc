@@ -51,8 +51,9 @@ class NHttpRequest {
    * @param insecure If true, disables SSL verification.
    * @return Response body as a string.
    */
-  std::string get(const std::string & url, const std::string & cert_path = "", const std::string & key_path = "",
-                  const std::string & key_password_file = "", bool insecure = false);
+  virtual std::string get(const std::string & url, const std::string & cert_path = "",
+                          const std::string & key_path = "", const std::string & key_password_file = "",
+                          bool insecure = false);
 
   /**
    * @brief Performs an HTTP POST request.
@@ -64,9 +65,9 @@ class NHttpRequest {
    * @param insecure If true, disables SSL verification.
    * @return Response body as a string.
    */
-  std::string post(const std::string & url, const std::string & post_data, const std::string & cert_path = "",
-                   const std::string & key_path = "", const std::string & key_password_file = "",
-                   bool insecure = false);
+  virtual std::string post(const std::string & url, const std::string & post_data, const std::string & cert_path = "",
+                           const std::string & key_path = "", const std::string & key_password_file = "",
+                           bool insecure = false);
 
   /**
    * @brief Performs an HTTP HEAD request.
@@ -77,8 +78,20 @@ class NHttpRequest {
    * @param insecure If true, disables SSL verification.
    * @return HTTP status code.
    */
-  int head(const std::string & url, const std::string & cert_path = "", const std::string & key_path = "",
-           const std::string & key_password_file = "", bool insecure = false);
+  virtual int head(const std::string & url, const std::string & cert_path = "", const std::string & key_path = "",
+                   const std::string & key_password_file = "", bool insecure = false);
+
+  /**
+   * @brief Override the connect and read timeouts for this instance.
+   *
+   * The defaults (10s connect, 60s read) suit talking to the Kubernetes API. A caller that
+   * has to answer a client quickly - a room restoring its session before serving a request -
+   * wants shorter ones, so an unreachable or busy peer cannot stall it.
+   *
+   * @param connectMs Connect timeout in milliseconds; 0 or less keeps the default.
+   * @param readMs Read timeout in milliseconds; 0 or less keeps the default.
+   */
+  void SetTimeout(int connectMs, int readMs);
 
   /**
    * @brief Performs an arbitrary HTTP request (GET, HEAD, POST, PUT, PATCH, DELETE).
@@ -100,12 +113,19 @@ class NHttpRequest {
    * @param insecure If true, disables SSL verification.
    * @return The response status and body.
    * @throws std::runtime_error when the transport fails (no HTTP response at all).
+   *
+   * Declared virtual so tests can substitute a fake transport; the class already has a
+   * virtual destructor for that purpose.
    */
-  NHttpResponse request(const std::string & method, const std::string & url, const std::string & body = "",
-                        const std::map<std::string, std::string> & headers = {},
-                        const std::string & cert_path = "", const std::string & key_path = "",
-                        const std::string & key_password_file = "", const std::string & ca_file = "",
-                        const std::string & ca_path = "", bool insecure = false);
+  virtual NHttpResponse request(const std::string & method, const std::string & url, const std::string & body = "",
+                                const std::map<std::string, std::string> & headers = {},
+                                const std::string & cert_path = "", const std::string & key_path = "",
+                                const std::string & key_password_file = "", const std::string & ca_file = "",
+                                const std::string & ca_path = "", bool insecure = false);
+
+  private:
+  int fConnectTimeoutMs{10000}; ///< Connect timeout, overridable with SetTimeout()
+  int fReadTimeoutMs{60000};    ///< Read timeout, overridable with SetTimeout()
 };
 } // namespace Ndmspc
 #endif

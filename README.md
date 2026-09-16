@@ -103,6 +103,10 @@ curl -s "$BASE/api/room/list"
 curl -s -X GET    -H 'Content-Type: application/json' -d '{"room":"abcd123"}' "$BASE/api/room/status"
 # delete a room
 curl -s -X DELETE -H 'Content-Type: application/json' -d '{"room":"abcd123"}' "$BASE/api/room/close"
+# export every room and its session to a file
+curl -s "$BASE/api/room/backup" > rooms.json
+# restore them from that file, creating any room that is missing
+curl -s -X POST -H 'Content-Type: application/json' --data-binary @rooms.json "$BASE/api/room/restore"
 ```
 
 The room id goes in the JSON body, not the query string — a `?room=` call is
@@ -111,8 +115,23 @@ routed to that room (once it exists) instead of the router. Rooms are created wi
 in `room/list`); the next `?room=` request starts it again. A room left untouched
 for `NDMSPC_ROOM_IDLE_TTL` (default `1h`) is deleted automatically.
 
-The same four actions are exposed as MCP tools (`room_open`, `room_list`,
-`room_status`, `room_close`) through `ndmspc-mcp` or `POST /api/mcp`.
+The same actions are exposed as MCP tools (`room_open`, `room_list`,
+`room_status`, `room_close`, `room_backup`, `room_restore`) through `ndmspc-mcp` or
+`POST /api/mcp`.
+
+`ndmspc-room-tui` drives them from a terminal — the same binary also runs a single action
+and prints JSON when given `--list`, `--open`, `--status`, `--close`, `--backup <file>` or
+`--restore <file>`:
+
+```bash
+ndmspc-room-tui --url "$BASE"          # interactive room UI
+ndmspc-room-tui --url "$BASE" --list   # scripted
+```
+
+Opening a room (`room/open`) also replays the session it had before it scaled to zero — the
+same file, navigator and drill-down — so an idle room comes back as it was left rather than
+empty. See [the session restore notes](http/README.md) for the details and the one case it
+does not cover.
 
 The router needs read/write access to Knative `services` and Gateway API
 `httproutes` (and read on `revisions`) — its ServiceAccount, the room-skeleton

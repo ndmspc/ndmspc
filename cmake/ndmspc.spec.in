@@ -176,6 +176,7 @@ rm -f %{buildroot}/%{_datadir}/licenses/httplib/LICENSE
 %{_bindir}/ndmspc-worker
 %{_bindir}/ndmspc-ws-client
 %{_bindir}/ndmspc-mcp
+%{_bindir}/ndmspc-room-tui
 %if %{with_ai}
 %{_bindir}/ndmspc-chat
 %endif

@@ -119,6 +119,27 @@ class NGnHttpServer : public NHttpServer {
   /// @brief Get the workspace history entries as a JSON array.
   json GetJson() const;
 
+  /// @brief This server's session as a snapshot, or a null json when nothing is open.
+  json RoomSessionSnapshot();
+
+  /// @brief Report this server's session to the room router.
+  ///
+  /// Only active inside a room (NDMSPC_ROOM_STATE_URL is set). Called after a request that
+  /// may have changed the session; it does nothing when no file is open or nothing changed.
+  void RoomSessionPush();
+
+  /**
+   * @brief Fetch the stored session from the router and replay it, before serving.
+   *
+   * A room wakes as an empty process, so this brings back the session it had before it
+   * scaled to zero. It replays in place (through ProcessRequest) and gives up after a few
+   * attempts, so a router that is briefly unreachable cannot cost every request.
+   *
+   * Called at the start of ProcessRequest, and from the WebSocket path (NWsHandler), so
+   * whichever kind of request wakes the room restores it before it is served.
+   */
+  void RoomSessionRestoreOnce();
+
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
 
   /// @brief Replace the HTTP handler map (thread-safe).
@@ -176,6 +197,14 @@ class NGnHttpServer : public NHttpServer {
   bool fUseHistory{true};  ///<! Flag to indicate whether to use history in processing requests
   bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled
   std::string fGroup;      ///<! Group prefix for workspace routes
+
+  mutable std::mutex fRoomMutex;              ///<! Guards the room-session fields below
+  std::string        fRoomId;                 ///<! NDMSPC_ROOM: set when this server is a room
+  std::string        fRoomStateUrl;           ///<! NDMSPC_ROOM_STATE_URL: the router to report to
+  std::string        fRoomPushed;             ///<! Last reported snapshot, to skip no-op reports
+  bool               fRoomRestoring{false};   ///<! Guards the nested replay against recursion
+  bool               fRoomRestored{false};    ///<! Nothing left to restore
+  long               fRoomRestoreNextTrySec{0}; ///<! Cooldown before retrying a failed fetch
 
   /// \cond CLASSIMP
   ClassDefOverride(NGnHttpServer, 1);

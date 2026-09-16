@@ -5,7 +5,10 @@
 #   2. a client without a certificate must be rejected at the TLS handshake.
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# `cd` writes the resolved directory to stdout when CDPATH is set and the path is
+# relative (CDPATH commonly ends up containing "."), which would be captured here -
+# so redirect it.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
 GLOBUS_DIR="${GLOBUS_DIR:-$HOME/.globus}"
 GLOBUS_CERT="${GLOBUS_CERT:-$GLOBUS_DIR/usercert.pem}"
 PORT="${PORT:-8444}"
