@@ -148,9 +148,24 @@ class NWsClient {
   private:
   struct Impl;
 
+  /**
+   * @brief Build the httplib WebSocket client for a URL.
+   * @param url Normalized ws:// or wss:// URL.
+   * @param isSecure Whether the connection uses TLS (wss://).
+   * @return True when the client is valid and ready to connect.
+   */
   bool CreateClient(const std::string & url, bool isSecure);
+  /**
+   * @brief Send the OIDC authenticate frame and wait for the acknowledgement.
+   * @return True when the server acknowledged the token.
+   */
   bool PerformAuthHandshake();
+  /// @brief Background loop consuming incoming frames until shutdown.
   void ReaderLoop();
+  /**
+   * @brief Dispatch one incoming message (detect auth acknowledgement, forward to callback).
+   * @param message Raw message received from the server.
+   */
   void HandleIncoming(const std::string & message);
 
   std::unique_ptr<Impl> fImpl; ///< Implementation state (keeps httplib out of this header)

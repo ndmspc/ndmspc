@@ -313,6 +313,7 @@ class NUtils : TObject {
    * @param findPath The subdirectory path to look for within each directory.
    * @param fileName The name of the file to search for in each directory.
    * @param axesNames A vector of axis names
+   * @param filterAxes Optional map of axis names to allowed value lists for filtering (default: empty).
    * @return A pointer to a TObjArray containing the axes objects, or nullptr if none found.
    */
   static TObjArray * AxesFromDirectory(const std::vector<std::string> paths, const std::string & findPath,

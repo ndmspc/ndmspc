@@ -397,6 +397,8 @@ class NGnTree : public TObject {
    * @param findPath The directory path to search for the file.
    * @param fileName The name of the file to import.
    * @param headers A vector of header strings to use during import.
+   * @param params Optional vector of parameter names to import (default: empty).
+   * @param filterAxes Optional map of axis names to allowed value lists for filtering (default: empty).
    * @param outFileName The output file name to save the imported tree (default: "/tmp/ngnt_imported.root").
    * @return A pointer to the imported NGnTree object, or nullptr on failure.
    */

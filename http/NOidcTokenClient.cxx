@@ -10,9 +10,9 @@
 
 namespace Ndmspc {
 
-using json = nlohmann::json;
-
 namespace {
+
+using json = nlohmann::json;
 
 struct UrlParts {
   std::string origin;

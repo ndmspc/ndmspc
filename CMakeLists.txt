@@ -19,6 +19,7 @@ option(WITH_TEST "Compile with tests" OFF)
 
 option(WITH_JUPYROOT "Compile with JupyROOT support" OFF)
 option(BUILD_DOCUMENTATION "Create and install the HTML based API documentation (requires Doxygen)" OFF)
+option(DOCUMENTATION_WARN_AS_ERROR "Fail the documentation build on Doxygen warnings" OFF)
 
 # option to use strict warning flags
 option(ENABLE_STRICT_WARNINGS "Enable strict warning flags" OFF)

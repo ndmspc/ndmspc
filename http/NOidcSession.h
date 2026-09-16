@@ -13,9 +13,9 @@ namespace Ndmspc {
  * authentication middleware and the WebSocket handler.
  */
 struct NOidcIdentity {
-  std::string subject;
-  std::string preferredUsername;
-  std::chrono::system_clock::time_point expiresAt;
+  std::string subject;           ///< "sub" claim of the verified token
+  std::string preferredUsername; ///< "preferred_username" claim (empty when absent)
+  std::chrono::system_clock::time_point expiresAt; ///< Token expiry ("exp" claim)
 };
 
 /**
@@ -24,10 +24,15 @@ struct NOidcIdentity {
  * Same data as NOidcIdentity but named for request-session use in HTTP auth.
  */
 struct NOidcSession {
-  std::string subject;
-  std::string username; ///< preferred_username, falls back to subject
-  std::chrono::system_clock::time_point expiresAt;
+  std::string subject;           ///< "sub" claim of the verified token
+  std::string username;          ///< preferred_username, falls back to subject
+  std::chrono::system_clock::time_point expiresAt; ///< Token expiry ("exp" claim)
 
+  /**
+   * @brief Build a session from a verified identity.
+   * @param identity Verified caller identity.
+   * @return Session carrying the identity's subject, username and expiry.
+   */
   static NOidcSession FromIdentity(const NOidcIdentity & identity);
 };
 
@@ -39,20 +44,23 @@ struct NOidcSession {
  * HTTP codes.
  */
 struct NHttpAuthResult {
+  /**
+   * @brief Outcome of authenticating a request.
+   */
   enum class Status {
-    Authenticated,
-    NoCredentials,   ///< no usable Authorization header
-    MalformedHeader, ///< header present but not "Bearer <token>"
-    Invalid,         ///< token rejected (signature, issuer, audience, ...)
-    Expired,         ///< token is past its expiry
-    ProviderUnavailable
+    Authenticated,       ///< a valid token was presented and verified
+    NoCredentials,       ///< no usable Authorization header
+    MalformedHeader,     ///< header present but not "Bearer <token>"
+    Invalid,             ///< token rejected (signature, issuer, audience, ...)
+    Expired,             ///< token is past its expiry
+    ProviderUnavailable  ///< the identity provider could not be reached
   };
 
-  Status         status{Status::NoCredentials};
-  NOidcSession   session;
+  Status         status{Status::NoCredentials}; ///< Outcome of the authentication attempt
+  NOidcSession   session;                       ///< Verified session (valid when status is Authenticated)
   std::string    errorCode; ///< stable wire code, e.g. "authentication_required", "token_expired"
-  bool           retryable{false};
-  std::string    diagnostic;
+  bool           retryable{false};   ///< Whether the client may retry the same request
+  std::string    diagnostic;         ///< Human-readable detail for logging (not sent to clients)
 };
 
 } // namespace Ndmspc

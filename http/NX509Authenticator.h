@@ -69,8 +69,8 @@ class NX509Authenticator {
   static std::string ExtractIdentity(const std::string & certPem, const std::string & identityAttr);
 
   private:
-  struct Impl;
-  std::unique_ptr<Impl> fImpl;
+  struct Impl; ///< Pimpl holding the httplib server and listener thread
+  std::unique_ptr<Impl> fImpl; ///< Implementation state (keeps httplib out of this header)
 };
 
 } // namespace Ndmspc

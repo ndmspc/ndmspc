@@ -343,6 +343,19 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
                                         ${ARG_OPTIONS} ${definitions} ${includedirs} ${rheaderfiles} ${_linkdef}
                      IMPLICIT_DEPENDS CXX ${_linkdef}
                      DEPENDS ${headerfiles} ${_linkdef} ${ROOTCINTDEP})
+
+  #---Mute -Walloc-size-larger-than in the generated dictionary---------------
+  # rootcling emits `new T[nElements]` wrappers taking a signed Long_t; at -O2/-O3
+  # GCC value-range analysis can prove nElements is -1, which becomes SIZE_MAX on
+  # conversion and trips -Walloc-size-larger-than= (seen with GCC 14 Release builds).
+  # The code is generated so it cannot be fixed here; scope the suppression to the
+  # dictionary and keep the warning for the project's own sources. The source is
+  # referenced both by name in the target and by its binary-dir path elsewhere.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(${dictionary}.cxx ${CMAKE_CURRENT_BINARY_DIR}/${dictionary}.cxx
+                                PROPERTIES COMPILE_OPTIONS "-Wno-alloc-size-larger-than")
+  endif()
+
   get_filename_component(dictname ${dictionary} NAME)
 
   #---roottest compability

@@ -12,7 +12,11 @@ namespace Ndmspc {
  * token endpoint using either the client-credentials or password grant.
  */
 struct NOidcTokenClientConfig {
-  enum class Grant { ClientCredentials, Password };
+  /// @brief OAuth2 grant used to obtain the token.
+  enum class Grant {
+    ClientCredentials, ///< machine-to-machine client credentials grant
+    Password           ///< resource owner password credentials grant
+  };
 
   std::string issuer;       ///< OIDC issuer, e.g. "https://keycloak/realms/ndmspc".
   std::string clientId;     ///< OAuth2 client identifier.
@@ -26,13 +30,22 @@ struct NOidcTokenClientConfig {
 
   /// Whether a token can be obtained with the current configuration.
   bool Enabled() const { return !issuer.empty() && !clientId.empty(); }
+  /// @brief Normalize the configuration in place (strips trailing slashes from the issuer).
   void Normalize();
+  /**
+   * @brief Validate the configuration.
+   * @throws std::invalid_argument when the issuer/client id are missing, the issuer is not
+   *         HTTPS (unless allowInsecureHttp), or the password grant lacks username/password.
+   */
   void Validate() const;
 };
 
+/**
+ * @brief Raw HTTP response returned by an IOidcTokenHttpClient.
+ */
 struct NOidcTokenHttpResult {
-  int status{0};
-  std::string body;
+  int status{0};    ///< HTTP status code
+  std::string body; ///< Raw response body
 };
 
 /**
@@ -41,6 +54,13 @@ struct NOidcTokenHttpResult {
 class IOidcTokenHttpClient {
   public:
   virtual ~IOidcTokenHttpClient() = default;
+  /**
+   * @brief POST a form-encoded body to a URL.
+   * @param url Absolute request URL.
+   * @param body Request body (already form-encoded).
+   * @param contentType Content-Type header value.
+   * @return The raw HTTP response.
+   */
   virtual NOidcTokenHttpResult Post(const std::string & url, const std::string & body, const std::string & contentType) = 0;
 };
 
@@ -49,11 +69,23 @@ class IOidcTokenHttpClient {
  */
 class NOidcHttpClientImpl : public IOidcTokenHttpClient {
   public:
+  /**
+   * @brief Constructor.
+   * @param config Token client configuration (normalized and validated).
+   */
   explicit NOidcHttpClientImpl(NOidcTokenClientConfig config);
+  /**
+   * @brief POST a form-encoded body to a URL.
+   * @param url Absolute request URL.
+   * @param body Request body (already form-encoded).
+   * @param contentType Content-Type header value.
+   * @return The raw HTTP response.
+   * @throws std::runtime_error on network failure.
+   */
   NOidcTokenHttpResult Post(const std::string & url, const std::string & body, const std::string & contentType) override;
 
   private:
-  NOidcTokenClientConfig fConfig;
+  NOidcTokenClientConfig fConfig; ///< Configuration used for timeouts and TLS trust.
 };
 
 /**
@@ -65,6 +97,11 @@ class NOidcHttpClientImpl : public IOidcTokenHttpClient {
  */
 class NOidcTokenClient {
   public:
+  /**
+   * @brief Constructor.
+   * @param config Token client configuration (normalized and validated).
+   * @param httpClient Injectable HTTP client; a default httplib-backed one is created when null.
+   */
   NOidcTokenClient(NOidcTokenClientConfig config, std::shared_ptr<IOidcTokenHttpClient> httpClient = nullptr);
 
   /**
@@ -75,8 +112,8 @@ class NOidcTokenClient {
   std::string ObtainAccessToken();
 
   private:
-  NOidcTokenClientConfig fConfig;
-  std::shared_ptr<IOidcTokenHttpClient> fHttpClient;
+  NOidcTokenClientConfig fConfig;     ///< Token client configuration
+  std::shared_ptr<IOidcTokenHttpClient> fHttpClient; ///< HTTP transport used for token requests
 };
 
 } // namespace Ndmspc

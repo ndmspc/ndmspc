@@ -22,6 +22,15 @@ FetchContent_GetProperties(doxygen-awesome-css SOURCE_DIR AWESOME_CSS_DIR)
 # set(DOXYFILE_OUT ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
 # configure_file(${DOXYFILE_IN} ${DOXYFILE_OUT} @ONLY)
 
+# Optionally turn Doxygen warnings into build errors. Off by default so that
+# warnings emitted only by a different Doxygen version cannot break the build;
+# enable with -DDOCUMENTATION_WARN_AS_ERROR=ON (e.g. in CI) to enforce them.
+if(DOCUMENTATION_WARN_AS_ERROR)
+  set(DOXYGEN_WARN_AS_ERROR "FAIL_ON_WARNINGS")
+else()
+  set(DOXYGEN_WARN_AS_ERROR "")
+endif()
+
 set(doxy_main_page ${CMAKE_SOURCE_DIR}/README.md)
 set(doxyfile_in ${CMAKE_CURRENT_SOURCE_DIR}/${CMAKE_PROJECT_NAME}.Doxyfile.in)
 set(doxyfile ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.Doxyfile)

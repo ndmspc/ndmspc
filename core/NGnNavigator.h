@@ -65,16 +65,18 @@ class NGnNavigator : public TNamed {
    * @brief Export navigator data to file.
    * @param filename Output file name.
    * @param objectNames Names of objects to export.
+   * @param cfg Optional JSON configuration controlling the export (default: empty).
    */
-  void Export(const std::string & filename, std::vector<std::string> objectNames, const std::string &cfg="");
+  void Export(const std::string & filename, std::vector<std::string> objectNames, const std::string & cfg = "");
 
   /**
    * @brief Export navigator data to JSON.
    * @param j JSON object to fill.
    * @param obj Navigator object to export.
    * @param objectNames Names of objects to export.
+   * @param cfg Optional JSON configuration controlling the export (default: empty).
    */
-  void ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames, json cfg={});
+  void ExportToJson(json & j, NGnNavigator * obj, std::vector<std::string> objectNames, json cfg = {});
 
   /**
    * @brief Print navigator information.

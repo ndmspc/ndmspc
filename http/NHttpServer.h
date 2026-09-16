@@ -60,6 +60,11 @@ class NHttpServer : public THttpServer {
    * @return Pointer to NWsHandler instance.
    */
   NWsHandler * GetWebSocketHandler() const { return fNWsHandler; }
+  /**
+   * @brief Broadcast a message to all connected WebSocket clients.
+   * @param message JSON message to broadcast.
+   * @return True when the broadcast succeeded.
+   */
   bool         WebSocketBroadcast(json message);
 
   /**
@@ -115,12 +120,12 @@ class NHttpServer : public THttpServer {
   bool              fEngineStarted{false}; ///<! Whether the HTTP engine has been created
   std::chrono::seconds fAuthenticationTimeout{15}; ///<! WS authentication timeout
   int               fHeartbeatMs{10000};  ///<! Heartbeat interval in milliseconds
-  std::thread *     fHeartbeatThread{nullptr};
-  std::atomic<bool> fHeartbeatRunning{false};
+  std::thread *     fHeartbeatThread{nullptr}; ///<! Background heartbeat thread
+  std::atomic<bool> fHeartbeatRunning{false};  ///<! Whether the heartbeat thread is running
   std::atomic<int> fServCnt{0};           ///<! Service counter used in heartbeat payload
-  std::mutex        fHeartbeatMutex;
-  std::condition_variable fHeartbeatCv;
-  std::mutex             fHeartbeatCvMutex;
+  std::mutex        fHeartbeatMutex;       ///<! Guards the heartbeat interval/timer
+  std::condition_variable fHeartbeatCv;    ///<! Signals heartbeat thread wake-up/shutdown
+  std::mutex             fHeartbeatCvMutex; ///<! Mutex paired with fHeartbeatCv
 
   /**
    * @brief Processes an HTTP request.
