@@ -21,3 +21,4 @@ RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
 target_compile_definitions(${PACKAGE} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
 add_subdirectory(cli)
+add_subdirectory(tui)

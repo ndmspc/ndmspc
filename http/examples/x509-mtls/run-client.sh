@@ -3,7 +3,10 @@
 # user certificate. Set WITH_CERT=0 to connect without a certificate (must be rejected).
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# `cd` writes the resolved directory to stdout when CDPATH is set and the path is
+# relative (CDPATH commonly ends up containing "."), which would be captured here -
+# so redirect it.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
 PROJECT_DIR="$(readlink -m "$SCRIPT_DIR/../../..")"
 
 GLOBUS_DIR="${GLOBUS_DIR:-$HOME/.globus}"

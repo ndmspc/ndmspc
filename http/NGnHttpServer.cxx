@@ -1,14 +1,19 @@
 #include <TROOT.h>
 #include <chrono>
+#include <cstdlib>
+#include <map>
 #include <sstream>
 #include <set>
 #include <algorithm>
 #include <cctype>
 #include <utility>
 #include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NGnHistoryEntry.h"
+#include "ndmspc/http/NHttpRequest.h"
 #include "ndmspc/http/NMcpServer.h"
 #include "ndmspc/http/NOidcHttpAuthenticator.h"
+#include "ndmspc/http/NRoomSession.h"
 #include "ndmspc/ndmspc.h"
 #include "NGnHttpServer.h"
 
@@ -25,6 +30,20 @@ NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms, NOi
 {
   Ndmspc::gNGnHttpServer = this;
   fWorkspace.SetServer(this);
+
+  // Inside a room the router says which room this is and where to report its session, so
+  // that a room which scales to zero can be brought back as it was left.
+  if (const char * roomId = std::getenv("NDMSPC_ROOM"); roomId != nullptr && *roomId != '\0') {
+    fRoomId = roomId;
+  }
+  if (const char * stateUrl = std::getenv("NDMSPC_ROOM_STATE_URL"); stateUrl != nullptr && *stateUrl != '\0') {
+    fRoomStateUrl = stateUrl;
+  }
+  while (!fRoomStateUrl.empty() && fRoomStateUrl.back() == '/') fRoomStateUrl.pop_back();
+
+  if (!fRoomId.empty() && !fRoomStateUrl.empty()) {
+    NLogInfo("Room '%s' reports its session to %s", fRoomId.c_str(), fRoomStateUrl.c_str());
+  }
 }
 
 void NGnHttpServer::SetHttpHandlers(std::map<std::string, NGnHttpFuncPtr> handlers)
@@ -63,6 +82,261 @@ void NGnHttpServer::Print(Option_t * option) const
   fWorkspace.Print(option);
 }
 
+// ---------------------------------------------------------------------------
+//  Room session (see macros/builtin/httpRoom.C)
+// ---------------------------------------------------------------------------
+
+namespace {
+/// @brief Wait this long before trying a failed session fetch again.
+constexpr long kRoomRestoreRetrySeconds = 5;
+
+/// @brief How long a room waits on the router for its session, and to report one.
+///
+/// Long enough for a cold router, short enough that a client is not left waiting: the fetch
+/// happens before the waking request is served, and the router has a single concurrency, so
+/// it can be busy for a while.
+constexpr int  kRoomRouterConnectMs  = 3000;
+constexpr int  kRoomRouterReadMs     = 5000;
+/// @brief Fetch attempts before serving without the session, and the pause between them.
+///
+/// The router may be scaled to zero: the first attempt is then only answered once it has
+/// started, so retrying within the request lets a cold router still restore the session while
+/// the short timeouts keep the total wait bounded (a few tens of seconds at worst).
+constexpr int  kRoomRestoreFetchAttempts = 3;
+constexpr long kRoomRestoreFetchPauseMs  = 1000;
+
+/// @brief Monotonic seconds, for retry timing.
+long SteadySeconds()
+{
+  return static_cast<long>(
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+/// @brief Read a member without throwing when it is absent.
+json JsonMember(const json & object, const char * key)
+{
+  if (!object.is_object() || !object.contains(key)) return json();
+  return object[key];
+}
+} // namespace
+
+json NGnHttpServer::RoomSessionSnapshot()
+{
+  // A session is exactly what the ngnt/open and ngnt/reshape POSTs recorded plus the
+  // drill-down point, and the workspace already tracks all of it.
+  const json        openSchema = JsonMember(JsonMember(fWorkspace.GetWorkspace(), "open"), "properties");
+  const std::string file       = NUtils::GetJsonString(JsonMember(JsonMember(openSchema, "file"), "default"));
+  if (file.empty()) return json();
+
+  // GetJson() returns the history array itself, while the server's root endpoint wraps the
+  // same thing as {"state": {"history": [...]}}. Accept either shape: reading the wrong one
+  // silently yields a snapshot with no replayable actions.
+  json       history;
+  const json root = GetJson();
+  if (root.is_array()) {
+    history = root;
+  }
+  else if (root.is_object() && root.contains("state")) {
+    history = JsonMember(root["state"], "history");
+  }
+
+  const json & state = fWorkspace.GetState();
+  json         point;
+  if (state.is_object() && state.contains("spectra")) point = JsonMember(state["spectra"], "point");
+
+  return NRoomSession::Build(fRoomId, file, history, point);
+}
+
+void NGnHttpServer::RoomSessionPush()
+{
+  if (fRoomId.empty() || fRoomStateUrl.empty()) return;
+
+  const json snapshot = RoomSessionSnapshot();
+  if (snapshot.is_null()) return; // nothing open: never report an empty session
+
+  const std::string text = NRoomSession::Encode(snapshot);
+  if (text.empty()) return;
+
+  {
+    std::lock_guard<std::mutex> lock(fRoomMutex);
+    if (fRoomPushed == text) return; // unchanged since the last report
+  }
+
+  json message;
+  message["room"]     = fRoomId;
+  message["snapshot"] = snapshot;
+
+  const std::string file = snapshot.value("file", std::string());
+  const std::string url  = fRoomStateUrl + "/api/room/state";
+  const std::string body = message.dump();
+  const std::string room = fRoomId;
+
+  // Report from a worker thread. The router is a single-concurrency Knative service that can
+  // be cold or busy, and the client's own request must not wait on this side channel - with
+  // one request at a time (containerConcurrency 1) a slow report would also delay the next
+  // client. A failed report leaves the last reported text in place, so the next change
+  // retries; the server outlives the thread.
+  std::thread([this, url, body, text, room, file]() {
+    std::map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/json";
+
+    NHttpRequest http;
+    http.SetTimeout(kRoomRouterConnectMs, kRoomRouterReadMs);
+    try {
+      const NHttpResponse response = http.request("POST", url, body, headers);
+      if (response.status < 200 || response.status >= 300) {
+        NLogWarning("Cannot report the session of room '%s' (HTTP %d)", room.c_str(), response.status);
+        return;
+      }
+    }
+    catch (const std::exception & e) {
+      NLogWarning("Cannot report the session of room '%s': %s", room.c_str(), e.what());
+      return;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(fRoomMutex);
+      fRoomPushed = text;
+    }
+    NLogInfo("Reported the session of room '%s' (file '%s')", room.c_str(), file.c_str());
+  }).detach();
+}
+
+void NGnHttpServer::RoomSessionRestoreOnce()
+{
+  if (fRoomId.empty() || fRoomStateUrl.empty()) return;
+
+  {
+    std::lock_guard<std::mutex> lock(fRoomMutex);
+    if (fRoomRestoring) return; // the nested replay is already running
+    if (fRoomRestored) return;
+    // A failed fetch is retried on a later request instead of giving up for good: the router
+    // has a single concurrency, so while it is busy with somebody's room/open (which can take
+    // minutes) the room's own call times out until it frees up.
+    if (SteadySeconds() < fRoomRestoreNextTrySec) return;
+    fRoomRestoring = true;
+  }
+
+  const auto release = [this](bool restored) {
+    std::lock_guard<std::mutex> lock(fRoomMutex);
+    fRoomRestoring = false;
+    if (restored) {
+      fRoomRestored = true;
+    }
+    else {
+      fRoomRestoreNextTrySec = SteadySeconds() + kRoomRestoreRetrySeconds;
+    }
+  };
+
+  // The room id travels in the body: a query would be matched by this room's own HTTPRoute.
+  // The read is a POST because NHttpRequest forwards the body for POST but not for GET, and
+  // an id-less request would be rejected by the router.
+  json request;
+  request["room"] = fRoomId;
+
+  std::map<std::string, std::string> headers;
+  headers["Content-Type"] = "application/json";
+
+  NHttpResponse response;
+  bool          fetched    = false;
+  std::string   fetchError;
+  for (int attempt = 1; attempt <= kRoomRestoreFetchAttempts && !fetched; ++attempt) {
+    NHttpRequest http;
+    http.SetTimeout(kRoomRouterConnectMs, kRoomRouterReadMs);
+    try {
+      response = http.request("POST", fRoomStateUrl + "/api/room/state", request.dump(), headers);
+      fetched  = true;
+    }
+    catch (const std::exception & e) {
+      fetchError = e.what();
+    }
+    if (!fetched && attempt < kRoomRestoreFetchAttempts) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kRoomRestoreFetchPauseMs));
+    }
+  }
+  if (!fetched) {
+    NLogWarning("Cannot fetch the stored session of room '%s': %s", fRoomId.c_str(), fetchError.c_str());
+    release(false);
+    return;
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    NLogWarning("The router answered HTTP %d for the stored session of room '%s'", response.status, fRoomId.c_str());
+    release(false);
+    return;
+  }
+
+  json reply;
+  try {
+    reply = json::parse(response.body);
+  }
+  catch (const json::parse_error &) {
+    NLogWarning("The router returned an unreadable stored session for room '%s'", fRoomId.c_str());
+    release(false);
+    return;
+  }
+
+  // A failure here is the router refusing the request, not an absent session - say so, or a
+  // broken fetch looks like a room that simply had nothing stored.
+  if (NUtils::GetJsonString(JsonMember(reply, "result")) != "success") {
+    NLogWarning("The router refused the stored session of room '%s': %s", fRoomId.c_str(),
+                NUtils::GetJsonString(JsonMember(reply, "error")).c_str());
+    release(false);
+    return;
+  }
+
+  const json payload = JsonMember(reply, "payload");
+  if (!NUtils::GetJsonBool(JsonMember(payload, "hasSnapshot"))) {
+    NLogInfo("Room '%s' has no stored session to restore", fRoomId.c_str());
+    release(true); // nothing stored: nothing to look for again
+    return;
+  }
+
+  const json snapshot = JsonMember(payload, "snapshot");
+
+  // Replay through our own request path, so the history, workspace and broadcasts behave
+  // exactly as they do for a client - the route NMcpServer::CallTool already takes.
+  const NRoomSession::Dispatch dispatch = [this](const std::string & method, const std::string & route,
+                                                 const json & body, std::string & dispatchError) -> json {
+    auto arg = std::make_shared<THttpCallArg>();
+    arg->SetMethod(method.c_str());
+    arg->SetPathName("api");
+    arg->SetFileName(route.c_str());
+    arg->SetPostData(body.dump().c_str());
+
+    ProcessRequest(arg);
+
+    std::string text;
+    if (arg->GetContent() != nullptr && arg->GetContentLength() > 0) {
+      text.assign(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+    }
+
+    json parsed;
+    try {
+      parsed = text.empty() ? json() : json::parse(text);
+    }
+    catch (const json::parse_error &) {
+      parsed = json();
+    }
+
+    if (!parsed.is_object() || NUtils::GetJsonString(JsonMember(parsed, "result")) != "success") {
+      const std::string detail = NUtils::GetJsonString(JsonMember(parsed, "error"));
+      dispatchError            = method + " " + route + " failed: " + (detail.empty() ? text : detail);
+    }
+    return parsed;
+  };
+
+  std::string error;
+  if (NRoomSession::RestoreInPlace(snapshot, dispatch, error)) {
+    NLogInfo("Room '%s' restored its stored session", fRoomId.c_str());
+    release(true);
+    return;
+  }
+
+  NLogError("Room '%s' could not restore its stored session: %s", fRoomId.c_str(), error.c_str());
+  release(false);
+}
+
 void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {
 
@@ -78,6 +352,11 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   // }
 
   NLogTrace("Received %s request for path: %s filename: %s", method.Data(), path.Data(), filename.Data());
+
+  // A room wakes as an empty process: bring back the session it had before it scaled to zero
+  // before serving the request that woke it, so the very first request already sees it. This
+  // is a cheap check once it has run.
+  RoomSessionRestoreOnce();
 
   TString fullpath = TString::Format("/%s/%s/", path.Data(), filename.Data()).Data();
   fullpath.ReplaceAll("//", "/");
@@ -289,6 +568,12 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         }
       }
     }
+
+    // A room reports its session to the router after a request that may have changed it, so
+    // a room which later scales to zero can be brought back. POSTs and PATCHes are what change
+    // a session - a PATCH carries the drill-down point, and no POST sets it - and the report
+    // is skipped when nothing changed.
+    if (!method.CompareTo("POST") || !method.CompareTo("PATCH")) RoomSessionPush();
 
     // Don't broadcast workspace updates in response to DELETE requests
     if (!method.CompareTo("DELETE")) {

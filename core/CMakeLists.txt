@@ -14,4 +14,5 @@ include_directories(${MY_INCLUDE_DIRS})
 RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
 
 add_subdirectory(cli)
+add_subdirectory(tui)
 

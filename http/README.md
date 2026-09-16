@@ -569,3 +569,186 @@ macros are redirected to stderr. Point an MCP client at the binary:
 ```
 
 See [`examples/mcp`](examples/mcp) for a runnable example covering both transports.
+
+## Room management TUI (`ndmspc-room-tui`)
+
+`ndmspc-room-tui` is a terminal UI for the room router (`macros/builtin/httpRoom.C`). It
+lists the rooms the router is tracking with their live state and drives the four room
+actions over the MCP endpoint, so it needs no cluster-side tooling of its own.
+
+```bash
+ndmspc-room-tui --url http://ndmspc.127.0.0.1.sslip.io:8009
+```
+
+The router must have the room macro loaded (`--rooms true` / `NDMSPC_ROOMS=1`); when the
+room tools are missing the tool says so at startup instead of showing an empty table.
+
+### Keys
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` (`j` / `k`, `PgUp` / `PgDn`, `Home` / `End`) | Move the selection |
+| `Enter` | Refresh the selected room's status |
+| `o` / `a` | Open (create) a room |
+| `d` / `Del` | Close (delete) a room, after confirmation |
+| `r` | Refresh the room list now |
+| `p` | Pause / resume the automatic refresh |
+| `?` | Key help |
+| `q` / `Esc` | Quit |
+
+An idle room keeps its Service but runs no pods, so `idle` with 0 pods is the normal
+resting state and is presented as such rather than as a problem; the detail pane shows the
+`?room=<id>` URL to hand to a client.
+
+### Scripted use
+
+With any of these flags (and no terminal needed) the same binary performs a single action,
+prints the router's payload as JSON and exits — `0` on success, `1` when the router reports
+a failure, `2` for a bad invocation:
+
+```bash
+ndmspc-room-tui --url "$BASE" --list
+ndmspc-room-tui --url "$BASE" --open myroom
+ndmspc-room-tui --url "$BASE" --status myroom
+ndmspc-room-tui --url "$BASE" --close myroom
+ndmspc-room-tui --url "$BASE" --backup rooms.json    # export the rooms and their sessions
+ndmspc-room-tui --url "$BASE" --restore rooms.json   # re-create and replay them
+```
+
+`--backup` writes the router's rooms and their sessions to a file and `--restore` brings
+them back, creating any room that is missing — see [Room backup and
+restore](#room-backup-and-restore) below. `--backup` refuses to overwrite an existing file
+unless you add `--force`.
+
+### Options
+
+| Option | Env | Default | Meaning |
+|---|---|---|---|
+| `--url,-u` | `NDMSPC_ROOM_URL` | `http://localhost:8080` | Router base URL, or a full `.../api/mcp` endpoint |
+| `--refresh,-r` | | `5` | Seconds between automatic refreshes (`0` = manual only) |
+| `--cert` / `--key` | | | Client certificate and key for mutual TLS |
+| `--key-pass` / `--key-pass-file` | `NDMSPC_KEY_PASS` / `NDMSPC_KEY_PASS_FILE` | | Private-key passphrase, or a base64 file holding it; an encrypted key with no source prompts on a terminal |
+| `--ca-file` / `--ca-path` | | | Verify the server against a specific CA |
+| `--allow-insecure` | | | Do not verify the server certificate |
+| `--oidc-issuer` / `--oidc-client-id` / `--oidc-client-secret` / `--oidc-grant` / `--oidc-username` / `--oidc-password` | | | Obtain an OIDC access token and send it as `Authorization: Bearer ...` |
+| `--oidc-ca-file` / `--oidc-ca-path` / `--oidc-allow-insecure-http` | | | TLS trust for the OIDC issuer |
+| `--oidc-token-refresh` | | `300` | Re-obtain the access token after this many seconds |
+| `--connect-retries` | | `3` | Attempts before giving up on a router that is not answering yet; a rejected certificate, a wrong URL or an authentication failure is reported immediately rather than retried |
+
+See [`examples/room`](examples/room) for a runnable example: it mocks the router's MCP
+endpoint so the tool can be exercised end to end without a cluster.
+
+## Room session restore
+
+A room is created with `min-scale 0`, so an idle room runs no pods at all. When it scales
+back up it is a brand-new process: the file it had open, its navigator and its drill-down
+are gone. The room router therefore remembers each room's **session** and replays it when
+the room is next opened, so `room/open` hands back a room holding what it held before.
+
+- The snapshot is compact and replayable: the opened file, the request bodies of the actions
+  that define state (`ngnt/open`, `ngnt/reshape`) and the drill-down state point.
+- It is stored as the `ndmspc.io/room-state` annotation on the room's own Knative Service,
+  so it survives a router restart (the router re-adopts it) and travels with the room.
+  Annotating a Service does not create a revision.
+- It is captured while the room is running: the room reports it after any request that
+  changes the session, and the router also captures opportunistically during `room/list`
+  (which already knows whether the room has pods, since talking to a scaled-to-zero room
+  would wake it). It is replayed during `room/open`, and by the room itself when it wakes.
+
+Both ways a room can come back are covered:
+
+- a client that calls `room/open` gets the restored session in that same call;
+- a client that goes straight for `?room=<id>` (HTTP **or** WebSocket) wakes the room without
+  the router ever seeing it, so the room restores **itself**: the first request fetches its
+  snapshot from the router and replays it before being served, and the WebSocket path does the
+  same before the connection is served. The very first request already sees the restored
+  session.
+
+The room side needs `NDMSPC_ROOM_STATE_URL` on the room (the router injects it, derived from
+Knative's `K_SERVICE`), and the snapshot endpoints `POST`/`GET /api/room/state` on the router,
+which are internal and hidden from the MCP tool list.
+
+`room/open` reports what happened in its payload: `"restored": true` with
+`"session": "restored"`, or `"session": "live"` when the room was already in use, or
+`"restoreError"` when a replay step failed. `room/status` reports `"hasSnapshot"`.
+
+Two rules make this safe:
+
+- a room with nothing open is never captured, so a freshly started pod cannot overwrite a
+  good snapshot with emptiness;
+- a room that already has a file open is never restored over - the live session wins.
+
+Three more details keep it working in practice:
+
+- The snapshot lives on the room's own Service, and the router **reads it back from there**
+  when its in-memory copy is empty (a router restart, or a scale-from-zero) rather than
+  telling a room that has one that it has none - which would be exactly the moment a room is
+  waking and asking for its session.
+- A room **bounds** how long it waits for the router: short timeouts and a few retries, so a
+  cold or busy router cannot stall a client for a minute. If the fetch still fails, the room
+  serves the request and tries again shortly after.
+- The router's opportunistic capture runs **off the request path**: the router serves one
+  request at a time, so a capture inside `room/list` would cycle with a room that is calling
+  the router back to restore itself, and starve that fetch.
+
+**What is deliberately not persisted.** This restores the session, not data. A room's
+filesystem is ephemeral, so anything written into a ROOT file is lost when the room scales to
+zero. That is a deliberate choice for now: nothing in a room writes to a ROOT file today
+(`ngnt/open` opens read-only and no handler writes), so rooms are read-only sessions over the
+files baked into the image, and the restore above is what makes them feel continuous across
+scaling.
+
+Persisting data would mean choosing a backend and a lifetime. Backends: a per-room PVC created
+by the router (works, but node-local with a single-node storage class), an RWX filesystem (NFS /
+CephFS, tolerant of rescheduling), object storage (S3/MinIO with a sync at the end of a session,
+nothing attached to the pod), or pointing rooms at an existing data service such as EOS. And
+because rooms have no owner - the router tracks an id, not a user - storage would live and die
+with the room unless a workspace is keyed by an authenticated user instead, which needs OIDC.
+
+## Room backup and restore
+
+`room/backup` exports the router's state — every room it is tracking, and each room's
+session — as one JSON document; `room/restore` takes such a document, ensures every room in
+it from the **current** skeleton and replays its session. It is the same snapshot the
+session restore above keeps, so what comes back is the session, not data.
+
+```bash
+ndmspc-room-tui --url "$BASE" --backup rooms.json    # or: curl -s "$BASE/api/room/backup" > rooms.json
+ndmspc-room-tui --url "$BASE" --restore rooms.json   # onto this deployment, or a freshly installed one
+```
+
+The document is deliberately **not** a Kubernetes manifest dump: rooms are re-created from
+today's skeleton (image, env, autoscaling) and their routes re-pinned, because a backed-up
+HTTPRoute pins a revision name that will not exist after a rebuild. It carries no ROOT files
+— see *What is deliberately not persisted* above — so it stays small enough to keep in
+version control: each snapshot is capped at 64 KB, so a few dozen rooms are well under a
+megabyte. A snapshot naming a file that no longer exists in the room image fails that room,
+with the message in the reply, rather than half-restoring it.
+
+Restoring is **additive and convergent**: rooms not named in the document are untouched,
+nothing is deleted, and a room that already has a file open is left alone (reported as
+`"session": "live"`). Re-running a restore is therefore safe, and it is also slow by nature
+— each room is created and waits for its revision to be ready, so restoring many rooms takes
+minutes; a client timeout must not be read as a failure. Per-room failures come back in
+`failed[]` with their error, the CLI exits non-zero when any room failed, and each restored
+room is annotated with its session again so the annotation store is repopulated rather than
+left to depend on the file.
+
+A document can be refused outright rather than acted on half-way: an unknown `version`, or a
+`router.param`/`router.prefix` that disagrees with this router, means it came from a
+differently configured deployment and would create wrongly named rooms here.
+
+### Restoring from a file in devops
+
+The `ndmspc` role in [ndmspc/devops](https://gitlab.com/ndmspc/devops) wraps both ends, so a
+deployment can carry its room set in version control:
+
+```bash
+ansible-playbook playbooks/local.yml --tags backup ...      # writes the file to ~/.ndmspc/env/<cluster>/
+# commit it as roles/ndmspc/files/ndmspc-rooms.json, then, to bring the rooms back:
+ansible-playbook playbooks/local.yml --tags restore ... -e ndmspc_rooms_restore_enabled=true
+```
+
+Neither tag runs as part of `install`/`apply` unless asked: a restore creates rooms, so it
+needs `ndmspc_rooms_restore_enabled=true` — with that set, `install`/`init`/`apply` bring the
+rooms back too, which is how a fresh deployment comes up with its room set.

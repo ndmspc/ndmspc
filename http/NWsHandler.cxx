@@ -41,6 +41,11 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
   if (!arg || arg->GetWSId() == 0) return kTRUE;
   const auto wsId = arg->GetWSId();
 
+  // A WebSocket connection wakes a scaled-to-zero room just as an HTTP request does, and it
+  // does not go through ProcessRequest - so give the room the chance to restore its stored
+  // session before the connection is served. A no-op outside a room, and after the first run.
+  if (Ndmspc::gNGnHttpServer != nullptr) Ndmspc::gNGnHttpServer->RoomSessionRestoreOnce();
+
   if (arg->IsMethod("WS_CONNECT")) {
     NLogTrace("WS_CONNECT received for path: /%s", arg->GetPathName());
     return kTRUE;

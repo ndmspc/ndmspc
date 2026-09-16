@@ -2,113 +2,18 @@
 
 #include <chrono>
 #include <csignal>
-#include <cstdio>
 #include <cstdlib>
-#include <fstream>
-#include <iterator>
 #include <string>
 #include <thread>
 
-#include <termios.h>
-#include <unistd.h>
-
 #include <TROOT.h>
 #include <TApplication.h>
-#include <TBase64.h>
 #include <TSystem.h>
-#include <TString.h>
 
 #include "ndmspc/core/NLogger.h"
+#include "ndmspc/http/NKeyPassphrase.h"
 #include "ndmspc/http/NOidcTokenClient.h"
 #include "ndmspc/http/NWsClient.h"
-
-namespace {
-
-// Reads a line from the terminal with echo disabled, for passphrase entry.
-std::string ReadPassphrase(const std::string & prompt)
-{
-  std::fputs(prompt.c_str(), stderr);
-  std::fflush(stderr);
-
-  termios original{};
-  if (::tcgetattr(STDIN_FILENO, &original) != 0) {
-    std::fputs("\n", stderr);
-    return {};
-  }
-  termios hidden = original;
-  hidden.c_lflag &= ~static_cast<tcflag_t>(ECHO);
-  ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden);
-
-  std::string passphrase;
-  char        ch = 0;
-  while (std::fread(&ch, 1, 1, stdin) == 1) {
-    if (ch == '\n' || ch == '\r') break;
-    passphrase.push_back(ch);
-  }
-
-  ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
-  std::fputs("\n", stderr);
-  return passphrase;
-}
-
-// Detects whether a PEM private key is passphrase-protected (PKCS#8 or legacy PEM).
-bool IsKeyEncrypted(const std::string & keyFile)
-{
-  std::ifstream in(keyFile, std::ios::binary);
-  if (!in.is_open()) return false;
-  const std::string contents{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-  return contents.find("ENCRYPTED PRIVATE KEY") != std::string::npos ||
-         contents.find("Proc-Type: 4,ENCRYPTED") != std::string::npos ||
-         contents.find("DEK-Info:") != std::string::npos;
-}
-
-// Decodes a base64-encoded passphrase file (same convention as ~/.globus/password.txt).
-bool ReadPassphraseFile(const std::string & path, std::string & out)
-{
-  std::ifstream file(path);
-  if (!file.is_open()) {
-    NLogError("Cannot open the key passphrase file: %s", path.c_str());
-    return false;
-  }
-  std::string encoded;
-  std::getline(file, encoded);
-  out = TBase64::Decode(TString(encoded)).Data();
-  if (!out.empty() && out.back() == '\r') out.pop_back();
-  return true;
-}
-
-// Resolves the private-key passphrase from, in order: an explicit value (--key-pass /
-// NDMSPC_KEY_PASS), a base64 passphrase file, or an interactive prompt when the key is
-// encrypted and a terminal is available. A non-interactive run with an encrypted key and
-// no passphrase source fails with an actionable error instead of blocking.
-bool ResolveKeyPassphrase(const std::string & keyFile, const std::string & inlinePass,
-                          const std::string & passFile, std::string & out)
-{
-  if (!inlinePass.empty()) {
-    out = inlinePass;
-    return true;
-  }
-  if (!passFile.empty()) return ReadPassphraseFile(passFile, out);
-  if (keyFile.empty() || !IsKeyEncrypted(keyFile)) return true;
-
-  if (::isatty(STDIN_FILENO)) {
-    out = ReadPassphrase("Enter passphrase for key '" + keyFile + "': ");
-    if (out.empty()) {
-      NLogError("No passphrase supplied for the encrypted key '%s'", keyFile.c_str());
-      return false;
-    }
-    return true;
-  }
-
-  NLogError("The private key '%s' is encrypted but no passphrase was provided in a "
-            "non-interactive session.",
-            keyFile.c_str());
-  NLogError("Provide one with --key-pass, --key-pass-file <base64 file>, or the "
-            "NDMSPC_KEY_PASS environment variable.");
-  return false;
-}
-
-} // namespace
 
 void handle_sigterm(int /*sig*/)
 {
@@ -214,7 +119,7 @@ int main(int argc, char ** argv)
   // Configure X509 client-certificate (mTLS) support.
   if (!certFile.empty() || !keyFile.empty()) {
     std::string keyPassphrase;
-    if (!ResolveKeyPassphrase(keyFile, keyPassword, keyPasswordFile, keyPassphrase)) return 2;
+    if (!Ndmspc::NKeyPassphrase::Resolve(keyFile, keyPassword, keyPasswordFile, keyPassphrase)) return 2;
     client.SetClientCertificate(certFile, keyFile, keyPassphrase);
     NLogInfo("X509 client certificate enabled (cert=%s key=%s)", certFile.c_str(), keyFile.c_str());
   }
