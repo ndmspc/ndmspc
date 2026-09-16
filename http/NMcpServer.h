@@ -30,15 +30,24 @@ class NMcpServer {
   public:
   /// @brief Configuration for the MCP server.
   struct Options {
-    std::string              serverName{"ndmspc-ngnt"};
+    std::string              serverName{"ndmspc-ngnt"}; ///< Name reported in the "initialize" result
     std::string              serverVersion; ///< Filled from NDMSPC_VERSION when empty
-    std::string              protocolVersion{"2025-06-18"};
+    std::string              protocolVersion{"2025-06-18"}; ///< MCP protocol version reported to clients
     std::vector<std::string> toolPrefixes;  ///< Empty = every registered handler
-    std::vector<std::string> excludeActions{"debug", "openapi/inspector", "inspector/openapi"};
-    bool                     exposeMethodParam{true};
+    std::vector<std::string> excludeActions{"debug", "openapi/inspector", "inspector/openapi"}; ///< Actions never exposed as tools
+    bool                     exposeMethodParam{true}; ///< Expose the HTTP method as a tool parameter
   };
 
+  /**
+   * @brief Constructor with default options.
+   * @param server Server whose handlers are exposed as MCP tools.
+   */
   explicit NMcpServer(NGnHttpServer * server);
+  /**
+   * @brief Constructor.
+   * @param server Server whose handlers are exposed as MCP tools.
+   * @param opts MCP server options.
+   */
   explicit NMcpServer(NGnHttpServer * server, Options opts);
 
   /// @brief Handle one JSON-RPC message.
@@ -61,12 +70,27 @@ class NMcpServer {
   std::string FindHandlerKey(const std::string & toolName) const;
 
   private:
+  /**
+   * @brief Whether a handler action is excluded from the tool list.
+   * @param handlerKey Handler key (e.g. "ngnt/open").
+   * @return True when the action must not be exposed.
+   */
   bool                 IsExcluded(const std::string & handlerKey) const;
+  /**
+   * @brief Build a human-readable description for a handler action.
+   * @param handlerKey Handler key (e.g. "ngnt/open").
+   * @return The tool description.
+   */
   std::string          Describe(const std::string & handlerKey) const;
+  /**
+   * @brief Look up the declared MCP metadata for a handler action.
+   * @param handlerKey Handler key (e.g. "ngnt/open").
+   * @return Pointer to the tool info, or nullptr when none is registered.
+   */
   const NMcpToolInfo * LookupToolInfo(const std::string & handlerKey) const;
 
-  NGnHttpServer * fServer{nullptr};
-  Options         fOpts;
+  NGnHttpServer * fServer{nullptr}; ///< Server whose handlers are exposed
+  Options         fOpts;            ///< MCP server options
 };
 
 } // namespace Ndmspc

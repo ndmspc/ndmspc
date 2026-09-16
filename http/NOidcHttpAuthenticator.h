@@ -55,9 +55,9 @@ class NOidcHttpAuthenticator {
    * @brief Headers set on the response argument after successful authentication.
    */
   static constexpr const char * kUserHeader = "X-NDMSPC-User";
-  static constexpr const char * kSubjectHeader = "X-NDMSPC-Subject";
-  static constexpr const char * kExpiresHeader = "X-NDMSPC-Token-Expires";
-  static constexpr const char * kAuthenticatedHeader = "X-NDMSPC-Authenticated";
+  static constexpr const char * kSubjectHeader = "X-NDMSPC-Subject";               ///< Verified token subject
+  static constexpr const char * kExpiresHeader = "X-NDMSPC-Token-Expires";         ///< Token expiry
+  static constexpr const char * kAuthenticatedHeader = "X-NDMSPC-Authenticated";   ///< Authentication flag
 
   /**
    * @brief Read the verified identity recorded on a request argument.
@@ -68,6 +68,11 @@ class NOidcHttpAuthenticator {
   static NOidcSession GetAuthenticatedSession(THttpCallArg * arg);
 
   private:
+  /**
+   * @brief Map a token verification failure to an HTTP auth result.
+   * @param result Failed verification result.
+   * @return The equivalent NHttpAuthResult (status, error code, retryability).
+   */
   static NHttpAuthResult MapVerifierFailure(const NOidcResult & result);
 };
 

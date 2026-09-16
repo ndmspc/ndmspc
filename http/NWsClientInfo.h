@@ -16,11 +16,11 @@ namespace Ndmspc {
 class NWsClientInfo {
   private:
   ULong_t     fWsId;         ///< Unique WebSocket client ID
-  std::string fSubject;
+  std::string fSubject;      ///< Verified token subject ("sub" claim)
   std::string fUsername;     ///< Username associated with the client
   int         fMessageCount; ///< Number of messages sent/received
   std::chrono::system_clock::time_point fConnectedAt; ///< Connection start time
-  std::chrono::system_clock::time_point fTokenExpiresAt;
+  std::chrono::system_clock::time_point fTokenExpiresAt; ///< Expiry of the client's access token
 
   public:
   /**
@@ -34,6 +34,13 @@ class NWsClientInfo {
    * @param username Username for the client.
    */
   NWsClientInfo(ULong_t id, const std::string & username);
+  /**
+   * @brief Constructor with a verified identity and token expiry.
+   * @param id WebSocket client ID.
+   * @param subject Verified token subject.
+   * @param username Username for the client.
+   * @param tokenExpiresAt Expiry of the client's access token.
+   */
   NWsClientInfo(ULong_t id, std::string subject, std::string username,
                 std::chrono::system_clock::time_point tokenExpiresAt);
 
@@ -48,9 +55,28 @@ class NWsClientInfo {
    * @return Username string.
    */
   const std::string & GetUsername() const;
+  /**
+   * @brief Get the verified token subject of the client.
+   * @return Subject string.
+   */
   const std::string & GetSubject() const;
+  /**
+   * @brief Get the expiry of the client's access token.
+   * @return Token expiry time point.
+   */
   std::chrono::system_clock::time_point GetTokenExpiresAt() const;
+  /**
+   * @brief Whether the client's token is still valid at a given time.
+   * @param now Time to check against.
+   * @return True when the token has not expired yet.
+   */
   bool IsTokenValidAt(std::chrono::system_clock::time_point now) const;
+  /**
+   * @brief Replace the client's identity and token expiry.
+   * @param subject New token subject.
+   * @param username New username.
+   * @param tokenExpiresAt New token expiry.
+   */
   void ReplaceIdentity(std::string subject, std::string username,
                        std::chrono::system_clock::time_point tokenExpiresAt);
 

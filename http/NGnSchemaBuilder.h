@@ -27,8 +27,17 @@ namespace Ndmspc {
 class NGnSchemaBuilder {
 
 public:
+  /**
+   * @brief Constructor.
+   * @param type JSON Schema root type (default: "object").
+   */
   explicit NGnSchemaBuilder(const std::string & type = "object") { fSchema["type"] = type; }
 
+  /**
+   * @brief Set the schema "hint" string.
+   * @param hint Hint text shown to UI clients.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Hint(const std::string & hint)
   {
     fSchema["hint"] = hint;
@@ -37,6 +46,11 @@ public:
 
   // --- Property initiators (each returns *this for chaining) ---
 
+  /**
+   * @brief Start a string property.
+   * @param name Property name.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & String(const std::string & name)
   {
     fCurrentProp                        = name;
@@ -44,6 +58,11 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Start a number property.
+   * @param name Property name.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Number(const std::string & name)
   {
     fCurrentProp                        = name;
@@ -51,6 +70,11 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Start an integer property.
+   * @param name Property name.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Integer(const std::string & name)
   {
     fCurrentProp                        = name;
@@ -58,6 +82,11 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Start a boolean property.
+   * @param name Property name.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Boolean(const std::string & name)
   {
     fCurrentProp                        = name;
@@ -65,6 +94,11 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Start an array property.
+   * @param name Property name.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Array(const std::string & name)
   {
     fCurrentProp                        = name;
@@ -72,6 +106,12 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Start a single-select string property with a "select" format.
+   * @param name Property name.
+   * @param options Allowed values.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Select(const std::string & name, const std::vector<std::string> & options)
   {
     fCurrentProp                          = name;
@@ -81,6 +121,12 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Start a multi-select array-of-strings property with a "multiselect" format.
+   * @param name Property name.
+   * @param options Allowed values.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & MultiSelect(const std::string & name, const std::vector<std::string> & options)
   {
     fCurrentProp                                       = name;
@@ -93,42 +139,77 @@ public:
 
   // --- Modifiers for the current property ---
 
+  /**
+   * @brief Set the "default" of the current property.
+   * @param val Default value.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Default(const json & val)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["default"] = val;
     return *this;
   }
 
+  /**
+   * @brief Set the "format" of the current property.
+   * @param fmt Format string.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Format(const std::string & fmt)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["format"] = fmt;
     return *this;
   }
 
+  /**
+   * @brief Set the "description" of the current property.
+   * @param desc Description string.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Description(const std::string & desc)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["description"] = desc;
     return *this;
   }
 
+  /**
+   * @brief Set the "enum" of the current property.
+   * @param values Allowed values.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Enum(const std::vector<std::string> & values)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["enum"] = values;
     return *this;
   }
 
+  /**
+   * @brief Set the item "type" of the current array property.
+   * @param type Item type.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & Items(const std::string & type)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["items"]["type"] = type;
     return *this;
   }
 
+  /**
+   * @brief Set the nested item "type" of the current array-of-arrays property.
+   * @param type Nested item type.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & ItemItems(const std::string & type)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["items"]["items"]["type"] = type;
     return *this;
   }
 
+  /**
+   * @brief Set the item "enum" of the current array property.
+   * @param values Allowed item values.
+   * @return Reference to this builder for chaining.
+   */
   NGnSchemaBuilder & ItemsEnum(const std::vector<std::string> & values)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["items"]["enum"] = values;
@@ -136,6 +217,8 @@ public:
   }
 
   // --- Build the final schema ---
+  /// @brief Get the built JSON Schema.
+  /// @return The schema object.
   json Build() const { return fSchema; }
 
   // --- Static helpers for post-build updates ---
@@ -157,8 +240,8 @@ public:
   }
 
 private:
-  json        fSchema;
-  std::string fCurrentProp;
+  json        fSchema;      ///< Schema under construction
+  std::string fCurrentProp; ///< Property modified by the modifier methods
 };
 
 } // namespace Ndmspc

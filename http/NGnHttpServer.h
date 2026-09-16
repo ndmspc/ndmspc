@@ -87,17 +87,36 @@ class NGnHistory;
 class NGnHttpServer : public NHttpServer {
 
   public:
+  /**
+   * @brief Constructor.
+   * @param engine Engine specification string (default: "http:8080").
+   * @param ws Enable WebSocket support (default: true).
+   * @param heartbeat_ms Heartbeat interval in milliseconds (default: 10000).
+   * @param oidcConfig OIDC configuration (empty disables authentication).
+   * @param startEngine When false the engine is not started yet; call ResetServer() once
+   *        handler registration is complete.
+   */
   NGnHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000,
                 NOidcConfig oidcConfig = {}, bool startEngine = true);
 
+  /// @brief Print server information.
+  /// @param option Optional ROOT option string (unused).
   virtual void Print(Option_t * option = "") const override;
+  /// @brief Clear the server state.
+  /// @param option Optional ROOT option string (unused).
   virtual void Clear(Option_t * option = "") override { NHttpServer::Clear(option); }
+  /// @brief Clear the workspace history.
   void         ClearHistory() { fWorkspace.Clear(); }
+  /// @brief Clear the workspace history and remove all remaining input objects.
   void         ResetServer();
 
+  /// @brief Enable or disable keeping a request history in the workspace.
+  /// @param useHistory New flag value.
   void         SetUseHistory(bool useHistory) { fUseHistory = useHistory; }
+  /// @brief Whether the request history is kept in the workspace.
   bool         GetUseHistory() const { return fUseHistory; }
 
+  /// @brief Get the workspace history entries as a JSON array.
   json GetJson() const;
 
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
@@ -112,15 +131,36 @@ class NGnHttpServer : public NHttpServer {
   /// @return The handler function pointer, or nullptr when not registered.
   Ndmspc::NGnHttpFuncPtr FindHttpHandler(const std::string & name) const;
 
+  /**
+   * @brief Register an input object under a name for handlers to use.
+   * @param name Object name.
+   * @param obj Object pointer (not owned by the map).
+   */
   void      AddInputObject(const std::string & name, TObject * obj) { fObjectsMap[name] = obj; }
+  /**
+   * @brief Remove and delete a registered input object.
+   * @param name Object name.
+   * @return True when an object was found and removed.
+   */
   bool      RemoveInputObject(const std::string & name);
+  /**
+   * @brief Get a registered input object by name.
+   * @param name Object name.
+   * @return Pointer to the object, or nullptr when not registered.
+   */
   TObject * GetInputObject(const std::string & name);
 
+  /// @brief Get the map of registered input objects.
   std::map<std::string, TObject *> &            GetObjectsMap() { return fObjectsMap; }
+  /// @brief Get the mutable workspace schema JSON.
   json &                                        GetWorkspace() { return fWorkspace.GetWorkspace(); }
+  /// @brief Get the mutable workspace state JSON.
   json &                                        GetState() { return fWorkspace.GetState(); }
+  /// @brief Get the combined inspector schema for the workspace.
   json                                          GetInspectorSchema() const { return fWorkspace.GetInspectorSchema(); }
+  /// @brief Set the group prefix used for workspace routes.
   void                                          SetGroup(const std::string & group) { fGroup = group; }
+  /// @brief Get the group prefix used for workspace routes.
   const std::string &                           GetGroup() const { return fGroup; }
 
   /// @brief Enable or disable the MCP endpoint (POST /api/mcp). Disabled by default.
@@ -142,6 +182,7 @@ class NGnHttpServer : public NHttpServer {
   /// \endcond;
 };
 
+/// @brief Global pointer to the most recently constructed NGnHttpServer instance.
 extern NGnHttpServer * gNGnHttpServer;
 
 } // namespace Ndmspc

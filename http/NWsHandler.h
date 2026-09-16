@@ -22,9 +22,12 @@ class THttpCallArg;
 class TTimer;
 namespace Ndmspc {
 
+/**
+ * @brief Runtime state of a WebSocket connection awaiting authentication.
+ */
 struct NWsPendingClient {
-  std::chrono::steady_clock::time_point readyAt;
-  bool authenticationInProgress{false};
+  std::chrono::steady_clock::time_point readyAt; ///< Deadline for completing authentication
+  bool authenticationInProgress{false};          ///< Whether an authentication message is being processed
 };
 
 /**
@@ -71,6 +74,8 @@ class NWsHandler : public THttpWSHandler {
    * @brief Constructor.
    * @param name Optional handler name.
    * @param title Optional handler title.
+   * @param verifier Shared OIDC token verifier (nullptr = anonymous mode).
+   * @param authenticationTimeout Budget for completing the authentication handshake.
    */
   NWsHandler(const char * name = nullptr, const char * title = nullptr,
              std::shared_ptr<IOidcTokenVerifier> verifier = nullptr,
@@ -81,6 +86,7 @@ class NWsHandler : public THttpWSHandler {
    */
   ~NWsHandler() override;
 
+  /// @brief Get the number of currently connected clients.
   size_t GetClientCount() const;
 
   /**
@@ -116,13 +122,41 @@ class NWsHandler : public THttpWSHandler {
   Bool_t HandleTimer(TTimer * timer) override;
 
   protected:
+  /**
+   * @brief Process an incoming "authenticate" message for a client.
+   * @param wsId WebSocket client id.
+   * @param message Raw authenticate message (carries the token).
+   */
   void HandleAuthentication(ULong_t wsId, const json & message);
+  /**
+   * @brief Register a client in anonymous mode and welcome it.
+   * @param wsId WebSocket client id.
+   */
   void ActivateAnonymousClient(ULong_t wsId);
+  /**
+   * @brief Send the "welcome" frame to a client and broadcast the client list.
+   * @param wsId WebSocket client id.
+   * @param username Username to welcome with.
+   */
   void SendWelcomeAndAnnounce(ULong_t wsId, const std::string & username);
+  /**
+   * @brief Send an authentication error frame to a client.
+   * @param wsId WebSocket client id.
+   * @param code Stable error code.
+   * @param message Human-readable error message.
+   * @param retryable Whether the client may retry authentication.
+   */
   void SendAuthenticationError(ULong_t wsId, const std::string & code, const std::string & message, bool retryable);
+  /**
+   * @brief Remove a client and broadcast the updated client list.
+   * @param wsId WebSocket client id.
+   */
   void RemoveClientAndAnnounce(ULong_t wsId);
+  /// @brief Drop clients whose token expired and pending clients past the auth timeout.
   void ExpireConnections();
+  /// @brief Build the "clients" broadcast payload.
   json BuildClientsMessage() const;
+  /// @brief Get the ids of connected clients with a still-valid token.
   std::vector<ULong_t> ClientIds() const;
 
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID

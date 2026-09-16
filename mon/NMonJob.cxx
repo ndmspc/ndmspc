@@ -84,6 +84,8 @@ json NMonJob::ToJson() const
   return j;
 }
 
+namespace {
+
 enum class TaskAction { Start, Done, Skipped, Cancel, Unknown };
 
 TaskAction ParseAction(const std::string & action)
@@ -94,6 +96,8 @@ TaskAction ParseAction(const std::string & action)
   if (action == "C") return TaskAction::Cancel;
   return TaskAction::Unknown;
 }
+
+} // namespace
 
 bool NMonJob::UpdateTask(unsigned int taskId, const std::string & action, int errorCode)
 {

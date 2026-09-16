@@ -81,15 +81,24 @@ std::string RewriteUsernameInJson(const std::string & payload, const std::string
 
 } // namespace
 
+/**
+ * @brief Implementation state of the mTLS front door.
+ *
+ * Keeps the httplib server (and its TLS context) out of the public header.
+ */
 struct NX509Authenticator::Impl {
+  /**
+   * @brief Constructor.
+   * @param cfg Validated X509 configuration.
+   */
   explicit Impl(NX509Config cfg) : config(std::move(cfg)) {}
 
-  NX509Config config;
-  std::string internalBase;
-  std::string internalWsBase; ///< internalBase with the ws:// scheme (httplib WS client rejects http://)
-  std::unique_ptr<httplib::SSLServer> server;
-  std::thread listenThread;
-  std::atomic<bool> running{false};
+  NX509Config config;                ///< X509 front-door configuration
+  std::string internalBase;          ///< Base URL of the internal loopback ROOT engine
+  std::string internalWsBase;        ///< internalBase with the ws:// scheme (httplib WS client rejects http://)
+  std::unique_ptr<httplib::SSLServer> server; ///< HTTPS listener terminating client certificates
+  std::thread listenThread;          ///< Thread running the accept loop
+  std::atomic<bool> running{false};  ///< Whether the listener is active
 };
 
 NX509Authenticator::NX509Authenticator(NX509Config config) : fImpl(std::make_unique<Impl>(std::move(config))) {}

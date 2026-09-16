@@ -14,18 +14,35 @@ namespace Ndmspc {
 
 class NGnHistoryEntry : public TNamed {
   public:
+  /**
+   * @brief Constructor.
+   * @param name Object name (default: "").
+   * @param title Object title (default: "").
+   */
   NGnHistoryEntry(const char * name = "", const char * title = "");
   virtual ~NGnHistoryEntry();
 
 
+  /// @brief Get the input JSON payload.
   json GetPayloadIn() const { return fIn; }
+  /// @brief Set the input JSON payload.
+  /// @param payload Input payload.
   void SetPayloadIn(const json & payload) { fIn = payload; }
+  /// @brief Get the output JSON payload.
   json GetPayloadOut() const { return fOut; }
+  /// @brief Set the output JSON payload.
+  /// @param payload Output payload.
   void SetPayloadOut(const json & payload) { fOut = payload; }
+  /// @brief Get the WebSocket output JSON payload.
   json GetPayloadWsOut() const { return fWsOut; }
+  /// @brief Set the WebSocket output JSON payload.
+  /// @param payload WebSocket output payload.
   void SetPayloadWsOut(const json & payload) { fWsOut = payload; }
 
+  /// @brief Get the workspace JSON associated with this entry.
   json GetWorkspace() const { return fWorkspace; }
+  /// @brief Set the workspace JSON associated with this entry.
+  /// @param workspace Workspace JSON.
   void SetWorkspace(const json & workspace) { fWorkspace = workspace; }
 
 

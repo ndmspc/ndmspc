@@ -55,6 +55,10 @@ class NBinningPoint : public TObject {
    */
   Int_t * GetCoords() const { return fContentCoords; }
 
+  /**
+   * @brief Set the content coordinates of this binning point.
+   * @param coords Pointer to an array of coordinates with at least GetNDimensionsContent() entries.
+   */
   void SetCoords(Int_t * coords) {
     for (int i = 0; i < fContentNDimensions; ++i) {
       fContentCoords[i] = coords[i];

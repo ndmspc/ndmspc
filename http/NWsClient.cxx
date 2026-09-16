@@ -48,32 +48,42 @@ std::string ReadFile(const std::string & path)
 
 namespace Ndmspc {
 
+/**
+ * @brief Implementation state of the WebSocket client.
+ *
+ * Keeps the httplib WebSocket client and its TLS material out of the public header.
+ */
 struct NWsClient::Impl {
+  /**
+   * @brief Constructor.
+   * @param maxRetries Maximum number of connection retries.
+   * @param retryDelayMs Delay between retries in milliseconds.
+   */
   explicit Impl(int maxRetries, int retryDelayMs) : fMaxRetries(maxRetries), fRetryDelayMs(retryDelayMs) {}
 
-  std::unique_ptr<httplib::ws::WebSocketClient> fClient;
-  std::thread                                   fReaderThread;
-  std::atomic<bool>                             fConnected{false};
-  std::atomic<bool>                             fShutdownRequested{false};
-  std::atomic<bool>                             fAuthenticated{false};
+  std::unique_ptr<httplib::ws::WebSocketClient> fClient; ///< Underlying httplib WebSocket client
+  std::thread                                   fReaderThread; ///< Background reader thread
+  std::atomic<bool>                             fConnected{false}; ///< Whether the handshake completed
+  std::atomic<bool>                             fShutdownRequested{false}; ///< Ask the reader thread to stop
+  std::atomic<bool>                             fAuthenticated{false}; ///< Whether the server acknowledged auth
 
-  int         fMaxRetries;
-  int         fRetryDelayMs;
-  std::string fAuthToken;
+  int         fMaxRetries;   ///< Maximum number of connection retries
+  int         fRetryDelayMs; ///< Delay between retries in milliseconds
+  std::string fAuthToken;    ///< OAuth2/OIDC access token presented on connect
 
-  NWsClient::OnMessageCallback fOnMessageCallback;
+  NWsClient::OnMessageCallback fOnMessageCallback; ///< User callback for received messages
 
   // TLS / X509 client authentication configuration (set before Connect()).
-  std::string fClientCertFile;
-  std::string fClientKeyFile;
-  std::string fClientKeyPassword;
-  std::string fCaFile;
-  std::string fCaPath;
+  std::string fClientCertFile; ///< PEM certificate presented to the server
+  std::string fClientKeyFile;  ///< PEM private key for fClientCertFile
+  std::string fClientKeyPassword; ///< Passphrase for fClientKeyFile (may be empty)
+  std::string fCaFile;         ///< CA bundle used to verify the server certificate
+  std::string fCaPath;         ///< Hashed CA directory used to verify the server certificate
   std::string fCertPem; ///< PEM contents kept alive for the client's PemMemory
   std::string fKeyPem;  ///< PEM contents kept alive for the client's PemMemory
-  bool        fVerifyServer{true};
-  bool        fAllowSelfSigned{false};
-  bool        fSkipHostnameCheck{false};
+  bool        fVerifyServer{true};      ///< Whether to verify the server certificate chain
+  bool        fAllowSelfSigned{false};  ///< Whether to tolerate missing/self-signed server CAs
+  bool        fSkipHostnameCheck{false}; ///< Whether to skip hostname verification
 };
 
 NWsClient::NWsClient(int maxRetries, int retryDelayMs) : fImpl(std::make_unique<Impl>(maxRetries, retryDelayMs)) {}
