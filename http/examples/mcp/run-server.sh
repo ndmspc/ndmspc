@@ -20,4 +20,4 @@ die() { echo "error: $*" >&2; exit 1; }
 export NDMSPC_DIR="${NDMSPC_DIR:-$PROJECT_DIR}"
 
 echo "Starting ngnt server on port $PORT (MCP endpoint: POST http://localhost:$PORT/api/mcp)"
-exec "$SERVER_BIN" start ngnt -p "$PORT" --mcp true -m "$MACROS"
+exec "$SERVER_BIN" -p "$PORT" --mcp true -m "$MACROS"

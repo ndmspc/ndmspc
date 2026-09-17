@@ -4,25 +4,25 @@
 #include <TNamed.h>
 #include <vector>
 #include <string>
-#include "NGnHistoryEntry.h"
+#include "NHistoryEntry.h"
 
 namespace Ndmspc {
 
 ///
-/// \class NGnWorkspace
-/// \brief Encapsulates workspace entries for NGnHttpServer
+/// \class NWorkspace
+/// \brief Encapsulates workspace entries for NHttpServer
 ///
-class NGnHttpServer;
-class NGnWorkspace : public TNamed {
+class NHttpServer;
+class NWorkspace : public TNamed {
 public:
   /**
    * @brief Constructor.
-   * @param name Object name (default: "NGnWorkspace").
-   * @param title Object title (default: "NGnWorkspace object").
+   * @param name Object name (default: "NWorkspace").
+   * @param title Object title (default: "NWorkspace object").
    * @param server Owning HTTP server, used to invoke handlers (default: nullptr).
    */
-  NGnWorkspace(const char* name = "NGnWorkspace", const char* title = "NGnWorkspace object", NGnHttpServer * server = nullptr);
-  virtual ~NGnWorkspace();
+  NWorkspace(const char* name = "NWorkspace", const char* title = "NWorkspace object", NHttpServer * server = nullptr);
+  virtual ~NWorkspace();
 
   /**
    * @brief Print the workspace entries.
@@ -34,7 +34,7 @@ public:
    * @brief Append a history entry to the workspace.
    * @param entry Entry to add (ownership is taken by the workspace).
    */
-  void AddEntry(NGnHistoryEntry* entry);
+  void AddEntry(NHistoryEntry* entry);
   /**
    * @brief Remove the entry at the given index.
    * @param index Index of the entry to remove.
@@ -67,7 +67,7 @@ public:
   bool ExportToFile(const std::string& filename) const;
 
   /// @brief Get the workspace history entries.
-  const std::vector<NGnHistoryEntry*>& GetEntries() const { return fEntries; }
+  const std::vector<NHistoryEntry*>& GetEntries() const { return fEntries; }
   /// @brief Get the mutable workspace schema JSON.
   json& GetWorkspace() { return fWorkspace; }
   /// @brief Get the read-only workspace schema JSON.
@@ -94,16 +94,16 @@ public:
    * @brief Set the owning HTTP server used to invoke handlers.
    * @param server Pointer to the server (may be null).
    */
-  void SetServer(NGnHttpServer * server) { fServer = server; }  
+  void SetServer(NHttpServer * server) { fServer = server; }  
 
 private:
   json fWorkspace{}; ///< Workspace schema JSON object
   json fState{};     ///< Additional state information for the workspace
-  std::vector<NGnHistoryEntry*> fEntries; ///< Workspace entries
-  NGnHttpServer * fServer{nullptr}; ///< Pointer to the HTTP server for invoking handlers
+  std::vector<NHistoryEntry*> fEntries; ///< Workspace entries
+  NHttpServer * fServer{nullptr}; ///< Pointer to the HTTP server for invoking handlers
 
   /// \cond CLASSIMP
-  ClassDefOverride(NGnWorkspace, 1);
+  ClassDefOverride(NWorkspace, 1);
   /// \endcond
 };
 

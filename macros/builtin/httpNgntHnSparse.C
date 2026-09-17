@@ -5,7 +5,7 @@
 #include <ndmspc/core/NUtils.h>
 #include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NGnNavigator.h>
-#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/http/NHttpServer.h>
 
 void httpNgntHnSparse()
 {
@@ -29,7 +29,7 @@ void httpNgntHnSparse()
 
   handlers["open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                         std::map<std::string, TObject *> &) {
-    auto    server = Ndmspc::gNGnHttpServer;
+    auto    server = Ndmspc::gNHttpServer;
     TFile * file   = (TFile *)server->GetInputObject("file");
     NLogDebug("Received HTTP request for 'open' action with method: %s httpIn=%s", method.c_str(),
               httpIn.dump().c_str());
@@ -113,7 +113,7 @@ void httpNgntHnSparse()
 
   handlers["object"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
-    auto server = Ndmspc::gNGnHttpServer;
+    auto server = Ndmspc::gNHttpServer;
 
     NLogInfo("/object method=%s in=%s", method.c_str(), httpIn.dump().c_str());
     if (method.find("GET") != std::string::npos) {
@@ -189,7 +189,7 @@ void httpNgntHnSparse()
 
   handlers["project"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                            std::map<std::string, TObject *> &) {
-    auto server = Ndmspc::gNGnHttpServer;
+    auto server = Ndmspc::gNHttpServer;
 
     NLogInfo("/project method=%s in=%s", method.c_str(), httpIn.dump().c_str());
     if (method.find("GET") != std::string::npos) {

@@ -15,7 +15,7 @@
 
 ///
 /// Start server in another terminal:
-/// $ ndmspc-cli serve stress
+/// $ ndmspc-server
 ///
 bool wstest(std::string url = "ws://localhost:8080/ws/root.websocket", std::string message = "")
 {

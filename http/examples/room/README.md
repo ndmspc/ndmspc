@@ -1,8 +1,9 @@
 # Room management TUI (`ndmspc-room-tui`)
 
 Runnable example for `ndmspc-room-tui`, the terminal UI that manages the rooms of the
-NDMSPC **room router** — the ngnt server with `macros/builtin/httpRoom.C` loaded, which
-creates one Knative Service per room on demand.
+NDMSPC **room router** — an ngnt server started with `--rooms true`, which serves the
+framework's room router (`Ndmspc::NRoomRouter`, `http/room/NRoomRouter.cxx`) and creates one
+Knative Service per room on demand.
 
 The tool drives the router's room actions over its **MCP endpoint** (`POST /api/mcp`,
 tools `room_list` / `room_open` / `room_status` / `room_close` / `room_backup` /
@@ -11,12 +12,12 @@ REST-shaped one.
 
 ## Why there is a mock here
 
-`httpRoom.C` calls `std::exit(1)` unless `KUBERNETES_SERVICE_HOST` is set: a room *is*
-a Knative Service, so the real router cannot run on a workstation. `mock_mcp_server.py`
-therefore answers the same MCP endpoint with the same envelopes the router produces,
-which makes the client testable end to end without a cluster.
+Asking the server for rooms fails unless `KUBERNETES_SERVICE_HOST` is set: `ndmspc-server --rooms true`
+logs why and exits at startup, because a room *is* a Knative Service and the real router cannot run on
+a workstation. `mock_mcp_server.py` therefore answers the same MCP endpoint with the same envelopes
+the router produces, which makes the client testable end to end without a cluster.
 
-The mock is written against `httpRoom.C` and `NMcpServer.cxx`, not against the client:
+The mock is written against `http/room/NRoomRouter.cxx` and `http/mcp/NMcpServer.cxx`, not against the client:
 the handler envelope (`{"result":"success","payload":{…}}` /
 `{"result":"failure","error":"…"}` with HTTP 200 either way), the `content` /
 `structuredContent` / `isError` shape, the per-action `method` validation, the

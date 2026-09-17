@@ -1,12 +1,12 @@
 // ndmspc-room-tui - terminal UI and scriptable client for the ndmspc room router.
 //
-// The router is the ngnt server with the room macro loaded (macros/builtin/httpRoom.C):
+// The router is an ngnt server with the framework's room router enabled (Ndmspc::NRoomRouter):
 // one Knative Service per room, created on demand, with clients carrying their room in
 // the ?room=<id> query parameter. This tool drives the router's room actions over its
 // MCP endpoint (POST {url}/api/mcp, tools room_list/room_open/room_status/room_close),
 // which dispatch to the same handlers as the /api/room routes.
 //
-// Interactive use runs the screen in room_mgm_ui.cxx; the --list/--open/--status/--close
+// Interactive use runs the screen in room_ui.cxx; the --list/--open/--status/--close
 // actions print JSON and exit without a terminal.
 //
 // This file deliberately includes no ROOT-free assumption either way: ROOT is linked in
@@ -32,7 +32,7 @@
 #include "ndmspc/http/NOidcTokenClient.h"
 #include "ndmspc/http/NRoomClient.h"
 
-#include "room_mgm_ui.h"
+#include "room_ui.h"
 
 namespace {
 
@@ -105,12 +105,62 @@ bool IsTransient(const std::string & error) { return error.find("cannot reach") 
 /// @brief Print a payload as indented JSON on stdout.
 void PrintJson(const json & payload) { std::cout << payload.dump(2) << std::endl; }
 
+/// @brief Follows a room the router is preparing until it is ready, or the wait runs out.
+///
+/// --open used to block inside the router until the room was ready. The router now creates rooms
+/// in the background (so it stays usable while one is being prepared), which moves the wait here -
+/// the URL it prints is only usable once the room is ready.
+///
+/// @param client The room client (already handshaken).
+/// @param room Room id to follow.
+/// @param timeoutSeconds How long to follow it before giving up.
+/// @return The room's final status, or a failure when it could not be created or timed out.
+Ndmspc::NRoomResult WaitForRoom(Ndmspc::NRoomClient & client, const std::string & room, int timeoutSeconds)
+{
+  const auto  deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSeconds);
+  std::string phase;
+  bool        announced = false;
+
+  while (true) {
+    const Ndmspc::NRoomResult status = client.Status(room);
+    if (!status.ok) return status;
+
+    const std::string state = status.payload.value("state", std::string());
+    if (state != "preparing") {
+      if (state != "failed") return status;
+      Ndmspc::NRoomResult failure;
+      failure.error = "the room '" + room + "' could not be created: " +
+                      status.payload.value("error", std::string("no reason reported"));
+      return failure;
+    }
+
+    // Progress goes to stderr: on stdout a script expects the action's JSON and nothing else.
+    const std::string next = status.payload.value("phase", std::string());
+    if (!announced || next != phase) {
+      std::cerr << "creating '" << room << "': " << (next.empty() ? "waiting" : next) << std::endl;
+      announced = true;
+    }
+    phase = next;
+
+    if (std::chrono::steady_clock::now() >= deadline) {
+      Ndmspc::NRoomResult timeout;
+      timeout.error = "the room '" + room + "' is still being created after " + std::to_string(timeoutSeconds) +
+                      "s (phase '" + phase + "'); it continues in the router - check it with --status";
+      return timeout;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  }
+}
+
 /// @brief Run one room action without a terminal.
 /// @param client The room client (already handshaken).
 /// @param action The action to run.
 /// @param force Allow --backup to overwrite an existing file.
+/// @param noWait With --open: return as soon as the router accepts the room.
+/// @param waitTimeoutSeconds How long --open follows a room the router is still preparing.
 /// @return The process exit code: 0 on success, 1 on failure.
-int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool force)
+int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool force, bool noWait,
+                int waitTimeoutSeconds)
 {
   if (action.name == "list") {
     const Ndmspc::NRoomListResult list = client.List();
@@ -122,7 +172,9 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
     for (const auto & room : list.rooms) {
       rooms.push_back({{"name", room.name},         {"room", room.room},         {"revision", room.revision},
                        {"lastSeen", room.lastSeen}, {"ready", room.ready},       {"replicas", room.replicas},
-                       {"active", room.active}});
+                       {"active", room.active},     {"state", room.state},       {"preparing", room.preparing},
+                       {"phase", room.phase},       {"error", room.error},       {"code", room.code},
+                       {"startedAt", room.startedAt}});
     }
     PrintJson({{"rooms", rooms}, {"ttl", list.ttl}});
     return 0;
@@ -191,7 +243,33 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
 
   Ndmspc::NRoomResult result;
   if (action.name == "open") {
-    result = client.Open(action.value);
+    // Never wait inside the router: it would hold up every other client for the whole creation.
+    result = client.Open(action.value, /*wait=*/false);
+    if (result.ok) {
+      const std::string state = result.payload.value("state", std::string());
+      if (state == "failed") {
+        // The router answered with the failure already recorded (it gives up as soon as it knows,
+        // e.g. a pod the scheduler cannot place): say so instead of printing a room that is not there.
+        Ndmspc::NRoomResult failure;
+        failure.error = "the room '" + action.value + "' could not be created: " +
+                        result.payload.value("error", std::string("no reason reported"));
+        result = failure;
+      }
+      else if (!noWait && state == "preparing") {
+        const Ndmspc::NRoomResult waited = WaitForRoom(client, action.value, waitTimeoutSeconds);
+        if (!waited.ok) {
+          result = waited; // timed out, or the creation failed: report it and exit non-zero
+        }
+        else {
+          // Keep the payload room/open returned - it carries the URL, which a status does not - and
+          // take the outcome the router reported once the room was up.
+          result.payload["state"]    = waited.payload.value("state", std::string("ready"));
+          const std::string revision = result.payload.value("revision", std::string());
+          result.payload["revision"] = waited.payload.value("revision", revision);
+          if (waited.payload.contains("session")) result.payload["session"] = waited.payload["session"];
+        }
+      }
+    }
   }
   else if (action.name == "status") {
     result = client.Status(action.value);
@@ -220,7 +298,9 @@ int main(int argc, char ** argv)
   std::string closeRoom;
   std::string backupFile;
   std::string restoreFile;
-  bool        force = false;
+  bool        force            = false;
+  bool        noWait           = false;
+  int         waitTimeoutSeconds = 600;
 
   std::string certFile;
   std::string keyFile;
@@ -251,7 +331,13 @@ int main(int argc, char ** argv)
       ->envname("NDMSPC_ROOM_URL");
   app.add_option("--refresh,-r", refreshSeconds, "Seconds between automatic room-list refreshes (0 = manual only)");
   app.add_flag("--list", listRooms, "List the rooms the router is tracking, then exit (no terminal needed)");
-  app.add_option("--open", openRoom, "Ensure a room exists, print its URL, then exit (no terminal needed)");
+  app.add_option("--open", openRoom,
+                 "Ensure a room exists, print its URL, then exit (no terminal needed). Waits for the room "
+                 "to be ready unless --no-wait is given");
+  app.add_flag("--no-wait", noWait,
+               "With --open: return as soon as the router accepts the room, without waiting for it to be ready");
+  app.add_option("--wait-timeout", waitTimeoutSeconds,
+                 "With --open: seconds to wait for the room to become ready (default: 600)");
   app.add_option("--status", statusRoom, "Print one room's state, then exit (no terminal needed)");
   app.add_option("--close", closeRoom, "Delete a room, then exit (no terminal needed)");
   app.add_option("--backup", backupFile,
@@ -393,7 +479,7 @@ int main(int argc, char ** argv)
     return 2;
   }
 
-  if (pending.size() == 1) return RunHeadless(client, pending.front(), force);
+  if (pending.size() == 1) return RunHeadless(client, pending.front(), force, noWait, waitTimeoutSeconds);
 
   // The room actions above cover scripted use; the interactive screen needs a terminal.
   if (::isatty(STDIN_FILENO) == 0) {

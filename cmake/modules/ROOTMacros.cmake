@@ -242,8 +242,16 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
   endforeach()
 
   file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+  # rootcling is handed (and records in the rootmap/pcm) the name each header is installed and
+  # included under - <project>/<module dir>/<file> - which is the path ROOT autoloads classes
+  # through at runtime. Headers install flat (RootLib PUBLIC_HEADER), so the directory part of a
+  # source-relative name is dropped here: a source in http/ngnt/ is ndmspc/http/NWorkspace.h, and
+  # naming it ndmspc/http/ngnt/NWorkspace.h would record a path that exists only in the build tree
+  # and make every autoload fail with "Missing FileEntry". headerfiles keeps the real source names
+  # for the DEPENDS below.
   foreach(f ${headerfiles})
-    set(rheaderfiles ${rheaderfiles} "ndmspc/${relative}/${f}")
+    get_filename_component(f_header_name "${f}" NAME)
+    set(rheaderfiles ${rheaderfiles} "ndmspc/${relative}/${f_header_name}")
   endforeach()
 
   #---Get the list of include directories------------------
@@ -967,7 +975,9 @@ function(RootLib PACKAGE SRCS DEPLIBS)
 
   string(REPLACE ".cxx" ".h" HDRS "${SRCS}")
   file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})  
-  # copy headers to ${CMAKE_SOURCE_DIR}/cmake/include/${CMAKE_PROJECT_NAME}/${relative}
+  # copy headers to ${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${relative} - flat, matching
+  # how consumers include them (ndmspc/http/<file>.h). ROOT_GENERATE_DICTIONARY resolves the
+  # header names it is handed against this directory.
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${relative}")
   foreach(f ${HDRS})
     file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/${f}" DESTINATION "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${relative}")

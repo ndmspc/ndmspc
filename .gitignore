@@ -63,3 +63,4 @@ notes
 .ndmspc*
 html/
 .commandcode
+__pycache__

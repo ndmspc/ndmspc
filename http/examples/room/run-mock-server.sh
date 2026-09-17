@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start the room router mock (mock_mcp_server.py) in the foreground.
 #
-# The real router is httpRoom.C, which refuses to run outside Kubernetes, so this
+# The real router (Ndmspc::NRoomRouter) refuses to register outside Kubernetes, so this
 # mock answers the same MCP endpoint for local development and testing.
 set -euo pipefail
 

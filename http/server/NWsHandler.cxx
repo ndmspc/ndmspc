@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
-#include "ndmspc/http/NGnHttpServer.h"
+#include "ndmspc/http/NHttpServer.h"
 
 namespace Ndmspc {
 namespace {
@@ -44,10 +44,16 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
   // A WebSocket connection wakes a scaled-to-zero room just as an HTTP request does, and it
   // does not go through ProcessRequest - so give the room the chance to restore its stored
   // session before the connection is served. A no-op outside a room, and after the first run.
-  if (Ndmspc::gNGnHttpServer != nullptr) Ndmspc::gNGnHttpServer->RoomSessionRestoreOnce();
+  if (Ndmspc::gNHttpServer != nullptr) Ndmspc::gNHttpServer->RoomSessionRestoreOnce();
 
   if (arg->IsMethod("WS_CONNECT")) {
     NLogTrace("WS_CONNECT received for path: /%s", arg->GetPathName());
+    // A server that carries a policy (the room router) decides here: refusing the upgrade is how a
+    // client is kept from being served a session by the wrong process - see gNdmspcWsConnectFilter.
+    if (Ndmspc::gNdmspcWsConnectFilter != nullptr) {
+      const std::string query = arg->GetQuery() != nullptr ? arg->GetQuery() : "";
+      if (!Ndmspc::gNdmspcWsConnectFilter(query)) return kFALSE;
+    }
     return kTRUE;
   }
 
@@ -122,8 +128,8 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       json payload = parsed.contains("payload") ? parsed["payload"] : json::object();
       json headers = parsed.contains("headers") && parsed["headers"].is_object() ? parsed["headers"] : json::object();
 
-      if (!Ndmspc::gNGnHttpServer) {
-        NLogError("Cannot route WS_DATA to HTTP API: gNGnHttpServer is not set");
+      if (!Ndmspc::gNHttpServer) {
+        NLogError("Cannot route WS_DATA to HTTP API: gNHttpServer is not set");
         return kTRUE;
       }
 
@@ -137,7 +143,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 
       // Carry the authenticated WebSocket identity onto the synthetic HTTP
       // argument. The connection already passed the WS authentication gate, so
-      // NGnHttpServer skips the bearer check for requests with a nonzero WS id.
+      // NHttpServer skips the bearer check for requests with a nonzero WS id.
       // The username is set from the server-side client record only, never from
       // the client-supplied headers (Authorization and X-NDMSPC-* are stripped).
       {
@@ -155,7 +161,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       }
       if (!headerBlock.empty()) httpArg->SetRequestHeader(headerBlock.c_str());
 
-      Ndmspc::gNGnHttpServer->ProcessRequest(httpArg);
+      Ndmspc::gNHttpServer->ProcessRequest(httpArg);
 
       std::string content(static_cast<const char *>(httpArg->GetContent()), httpArg->GetContentLength());
       json reply;

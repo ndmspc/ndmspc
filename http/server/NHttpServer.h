@@ -1,14 +1,26 @@
-#ifndef Ndmspc_NGnHttpServer_H
-#define Ndmspc_NGnHttpServer_H
+#ifndef NdmspcCoreNHttpServer_H
+#define NdmspcCoreNHttpServer_H
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
-#include "ndmspc/core/NLogger.h"
-#include "ndmspc/http/NGnWorkspace.h"
-#include "NHttpServer.h"
 
+#include <THttpServer.h>
+
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/http/NWorkspace.h"
+#include "ndmspc/http/NOidcConfig.h"
+#include "ndmspc/http/NWsHandler.h"
+
+class THttpCallArg;
 namespace Ndmspc {
 
 /**
@@ -20,17 +32,34 @@ namespace Ndmspc {
  * - json&: Reference to the output JSON payload.
  * - json&: Reference to the output JSON payload to websocket.
  */
-using NGnHttpFuncPtr = void (*)(std::string, json &, json &, json &, std::map<std::string, TObject *> &);
+using NHttpFuncPtr = void (*)(std::string, json &, json &, json &, std::map<std::string, TObject *> &);
 
 /**
  * @brief Map of HTTP handler names to their corresponding function pointers.
  */
-using NGnHttpHandlerMap = std::map<std::string, NGnHttpFuncPtr>;
+using NHttpHandlerMap = std::map<std::string, NHttpFuncPtr>;
 
 /**
  * @brief Global pointer to the HTTP handler map.
  */
-extern NGnHttpHandlerMap * gNdmspcHttpHandlers;
+extern NHttpHandlerMap * gNdmspcHttpHandlers;
+
+/**
+ * @brief Decides whether a websocket upgrade may be served by this server.
+ *
+ * Set by the room router (Ndmspc::NRoomRouter), which is not a client endpoint: a connection
+ * that reaches it either carries no `?room=<id>` or names a room it does not know, and answering it
+ * would hand the client a session with no data in it. Answering kFALSE refuses the upgrade.
+ *
+ * Null on any server without rooms, which then accepts every websocket as it always has.
+ *
+ * @param query The request's query string, without the leading '?', or an empty string.
+ * @return kTRUE to accept the upgrade, kFALSE to refuse it.
+ */
+using NdmspcWsConnectFilter = Bool_t (*)(const std::string & query);
+
+/// @brief The websocket-upgrade filter described above; null when the server has no policy.
+extern NdmspcWsConnectFilter gNdmspcWsConnectFilter;
 
 /**
  * @brief MCP metadata for one registered HTTP handler action.
@@ -69,7 +98,15 @@ inline void RegisterMcpTool(const std::string & action, NMcpToolInfo info)
 }
 
 /// @brief Convenience overload for the common case of a description only.
-inline void RegisterMcpTool(const std::string & action, const std::string & description)
+/// @note The parameter is templated (rather than a plain std::string) so that a
+///       brace-enclosed NMcpToolInfo literal - e.g. `{ .description = "...", .methods = {"GET"} }` -
+///       never becomes ambiguous with this overload: GCC 11 accepts such a list as a
+///       conversion to std::string, while a template parameter is not deduced from it.
+/// @note The std::is_convertible SFINAE constraint is deliberate: a C++20 `requires`
+///       clause would be rejected by the ROOT interpreter (cling runs in C++17) when a
+///       macro such as httpNgnt.C includes this header.
+template <typename T, std::enable_if_t<std::is_convertible_v<T, std::string>, int> = 0>
+inline void RegisterMcpTool(const std::string & action, const T & description)
 {
   NMcpToolInfo info;
   info.description = description;
@@ -77,38 +114,96 @@ inline void RegisterMcpTool(const std::string & action, const std::string & desc
 }
 
 ///
-/// \class NGnHttpServer
+/// \class NHttpServer
 ///
-/// \brief NGnHttpServer object
-///	\author Martin Vala <mvala@cern.ch>
+/// \brief The Ndmspc HTTP server.
 ///
-class NGnHistoryEntry;
-class NGnHistory;
-class NGnHttpServer : public NHttpServer {
+/// It owns the HTTP engine and the WebSocket handler, the workspace with its request
+/// history, the macro handler map (actions registered by the macros a deployment loads),
+/// the MCP endpoint and the room session: a room reports its session to the router while
+/// it lives and replays it when it wakes again.
+///
+/// \author Martin Vala <mvala@cern.ch>
+///
+class NHistoryEntry;
+class NHttpServer : public THttpServer {
 
   public:
   /**
-   * @brief Constructor.
+   * @brief Constructs a new NHttpServer instance.
    * @param engine Engine specification string (default: "http:8080").
    * @param ws Enable WebSocket support (default: true).
    * @param heartbeat_ms Heartbeat interval in milliseconds (default: 10000).
    * @param oidcConfig OIDC configuration (empty disables authentication).
-   * @param startEngine When false the engine is not started yet; call ResetServer() once
-   *        handler registration is complete.
+   * @param startEngine When false the engine is not started yet; call
+   *        StartEngine() once initialization (e.g. HTTP handler registration)
+   *        is complete. This avoids serving requests before the server is
+   *        fully set up, which can race with handler-map population.
    */
-  NGnHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000,
-                NOidcConfig oidcConfig = {}, bool startEngine = true);
+  NHttpServer(const char * engine = "http:8080", bool ws = true, int heartbeat_ms = 10000,
+              NOidcConfig oidcConfig = {}, bool startEngine = true);
+
+  /**
+   * @brief (Re)start the HTTP engine with the given specification.
+   *
+   * Intended for servers constructed with startEngine=false: after all
+   * handlers are registered the engine is created here, which starts
+   * listening and (for WebSocket servers) the heartbeat thread.
+   *
+   * @param engine Engine specification string, e.g. "http:8080?top=ndmspc".
+   * @return True when an engine is now running.
+   */
+  bool StartEngine(const char * engine);
+
+  /**
+   * @brief Gets the WebSocket handler.
+   * @return Pointer to NWsHandler instance.
+   */
+  NWsHandler * GetWebSocketHandler() const { return fNWsHandler; }
+  /**
+   * @brief Broadcast a message to all connected WebSocket clients.
+   * @param message JSON message to broadcast.
+   * @return True when the broadcast succeeded.
+   */
+  bool         WebSocketBroadcast(json message);
+
+  /**
+   * @brief Gets the shared OIDC token verifier (may be null in anonymous mode).
+   *
+   * The same verifier guards both WebSocket and HTTP requests.
+   */
+  std::shared_ptr<IOidcTokenVerifier> GetOidcVerifier() const { return fOidcVerifier; }
+
+  /**
+   * @brief Whether OIDC authentication is enabled for this server.
+   */
+  bool OidcEnabled() const { return static_cast<bool>(fOidcVerifier); }
+
+  /**
+   * @brief Set the heartbeat interval (ms). Recreates timer if running.
+   * @param ms Interval in milliseconds. If <=0, heartbeat is disabled.
+   */
+  void SetHeartbeatMs(int ms);
+  /**
+   * @brief Get the current heartbeat interval (ms).
+   */
+  int GetHeartbeatMs() const { return fHeartbeatMs; }
 
   /// @brief Print server information.
   /// @param option Optional ROOT option string (unused).
   virtual void Print(Option_t * option = "") const override;
   /// @brief Clear the server state.
   /// @param option Optional ROOT option string (unused).
-  virtual void Clear(Option_t * option = "") override { NHttpServer::Clear(option); }
+  virtual void Clear(Option_t * option = "") override { THttpServer::Clear(option); }
   /// @brief Clear the workspace history.
   void         ClearHistory() { fWorkspace.Clear(); }
   /// @brief Clear the workspace history and remove all remaining input objects.
   void         ResetServer();
+
+  /**
+   * @brief Destructor stops background heartbeat thread if running.
+   */
+  virtual ~NHttpServer();
 
   /// @brief Enable or disable keeping a request history in the workspace.
   /// @param useHistory New flag value.
@@ -140,17 +235,25 @@ class NGnHttpServer : public NHttpServer {
    */
   void RoomSessionRestoreOnce();
 
+  /**
+   * @brief Processes an HTTP request.
+   *
+   * Everything outside /api is served by THttpServer; /api actions go through the handler
+   * map registered by the loaded macros.
+   *
+   * @param arg Shared pointer to THttpCallArg containing request data.
+   */
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
 
   /// @brief Replace the HTTP handler map (thread-safe).
-  void SetHttpHandlers(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers);
+  void SetHttpHandlers(std::map<std::string, Ndmspc::NHttpFuncPtr> handlers);
 
   /// @brief Copy of the HTTP handler map (thread-safe).
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> GetHttpHandlers() const;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> GetHttpHandlers() const;
 
   /// @brief Look up a handler by path without inserting (thread-safe).
   /// @return The handler function pointer, or nullptr when not registered.
-  Ndmspc::NGnHttpFuncPtr FindHttpHandler(const std::string & name) const;
+  Ndmspc::NHttpFuncPtr FindHttpHandler(const std::string & name) const;
 
   /**
    * @brief Register an input object under a name for handlers to use.
@@ -189,11 +292,43 @@ class NGnHttpServer : public NHttpServer {
   /// @brief Whether the MCP endpoint (POST /api/mcp) is enabled.
   bool IsMcpEnabled() const { return fMcpEnabled; }
 
-  private:
+  protected:
+  /**
+   * @brief Start the background heartbeat thread (internal).
+   */
+  void StartHeartbeatThread();
+
+  /**
+   * @brief Stop the background heartbeat thread (internal).
+   */
+  void StopHeartbeatThread();
+
+  /**
+   * @brief Create the WebSocket handler and start the heartbeat (internal).
+   *
+   * Called from the constructor when the engine starts immediately, or from
+   * StartEngine() when construction was deferred.
+   */
+  void SetupWebSocketAndHeartbeat();
+
+  protected:
+  NWsHandler *      fNWsHandler{nullptr}; ///<! WebSocket handler instance
+  std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Shared OIDC token verifier (HTTP + WS)
+  bool              fWsEnabled{false};   ///<! Whether WebSocket support was requested
+  bool              fEngineStarted{false}; ///<! Whether the HTTP engine has been created
+  std::chrono::seconds fAuthenticationTimeout{15}; ///<! WS authentication timeout
+  int               fHeartbeatMs{10000};  ///<! Heartbeat interval in milliseconds
+  std::thread *     fHeartbeatThread{nullptr}; ///<! Background heartbeat thread
+  std::atomic<bool> fHeartbeatRunning{false};  ///<! Whether the heartbeat thread is running
+  std::atomic<int> fServCnt{0};           ///<! Service counter used in heartbeat payload
+  std::mutex        fHeartbeatMutex;       ///<! Guards the heartbeat interval/timer
+  std::condition_variable fHeartbeatCv;    ///<! Signals heartbeat thread wake-up/shutdown
+  std::mutex             fHeartbeatCvMutex; ///<! Mutex paired with fHeartbeatCv
+
   mutable std::mutex                            fHandlersMutex;    ///<! Guards fHttpHandlers
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
+  std::map<std::string, Ndmspc::NHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
-  NGnWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
+  NWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
   bool fUseHistory{true};  ///<! Flag to indicate whether to use history in processing requests
   bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled
   std::string fGroup;      ///<! Group prefix for workspace routes
@@ -207,12 +342,12 @@ class NGnHttpServer : public NHttpServer {
   long               fRoomRestoreNextTrySec{0}; ///<! Cooldown before retrying a failed fetch
 
   /// \cond CLASSIMP
-  ClassDefOverride(NGnHttpServer, 1);
+  ClassDefOverride(NHttpServer, 1);
   /// \endcond;
 };
 
-/// @brief Global pointer to the most recently constructed NGnHttpServer instance.
-extern NGnHttpServer * gNGnHttpServer;
+/// @brief Global pointer to the most recently constructed NHttpServer instance.
+extern NHttpServer * gNHttpServer;
 
 } // namespace Ndmspc
 #endif

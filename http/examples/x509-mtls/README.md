@@ -14,7 +14,7 @@ default), so a `CN=mvala, ...` certificate is presented to the server as user `m
 
 | File | Purpose |
 |---|---|
-| `run-server.sh` | Starts `ndmspc-server start ngnt` with the grid certificate as the server certificate and the grid CA path for client verification. |
+| `run-server.sh` | Starts `ndmspc-server` with the grid certificate as the server certificate and the grid CA path for client verification. |
 | `run-client.sh` | Runs `ndmspc-ws-client` over `wss://`, presenting the grid certificate. |
 | `run-demo.sh` | End-to-end check: starts the server, runs an authenticated client (must succeed) and an anonymous client (must be rejected), then stops the server. |
 

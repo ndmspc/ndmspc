@@ -4,6 +4,37 @@ The HTTP server supports optional authentication for both WebSocket connections 
 
 When authentication is enabled, each WebSocket connection must send a Keycloak access token in its first message before it can receive heartbeats, appear in the client list, relay messages, or call the HTTP API through the WebSocket bridge. Plain HTTP `/api/*` requests must present the token in an `Authorization: Bearer` header (see below).
 
+## Layout
+
+The module is organized by feature - the sources of a feature live in their own directory:
+
+| Directory | What lives there |
+| --------- | ---------------- |
+| `auth/` | OIDC (Keycloak) and X509 client-certificate authentication, token clients, passphrase input |
+| `room/` | the room router and its client: `NRoomRouter`, `NRoomClient`, `NRoomSession` |
+| `mcp/` | the MCP endpoint |
+| `ngnt/` | the ngnt server pieces: `NWorkspace`, `NHistoryEntry`, `NRouteContext`, `NSchemaBuilder` |
+| `server/` | the HTTP/WebSocket layer: `NHttpServer` (engine, workspace, handler map, MCP, rooms), requests, handlers, clients |
+| `cli/`, `tui/`, `examples/` | the executables, the room TUI and runnable examples |
+
+**Includes do not follow the directories.** Every header still installs flat into
+`include/ndmspc/http/`, so a source living in `http/room/` is included exactly as it always was:
+
+```cpp
+#include <ndmspc/http/NRoomRouter.h>
+```
+
+That is deliberate: user macros and out-of-tree code include the installed paths, and those must not
+move when the sources are reorganized. `http/CMakeLists.txt` globs the feature directories and lets
+`RootLib` copy and install every header into the flat namespace; it additionally mirrors the feature
+headers inside the build tree, because the dictionary generator is handed each header as
+`ndmspc/http/<feature>/<Header>.h` and resolves that under `build/include`. Neither of those copies is
+installed twice or visible to a consumer.
+
+Contrast `ai/llm` and `ai/agents`: each has its own `RootLib` package and therefore *nested* include
+paths (`ndmspc/ai/llm/NLlmChatClient.h`). Directory structure changes the include path there; here it
+does not.
+
 ## Local Keycloak setup
 
 Start a development Keycloak instance on port `8081`:
@@ -85,7 +116,7 @@ export NDMSPC_OIDC_ISSUER=http://localhost:8081/realms/ndmspc
 export NDMSPC_OIDC_AUDIENCE=ndmspc
 export NDMSPC_OIDC_ALLOW_INSECURE_HTTP=true
 
-ndmspc-server start ngnt
+ndmspc-server
 ```
 
 Plain HTTP is rejected unless `NDMSPC_OIDC_ALLOW_INSECURE_HTTP` is enabled. Do not enable it outside local development; use HTTPS and optionally configure `NDMSPC_OIDC_CA_FILE` (a CA bundle) or `NDMSPC_OIDC_CA_PATH` (a directory of hashed CA certificates) for a private certificate authority.
@@ -93,7 +124,7 @@ Plain HTTP is rejected unless `NDMSPC_OIDC_ALLOW_INSECURE_HTTP` is enabled. Do n
 The equivalent command-line configuration is:
 
 ```bash
-ndmspc-server start ngnt \
+ndmspc-server \
   --oidc-issuer http://localhost:8081/realms/ndmspc \
   --oidc-audience ndmspc \
   --oidc-allow-insecure-http
@@ -117,6 +148,10 @@ Available settings:
 If either issuer or audience is configured, both are required. The server performs OIDC discovery and loads the initial JWKS during startup. Invalid configuration or an unavailable provider causes startup to fail rather than falling back to anonymous access.
 
 ## WebSocket authentication protocol
+
+The websocket is **on by default** and can be turned off with `--ws false` (`NDMSPC_WS=0`), which
+leaves `/ws/root.websocket` unserved — see the room router section for why that is worth doing where
+clients reach a room instead.
 
 Connect to the normal ROOT WebSocket endpoint:
 
@@ -267,13 +302,13 @@ export NDMSPC_X509_CERT=/path/to/server.pem
 export NDMSPC_X509_KEY=/path/to/server.key
 export NDMSPC_X509_CA_FILE=/path/to/ca.pem
 
-ndmspc-server start ngnt
+ndmspc-server
 ```
 
 The equivalent command-line configuration is:
 
 ```bash
-ndmspc-server start ngnt \
+ndmspc-server \
   -p 8443 \
   --x509-cert /path/to/server.pem \
   --x509-key /path/to/server.key \
@@ -286,7 +321,7 @@ Client certificates may also be verified against a **directory of hashed CA cert
 trust anchors:
 
 ```bash
-ndmspc-server start ngnt \
+ndmspc-server \
   -p 8443 \
   --x509-cert /path/to/server.pem \
   --x509-key /path/to/server.key \
@@ -313,8 +348,7 @@ When a CA file or CA path is set, client certificates are **required** by defaul
 certificate is still verified). At least one CA location is required when certificates are
 mandatory.
 
-Only the `start ngnt` subcommand supports X509 mode in this release; `default` and `stress`
-reject X509 configuration.
+X509 mode is supported by `ndmspc-server`.
 
 ### Creating a test certificate authority and certificates
 
@@ -491,7 +525,7 @@ Descriptions and other MCP metadata live in the **handler macro**, not in C++. R
 them next to the handler, keyed by the same action name used in the handler map:
 
 ```cpp
-#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/http/NHttpServer.h>
 
 void httpMyCustom()
 {
@@ -531,8 +565,8 @@ the server. Actions with no registered metadata keep the generic description, an
 The endpoint is **on by default** and can be disabled with `--mcp false`:
 
 ```bash
-ndmspc-server start ngnt -p 8080                # MCP endpoint enabled (default)
-ndmspc-server start ngnt --mcp false -p 8080    # or: NDMSPC_MCP=0 ndmspc-server start ngnt
+ndmspc-server -p 8080                # MCP endpoint enabled (default)
+ndmspc-server --mcp false -p 8080    # or: NDMSPC_MCP=0 ndmspc-server
 
 curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
@@ -544,7 +578,7 @@ curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
 
 With `--mcp false` (or `NDMSPC_MCP=0`), requests to `/api/mcp` return
 `{"error": "MCP endpoint is disabled"}` and the rest of the API is unaffected. The switch
-is also available programmatically via `NGnHttpServer::SetMcpEnabled(false)`. The stdio
+is also available programmatically via `NHttpServer::SetMcpEnabled(false)`. The stdio
 launcher `ndmspc-mcp` is unaffected — it is an MCP server by definition.
 
 Responses are plain `application/json` (the spec also permits an SSE stream; this server
@@ -556,7 +590,7 @@ call — the endpoint is not exempt from authentication.
 
 ```bash
 ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/builtin/httpNgntBase.C,httpNgnt.C
-ndmspc-mcp --rooms                                         # additionally load the room router macro (httpRoom.C)
+ndmspc-mcp --rooms                                         # additionally serve the room router (NRoomRouter)
 ndmspc-mcp -m /path/httpNgntBase.C,/path/httpNgnt.C
 ndmspc-mcp --all-tools                                      # also expose debug/openapi actions
 ```
@@ -570,9 +604,93 @@ macros are redirected to stderr. Point an MCP client at the binary:
 
 See [`examples/mcp`](examples/mcp) for a runnable example covering both transports.
 
+## Room router (`NRoomRouter`)
+
+`Ndmspc::NRoomRouter` is the framework part of the rooms feature: the always-on entry Service of an
+NDMSPC deployment on Knative. `ndmspc-server --rooms true` (or `NDMSPC_ROOMS=1`)
+registers it; without that flag a server is an ordinary NDMSPC server and none of this runs.
+
+Rooms are Knative Services created through the in-cluster API (`KUBERNETES_SERVICE_HOST`/`PORT`),
+so asking for them without that environment is refused at startup: the server logs why and exits
+non-zero before it builds the server or loads any macro. Where it can serve rooms it says so, with
+the namespace and room prefix it will use — `Rooms enabled: serving /api/room/* from the room router
+in namespace 'default' (one Knative Service per room, named 'ndmspc-room-<id>')` — so a deployment
+can tell from its logs that room serving is on rather than inferring it from a working `room/list`.
+
+It creates one Knative Service per room on demand and one HTTPRoute matching `?room=<id>` that
+points straight at that room's revision, so steady-state traffic goes gateway → room and never
+touches the router again. The actions it registers (in the same handler map the macros use, so they
+are served both as `/api/room/*` and as MCP tools):
+
+| Action | Methods | What it does |
+| ------ | ------- | ------------ |
+| `room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. |
+| `room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached. |
+| `room/list` | GET | Every room being tracked, including those still preparing and those whose creation failed. |
+| `room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
+| `room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
+| `room/backup` | GET | Every tracked room and its session as one JSON document. |
+| `room/restore` | POST | Ensure every room in such a document and replay its session. Additive: rooms not named are untouched. |
+
+### Creating a room in the background
+
+Creating a room means creating a Knative Service, waiting for its first revision, pinning the
+HTTPRoute and replaying the session — tens of seconds, minutes when the room has to roll. ROOT's
+`THttpServer` serves one request at a time, so doing that on the request thread freezes the router
+for its whole duration; that is why `room/open` has the `wait` flag. `NDMSPC_ROOM_MAX_PREPARING`
+(default 4) bounds how many creations run at once. A worker checks between steps whether its room
+was closed or superseded, so a slow creation cannot outlive the room it belongs to, and a close that
+lands while a Service is being created takes that Service back out again.
+
+A room that could not be created is reported as `state=failed` with the reason in `error` and, when
+the router can name it, a stable `code`:
+
+- `no_capacity` — the cluster cannot place the room's pod. The message is the scheduler's own
+  (`0/1 nodes are available: 1 Insufficient cpu`), read from the pod: the Knative Service only ever
+  says "waiting for a Revision to become ready". The verdict has to repeat, so a race while another
+  room scales up cannot fail this one. This needs `get`/`list` on pods (core) in the namespace;
+  without it nothing breaks, the room simply reports the timeout instead.
+- `name_conflict` — the name the room needs is already taken by an object the router did not create
+  (it carries no `ndmspc.io/room` label), so that object is left untouched rather than overwritten
+  or deleted. Pick another room id, or free the name. This is why the router must not live inside
+  the room prefix namespace: a router named `ndmspc-room-router` is exactly the name the room id
+  `router` asks for. The devops role names the router `ndmspc-router` (rooms are `ndmspc-room-<id>`)
+  so the two cannot meet.
+- *(empty)* — anything else: a failed apply, a roll that never got there, a timeout.
+
+`room/close` and the idle sweep only delete objects carrying the room label, so a name taken by
+anything else survives both.
+
+### Websockets
+
+The router serves no session of its own, so a websocket to this server must name a room it is
+tracking: `/ws/root.websocket?room=<id>`. Without the parameter, or naming a room the router does
+not know, the upgrade is refused (the client sees a failed handshake, the reason is logged) — such a
+connection is going to the wrong endpoint, since a connection for a room is routed to that room's
+own pod, which keeps serving its websocket either way. `--ws false` (`NDMSPC_WS=0`) serves no
+websocket at all, and then none of this applies.
+
+### Architecture
+
+The rooms it tracks, the configuration and the Kubernetes access all live in the object, and the
+cluster is reached through one seam:
+
+```cpp
+class IRoomCluster {                          // what the router needs from Kubernetes
+  virtual NHttpResponse Request(method, path, body, contentType) = 0;
+};
+```
+
+Everything above that seam — building the Service and HTTPRoute objects, the 404-then-POST apply,
+reading a status back, waiting for a revision, telling "no capacity" from a timeout, adopting the
+rooms that already exist, expiring idle ones, deciding whether a websocket may be served — is the
+router's own logic, and is what `test/test_NRoomRouter.cxx` exercises against an in-memory cluster
+and through the actions themselves: no Kubernetes, no server, no HTTP. The workers it starts are
+owned by the object and joined when it goes away.
+
 ## Room management TUI (`ndmspc-room-tui`)
 
-`ndmspc-room-tui` is a terminal UI for the room router (`macros/builtin/httpRoom.C`). It
+`ndmspc-room-tui` is a terminal UI for the room router (`Ndmspc::NRoomRouter`). It
 lists the rooms the router is tracking with their live state and drives the four room
 actions over the MCP endpoint, so it needs no cluster-side tooling of its own.
 
@@ -589,8 +707,8 @@ room tools are missing the tool says so at startup instead of showing an empty t
 |---|---|
 | `↑` / `↓` (`j` / `k`, `PgUp` / `PgDn`, `Home` / `End`) | Move the selection |
 | `Enter` | Refresh the selected room's status |
-| `o` / `a` | Open (create) a room |
-| `d` / `Del` | Close (delete) a room, after confirmation |
+| `c` / `o` / `a` | Create a room (`o` / `a` are kept as aliases) |
+| `d` / `Del` | Delete a room, after confirmation |
 | `r` | Refresh the room list now |
 | `p` | Pause / resume the automatic refresh |
 | `?` | Key help |
@@ -598,7 +716,45 @@ room tools are missing the tool says so at startup instead of showing an empty t
 
 An idle room keeps its Service but runs no pods, so `idle` with 0 pods is the normal
 resting state and is presented as such rather than as a problem; the detail pane shows the
-`?room=<id>` URL to hand to a client.
+`/api?room=<id>` URL to hand to a client and the `/ws/root.websocket?room=<id>` URL for a
+WebSocket client — the handshake carries the same `?room=` parameter, which is what keeps a
+room awake.
+
+On the router that parameter is not optional: with rooms enabled the router's own websocket serves
+nothing, so a connection to `/ws/root.websocket` without `?room=<id>` — or naming a room the router
+is not tracking — is refused by the router's policy (`http/room/NRoomRouter.cxx`); a server without
+rooms still accepts every websocket. The client sees a failed handshake, since an HTTP upgrade has
+nowhere to carry an explanation; the reason is in the router's log.
+
+The router can also serve no websocket at all: `ndmspc-server --ws false` (or
+`NDMSPC_WS=0`) leaves the endpoint out entirely, so every upgrade is refused whatever it carries —
+useful where only scripts and the UI talk to the entry service. It is on by default, like every
+other server's, and leaves room clients untouched either way: a connection naming a room is routed
+to that room's own pod, which keeps serving its websocket.
+
+The table shows what the router reports: `active` / `idle` for a room that is up, `preparing` with
+a spinner while its creation is still running — the `SEEN` column then reads as how long it has
+been creating — and `failed` when a creation did not get there. The detail pane adds the creation's
+`phase` (`service`, `ready`, `route`, `restore`) while it is still preparing, and its error when it
+failed.
+
+A failure carries the router's `error` and, when it can name the cause, a stable `code`:
+`no_capacity` means the cluster could not place the room's pod — the row reads `no capacity`, the
+detail pane shows the scheduler's own message (`0/1 nodes are available: 1 Insufficient cpu`), and
+the status line announces it for the room you just created. The router reads that reason from the
+pod itself, so its service account needs `get` / `list` on `pods`; without that permission the
+failure is still reported, just without the cause.
+
+Creating a room does not block the screen: the TUI calls `room/open` with `wait=false`, so the
+router registers the room and does the slow part — a Knative Service, its first revision, the
+HTTPRoute, the session replay — in the background while the TUI keeps refreshing. That is what lets
+several rooms be created one after another, and it is also why one slow room no longer freezes the
+router for everyone else. A scripted caller keeps the old behaviour: `--open` waits for the room to
+be ready (following it with `room/status`; `--no-wait` skips that), so the URL it prints is usable
+straight away.
+
+Actions still run one at a time in the TUI, so a key that would start one is refused with a message
+naming what is still running, rather than quietly ignored.
 
 ### Scripted use
 

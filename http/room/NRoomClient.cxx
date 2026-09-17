@@ -283,6 +283,13 @@ NRoomListResult NRoomClient::List()
       // An idle room keeps its Service but runs no pods, so a missing "active" is
       // derived from replicas rather than assumed to be false.
       room.active = ActiveOr(entry, room.replicas > 0);
+      // A room whose creation is still running is listed too, with what it is waiting for.
+      room.state     = NUtils::GetJsonString(Member(entry, "state"));
+      room.preparing = NUtils::GetJsonBool(Member(entry, "preparing"));
+      room.phase     = NUtils::GetJsonString(Member(entry, "phase"));
+      room.error     = NUtils::GetJsonString(Member(entry, "error"));
+      room.code      = NUtils::GetJsonString(Member(entry, "code"));
+      room.startedAt = NUtils::GetJsonInt(Member(entry, "startedAt"));
       list.rooms.push_back(std::move(room));
     }
   }
@@ -292,7 +299,13 @@ NRoomListResult NRoomClient::List()
   return list;
 }
 
-NRoomResult NRoomClient::Open(const std::string & roomId) { return Call("room_open", "POST", roomId); }
+NRoomResult NRoomClient::Open(const std::string & roomId, bool wait)
+{
+  // Always send the flag: which way this call behaves should not depend on the router's default.
+  json extra;
+  extra["wait"] = wait;
+  return Call("room_open", "POST", roomId, extra);
+}
 
 NRoomResult NRoomClient::Status(const std::string & roomId) { return Call("room_status", "GET", roomId); }
 

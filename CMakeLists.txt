@@ -83,9 +83,11 @@ if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
     INSTALL(FILES etc/systemd/ndmspc-http@.service DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system/)
     INSTALL(FILES etc/systemd/ndmspc-http@.service DESTINATION /etc/systemd/user/)
     INSTALL(FILES etc/systemd/http DESTINATION /etc/${PROJECT_NAME}/)
-    INSTALL(FILES etc/systemd/http.default DESTINATION /etc/${PROJECT_NAME}/)
+    # Per-instance settings for ndmspc-http@<instance>.service: http.ngnt is the instance
+    # enabled by default, http.example is the template for running another server on
+    # another port.
     INSTALL(FILES etc/systemd/http.ngnt DESTINATION /etc/${PROJECT_NAME}/)
-    INSTALL(FILES etc/systemd/http.stress DESTINATION /etc/${PROJECT_NAME}/)
+    INSTALL(FILES etc/systemd/http.example DESTINATION /etc/${PROJECT_NAME}/)
   endif(WITH_HTTP)
   if (WITH_JUPYROOT)
     INSTALL(FILES etc/systemd/ndmspc-notebook@.service DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system/)

@@ -68,7 +68,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-"$SERVER_BIN" start ngnt \
+"$SERVER_BIN" \
   -p "$PORT" \
   --x509-cert "$GLOBUS_CERT" \
   --x509-key "$KEY_OUT" \

@@ -1,7 +1,7 @@
 // The interactive room screen: a live list of the router's rooms with a detail pane,
 // an action queue that keeps every HTTP call off the render thread, and dialogs for
 // the two mutating actions (open, close).
-#include "room_mgm_ui.h"
+#include "room_ui.h"
 
 #include <algorithm>
 #include <atomic>
@@ -10,6 +10,7 @@
 #include <ctime>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -56,6 +57,9 @@ struct State {
   std::string            busyLabel;
   bool                   paused{false};
   std::string            lastUpdated;
+  /// Rooms this session asked to create, and whether a failure has been announced for them: a
+  /// creation can fail long after the call answered, and the row alone is easy to miss.
+  std::map<std::string, bool> asked;
 };
 
 /// @brief A lock-free copy of State, so rendering never holds the mutex.
@@ -78,17 +82,17 @@ Snapshot TakeSnapshot(State & state)
 {
   std::lock_guard<std::mutex> lock(state.mutex);
   Snapshot                    copy;
-  copy.rooms       = state.rooms;
-  copy.ttl         = state.ttl;
-  copy.status      = state.status;
-  copy.error       = state.error;
-  copy.detailRoom  = state.detailRoom;
-  copy.detail      = state.detail;
-  copy.connected   = state.connected;
-  copy.busy        = state.busy;
-  copy.busyLabel   = state.busyLabel;
-  copy.paused      = state.paused;
-  copy.lastUpdated = state.lastUpdated;
+  copy.rooms         = state.rooms;
+  copy.ttl           = state.ttl;
+  copy.status        = state.status;
+  copy.error         = state.error;
+  copy.detailRoom    = state.detailRoom;
+  copy.detail        = state.detail;
+  copy.connected     = state.connected;
+  copy.busy          = state.busy;
+  copy.busyLabel     = state.busyLabel;
+  copy.paused        = state.paused;
+  copy.lastUpdated   = state.lastUpdated;
   return copy;
 }
 
@@ -152,7 +156,23 @@ std::string BaseUrl(const std::string & url)
 /// @brief The URL a client uses to reach a room served by the router.
 std::string ServingUrl(const std::string & url, const std::string & roomId)
 {
-  return BaseUrl(url) + "/?room=" + roomId;
+  return BaseUrl(url) + "/api?room=" + roomId;
+}
+
+/// @brief The WebSocket URL a client uses to reach a room served by the router.
+///
+/// The handshake carries the same ?room=<id> parameter as an HTTP request, which is what
+/// keeps the room awake - and, on a cold start, wakes it before the connection is served.
+std::string ServingWsUrl(const std::string & url, const std::string & roomId)
+{
+  std::string base = BaseUrl(url);
+  if (base.compare(0, 6, "https:") == 0) {
+    base = "wss:" + base.substr(6);
+  }
+  else if (base.compare(0, 5, "http:") == 0) {
+    base = "ws:" + base.substr(5);
+  }
+  return base + "/ws/root.websocket?room=" + roomId;
 }
 
 /// @brief Whether a failure looks like rejected authentication.
@@ -294,6 +314,21 @@ void Worker::RefreshList()
     fState.ttl       = list.ttl;
     fState.connected = true;
     fState.error.clear();
+
+    // A room this session asked for that could not be created: say why, once. The row shows the
+    // state, but the reason belongs where the action itself was reported.
+    for (const auto & room : fState.rooms) {
+      const auto asked = fState.asked.find(room.room);
+      if (asked == fState.asked.end() || asked->second) continue;
+      if (room.state == "ready") {
+        fState.asked.erase(asked); // nothing to announce for a room that came up
+        continue;
+      }
+      if (room.state != "failed") continue;
+      fState.status = "cannot create " + room.room + ": " +
+                      (room.error.empty() ? std::string("no reason reported") : room.error);
+      asked->second = true;
+    }
   }
   fState.lastUpdated = ClockNow();
   fLastRefresh       = std::chrono::steady_clock::now();
@@ -306,13 +341,21 @@ void Worker::Run(const Action & action)
     return;
   }
 
-  SetBusy(true, action.kind == Action::Kind::Open ? "opening " + action.room
-                          : action.kind == Action::Kind::Close ? "closing " + action.room
+  if (action.kind == Action::Kind::Open) {
+    std::lock_guard<std::mutex> lock(fState.mutex);
+    fState.asked.emplace(action.room, false);
+  }
+
+  SetBusy(true, action.kind == Action::Kind::Open ? "creating " + action.room
+                          : action.kind == Action::Kind::Close ? "deleting " + action.room
                                                                : "reading " + action.room);
 
   NRoomResult result;
   switch (action.kind) {
-  case Action::Kind::Open: result = Client().Open(action.room); break;
+  // Not waiting: the router prepares the room in the background and reports it as "preparing",
+  // so the screen keeps working and several rooms can be created one after another. The wait the
+  // window used to explain is now the row's state.
+  case Action::Kind::Open: result = Client().Open(action.room, /*wait=*/false); break;
   case Action::Kind::Status: result = Client().Status(action.room); break;
   case Action::Kind::Close: result = Client().Close(action.room); break;
   case Action::Kind::Refresh: return;
@@ -327,20 +370,26 @@ void Worker::Run(const Action & action)
     fState.error.clear();
     switch (action.kind) {
     case Action::Kind::Open:
-      fState.status = "opened " + action.room + "  " + StringMember(result.payload, "url");
+      // The router creates the room in the background now, so this call answers at once and the
+      // room arrives in the list as "preparing"; say which of the two it is.
+      fState.status = StringMember(result.payload, "state") == "preparing"
+                          ? "preparing " + action.room
+                          : "created " + action.room + "  " + StringMember(result.payload, "url");
       break;
-    case Action::Kind::Status:
+    case Action::Kind::Status: {
       fState.detailRoom = action.room;
       fState.detail     = result.payload;
-      fState.status = "status for " + action.room + (BoolMember(result.payload, "ready") ? " - ready"
-                                                                                        : " - not ready");
+      const std::string state = StringMember(result.payload, "state");
+      fState.status = "status for " + action.room + " - " +
+                      (state.empty() ? (BoolMember(result.payload, "ready") ? "ready" : "not ready") : state);
       break;
+    }
     case Action::Kind::Close:
       if (fState.detailRoom == action.room) {
         fState.detailRoom.clear();
         fState.detail = json();
       }
-      fState.status = "closed " + action.room;
+      fState.status = "deleted " + action.room;
       break;
     case Action::Kind::Refresh: break;
     }
@@ -380,7 +429,9 @@ void Worker::Loop()
       paused = fState.paused;
     }
 
-    // A long call keeps fState.busy set; the wake below is what animates the spinner.
+    // An action in flight keeps fState.busy set for its whole duration, and this loop is inside
+    // that action while it runs - so it cannot wake the screen then. RunRoomUi keeps its own
+    // ticker for that; this wake only covers what changed here, between actions.
     if (fOptions.refreshSeconds > 0 && idle && !paused &&
         std::chrono::steady_clock::now() - fLastRefresh >= std::chrono::seconds(fOptions.refreshSeconds)) {
       RefreshList();
@@ -428,12 +479,12 @@ Element RenderHeader(const Snapshot & state, const NRoomUiOptions & options, int
 }
 
 /// @brief The room table.
-Element RenderRoomTable(const Snapshot & state, size_t selected, int rows)
+Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int frame)
 {
   std::vector<Element> lines;
   lines.push_back(hbox({
       text("ROOM") | bold | size(WIDTH, EQUAL, 22),
-      text("STATE") | bold | size(WIDTH, EQUAL, 9),
+      text("STATE") | bold | size(WIDTH, EQUAL, 11),
       text("PODS") | bold | size(WIDTH, EQUAL, 6),
       text("SEEN") | bold,
   }));
@@ -441,13 +492,13 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows)
 
   if (state.rooms.empty()) {
     lines.push_back(text(""));
-    lines.push_back(text("No rooms yet - press o to open one.") | dim | center);
+    lines.push_back(text("No rooms yet - press c to create one.") | dim | center);
     return vbox(std::move(lines));
   }
 
   // Plain rows rather than a scrolling component, so every cell can be styled: the
   // window is moved by hand to keep the selection visible.
-  const int    visible = std::max(3, rows);
+  const int    visible = std::max(1, std::max(3, rows));
   const size_t first   = selected >= static_cast<size_t>(visible) ? selected - visible + 1 : 0;
   const size_t last    = std::min(state.rooms.size(), first + static_cast<size_t>(visible));
 
@@ -457,16 +508,30 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows)
     const NRoomInfo & room = state.rooms[i];
 
     Element roomState = text("pending") | color(Color::Yellow);
-    if (room.ready) {
-      roomState = room.active ? text("active") | color(Color::Green) : text("idle") | dim;
+    Element pods      = text("0") | dim;
+    if (room.preparing) {
+      // The router is still creating it, and reports which step it has reached.
+      roomState = hbox({text(SpinnerFrame(frame) + " "), text("preparing")}) | color(Color::Yellow);
+      pods      = text("-") | dim;
     }
-    const Element pods = room.active ? text(std::to_string(room.replicas)) : text("0") | dim;
+    else if (!room.error.empty() || room.state == "failed") {
+      // The scheduler refusing the pod is worth naming: "failed" hides the one cause a user can
+      // actually do something about.
+      roomState = text(room.code == "no_capacity" ? "no capacity" : "failed") | color(Color::Red);
+    }
+    else if (room.ready) {
+      roomState = room.active ? text("active") | color(Color::Green) : text("idle") | dim;
+      pods      = room.active ? text(std::to_string(room.replicas)) : text("0") | dim;
+    }
+
+    // For a room that is still being created, "seen" is how long its creation has been running.
+    const long seenAt = (room.preparing && room.startedAt > 0) ? room.startedAt : room.lastSeen;
 
     Element row = hbox({
         text(room.room) | size(WIDTH, EQUAL, 22),
-        roomState | size(WIDTH, EQUAL, 9),
+        roomState | size(WIDTH, EQUAL, 11),
         pods | size(WIDTH, EQUAL, 6),
-        text(FormatAge(room.lastSeen)),
+        text(FormatAge(seenAt)),
     });
     if (i == selected) row = row | inverted;
     lines.push_back(row);
@@ -487,15 +552,27 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
   std::vector<Element> lines;
   lines.push_back(text(room.room) | bold);
   lines.push_back(separatorLight());
+  const std::string stateText = room.state.empty() ? (room.ready ? "ready" : "not ready") : room.state;
+  const std::string pods =
+      room.preparing ? "-" : (std::to_string(room.replicas) + (room.active ? " (active)" : " (idle)"));
+
   lines.push_back(Field("resource", room.name));
   lines.push_back(Field("revision", room.revision.empty() ? "-" : room.revision));
-  lines.push_back(Field("state", room.ready ? "ready" : "not ready"));
-  lines.push_back(Field("pods", std::to_string(room.replicas) + (room.active ? " (active)" : " (idle)")));
+  lines.push_back(Field("state", stateText));
+  if (room.preparing) lines.push_back(Field("phase", room.phase.empty() ? "service" : room.phase));
+  lines.push_back(Field("pods", pods));
   lines.push_back(Field("last seen", FormatAge(room.lastSeen)));
+  if (!room.error.empty()) lines.push_back(Field("error", room.error));
+  if (room.code == "no_capacity") {
+    lines.push_back(text("free capacity on the cluster, or lower the room's requests") | dim);
+  }
 
   lines.push_back(separatorLight());
+  if (room.preparing) lines.push_back(text("still being created - the URLs work once it is ready") | dim);
   lines.push_back(text("client URL") | dim);
   lines.push_back(text(ServingUrl(options.serverUrl, room.room)) | color(Color::Cyan) | flex);
+  lines.push_back(text("websocket URL") | dim);
+  lines.push_back(text(ServingWsUrl(options.serverUrl, room.room)) | color(Color::Cyan) | flex);
 
   if (state.detailRoom == room.room && state.detail.is_object()) {
     lines.push_back(separatorLight());
@@ -521,8 +598,8 @@ Element RenderKeyBar()
 {
   return hbox({
       text(" q ") | inverted, text(" quit  "),
-      text(" o ") | inverted, text(" open  "),
-      text(" d ") | inverted, text(" close  "),
+      text(" c ") | inverted, text(" create  "),
+      text(" d ") | inverted, text(" delete  "),
       text(" enter ") | inverted, text(" status  "),
       text(" r ") | inverted, text(" refresh  "),
       text(" p ") | inverted, text(" pause  "),
@@ -540,27 +617,55 @@ Element RenderDialogBox(const std::string & title, const std::vector<Element> & 
   return vbox(std::move(lines)) | border | size(WIDTH, EQUAL, 64) | center;
 }
 
-/// @brief The open-room dialog, showing the room id typed so far.
-Element RenderOpenDialog(const std::string & input, bool busy)
+/// @brief What the worker is busy with, phrased for a message ("creating alpha").
+std::string BusyPhrase(const Snapshot & state)
 {
-  return RenderDialogBox("Open a room",
-                         {
-                             text("Room id (any string; the router creates one Knative Service for it):"),
-                             hbox({text("> ") | bold, text(input), text(busy ? " working..." : "_") | dim}),
-                             text(""),
-                             text("Enter: open    Esc: cancel") | dim,
-                         });
+  return state.busyLabel.empty() ? "another action" : state.busyLabel;
+}
+
+/// @brief The open-room dialog, showing the room id typed so far.
+///
+/// One action runs at a time, so while the worker is busy the dialog names what is still
+/// running and says that Enter is unavailable, instead of quietly swallowing the key.
+Element RenderOpenDialog(const std::string & input, bool busy, const std::string & busyPhrase)
+{
+  std::vector<Element> body = {
+      text("Room id (any string; the router creates one Knative Service for it):"),
+      hbox({text("> ") | bold, text(input), text(busy ? " working..." : "_") | dim}),
+      text(""),
+  };
+  if (busy) {
+    body.push_back(text("Still running: " + busyPhrase) | color(Color::Yellow));
+    body.push_back(text("Enter is unavailable - Esc: cancel") | dim);
+  }
+  else {
+    body.push_back(text("Enter: create    Esc: cancel") | dim);
+  }
+  return RenderDialogBox("Create a room", body);
 }
 
 /// @brief The close-room confirmation dialog.
-Element RenderCloseDialog(const std::string & room, bool busy)
+///
+/// Same rule as the create dialog: while another action is in flight the confirmation says so
+/// and refuses `y`, rather than queueing a deletion the user cannot see.
+Element RenderCloseDialog(const std::string & room, bool busy, bool preparing, const std::string & busyPhrase)
 {
-  return RenderDialogBox("Close a room",
-                         {
-                             text("Delete the room '" + room + "' and its Knative Service?"),
-                             text(""),
-                             text(busy ? "working..." : "y: close    n / Esc: cancel") | dim,
-                         });
+  std::vector<Element> body = {
+      text("Delete the room '" + room + "' and its Knative Service?"),
+  };
+  // A room can be deleted while it is still being created - the router cancels that creation and
+  // deletes what it had made so far, so say it rather than let it look like an ordinary delete.
+  if (preparing) body.push_back(text("Its creation is still running and will be cancelled.") | color(Color::Yellow));
+  body.push_back(text(""));
+
+  if (busy) {
+    body.push_back(text("Still running: " + busyPhrase) | color(Color::Yellow));
+    body.push_back(text("y is unavailable - n / Esc: cancel") | dim);
+  }
+  else {
+    body.push_back(text("y: delete    n / Esc: cancel") | dim);
+  }
+  return RenderDialogBox("Delete a room", body);
 }
 
 /// @brief The key help overlay.
@@ -572,8 +677,8 @@ Element RenderHelpDialog(const NRoomUiOptions & options)
                          {
                              Field("up / down", "move the selection (j / k, PgUp / PgDn, Home / End)"),
                              Field("enter", "refresh the selected room's status"),
-                             Field("o / a", "open (create) a room"),
-                             Field("d / Del", "close (delete) a room"),
+                             Field("c / o / a", "create a room"),
+                             Field("d / Del", "delete a room"),
                              Field("r", "refresh the room list now"),
                              Field("p", "pause / resume the automatic refresh"),
                              Field("?", "toggle this help"),
@@ -587,6 +692,8 @@ Element RenderHelpDialog(const NRoomUiOptions & options)
                                   "normal.") |
                                  dim,
                              text("A room left untouched for the idle TTL is deleted by the router.") | dim,
+                             text("A room is created in the background: it appears as 'preparing', with the") | dim,
+                             text("step the router is on, until it is ready to use.") | dim,
                          });
 }
 
@@ -618,8 +725,27 @@ int RunRoomUi(const NRoomUiOptions & options)
   Dialog      dialog   = Dialog::None;
   std::string input;
   int         frame = 0;
-
   worker.Start();
+
+  // The worker runs an action on its own loop and is *inside* it until it answers, so it cannot
+  // wake the screen for the duration. Tick the screen while an action is in flight - and while any
+  // room is still being created, whose row has to keep moving - rather than leaving the display
+  // frozen until the next refresh; PostEvent is safe from another thread, which is how the worker
+  // wakes it too.
+  std::thread ticker([&] {
+    while (running) {
+      bool animate = false;
+      {
+        std::lock_guard<std::mutex> lock(state.mutex);
+        animate = state.busy;
+        for (const auto & room : state.rooms) {
+          animate = animate || room.preparing;
+        }
+      }
+      if (animate) screen.PostEvent(Event::Custom);
+      std::this_thread::sleep_for(std::chrono::milliseconds(kTickMs));
+    }
+  });
 
   auto renderer = Renderer([&] {
     ++frame;
@@ -633,7 +759,7 @@ int RunRoomUi(const NRoomUiOptions & options)
     auto main = vbox({
         RenderHeader(snapshot, options, frame),
         separator(),
-        hbox({RenderRoomTable(snapshot, selected, rows) | size(WIDTH, EQUAL, 46), separator(),
+        hbox({RenderRoomTable(snapshot, selected, rows, frame) | size(WIDTH, EQUAL, 48), separator(),
               RenderDetail(snapshot, options, selected)}) |
             flex,
         separator(),
@@ -645,10 +771,15 @@ int RunRoomUi(const NRoomUiOptions & options)
       if (snapshot.rooms.empty()) return {};
       return snapshot.rooms[std::min(selected, snapshot.rooms.size() - 1)].room;
     };
+    const auto selectedPreparing = [&]() -> bool {
+      if (snapshot.rooms.empty()) return false;
+      return snapshot.rooms[std::min(selected, snapshot.rooms.size() - 1)].preparing;
+    };
 
     switch (dialog) {
-    case Dialog::OpenRoom: return dbox({main, RenderOpenDialog(input, snapshot.busy)});
-    case Dialog::ConfirmClose: return dbox({main, RenderCloseDialog(selectedRoom(), snapshot.busy)});
+    case Dialog::OpenRoom: return dbox({main, RenderOpenDialog(input, snapshot.busy, BusyPhrase(snapshot))});
+    case Dialog::ConfirmClose:
+      return dbox({main, RenderCloseDialog(selectedRoom(), snapshot.busy, selectedPreparing(), BusyPhrase(snapshot))});
     case Dialog::Help: return dbox({main, RenderHelpDialog(options)});
     case Dialog::None: break;
     }
@@ -660,6 +791,12 @@ int RunRoomUi(const NRoomUiOptions & options)
     const auto     room     = [&]() -> std::string {
       if (snapshot.rooms.empty()) return {};
       return snapshot.rooms[std::min(selected, snapshot.rooms.size() - 1)].room;
+    };
+    // One action runs at a time, so a key that would start one is refused while another is
+    // in flight - saying what is still running, rather than swallowing the key.
+    const auto refuseWhileBusy = [&]() {
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.status = "Still running: " + BusyPhrase(snapshot) + " - wait until it finishes";
     };
 
     // A dialog owns the keyboard while it is open.
@@ -693,7 +830,7 @@ int RunRoomUi(const NRoomUiOptions & options)
         dialog = Dialog::None;
         return true;
       }
-      if (event == Event::Character('y') && !room().empty()) {
+      if (event == Event::Character('y') && !room().empty() && !snapshot.busy) {
         worker.Push({Action::Kind::Close, room()});
         dialog = Dialog::None;
         return true;
@@ -724,10 +861,14 @@ int RunRoomUi(const NRoomUiOptions & options)
       return true;
     }
     if (event == Event::Character('r')) {
+      if (snapshot.busy) {
+        refuseWhileBusy();
+        return true;
+      }
       worker.Push({Action::Kind::Refresh, ""});
       return true;
     }
-    if (event == Event::Character('o') || event == Event::Character('a')) {
+    if (event == Event::Character('c') || event == Event::Character('o') || event == Event::Character('a')) {
       dialog = Dialog::OpenRoom;
       input.clear();
       return true;
@@ -737,6 +878,10 @@ int RunRoomUi(const NRoomUiOptions & options)
       return true;
     }
     if (event == Event::Return && !snapshot.rooms.empty()) {
+      if (snapshot.busy) {
+        refuseWhileBusy();
+        return true;
+      }
       worker.Push({Action::Kind::Status, room()});
       return true;
     }
@@ -775,6 +920,7 @@ int RunRoomUi(const NRoomUiOptions & options)
   screen.Loop(component);
 
   running = false;
+  if (ticker.joinable()) ticker.join();
   worker.Stop();
   return 0;
 }

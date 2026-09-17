@@ -7,13 +7,13 @@
 /// URLs:  /api/ngnt/open, /api/ngnt/reshape, /api/ngnt/map, /api/ngnt/spectra, /api/ngnt/point
 ///
 /// Usage:
-///   ndmspc-server start ngnt -m "httpNgnt.C"
+///   ndmspc-server -m "httpNgnt.C"
 ///
 /// To add custom handlers alongside the built-in ones, create your own macro:
 ///
-///   #include <ndmspc/http/NGnRouteContext.h>
-///   #include <ndmspc/http/NGnSchemaBuilder.h>
-///   #include <ndmspc/http/NGnHttpServer.h>
+///   #include <ndmspc/http/NRouteContext.h>
+///   #include <ndmspc/http/NSchemaBuilder.h>
+///   #include <ndmspc/http/NHttpServer.h>
 ///
 ///   void httpMyCustom() {
 ///     auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
@@ -23,7 +23,7 @@
 ///
 ///     handlers["myplugin/summary"] = [](std::string method, json & in, json & out, json & wsOut,
 ///                              std::map<std::string, TObject *> & objects) {
-///       Ndmspc::NGnRouteContext ctx(method, in, out, wsOut, objects);
+///       Ndmspc::NRouteContext ctx(method, in, out, wsOut, objects);
 ///       if (ctx.IsGet()) {
 ///         out["info"] = "Custom summary endpoint";
 ///         ctx.Success();
@@ -31,7 +31,7 @@
 ///     };
 ///   }
 ///
-/// Then load: ndmspc-server start ngnt -m "httpNgnt.C,httpMyCustom.C"
+/// Then load: ndmspc-server -m "httpNgnt.C,httpMyCustom.C"
 ///
 /// RegisterMcpTool accepts a full Ndmspc::NMcpToolInfo, e.g.
 ///   Ndmspc::RegisterMcpTool("myplugin/summary", {
@@ -54,9 +54,9 @@
 #include <TString.h>
 #include <TSystem.h>
 
-#include <ndmspc/http/NGnRouteContext.h>
-#include <ndmspc/http/NGnSchemaBuilder.h>
-#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/http/NRouteContext.h>
+#include <ndmspc/http/NSchemaBuilder.h>
+#include <ndmspc/http/NHttpServer.h>
 #include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NGnNavigator.h>
 #include <ndmspc/core/NParameters.h>
@@ -84,7 +84,7 @@ Ndmspc::NGnNavigator * TraverseNavigator(Ndmspc::NGnNavigator * root, const std:
 // 'level' truncates the stored state point. Histogram clicks instead send the
 // *base* point for the clicked level plus the clicked cell as 'args.bin', so the
 // bin has to be appended to complete the path.
-std::vector<int> ResolveDrillPoint(const Ndmspc::NGnRouteContext & ctx, const json & httpIn)
+std::vector<int> ResolveDrillPoint(const Ndmspc::NRouteContext & ctx, const json & httpIn)
 {
   const bool       hasPoint = httpIn.contains("point") && httpIn["point"].is_array();
   std::vector<int> point    = hasPoint ? httpIn["point"].get<std::vector<int>>() : ctx.GetStatePoint();
@@ -229,7 +229,7 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
     hint += TString::Format("[%d] %s: %d bins \n", idx++, axis->GetName(), axis->GetNbins()).Data();
   }
 
-  return Ndmspc::NGnSchemaBuilder()
+  return Ndmspc::NSchemaBuilder()
       .Hint(hint)
       .Array("levels")
       .Description("A nested array of integers representing levels.")
@@ -243,7 +243,7 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
 
 json BuildMapSchema(const std::string & mappingPad = "pad1", const std::string & contentPad = "pad2")
 {
-  return Ndmspc::NGnSchemaBuilder()
+  return Ndmspc::NSchemaBuilder()
       .String("mappingPad")
       .Default(mappingPad)
       .String("contentPad")
@@ -272,7 +272,7 @@ json BuildSpectraSchema(Ndmspc::NGnTree * ngnt, const std::vector<std::string> &
     defaultParamsJson = json::array();
   }
 
-  return Ndmspc::NGnSchemaBuilder()
+  return Ndmspc::NSchemaBuilder()
       .String("startPad")
       .Default(startPad)
       .MultiSelect("parameters", paramNames)
@@ -369,7 +369,7 @@ void httpNgnt()
 
   handlers[group + "/open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                  std::map<std::string, TObject *> & objects) {
-    Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+    Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
     auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
@@ -463,7 +463,7 @@ void httpNgnt()
 
   handlers[group + "/reshape"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                     std::map<std::string, TObject *> & objects) {
-    Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+    Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
@@ -512,8 +512,8 @@ void httpNgnt()
         ctx.Workspace()[reshapeKey] = BuildReshapeSchema(ngnt);
       }
 
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "levels", levels);
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "binningName", binningName);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "levels", levels);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "binningName", binningName);
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
       if (!ctx.Workspace()[mapKey].contains("type")) {
@@ -543,7 +543,7 @@ void httpNgnt()
 
   handlers[group + "/map"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                 std::map<std::string, TObject *> & objects) {
-    Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+    Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
@@ -624,9 +624,9 @@ void httpNgnt()
         ctx.Workspace()[mapKey] = BuildMapSchema(mappingPad, contentPad);
       }
 
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "mappingPad", mappingPad);
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "contentPad", contentPad);
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "averages", averages);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "mappingPad", mappingPad);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "contentPad", contentPad);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "averages", averages);
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
 
       if (!ctx.Workspace()[spectraKey].contains("type")) {
@@ -737,7 +737,7 @@ void httpNgnt()
 
   handlers[group + "/spectra"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                     std::map<std::string, TObject *> & objects) {
-    Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+    Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
@@ -780,10 +780,10 @@ void httpNgnt()
         ctx.Workspace()[spectraKey] = BuildSpectraSchema(ngnt, parameters, spectraPad, minmax, minmaxMode);
       }
 
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "startPad", spectraPad);
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "parameters", parameters);
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "axismargin", minmax);
-      Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "minmaxMode", minmaxMode);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "startPad", spectraPad);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "parameters", parameters);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "axismargin", minmax);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "minmaxMode", minmaxMode);
 
       std::vector<int>       point      = ctx.GetStatePoint();
       size_t                 nLevels    = nav->GetNLevels();
@@ -865,7 +865,7 @@ void httpNgnt()
         if (!ctx.Workspace()[spectraKey].contains("type")) {
           ctx.Workspace()[spectraKey] = BuildSpectraSchema(ngnt, parameters);
         }
-        Ndmspc::NGnSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "parameters", parameters);
+        Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "parameters", parameters);
         wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
       }
       NLogTrace("[Server] Parameters for PATCH spectra: %s", json(parameters).dump().c_str());
@@ -908,7 +908,7 @@ void httpNgnt()
 
   handlers[group + "/point"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                   std::map<std::string, TObject *> & objects) {
-    Ndmspc::NGnRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+    Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
     wsOut["group"] = "ngnt";
     auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");

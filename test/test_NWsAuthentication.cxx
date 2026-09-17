@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 #include <THttpCallArg.h>
+#include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NWsHandler.h"
 
 #include <deque>
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -46,14 +48,37 @@ class TestWsHandler : public Ndmspc::NWsHandler {
   }
 };
 
-std::unique_ptr<THttpCallArg> Event(const char * method, ULong_t wsId, std::string payload = {})
+std::unique_ptr<THttpCallArg> Event(const char * method, ULong_t wsId, std::string payload = {},
+                                   const char * query = nullptr)
 {
   auto event = std::make_unique<THttpCallArg>();
   event->SetMethod(method);
   event->SetWSId(wsId);
   if (!payload.empty()) event->SetPostData(std::move(payload));
+  if (query != nullptr) event->SetQuery(query);
   return event;
 }
+
+// What the websocket-connect filter was asked about, and the two answers it can give. A plain
+// function (not a lambda) because the filter is a function pointer: the room router sets it from a
+// macro, which cannot capture anything either.
+std::vector<std::string> fFilterQueries;
+Bool_t                   RecordAndAccept(const std::string & query)
+{
+  fFilterQueries.push_back(query);
+  return kTRUE;
+}
+Bool_t RecordAndRefuse(const std::string & query)
+{
+  fFilterQueries.push_back(query);
+  return kFALSE;
+}
+
+/// @brief Sets the process-wide filter for one test and clears it again, whatever the outcome.
+struct WsFilterGuard {
+  explicit WsFilterGuard(Ndmspc::NdmspcWsConnectFilter filter) { Ndmspc::gNdmspcWsConnectFilter = filter; }
+  ~WsFilterGuard() { Ndmspc::gNdmspcWsConnectFilter = nullptr; }
+};
 
 Ndmspc::NOidcResult Identity(std::string subject, std::string username)
 {
@@ -108,6 +133,48 @@ TEST(NWsAuthenticationTest, InvalidFirstMessageNeverActivatesClient)
   EXPECT_EQ(handler.GetClientCount(), 0);
   EXPECT_FALSE(handler.Pending(4));
   EXPECT_TRUE(verifier->tokens.empty());
+}
+
+TEST(NWsConnectFilterTest, RefusedUpgradeIsRejected)
+{
+  TestWsHandler   handler;
+  WsFilterGuard   guard(RecordAndRefuse);
+  fFilterQueries.clear();
+
+  auto connect = Event("WS_CONNECT", 11, {}, "room=nosuch");
+  EXPECT_FALSE(handler.ProcessWS(connect.get()));
+  ASSERT_EQ(fFilterQueries.size(), 1u);
+  EXPECT_EQ(fFilterQueries.front(), "room=nosuch");
+}
+
+TEST(NWsConnectFilterTest, AConnectionWithoutQueryIsAskedAboutToo)
+{
+  TestWsHandler handler;
+  WsFilterGuard guard(RecordAndRefuse);
+  fFilterQueries.clear();
+
+  auto connect = Event("WS_CONNECT", 12);
+  EXPECT_FALSE(handler.ProcessWS(connect.get()));
+  ASSERT_EQ(fFilterQueries.size(), 1u);
+  EXPECT_EQ(fFilterQueries.front(), "");
+}
+
+TEST(NWsConnectFilterTest, AcceptedUpgradeIsServed)
+{
+  TestWsHandler handler;
+  WsFilterGuard guard(RecordAndAccept);
+
+  auto connect = Event("WS_CONNECT", 13, {}, "room=known");
+  EXPECT_TRUE(handler.ProcessWS(connect.get()));
+}
+
+TEST(NWsConnectFilterTest, WithoutAFilterEveryUpgradeIsAccepted)
+{
+  TestWsHandler handler;
+  Ndmspc::gNdmspcWsConnectFilter = nullptr;
+
+  EXPECT_TRUE(handler.ProcessWS(Event("WS_CONNECT", 14).get()));
+  EXPECT_TRUE(handler.ProcessWS(Event("WS_CONNECT", 15, {}, "room=anything").get()));
 }
 
 TEST(NWsAuthenticationTest, RefreshKeepsSubjectAndUpdatesUsername)

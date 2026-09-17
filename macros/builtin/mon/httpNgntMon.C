@@ -1,4 +1,4 @@
-#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/http/NHttpServer.h>
 #include <NMonJobManager.h>
 #include <NMonJob.h>
 
@@ -13,7 +13,7 @@ void httpNgntMon()
   // Store lambdas (must be non-capturing to convert to function pointer)
   handlers["jobs"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                         std::map<std::string, TObject *> &) {
-    auto server = Ndmspc::gNGnHttpServer;
+    auto server = Ndmspc::gNHttpServer;
     server->SetUseHistory(false);
 
     Ndmspc::NMonJobManager * jobManager = (Ndmspc::NMonJobManager *)server->GetInputObject("_jobManager");

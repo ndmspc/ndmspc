@@ -11,17 +11,17 @@ class TObject;
 
 namespace Ndmspc {
 
-class NGnHttpServer;
+class NHttpServer;
 
 ///
-/// \class NGnRouteContext
+/// \class NRouteContext
 /// \brief Lightweight context wrapping HTTP handler parameters.
 ///
 /// Provides typed convenience methods to reduce boilerplate in handler
 /// implementations: method checks, object access, parameter extraction
 /// with workspace-default fallbacks, response helpers, and state management.
 ///
-class NGnRouteContext {
+class NRouteContext {
 
 public:
   /**
@@ -32,7 +32,7 @@ public:
    * @param wsOut WebSocket output JSON payload (referenced, not copied).
    * @param objects Server object map (referenced, not copied).
    */
-  NGnRouteContext(const std::string & method, json & in, json & out, json & wsOut,
+  NRouteContext(const std::string & method, json & in, json & out, json & wsOut,
                   std::map<std::string, TObject *> & objects);
 
   // --- Method checks ---
@@ -68,9 +68,9 @@ public:
   }
 
   // --- Access server singleton ---
-  /// @brief Get the global NGnHttpServer instance.
+  /// @brief Get the global NHttpServer instance.
   /// @return Pointer to the server (may be null).
-  NGnHttpServer * Server();
+  NHttpServer * Server();
 
   // --- Parameter extraction from input JSON with defaults ---
   /**

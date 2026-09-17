@@ -40,7 +40,7 @@ struct NWsPendingClient {
  * ### WS_DATA API request/reply protocol
  * Incoming `WS_DATA` messages are treated as HTTP API calls when the payload parses as a
  * JSON object containing a non-empty `path`. They are converted to a THttpCallArg and routed
- * through `NGnHttpServer::ProcessRequest`, i.e. the same handler that would serve
+ * through `NHttpServer::ProcessRequest`, i.e. the same handler that would serve
  * `POST /api/<path>`. Any message that is not valid JSON or lacks `path` falls back to the
  * legacy chat-relay demo (broadcast to other clients).
  *

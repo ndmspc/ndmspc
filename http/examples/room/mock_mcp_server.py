@@ -21,12 +21,21 @@ It mirrors httpRoom.C / NMcpServer.cxx:
   same message the router uses;
 * a room's resource name is ``ndmspc-room-`` plus a DNS-1123 slug of the room id.
 
+A room is created in the background by the real router: ``room_open`` with ``wait=false``
+registers it straight away with ``state=preparing`` and finishes the work off the request path.
+The mock models that too - a room opened with ``wait=false`` shows up as ``preparing`` with a
+phase, and becomes ready after ``PREPARE`` seconds - so the client's preparing rows and its wait
+can be exercised without a cluster.
+
 Environment:
-  PORT   port to listen on (default 8090)
-  HOST   address to bind (default 127.0.0.1)
-  SEED   comma-separated room ids to pre-register (default "demo")
-  TTL    idle TTL in seconds reported by room/list (default 3600)
-  FAIL   1 makes every room action fail, to exercise the client's error path
+  PORT     port to listen on (default 8090)
+  HOST     address to bind (default 127.0.0.1)
+  SEED     comma-separated room ids to pre-register (default "demo")
+  TTL      idle TTL in seconds reported by room/list (default 3600)
+  PREPARE  seconds a room opened with wait=false stays preparing (default 2, 0 = ready at once)
+  FAIL     1 makes every room action fail, to exercise the client's error path
+  NO_ROOM_CAPACITY  1 makes every *new* room fail the way the real router reports a pod the
+           cluster cannot schedule: state=failed, code=no_capacity, with the scheduler's message
 """
 
 import json
@@ -40,17 +49,31 @@ PREFIX = "ndmspc-room-"
 PARAM = "room"
 PROTOCOL_VERSION = "2025-06-18"
 
+# What the router reports when the scheduler refuses the room's pod (see "Why a creation failed"
+# in httpRoom.C): the pod's own message, with a stable code beside it.
+CAPACITY_ERROR = (
+    "the cluster cannot schedule the room's pod: 0/1 nodes are available: 1 Insufficient cpu - "
+    "free capacity, or lower the room's requests in its skeleton"
+)
+
 # The tool metadata httpRoom.C registers through RegisterMcpTool, so tools/list is
 # faithful to the real router.
 TOOLS = [
     {
         "name": "room_open",
         "description": "Ensure a room exists (one Knative Service per room) and return the URL that "
-        "serves it. POST/GET with 'room' in the body.",
+        "serves it. POST/GET with 'room' in the body. With wait=false the call returns "
+        "at once with state=preparing and the room is created in the background - poll "
+        "room/status or room/list for the outcome.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "room": {"type": "string", "description": "Room id (any client-chosen string)."},
+                "wait": {
+                    "type": "boolean",
+                    "description": "Wait for the room to be ready before answering (default true); "
+                    "false starts the creation in the background.",
+                },
                 "method": {"type": "string", "enum": ["GET", "POST"], "default": "POST"},
             },
             "additionalProperties": True,
@@ -58,7 +81,9 @@ TOOLS = [
     },
     {
         "name": "room_status",
-        "description": "Report whether a room is known to the router and its current revision.",
+        "description": "Report whether a room is known to the router, its current revision, and - while "
+        "it is being created - where that creation is (state=preparing with "
+        "phase=service|ready|route|restore), or state=failed with the reason.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -70,7 +95,10 @@ TOOLS = [
     },
     {
         "name": "room_list",
-        "description": "List the rooms the router is currently tracking (with their last-seen time).",
+        "description": "List the rooms the router is currently tracking (with their last-seen time). A "
+        "room whose creation is still running is listed as well, with state=preparing and "
+        "the phase it has reached; one whose creation failed is listed with state=failed "
+        "and the error.",
         "inputSchema": {
             "type": "object",
             "properties": {"method": {"type": "string", "enum": ["GET"], "default": "GET"}},
@@ -128,12 +156,63 @@ def slug(room_id):
 class Rooms:
     """The in-memory room registry the real router keeps (and rebuilds from k8s)."""
 
-    def __init__(self):
+    def __init__(self, prepare_seconds=0, capacity=True):
         self.rooms = {}
+        # Whether the cluster can place another pod: NO_ROOM_CAPACITY=1 makes every new room fail
+        # the way the router reports a pod the scheduler refuses.
+        self.capacity = capacity
         # Sessions, kept apart from the room entries just as the real router keeps them out of
         # room/list. A real deployment gets these from the room reporting its own session; the
         # mock stands in for that, which is enough to exercise backup/restore.
         self.snapshots = {}
+        # How long a room opened with wait=false stays preparing. The router does that work in the
+        # background, so a mock that answered "ready" at once could not exercise the preparing
+        # rows or the client's wait for the room.
+        self.prepare_seconds = prepare_seconds
+
+    def _failed(self, room_id, existing):
+        """The entry a room gets when the scheduler refused its pod."""
+        return {
+            "name": self.name(room_id),
+            "room": room_id,
+            "revision": (existing or {}).get("revision", ""),
+            "lastSeen": int(time.time()),
+            "preparing": False,
+            "ready": False,
+            "replicas": 0,
+            "active": False,
+            "state": "failed",
+            "phase": "failed",
+            "error": CAPACITY_ERROR,
+            "code": "no_capacity",
+        }
+
+    def _advance(self):
+        """Moves rooms through the phases their creation goes through, as the router's worker does."""
+        if self.prepare_seconds <= 0:
+            return
+        now = int(time.time())
+        for entry in self.rooms.values():
+            if not entry.get("preparing"):
+                continue
+            elapsed = now - entry.get("startedAt", now)
+            if elapsed >= self.prepare_seconds and entry.pop("no_capacity", False):
+                entry.update(self._failed(entry["room"], entry))
+                continue
+            if elapsed >= self.prepare_seconds:
+                entry["preparing"] = False
+                entry["ready"] = True
+                entry["active"] = True
+                entry["replicas"] = 1
+                entry["phase"] = "ready"
+                entry["state"] = "ready"
+                entry["revision"] = entry.get("revision") or entry["name"] + "-00001"
+                entry["lastSeen"] = now
+                self.snapshots.setdefault(entry["name"], self.session(entry["room"]))
+            elif elapsed >= max(1, self.prepare_seconds // 2):
+                entry["phase"] = "ready"  # waiting for the first revision to become ready
+            else:
+                entry["phase"] = "service"
 
     def name(self, room_id):
         return PREFIX + slug(room_id)
@@ -146,9 +225,40 @@ class Rooms:
             "actions": [{"name": "ngnt/open", "in": {"file": "NBinnings01Gaus.root"}}],
         }
 
-    def open(self, room_id):
+    def open(self, room_id, wait=True):
+        self._advance()
         name = self.name(room_id)
         existing = self.rooms.get(name)
+
+        # No capacity for another pod: the router registers the room and fails it a moment later,
+        # with the scheduler's own message, so the mock does the same (immediately when there is no
+        # PREPARE window to run in).
+        if not self.capacity and self.prepare_seconds <= 0:
+            self.rooms[name] = self._failed(room_id, existing)
+            return self.rooms[name]
+
+        # wait=false: register the room and leave it preparing, exactly as the router does when it
+        # runs the creation off the request path. With no capacity left, `no_capacity` makes the
+        # next _advance turn it into the failure the router reports.
+        if (not wait or not self.capacity) and self.prepare_seconds > 0:
+            entry = {
+                "name": name,
+                "room": room_id,
+                "revision": (existing or {}).get("revision", ""),
+                "lastSeen": int(time.time()),
+                "ready": False,
+                "replicas": 0,
+                "active": False,
+                "state": "preparing",
+                "preparing": True,
+                "phase": "service",
+                "startedAt": int(time.time()),
+            }
+            if not self.capacity:
+                entry["no_capacity"] = True
+            self.rooms[name] = entry
+            return entry
+
         entry = {
             "name": name,
             "room": room_id,
@@ -158,6 +268,7 @@ class Rooms:
             # A freshly opened room has a pod starting; a seeded one rests at zero.
             "replicas": (existing or {}).get("replicas", 1),
             "active": True,
+            "state": "ready",
         }
         self.rooms[name] = entry
         self.snapshots.setdefault(name, self.session(room_id))
@@ -173,18 +284,26 @@ class Rooms:
             "ready": True,
             "replicas": 0,
             "active": False,
+            "state": "ready",
         }
 
     def status(self, room_id):
+        self._advance()
         name = self.name(room_id)
         entry = self.rooms.get(name)
         payload = {"room": room_id, "name": name, "param": PARAM, "tracked": entry is not None}
+        payload["exists"] = entry is not None
         if entry is not None:
             payload["revision"] = entry["revision"]
             payload["lastSeen"] = entry["lastSeen"]
-        payload["exists"] = entry is not None
-        if entry is not None:
             payload["ready"] = entry["ready"]
+            payload["state"] = entry.get("state", "ready" if entry["ready"] else "not ready")
+            if entry.get("preparing"):
+                payload["preparing"] = True
+                payload["phase"] = entry.get("phase", "service")
+                payload["startedAt"] = entry.get("startedAt", entry["lastSeen"])
+            if entry.get("error"):
+                payload["error"] = entry["error"]
         return payload
 
     def close(self, room_id):
@@ -229,6 +348,7 @@ class Rooms:
         return {"restored": restored, "failed": failed}
 
     def entries(self):
+        self._advance()
         return [self.rooms[key] for key in sorted(self.rooms)]
 
 
@@ -279,18 +399,25 @@ def call_tool(server, tool, arguments):
     if tool == "room_open":
         if "GET" not in method and "POST" not in method:
             return failure("Unsupported HTTP method for room/open")
-        entry = server.rooms.open(room_id)
-        return {
-            "result": "success",
-            "payload": {
-                "room": room_id,
-                "name": entry["name"],
-                "revision": entry["revision"],
-                "param": PARAM,
-                "url": "?%s=%s" % (PARAM, room_id),
-                "ttl": server.ttl,
-            },
+        # The router's wait flag. A string is accepted too: the flag travels as JSON, but a
+        # hand-written request may send "wait=false".
+        wait = arguments.get("wait", True)
+        if isinstance(wait, str):
+            wait = wait.strip().lower() not in ("", "0", "false", "no", "off")
+        entry = server.rooms.open(room_id, bool(wait))
+        payload = {
+            "room": room_id,
+            "name": entry["name"],
+            "revision": entry.get("revision", ""),
+            "param": PARAM,
+            "url": "?%s=%s" % (PARAM, room_id),
+            "ttl": server.ttl,
+            "state": entry.get("state", "ready"),
         }
+        if entry.get("preparing"):
+            payload["phase"] = entry.get("phase", "service")
+            payload["startedAt"] = entry.get("startedAt", 0)
+        return {"result": "success", "payload": payload}
 
     if tool == "room_status":
         if "GET" not in method:
@@ -417,20 +544,22 @@ def main():
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
     ttl = int(os.environ.get("TTL", "3600"))
+    prepare = int(os.environ.get("PREPARE", "2"))
     fail = os.environ.get("FAIL", "").strip().lower() not in ("", "0", "false", "no", "off")
+    capacity = os.environ.get("NO_ROOM_CAPACITY", "").strip().lower() in ("", "0", "false", "no", "off")
     seed = [item.strip() for item in os.environ.get("SEED", "demo").split(",") if item.strip()]
 
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
-    server.rooms = Rooms()
+    server.rooms = Rooms(prepare, capacity)
     server.ttl = ttl
     server.fail = fail
     for room_id in seed:
         server.rooms.seed(room_id)
 
     print(
-        "mock room router listening on http://%s:%d/api/mcp (seed=%s ttl=%d fail=%s)"
-        % (host, port, ",".join(seed) or "-", ttl, fail),
+        "mock room router listening on http://%s:%d/api/mcp (seed=%s ttl=%d prepare=%ds fail=%s)"
+        % (host, port, ",".join(seed) or "-", ttl, prepare, fail),
         flush=True,
     )
     try:

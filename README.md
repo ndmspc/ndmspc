@@ -13,7 +13,7 @@ Please use the docs site for installation, usage guides, architecture, and examp
 ## Run locally
 
 ```bash
-ndmspc-server start ngnt             # http://localhost:8080
+ndmspc-server             # http://localhost:8080
 ```
 
 or straight from the container:
@@ -23,7 +23,7 @@ podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:next
 ```
 
 Without `-m`, the server loads the built-in macros (`httpNgntBase.C`,
-`httpNgnt.C`, `httpRoom.C`). Point a browser at <http://localhost:8080/> for the
+`httpNgnt.C`). Point a browser at <http://localhost:8080/> for the
 web UI, or use the API at <http://localhost:8080/api/>.
 
 ## Run on a local kind cluster
@@ -57,7 +57,7 @@ ansible-playbook playbooks/local.yml --tags apply \
 ### Only the Knative Service
 
 If Knative Serving and a reachable ingress are already there, a plain Service is
-enough — the image's entrypoint runs `ndmspc-server start ngnt` for you:
+enough — the image's entrypoint runs `ndmspc-server` for you:
 
 ```yaml
 # ndmspc-ngnt.yaml
@@ -87,7 +87,7 @@ raise it when an instance should serve several users (see *Rooms*).
 
 ## Rooms
 
-`httpRoom.C` turns the Service into a **room router**: one Knative Service per
+`--rooms true` turns the Service into a **room router** (`Ndmspc::NRoomRouter`): one Knative Service per
 room, created on demand, so the users of a room share one instance. Clients carry
 their room in a query parameter (`?room=<id>`) and the gateway routes those
 requests — HTTP and WebSocket alike — straight to that room.

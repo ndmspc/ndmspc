@@ -8,7 +8,10 @@ EnvironmentFile=/etc/ndmspc/http
 EnvironmentFile=-/etc/ndmspc/http.%I
 EnvironmentFile=-%h/.ndmspc/http
 EnvironmentFile=-%h/.ndmspc/http.%I
-ExecStart=/usr/bin/ndmspc-server start %I $NDMSPC_HTTP_OPTS
+# The instance name (%I) only selects the environment files above: the port and any extra
+# options come from /etc/ndmspc/http.%I (PORT=..., NDMSPC_HTTP_OPTS=...), so several servers
+# can run side by side on different ports (e.g. ndmspc-http@ngnt and ndmspc-http@8081).
+ExecStart=/usr/bin/ndmspc-server $NDMSPC_HTTP_OPTS
 Restart=on-abort
 
 [Install]

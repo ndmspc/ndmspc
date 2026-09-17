@@ -1,32 +1,32 @@
 #include <cstdarg>
 #include <vector>
 #include <cstdio>
-#include "ndmspc/http/NGnHttpServer.h"
-#include "NGnRouteContext.h"
+#include "ndmspc/http/NHttpServer.h"
+#include "NRouteContext.h"
 
 namespace Ndmspc {
 
-NGnRouteContext::NGnRouteContext(const std::string & method, json & in, json & out, json & wsOut,
+NRouteContext::NRouteContext(const std::string & method, json & in, json & out, json & wsOut,
                                 std::map<std::string, TObject *> & objects)
     : fMethod(method), fIn(in), fOut(out), fWsOut(wsOut), fObjects(objects)
 {
 }
 
-NGnHttpServer * NGnRouteContext::Server() { return gNGnHttpServer; }
+NHttpServer * NRouteContext::Server() { return gNHttpServer; }
 
-std::string NGnRouteContext::GetString(const std::string & key, const std::string & def) const
+std::string NRouteContext::GetString(const std::string & key, const std::string & def) const
 {
   if (fIn.contains(key)) return fIn[key].get<std::string>();
   return def;
 }
 
-int NGnRouteContext::GetInt(const std::string & key, int def) const
+int NRouteContext::GetInt(const std::string & key, int def) const
 {
   if (fIn.contains(key)) return fIn[key].get<int>();
   return def;
 }
 
-double NGnRouteContext::GetDouble(const std::string & key, double def) const
+double NRouteContext::GetDouble(const std::string & key, double def) const
 {
   if (fIn.contains(key)) return fIn[key].get<double>();
   return def;
@@ -34,9 +34,9 @@ double NGnRouteContext::GetDouble(const std::string & key, double def) const
 
 // --- Workspace default access ---
 
-json NGnRouteContext::GetWorkspaceDefault(const std::string & route, const std::string & prop) const
+json NRouteContext::GetWorkspaceDefault(const std::string & route, const std::string & prop) const
 {
-  auto * srv = gNGnHttpServer;
+  auto * srv = gNHttpServer;
   if (!srv) return json();
   auto & ws = srv->GetWorkspace();
   if (ws.contains(route) && ws[route].contains("properties") && ws[route]["properties"].contains(prop) &&
@@ -48,9 +48,9 @@ json NGnRouteContext::GetWorkspaceDefault(const std::string & route, const std::
 
 // --- State management ---
 
-std::vector<int> NGnRouteContext::GetStatePoint(const std::string & key) const
+std::vector<int> NRouteContext::GetStatePoint(const std::string & key) const
 {
-  auto * srv = gNGnHttpServer;
+  auto * srv = gNHttpServer;
   if (!srv) return {};
   json & state = srv->GetState();
   if (state.contains(key) && state[key].contains("point")) {
@@ -59,9 +59,9 @@ std::vector<int> NGnRouteContext::GetStatePoint(const std::string & key) const
   return {};
 }
 
-void NGnRouteContext::SetStatePoint(const std::vector<int> & point, const std::string & key)
+void NRouteContext::SetStatePoint(const std::vector<int> & point, const std::string & key)
 {
-  auto * srv = gNGnHttpServer;
+  auto * srv = gNHttpServer;
   if (!srv) return;
   srv->GetState()[key]["point"] = point;
   // Also send updated state to websocket output
@@ -70,22 +70,22 @@ void NGnRouteContext::SetStatePoint(const std::vector<int> & point, const std::s
 
 // --- Response helpers ---
 
-void NGnRouteContext::Success() { fOut["result"] = "success"; }
+void NRouteContext::Success() { fOut["result"] = "success"; }
 
-void NGnRouteContext::Error(const std::string & msg)
+void NRouteContext::Error(const std::string & msg)
 {
   fOut["error"] = msg;
   fHasError      = true;
 }
 
-void NGnRouteContext::Result(const std::string & status)
+void NRouteContext::Result(const std::string & status)
 {
   // Treat Result as an indication of an error status in the HTTP output
   fOut["error"] = status;
   fHasError      = true;
 }
 
-void NGnRouteContext::Result(const char *fmt, ...)
+void NRouteContext::Result(const char *fmt, ...)
 {
   if (!fmt) {
     Result(std::string());
@@ -119,21 +119,21 @@ void NGnRouteContext::Result(const char *fmt, ...)
 
 // --- Workspace / state shortcuts ---
 
-json & NGnRouteContext::Workspace()
+json & NRouteContext::Workspace()
 {
-  auto * srv = gNGnHttpServer;
+  auto * srv = gNHttpServer;
   return srv->GetWorkspace();
 }
 
-json & NGnRouteContext::State()
+json & NRouteContext::State()
 {
-  auto * srv = gNGnHttpServer;
+  auto * srv = gNHttpServer;
   return srv->GetState();
 }
 
-void NGnRouteContext::BroadcastWorkspace(const std::string & name)
+void NRouteContext::BroadcastWorkspace(const std::string & name)
 {
-  auto * srv = gNGnHttpServer;
+  auto * srv = gNHttpServer;
   if (srv && srv->GetWorkspace().contains(name)) {
     fWsOut["workspace"][name] = srv->GetWorkspace()[name];
   }
