@@ -2,8 +2,8 @@
 /// ndmspc-mcp — standalone Model Context Protocol (MCP) server for the NGnTree
 /// HTTP handlers, speaking JSON-RPC 2.0 over stdio.
 ///
-/// It embeds an NGnHttpServer (without starting the network engine), loads the
-/// same built-in macros as `ndmspc-server start ngnt`, and exposes every
+/// It embeds an NHttpServer (without starting the network engine), loads the
+/// same built-in macros as `ndmspc-server`, and exposes every
 /// registered handler as an MCP tool through Ndmspc::NMcpServer. This lets an
 /// MCP client (launched as a subprocess) drive ngnt with no separately running
 /// HTTP server.
@@ -31,8 +31,9 @@
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
-#include "ndmspc/http/NGnHttpServer.h"
+#include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NMcpServer.h"
+#include "ndmspc/http/NRoomRouter.h"
 #include "ndmspc/ndmspc.h"
 
 namespace {
@@ -110,9 +111,9 @@ int main(int argc, char ** argv)
       ->check(CLI::IsMember({"stdio"}));
   app.add_flag("--all-tools", allTools, "Also expose internal actions (debug, openapi) as tools");
   app.add_flag("--rooms", withRooms,
-               "Also load the room router macro (macros/builtin/httpRoom.C) and expose the room_* tools; "
-               "disabled by default (--rooms or NDMSPC_ROOMS=1). Kubernetes only: the process exits when "
-               "KUBERNETES_SERVICE_HOST is unset");
+               "Also serve the room router (NRoomRouter) and expose the room_* tools; disabled by "
+               "default (--rooms or NDMSPC_ROOMS=1). Kubernetes only: the process exits at startup "
+               "when KUBERNETES_SERVICE_HOST is unset");
   app.add_flag("-v,--verbose", verbose, "Enable verbose logging on stderr");
   CLI11_PARSE(app, argc, argv);
 
@@ -139,18 +140,21 @@ int main(int argc, char ** argv)
     macroFilename = dir + "/macros/builtin/httpNgntBase.C," + dir + "/macros/builtin/httpNgnt.C";
   }
 
+  auto server = std::make_unique<Ndmspc::NHttpServer>(/*engine=*/"", /*ws=*/true, /*heartbeat_ms=*/10000,
+                                                        Ndmspc::NOidcConfig{}, /*startEngine=*/false);
+
+  // Rooms need the in-cluster API: refuse before the macros are loaded, so --rooms outside Kubernetes
+  // fails at startup with a clear error instead of later (or not at all, should a macro fail first).
+  // A process that refuses to start must say why, so this goes out even when console logging is off.
   if (withRooms) {
-    const std::string roomMacro = NdmspcDir() + "/macros/builtin/httpRoom.C";
-    if (macroFilename.find(roomMacro) == std::string::npos) {
-      macroFilename += "," + roomMacro;
-      NLogInfo("ndmspc-mcp: rooms enabled, loading '%s'", roomMacro.c_str());
+    std::string reason;
+    if (!Ndmspc::NRoomRouter::KubernetesAvailable(&reason)) {
+      NLogForce("[ERROR] [room] %s", reason.c_str());
+      return 1;
     }
   }
 
-  auto server = std::make_unique<Ndmspc::NGnHttpServer>(/*engine=*/"", /*ws=*/true, /*heartbeat_ms=*/10000,
-                                                        Ndmspc::NOidcConfig{}, /*startEngine=*/false);
-
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   Ndmspc::gNdmspcHttpHandlers = &handlers;
   // MCP tool metadata declared by the macros (descriptions, allowed verbs, ...)
   Ndmspc::NMcpToolMap mcpTools;
@@ -165,6 +169,13 @@ int main(int argc, char ** argv)
     }
     m->Exec();
   }
+  if (withRooms) {
+    // The room router is framework code (NRoomRouter): register its actions (and their MCP tools)
+    // before the handler map is handed to the server.
+    if (!Ndmspc::NRoomRouter::Instance().Register(server.get())) return 1; // it logged why
+    NLogInfo("ndmspc-mcp: rooms enabled, serving the room_* actions");
+  }
+
   server->SetHttpHandlers(handlers);
   NLogInfo("ndmspc-mcp: %zu action(s) registered, serving MCP over stdio", handlers.size());
 

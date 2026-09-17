@@ -7,7 +7,7 @@
 
 ///
 /// Start server in another terminal:
-/// $ ndmspc-cli serve stress
+/// $ ndmspc-server
 ///
 bool wsmon(std::string url = "ws://localhost:8080/ws/root.websocket")
 {

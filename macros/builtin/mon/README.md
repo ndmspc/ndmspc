@@ -5,7 +5,7 @@
 Run the monitoring HTTP server with:
 
 ```
-ndmspc-server start ngnt -m macros/builtin/mon/httpNgntMon.C
+ndmspc-server -m macros/builtin/mon/httpNgntMon.C
 ```
 
 By default, it runs on:

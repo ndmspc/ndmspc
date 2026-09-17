@@ -1,4 +1,4 @@
-#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/http/NHttpServer.h>
 
 #include <filesystem>
 #include <fstream>

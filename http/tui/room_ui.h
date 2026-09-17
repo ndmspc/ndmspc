@@ -1,5 +1,5 @@
-#ifndef Ndmspc_room_mgm_ui_H
-#define Ndmspc_room_mgm_ui_H
+#ifndef Ndmspc_room_ui_H
+#define Ndmspc_room_ui_H
 
 #include <string>
 

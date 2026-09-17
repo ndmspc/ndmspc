@@ -11,11 +11,11 @@
 
 include_directories(${CLI11_INCLUDE_DIRS})
 
-# room_mgm_ui.cxx holds the FTXUI screen; ndmspc-room-tui.cxx is the CLI, the
+# room_ui.cxx holds the FTXUI screen; ndmspc-room-tui.cxx is the CLI, the
 # headless actions and the wiring, and includes no FTXUI header itself.
 set(MY_SOURCES
   ndmspc-room-tui.cxx
-  room_mgm_ui.cxx
+  room_ui.cxx
 )
 
 set(MY_EXTERNAL_LIBS

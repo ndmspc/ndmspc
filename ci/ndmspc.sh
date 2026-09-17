@@ -36,7 +36,7 @@ cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"                \
       -G Ninja                                                          \
       ${CMAKE_BUILD_TYPE:+"-DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"}       \
       ${CXXSTD:+"-DCMAKE_CXX_STANDARD=$CXXSTD"}                         \
-      -DWITH_HTTP:bool=O \
+      -DWITH_HTTP:bool=ON \
       -DWITH_AI:bool=OFF \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 

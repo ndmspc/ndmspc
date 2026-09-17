@@ -9,8 +9,8 @@
 #include <CLI/CLI.hpp>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
-#include "ndmspc/http/NStressHistograms.h"
-#include "ndmspc/http/NGnHttpServer.h"
+#include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NRoomRouter.h"
 #include "ndmspc/http/NX509Authenticator.h"
 #include "ndmspc/http/NX509Config.h"
 
@@ -48,9 +48,9 @@ std::string app_version()
   return std::string(buf.get(), size);
 }
 
-void log_server_version(const char * mode, int port)
+void log_server_version(int port)
 {
-  NLogInfo("Starting %s server on port %d with %s", mode, port, app_version().c_str());
+  NLogInfo("Starting ndmspc http server on port %d with %s", port, app_version().c_str());
 }
 
 void handle_sigterm(int sig)
@@ -170,166 +170,80 @@ int main(int argc, char ** argv)
   auto x509Config = X509ConfigFromEnvironment();
   CLI::App app{app_description()};
   app.set_version_flag("--version", app_version(), "Print version information and exit");
-  app.require_subcommand(1); // 1 or more
   argv = app.ensure_utf8(argv);
-  app.set_help_all_flag("--help-all", "Expand all help");
 
-  CLI::App * server = app.add_subcommand("start", "Http Server");
-  // server->fallthrough();
-  // server->require_subcommand(1); // 1 or more
-  CLI::App * server_default = server->add_subcommand("default", "Default http server");
-  if (server_default == nullptr) {
-    return 1;
-  }
-  server_default->add_option("-p,--port", port, "Server port (default: 8080)");
-  server_default->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
-  AddOidcOptions(server_default, oidcConfig);
-  AddX509Options(server_default, x509Config);
-  auto server_default_fun = ([&rootApp, &port, &oidcConfig, &x509Config]() {
-    PrepareOidcConfig(oidcConfig, x509Config);
-    if (x509Config.Enabled()) {
-      NLogError("X509 mode is only supported by the 'start ngnt' subcommand");
-      exit(1);
-    }
-    Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, 10000, oidcConfig);
-    if (serv == nullptr) {
-      NLogError("Server was not created !!!");
-      exit(1);
-    }
-    EnsureServerRunning(serv, port);
-    serv->SetCors("*");
-    log_server_version("default", port);
-    // // This allows ROOT to process system signals like SIGTERM
-    // int timeout = 100;
-    // // serv->SetTimer(0, kTRUE);
-    // // press Ctrl-C to stop macro
-    // while (!gSystem->ProcessEvents()) {
-    //   // NLogDebug("Waiting for requests ...");
-    //   gSystem->Sleep(timeout);
-    // }
-
-    // gSystem->AddSignalHandler(new TSignalHandler(kSigTermination, kTRUE));
-    //
-    // // 3. Optional: Define what happens on exit
-    // std::cout << "Server started. Send SIGTERM to exit." << std::endl;
-    //
-    // // 4. Use gSystem->Run() which handles the event loop correctly
-    // // It will return when a signal is received if the handler is set to kTRUE
-    // gSystem->Run();
-    //
-    // std::cout << "Shutting down gracefully..." << std::endl;
-    // delete serv;
-    // gApplication->Terminate(0);
-
-    // NLogInfo("Starting server on port %d ...", port);
-    rootApp.Run();
-  });
-
-  server_default->callback(server_default_fun);
-  // server_default->enabled_by_default();
-  CLI::App * server_stress = server->add_subcommand("stress", "Stress http server");
-  if (server_stress == nullptr) {
-    NLogError("Problem creating serve stress subcommand");
-    return 1;
-  }
-  server_stress->add_option("-p,--port", port, "Server port (default: 8080)");
-  int fill = 1;
-  server_stress->add_option("-f,--fill", fill, "N fill (default: 1)");
-  int timeout = 100;
-  server_stress->add_option("-t,--timeout", timeout, "Publish timeout in miliseconds (default: 100)");
-  int reset = 100;
-  server_stress->add_option("-r,--reset", reset, "Reset every n events (default: 100)");
-  int seed = 0;
-  server_stress->add_option("-s,--seed", seed, "Random seed (default: 0)");
-  server_stress->add_option("-b,--batch", batch, "Batch mode without graphics (default: false)");
-  AddOidcOptions(server_stress, oidcConfig);
-  AddX509Options(server_stress, x509Config);
-  server_stress->callback([&rootApp, &port, &fill, &timeout, &reset, &seed, &batch, &oidcConfig, &x509Config]() {
-    NLogInfo("Using stress processing method.");
-    NLogInfo("Parameters: fill=%d timeout=%d reset=%d seed=%d batch=%d", fill, timeout, reset, seed, batch);
-
-    gROOT->SetBatch(batch);
-    PrepareOidcConfig(oidcConfig, x509Config);
-    if (x509Config.Enabled()) {
-      NLogError("X509 mode is only supported by the 'start ngnt' subcommand");
-      exit(1);
-    }
-    Ndmspc::NHttpServer * serv = new Ndmspc::NHttpServer(TString::Format("http:%d?top=ndmspc", port).Data(), true, 10000, oidcConfig);
-    if (serv == nullptr) {
-      NLogError("Server was not created !!!");
-      exit(1);
-    }
-    EnsureServerRunning(serv, port);
-    serv->SetCors("*");
-    log_server_version("stress", port);
-    Ndmspc::NWsHandler * ws = serv->GetWebSocketHandler();
-    // This allows ROOT to process system signals like SIGTERM
-    // gSystem->AddSignalHandler(new TSignalHandler(kSigTermination, kTRUE));
-    // when read-only mode disabled one could execute object methods like TTree::Draw()
-    serv->SetReadOnly(kFALSE);
-
-    Ndmspc::NStressHistograms sh(fill, reset, seed, batch);
-
-    // press Ctrl-C to stop macro
-    while (!gSystem->ProcessEvents()) {
-      if (!sh.HandleEvent(ws)) break;
-      gSystem->Sleep(timeout);
-    }
-    rootApp.Run();
-  });
-
-  CLI::App * server_ngnt = server->add_subcommand("ngnt", "NGnTree http server");
-  if (server_ngnt == nullptr) {
-    NLogError("Problem creating serve ngnt subcommand");
-    return 1;
-  }
-  server_ngnt->add_option("-p,--port", port, "Server port (default: 8080)");
-  // add file url option
+  app.add_option("-p,--port", port, "Server port (default: 8080)");
   std::string macroFilename;
-  server_ngnt->add_option("-m,--macro", macroFilename,
-                          "Macro path list separated by commas (default: auto-load "
-                          "$NDMSPC_DIR/macros/builtin/httpNgntBase.C,$NDMSPC_DIR/macros/builtin/httpNgnt.C)");
-  server_ngnt->add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
+  app.add_option("-m,--macro", macroFilename,
+                 "Macro path list separated by commas (default: auto-load "
+                 "$NDMSPC_DIR/macros/builtin/httpNgntBase.C,$NDMSPC_DIR/macros/builtin/httpNgnt.C)");
+  app.add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
-  server_ngnt->add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
+  app.add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
   bool noHistory = false;
-  server_ngnt->add_option("--no-history", noHistory, "Disable history in processing requests")->default_val("false");
+  app.add_option("--no-history", noHistory, "Disable history in processing requests")->default_val("false");
   int heartbeat_ms = 10000;
-  server_ngnt->add_option("--heartbeat", heartbeat_ms, "Heartbeat interval in milliseconds (default: 10000)");
+  app.add_option("--heartbeat", heartbeat_ms, "Heartbeat interval in milliseconds (default: 10000)");
   bool withMcp = true;
   if (const char * mcpEnv = std::getenv("NDMSPC_MCP"); mcpEnv != nullptr && *mcpEnv != '\0') {
     withMcp = Ndmspc::NUtils::ParseBoolEnv(mcpEnv);
   }
-  server_ngnt->add_option("--mcp", withMcp,
-                          "Expose the MCP endpoint (POST /api/mcp); enabled by default (--mcp false or "
-                          "NDMSPC_MCP=0 disables)")
+  app.add_option("--mcp", withMcp,
+                 "Expose the MCP endpoint (POST /api/mcp); enabled by default (--mcp false or "
+                 "NDMSPC_MCP=0 disables)")
       ->default_val(withMcp ? "true" : "false");
-  // Room router: off unless asked for. It adds macros/builtin/httpRoom.C, which
-  // serves /api/room/* and creates one Knative Service per room.
+  // WebSocket support: on by default, and worth turning off where no client uses the socket -
+  // the room router above all, whose clients connect to a room, never to the router itself.
+  bool withWs = true;
+  if (const char * wsEnv = std::getenv("NDMSPC_WS"); wsEnv != nullptr && *wsEnv != '\0') {
+    withWs = Ndmspc::NUtils::ParseBoolEnv(wsEnv);
+  }
+  app.add_option("--ws", withWs,
+                 "Serve the WebSocket endpoint (/ws/root.websocket); enabled by default "
+                 "(--ws false or NDMSPC_WS=0 serves no websocket at all)")
+      ->default_val(withWs ? "true" : "false");
+  // Room router: off unless asked for. It registers the framework's NRoomRouter, which serves
+  // /api/room/* and creates one Knative Service per room.
   bool withRooms = false;
   if (const char * roomsEnv = std::getenv("NDMSPC_ROOMS"); roomsEnv != nullptr && *roomsEnv != '\0') {
     withRooms = Ndmspc::NUtils::ParseBoolEnv(roomsEnv);
   }
-  server_ngnt->add_option("--rooms", withRooms,
-                          "Also load the room router macro (macros/builtin/httpRoom.C), serving "
-                          "/api/room/* and creating one Knative Service per room; disabled by default "
-                          "(--rooms true or NDMSPC_ROOMS=1). Kubernetes only: the server exits when "
-                          "KUBERNETES_SERVICE_HOST is unset")
+  app.add_option("--rooms", withRooms,
+                 "Also serve the room router (NRoomRouter): /api/room/*, one Knative Service "
+                 "per room, and the room websocket policy; disabled by default (--rooms true "
+                 "or NDMSPC_ROOMS=1). Kubernetes only: the server exits at startup when "
+                 "KUBERNETES_SERVICE_HOST is unset")
       ->default_val(withRooms ? "true" : "false");
-  AddOidcOptions(server_ngnt, oidcConfig);
-  AddX509Options(server_ngnt, x509Config);
+  AddOidcOptions(&app, oidcConfig);
+  AddX509Options(&app, x509Config);
 
-  server_ngnt->callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp, &withRooms, &oidcConfig, &x509Config]() {
+  app.callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp,
+                &withRooms, &withWs, &oidcConfig, &x509Config]() {
     gROOT->SetBatch(batch);
     PrepareOidcConfig(oidcConfig, x509Config);
 
-    Ndmspc::NGnHttpServer * serv =
-        new Ndmspc::NGnHttpServer("", true, heartbeat_ms, oidcConfig, false);
+    // Rooms need the in-cluster API: refuse before the server is built and the macros are loaded,
+    // so --rooms outside Kubernetes fails at startup with a clear error instead of later - or not
+    // at all, should the startup fail for another reason first. A process that refuses to start must
+    // say why, so this goes out even when console logging is turned off (NDMSPC_LOG_CONSOLE).
+    if (withRooms) {
+      std::string reason;
+      if (!Ndmspc::NRoomRouter::KubernetesAvailable(&reason)) {
+        NLogForce("[ERROR] [room] %s", reason.c_str());
+        exit(1);
+      }
+    }
+
+    Ndmspc::NHttpServer * serv =
+        new Ndmspc::NHttpServer("", withWs, heartbeat_ms, oidcConfig, false);
+    if (!withWs) {
+      NLogInfo("WebSocket support is disabled (--ws false): there is no /ws/root.websocket endpoint");
+    }
     if (serv == nullptr) {
       NLogError("Server was not created !!!");
       exit(1);
     }
-    log_server_version("ngnt", port);
+    log_server_version(port);
 
     serv->SetUseHistory(!noHistory);
     serv->SetMcpEnabled(withMcp);
@@ -370,18 +284,10 @@ int main(int argc, char ** argv)
       }
     }
 
-    if (withRooms) {
-      const std::string roomMacro = ndmspcMacrosDir + "/macros/builtin/httpRoom.C";
-      if (macroFilename.find(roomMacro) == std::string::npos) {
-        macroFilename += "," + roomMacro;
-        NLogInfo("Rooms enabled: loading '%s'", roomMacro.c_str());
-      }
-    }
-
     NLogInfo("NDMSPC server heartbeat: %d ms", heartbeat_ms);
 
     // Your local map
-    std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+    std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
     // Set the global pointer to your local map
     Ndmspc::gNdmspcHttpHandlers = &handlers;
     // MCP tool metadata declared by the macros (descriptions, allowed verbs, ...)
@@ -402,6 +308,17 @@ int main(int argc, char ** argv)
     }
 
     NLogInfo("%zu macro(s) executed.", macros.size());
+
+    if (withRooms) {
+      // The room router is framework code (NRoomRouter), not a macro: register its actions before
+      // the handler map is handed to the server, so nothing races with the engine start below.
+      if (!Ndmspc::NRoomRouter::Instance().Register(serv)) exit(1); // it logged why
+      const Ndmspc::NRoomConfig roomCfg = Ndmspc::NRoomConfig::FromEnv();
+      NLogInfo("Rooms enabled: serving /api/room/* from the room router in namespace '%s' "
+               "(one Knative Service per room, named '%s<id>')",
+               roomCfg.ns.c_str(), roomCfg.prefix.c_str());
+    }
+
     serv->SetHttpHandlers(handlers);
 
     // All handlers are registered now: start the HTTP engine. Nothing has been
@@ -461,10 +378,6 @@ int main(int argc, char ** argv)
 
   try {
     app.parse(argc, argv);
-    if (server->parsed() && !server_default->parsed() && !server_stress->parsed()) {
-      // start default if no subcommand given
-      server_default_fun();
-    }
   }
   catch (const CLI::ParseError & e) {
     return app.exit(e);

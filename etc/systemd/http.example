@@ -1,0 +1,6 @@
+# Example second instance. The name after '@' is only a label: the port and any extra
+# options come from this file. To add another server on a different port:
+#   cp /etc/ndmspc/http.example /etc/ndmspc/http.8081
+#   systemctl enable --now ndmspc-http@8081
+PORT=8081
+# NDMSPC_HTTP_OPTS=""

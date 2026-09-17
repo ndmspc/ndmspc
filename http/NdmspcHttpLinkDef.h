@@ -4,14 +4,11 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class Ndmspc::NCloudEvent + ;
 #pragma link C++ class Ndmspc::NHttpServer + ;
 #pragma link C++ class Ndmspc::NWsHandler + ;
-#pragma link C++ class Ndmspc::NStressHistograms + ;
 
-#pragma link C++ class Ndmspc::NGnHistoryEntry + ;
-#pragma link C++ class Ndmspc::NGnWorkspace + ;
-#pragma link C++ class Ndmspc::NGnHttpServer + ;
+#pragma link C++ class Ndmspc::NHistoryEntry + ;
+#pragma link C++ class Ndmspc::NWorkspace + ;
 
 #pragma link C++ class Ndmspc::NHttpRequest + ;
 #pragma link C++ struct Ndmspc::NHttpResponse + ;

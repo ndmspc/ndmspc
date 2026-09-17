@@ -23,7 +23,6 @@ The foundation layer providing essential utilities:
 
 - **NHttpRequest** - HTTP request handling
 - **NWsClient** / **NWsClientInfo** - WebSocket client functionality
-- **NCloudEvent** - Cloud events support for distributed systems
 - **NLogger** - Logging infrastructure
 - **NUtils** - General utility functions
 
@@ -63,11 +62,47 @@ High-Energy Physics specific analysis tools:
 
 ### 4. HTTP Module (`http/`)
 
-Web-based interface and visualization:
+Web-based interface and visualization. The sources are grouped by feature:
 
-- **NHttpServer** - HTTP server implementation
+```
+http/
+  auth/       OIDC (Keycloak) and X509 client-certificate authentication, token clients
+  room/       the room router and its client: NRoomRouter, NRoomClient, NRoomSession
+  mcp/        the MCP endpoint: NMcpServer
+  ngnt/       the ngnt server pieces: NWorkspace, NHistoryEntry, NRouteContext,
+              NSchemaBuilder
+  server/     the HTTP/WebSocket layer: NHttpServer (engine, workspace, handler map, MCP,
+              rooms), NHttpRequest, NWsHandler, NWsClient, NWsClientInfo
+  cli/        the executables: ndmspc-server, ndmspc-mcp, ndmspc-ws-client
+  tui/        the room TUI: ndmspc-room-tui
+  examples/   runnable examples (room, mcp, x509-mtls)
+```
+
+The directories are a source layout only: every header still installs flat into `include/ndmspc/http/`,
+so a file in `http/room/` is included exactly as before (`#include "ndmspc/http/NRoomRouter.h"`) and no
+macro or out-of-tree consumer has to change. See `http/README.md` for the mechanism.
+
+- **NHttpServer** - the HTTP/WebSocket server: engine, workspace and history, the macro handler map, MCP and the room session
 - **NWsHandler** - WebSocket handler for real-time updates
-- **NStressHistograms** - Performance testing for histogram operations
+- **NRoomRouter** - the room router: one Knative Service and HTTPRoute per room, on demand
+
+#### Room router (`NRoomRouter`)
+
+`ndmspc-server --rooms true` (or `NDMSPC_ROOMS=1`) turns a server into the always-on
+entry Service of an NDMSPC deployment on Knative, serving `/api/room/*` (and the same actions as MCP
+tools). It creates one Knative Service per room on demand plus an HTTPRoute matching `?room=<id>`
+aimed at that room's revision, so steady-state traffic goes gateway → room and never touches the
+router again. Creating a room is slow (a revision has to become ready), so `room/open` can answer at
+once with `state=preparing` and leave the work to a background thread that reports its progress on
+the room's registry entry; a server without the flag never touches any of this.
+
+Unlike the macro handlers (which are user content and stay macros), this is a compiled framework
+capability, like the MCP part: every rule and the whole room lifecycle are code, exercised by
+`test/test_NRoomRouter.cxx`. The state it keeps — the rooms it tracks, the configuration and the
+Kubernetes access — lives in the object, and the cluster is reached through `IRoomCluster`, one seam
+that a test can stand in for with an in-memory cluster. Everything above it (the Service and
+HTTPRoute objects, the 404-then-POST apply, the waiting, the "no capacity" verdict, adoption, the
+websocket policy) is the router's own logic and is tested through the actions themselves.
 
 ## Key Features
 

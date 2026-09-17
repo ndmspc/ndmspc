@@ -8,8 +8,8 @@
 
 namespace Ndmspc {
 
-class NGnHttpServer;
-struct NMcpToolInfo; ///< defined in NGnHttpServer.h (handler + MCP registration API)
+class NHttpServer;
+struct NMcpToolInfo; ///< defined in NHttpServer.h (handler + MCP registration API)
 
 ///
 /// \class NMcpServer
@@ -17,8 +17,8 @@ struct NMcpToolInfo; ///< defined in NGnHttpServer.h (handler + MCP registration
 ///        (MCP) tools.
 ///
 /// The server is stateless: it translates JSON-RPC 2.0 requests into calls against
-/// an in-process NGnHttpServer. Each `tools/call` is routed through
-/// NGnHttpServer::ProcessRequest (the same path used by the HTTP API and the
+/// an in-process NHttpServer. Each `tools/call` is routed through
+/// NHttpServer::ProcessRequest (the same path used by the HTTP API and the
 /// WebSocket bridge), so history, the workspace merge, the WebSocket broadcast and
 /// the authentication gate all behave exactly as they do for UI clients.
 ///
@@ -42,13 +42,13 @@ class NMcpServer {
    * @brief Constructor with default options.
    * @param server Server whose handlers are exposed as MCP tools.
    */
-  explicit NMcpServer(NGnHttpServer * server);
+  explicit NMcpServer(NHttpServer * server);
   /**
    * @brief Constructor.
    * @param server Server whose handlers are exposed as MCP tools.
    * @param opts MCP server options.
    */
-  explicit NMcpServer(NGnHttpServer * server, Options opts);
+  explicit NMcpServer(NHttpServer * server, Options opts);
 
   /// @brief Handle one JSON-RPC message.
   /// @return The JSON-RPC response, or a null json for notifications (no `id`).
@@ -89,7 +89,7 @@ class NMcpServer {
    */
   const NMcpToolInfo * LookupToolInfo(const std::string & handlerKey) const;
 
-  NGnHttpServer * fServer{nullptr}; ///< Server whose handlers are exposed
+  NHttpServer * fServer{nullptr}; ///< Server whose handlers are exposed
   Options         fOpts;            ///< MCP server options
 };
 

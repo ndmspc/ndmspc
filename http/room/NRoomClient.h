@@ -23,6 +23,14 @@ struct NRoomInfo {
   bool        ready{false};    ///< Knative Service Ready condition
   int         replicas{0};     ///< Running pods of the latest revision (0 when the room is idle)
   bool        active{false};   ///< replicas > 0
+
+  /// The router's own view of the room: "preparing", "ready", "not ready" or "failed".
+  std::string state;
+  bool        preparing{false}; ///< Its creation is still running (state is "preparing")
+  std::string phase;            ///< Where that creation is: service, ready, route, restore
+  std::string error;            ///< Why its creation failed ("" when it did not)
+  std::string code;             ///< Stable reason behind `error`, e.g. "no_capacity" ("" when unknown)
+  long        startedAt{0};     ///< Epoch seconds its creation started, for the elapsed time
 };
 
 /**
@@ -113,7 +121,7 @@ class NRoomHttpClientImpl : public IRoomHttpClient {
  * @brief Drives the room router through its MCP endpoint (POST {url}/api/mcp).
  *
  * The router is the ngnt server with the room macro loaded
- * (macros/builtin/httpRoom.C). Its four room actions are exposed as the MCP tools
+ * (Ndmspc::NRoomRouter). Its four room actions are exposed as the MCP tools
  * `room_list`, `room_open`, `room_status` and `room_close`, which dispatch to the
  * same handlers as the /api/room routes. Going through MCP tools/call keeps every room
  * operation on one interface instead of a second, REST-shaped one.
@@ -159,17 +167,26 @@ class NRoomClient {
   /**
    * @brief Ensure a room exists, creating its Knative Service when it does not.
    *
-   * The router blocks until the room's revision is ready, which can take tens of
-   * seconds (NDMSPC_ROOM_READY_TIMEOUT, 45s by default), so callers must not run
-   * this on a UI thread.
+   * With `wait` the router returns only once the room is ready, which can take tens of seconds
+   * (NDMSPC_ROOM_READY_TIMEOUT, 45s by default) and - because the router serves one request at a
+   * time - keeps every other caller waiting too. Without it the router registers the room and
+   * answers at once with `state` = "preparing", leaving the creation to a background thread; the
+   * caller then follows it with Status() until the state stops being "preparing".
    *
    * @param roomId Room id (any client-chosen string).
-   * @return The action result; payload holds room, name, revision, param, url and ttl.
+   * @param wait Whether to wait for the room to be ready before answering.
+   * @return The action result; payload holds room, name, revision, param, url, ttl and state
+   *         (plus phase when it is still preparing, or error when it failed).
    */
-  NRoomResult Open(const std::string & roomId);
+  NRoomResult Open(const std::string & roomId, bool wait = true);
 
   /**
    * @brief Report one room's state.
+   *
+   * This is also how a client follows a room that is being prepared: while `state` is
+   * "preparing" the payload carries `phase` and `startedAt`, and it ends as "ready",
+   * "not ready" or "failed" (with `error`).
+   *
    * @param roomId Room id.
    * @return The action result; payload holds room, name, param, tracked, revision,
    *         lastSeen, exists and ready.

@@ -8,12 +8,12 @@
 namespace Ndmspc {
 
 ///
-/// \class NGnSchemaBuilder
+/// \class NSchemaBuilder
 /// \brief Fluent builder for JSON Schema objects used in workspace definitions.
 ///
 /// Example:
 /// \code
-///   auto schema = NGnSchemaBuilder()
+///   auto schema = NSchemaBuilder()
 ///     .Hint("Axes: [0] pt  [1] eta")
 ///     .String("file").Default("data.root")
 ///     .Number("margin").Default(1.0)
@@ -24,21 +24,21 @@ namespace Ndmspc {
 ///     .Build();
 /// \endcode
 ///
-class NGnSchemaBuilder {
+class NSchemaBuilder {
 
 public:
   /**
    * @brief Constructor.
    * @param type JSON Schema root type (default: "object").
    */
-  explicit NGnSchemaBuilder(const std::string & type = "object") { fSchema["type"] = type; }
+  explicit NSchemaBuilder(const std::string & type = "object") { fSchema["type"] = type; }
 
   /**
    * @brief Set the schema "hint" string.
    * @param hint Hint text shown to UI clients.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Hint(const std::string & hint)
+  NSchemaBuilder & Hint(const std::string & hint)
   {
     fSchema["hint"] = hint;
     return *this;
@@ -51,7 +51,7 @@ public:
    * @param name Property name.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & String(const std::string & name)
+  NSchemaBuilder & String(const std::string & name)
   {
     fCurrentProp                        = name;
     fSchema["properties"][name]["type"] = "string";
@@ -63,7 +63,7 @@ public:
    * @param name Property name.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Number(const std::string & name)
+  NSchemaBuilder & Number(const std::string & name)
   {
     fCurrentProp                        = name;
     fSchema["properties"][name]["type"] = "number";
@@ -75,7 +75,7 @@ public:
    * @param name Property name.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Integer(const std::string & name)
+  NSchemaBuilder & Integer(const std::string & name)
   {
     fCurrentProp                        = name;
     fSchema["properties"][name]["type"] = "integer";
@@ -87,7 +87,7 @@ public:
    * @param name Property name.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Boolean(const std::string & name)
+  NSchemaBuilder & Boolean(const std::string & name)
   {
     fCurrentProp                        = name;
     fSchema["properties"][name]["type"] = "boolean";
@@ -99,7 +99,7 @@ public:
    * @param name Property name.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Array(const std::string & name)
+  NSchemaBuilder & Array(const std::string & name)
   {
     fCurrentProp                        = name;
     fSchema["properties"][name]["type"] = "array";
@@ -112,7 +112,7 @@ public:
    * @param options Allowed values.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Select(const std::string & name, const std::vector<std::string> & options)
+  NSchemaBuilder & Select(const std::string & name, const std::vector<std::string> & options)
   {
     fCurrentProp                          = name;
     fSchema["properties"][name]["type"]   = "string";
@@ -127,7 +127,7 @@ public:
    * @param options Allowed values.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & MultiSelect(const std::string & name, const std::vector<std::string> & options)
+  NSchemaBuilder & MultiSelect(const std::string & name, const std::vector<std::string> & options)
   {
     fCurrentProp                                       = name;
     fSchema["properties"][name]["type"]                = "array";
@@ -144,7 +144,7 @@ public:
    * @param val Default value.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Default(const json & val)
+  NSchemaBuilder & Default(const json & val)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["default"] = val;
     return *this;
@@ -155,7 +155,7 @@ public:
    * @param fmt Format string.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Format(const std::string & fmt)
+  NSchemaBuilder & Format(const std::string & fmt)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["format"] = fmt;
     return *this;
@@ -166,7 +166,7 @@ public:
    * @param desc Description string.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Description(const std::string & desc)
+  NSchemaBuilder & Description(const std::string & desc)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["description"] = desc;
     return *this;
@@ -177,7 +177,7 @@ public:
    * @param values Allowed values.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Enum(const std::vector<std::string> & values)
+  NSchemaBuilder & Enum(const std::vector<std::string> & values)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["enum"] = values;
     return *this;
@@ -188,7 +188,7 @@ public:
    * @param type Item type.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & Items(const std::string & type)
+  NSchemaBuilder & Items(const std::string & type)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["items"]["type"] = type;
     return *this;
@@ -199,7 +199,7 @@ public:
    * @param type Nested item type.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & ItemItems(const std::string & type)
+  NSchemaBuilder & ItemItems(const std::string & type)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["items"]["items"]["type"] = type;
     return *this;
@@ -210,7 +210,7 @@ public:
    * @param values Allowed item values.
    * @return Reference to this builder for chaining.
    */
-  NGnSchemaBuilder & ItemsEnum(const std::vector<std::string> & values)
+  NSchemaBuilder & ItemsEnum(const std::vector<std::string> & values)
   {
     if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["items"]["enum"] = values;
     return *this;
@@ -232,7 +232,7 @@ public:
   static void SetDefault(json & schema, const std::string & prop, const json & val)
   {
     if (!schema.contains("properties") || !schema["properties"].contains(prop)) {
-      NLogWarning("NGnSchemaBuilder::SetDefault: property '%s' is not declared in the schema, ignoring default",
+      NLogWarning("NSchemaBuilder::SetDefault: property '%s' is not declared in the schema, ignoring default",
                   prop.c_str());
       return;
     }

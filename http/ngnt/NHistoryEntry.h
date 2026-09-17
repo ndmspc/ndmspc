@@ -6,21 +6,21 @@
 namespace Ndmspc {
 
 ///
-/// \class NGnHistoryEntry
+/// \class NHistoryEntry
 ///
-/// \brief NGnHistoryEntry object
+/// \brief NHistoryEntry object
 ///	\author Martin Vala <mvala@cern.ch>
 ///
 
-class NGnHistoryEntry : public TNamed {
+class NHistoryEntry : public TNamed {
   public:
   /**
    * @brief Constructor.
    * @param name Object name (default: "").
    * @param title Object title (default: "").
    */
-  NGnHistoryEntry(const char * name = "", const char * title = "");
-  virtual ~NGnHistoryEntry();
+  NHistoryEntry(const char * name = "", const char * title = "");
+  virtual ~NHistoryEntry();
 
 
   /// @brief Get the input JSON payload.
@@ -53,7 +53,7 @@ class NGnHistoryEntry : public TNamed {
   json fWorkspace; ///< Workspace schema JSON object
 
   /// \cond CLASSIMP
-  ClassDef(NGnHistoryEntry, 1);
+  ClassDef(NHistoryEntry, 1);
   /// \endcond;
 };
 } // namespace Ndmspc

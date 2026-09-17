@@ -1,34 +1,62 @@
 #include <TROOT.h>
-#include <chrono>
-#include <cstdlib>
-#include <map>
-#include <sstream>
-#include <set>
+
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
+#include <cstdlib>
+#include <map>
+#include <memory>
+#include <set>
+#include <sstream>
+#include <thread>
 #include <utility>
+
+#include <THttpCallArg.h>
+#include <THttpServer.h>
+
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
-#include "ndmspc/http/NGnHistoryEntry.h"
+#include "ndmspc/http/NHistoryEntry.h"
 #include "ndmspc/http/NHttpRequest.h"
 #include "ndmspc/http/NMcpServer.h"
 #include "ndmspc/http/NOidcHttpAuthenticator.h"
 #include "ndmspc/http/NRoomSession.h"
 #include "ndmspc/ndmspc.h"
-#include "NGnHttpServer.h"
+#include "NHttpServer.h"
 
 /// \cond CLASSIMP
-ClassImp(Ndmspc::NGnHttpServer);
+ClassImp(Ndmspc::NHttpServer);
 /// \endcond
 
 namespace Ndmspc {
-NGnHttpHandlerMap * gNdmspcHttpHandlers = nullptr;
-NMcpToolMap *       gNdmspcMcpTools     = nullptr;
-NGnHttpServer *     gNGnHttpServer      = nullptr;
-NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcConfig oidcConfig, bool startEngine)
-    : NHttpServer(engine, ws, heartbeat_ms, std::move(oidcConfig), startEngine)
+
+NHttpHandlerMap *    gNdmspcHttpHandlers   = nullptr;
+NMcpToolMap *          gNdmspcMcpTools       = nullptr;
+NHttpServer *          gNHttpServer        = nullptr;
+NdmspcWsConnectFilter  gNdmspcWsConnectFilter = nullptr;
+
+NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcConfig oidcConfig, bool startEngine)
+    : THttpServer(startEngine ? engine : ""), fWsEnabled(ws), fHeartbeatMs(heartbeat_ms), fHeartbeatThread(nullptr)
 {
-  Ndmspc::gNGnHttpServer = this;
+  const auto authenticationTimeout = oidcConfig.authenticationTimeout;
+  fAuthenticationTimeout = authenticationTimeout;
+
+  // Build the shared OIDC token verifier once. The same verifier guards both
+  // the WebSocket connections and the plain HTTP /api requests. When no OIDC
+  // issuer/audience is configured the server stays in anonymous mode.
+  if (oidcConfig.Enabled()) {
+    auto authenticator = std::make_shared<NKeycloakOidcAuthenticator>(std::move(oidcConfig));
+    authenticator->Initialize();
+    fOidcVerifier = std::move(authenticator);
+  }
+
+  if (startEngine) {
+    // THttpServer(engine) above already created the engine; finish the
+    // WebSocket setup and heartbeat now.
+    SetupWebSocketAndHeartbeat();
+  }
+  Ndmspc::gNHttpServer = this;
   fWorkspace.SetServer(this);
 
   // Inside a room the router says which room this is and where to report its session, so
@@ -46,28 +74,124 @@ NGnHttpServer::NGnHttpServer(const char * engine, bool ws, int heartbeat_ms, NOi
   }
 }
 
-void NGnHttpServer::SetHttpHandlers(std::map<std::string, NGnHttpFuncPtr> handlers)
+bool NHttpServer::StartEngine(const char * engine)
+{
+  // Idempotent: nothing to do when an engine is already running.
+  if (fEngineStarted || IsAnyEngine()) {
+    fEngineStarted = true;
+    SetupWebSocketAndHeartbeat();
+    return IsAnyEngine();
+  }
+  if (!engine || !*engine) return false;
+
+  // Create the engine (starts civetweb listening). When the engine fails to
+  // bind (e.g. port in use) no engine is added and IsAnyEngine() is false.
+  if (!CreateEngine(engine)) return false;
+  fEngineStarted = true;
+  SetupWebSocketAndHeartbeat();
+  return IsAnyEngine();
+}
+
+void NHttpServer::SetupWebSocketAndHeartbeat()
+{
+  if (fWsEnabled && !fNWsHandler) {
+    fNWsHandler = new NWsHandler("ws", "ws", fOidcVerifier, fAuthenticationTimeout);
+    Register("/", fNWsHandler);
+  }
+  if (fHeartbeatMs > 0 && fNWsHandler && !fHeartbeatThread) StartHeartbeatThread();
+}
+
+void NHttpServer::SetHeartbeatMs(int ms)
+{
+  std::lock_guard<std::mutex> lk(fHeartbeatMutex);
+  fHeartbeatMs = ms;
+  // restart thread according to new interval
+  StopHeartbeatThread();
+  if (fNWsHandler && fHeartbeatMs > 0) StartHeartbeatThread();
+}
+
+NHttpServer::~NHttpServer()
+{
+  StopHeartbeatThread();
+}
+
+void NHttpServer::StartHeartbeatThread()
+{
+  if (fHeartbeatThread || fHeartbeatMs <= 0) return;
+  fHeartbeatRunning.store(true);
+  fHeartbeatThread = new std::thread([this]() {
+    std::unique_lock<std::mutex> lk(fHeartbeatCvMutex);
+    while (fHeartbeatRunning.load()) {
+      // wait_for returns when notified or when timeout elapses
+      auto dur = std::chrono::milliseconds(fHeartbeatMs);
+      // release fHeartbeatCvMutex while waiting but will reacquire on wake
+      fHeartbeatCv.wait_for(lk, dur, [this]() { return !fHeartbeatRunning.load(); });
+      if (!fHeartbeatRunning.load()) break;
+      try {
+        // Delegate to NWsHandler's timer handler so it updates snapshots (file/net) and broadcasts
+        if (fNWsHandler) {
+          fNWsHandler->HandleTimer(nullptr);
+        } else {
+          // fallback: simple heartbeat
+          json data = json::object();
+          data["event"] = "heartbeat";
+          json payload = json::object();
+          payload["count"] = ++fServCnt;
+          payload["clients"] = 0;
+          data["payload"] = payload;
+          WebSocketBroadcast(data);
+        }
+      } catch (...) {
+        // swallow errors to keep thread alive
+      }
+    }
+  });
+}
+
+void NHttpServer::StopHeartbeatThread()
+{
+  if (!fHeartbeatThread) return;
+  fHeartbeatRunning.store(false);
+  // Wake up the sleeping heartbeat thread immediately
+  fHeartbeatCv.notify_all();
+  if (fHeartbeatThread->joinable()) fHeartbeatThread->join();
+  delete fHeartbeatThread;
+  fHeartbeatThread = nullptr;
+}
+
+bool NHttpServer::WebSocketBroadcast(json message)
+{
+  NLogTrace("Broadcasting message to all clients.");
+  if (fNWsHandler) {
+    std::string msgStr = message.dump();
+    fNWsHandler->BroadcastUnsafe(msgStr);
+    return true;
+  }
+  return false;
+}
+
+void NHttpServer::SetHttpHandlers(std::map<std::string, NHttpFuncPtr> handlers)
 {
   std::lock_guard<std::mutex> lock(fHandlersMutex);
   fHttpHandlers = std::move(handlers);
 }
 
-std::map<std::string, NGnHttpFuncPtr> NGnHttpServer::GetHttpHandlers() const
+std::map<std::string, NHttpFuncPtr> NHttpServer::GetHttpHandlers() const
 {
   std::lock_guard<std::mutex> lock(fHandlersMutex);
   return fHttpHandlers;
 }
 
-NGnHttpFuncPtr NGnHttpServer::FindHttpHandler(const std::string & name) const
+NHttpFuncPtr NHttpServer::FindHttpHandler(const std::string & name) const
 {
   std::lock_guard<std::mutex> lock(fHandlersMutex);
   const auto it = fHttpHandlers.find(name);
   return it != fHttpHandlers.end() ? it->second : nullptr;
 }
 
-void NGnHttpServer::Print(Option_t * option) const
+void NHttpServer::Print(Option_t * option) const
 {
-  NHttpServer::Print(option);
+  THttpServer::Print(option);
   // print HTTP handlers
   // NLogInfo("HTTP Handlers:");
   // for (const auto & handler : fHttpHandlers) {
@@ -83,7 +207,7 @@ void NGnHttpServer::Print(Option_t * option) const
 }
 
 // ---------------------------------------------------------------------------
-//  Room session (see macros/builtin/httpRoom.C)
+//  Room session (see Ndmspc::NRoomRouter)
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -120,7 +244,7 @@ json JsonMember(const json & object, const char * key)
 }
 } // namespace
 
-json NGnHttpServer::RoomSessionSnapshot()
+json NHttpServer::RoomSessionSnapshot()
 {
   // A session is exactly what the ngnt/open and ngnt/reshape POSTs recorded plus the
   // drill-down point, and the workspace already tracks all of it.
@@ -147,7 +271,7 @@ json NGnHttpServer::RoomSessionSnapshot()
   return NRoomSession::Build(fRoomId, file, history, point);
 }
 
-void NGnHttpServer::RoomSessionPush()
+void NHttpServer::RoomSessionPush()
 {
   if (fRoomId.empty() || fRoomStateUrl.empty()) return;
 
@@ -202,7 +326,7 @@ void NGnHttpServer::RoomSessionPush()
   }).detach();
 }
 
-void NGnHttpServer::RoomSessionRestoreOnce()
+void NHttpServer::RoomSessionRestoreOnce()
 {
   if (fRoomId.empty() || fRoomStateUrl.empty()) return;
 
@@ -337,17 +461,17 @@ void NGnHttpServer::RoomSessionRestoreOnce()
   release(false);
 }
 
-void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
+void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {
 
-  // NLogInfo("NGnHttpServer::ProcessRequest");
+  // NLogInfo("NHttpServer::ProcessRequest");
 
   TString method   = arg->GetMethod();
   TString path     = arg->GetPathName();
   TString filename = arg->GetFileName();
   // if (arg->GetRequestHeader("Content-Type").CompareTo("application/json")) {
   //   // NLogWarning("Unsupported Content-Type: %s", arg->GetRequestHeader("Content-Type").Data());
-  //   NHttpServer::ProcessRequest(arg);
+  //   THttpServer::ProcessRequest(arg);
   //   return;
   // }
 
@@ -368,7 +492,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
   if (!(fullpath.BeginsWith("/api/"))) {
     NLogTrace("Using base http server for path: %s", fullpath.Data());
-    NHttpServer::ProcessRequest(arg);
+    THttpServer::ProcessRequest(arg);
     return;
   }
 
@@ -396,7 +520,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   if (fullpath.IsNull()) {
 
     out["result"]  = "success";
-    out["message"] = "Welcome to NGnHttpServer API";
+    out["message"] = "Welcome to NHttpServer API";
     // out["ws"]["path"] = "ws/root.websocket";
 
     out["state"]["history"]   = GetJson();
@@ -503,21 +627,21 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       openapi["openapi"] = "3.0.0";
       openapi["info"]["title"] = std::string("NGn Inspector for ") + GetName();
       openapi["info"]["version"] = "1.0.0";
-      // Put the inspector schema under components.schemas.NGn_Workspace
+      // Put the inspector schema under components.schemas.N_Workspace
       json inspectorSchema = GetInspectorSchema();
       // If inspector contains properties, use that as the schema, otherwise include whole inspector
       if (!inspectorSchema["inspector"]["properties"].is_null()) {
-        openapi["components"]["schemas"]["NGn_Workspace"] = inspectorSchema["inspector"]["properties"];
+        openapi["components"]["schemas"]["N_Workspace"] = inspectorSchema["inspector"]["properties"];
       }
       else {
-        openapi["components"]["schemas"]["NGn_Workspace"] = inspectorSchema;
+        openapi["components"]["schemas"]["N_Workspace"] = inspectorSchema;
       }
       out = openapi;
     }
     else {
       // Resolve the registered handler without inserting (a request-time
       // insertion would mutate the map and race with concurrent lookups).
-      const Ndmspc::NGnHttpFuncPtr handlerFn = FindHttpHandler(fullpath.Data());
+      const Ndmspc::NHttpFuncPtr handlerFn = FindHttpHandler(fullpath.Data());
       if (handlerFn == nullptr) {
         NLogError("Unsupported action: %s", fullpath.Data());
         arg->SetContentType("application/json");
@@ -538,11 +662,11 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
     // fObjectsMap["_httpServer"] = this;
 
-    NGnHistoryEntry * historyEntry = nullptr;
+    NHistoryEntry * historyEntry = nullptr;
     if (fUseHistory) {
       if (!method.CompareTo("POST")) {
         NLogTrace("Adding history entry for path: %s", fullpath.Data());
-        historyEntry = new NGnHistoryEntry(fullpath.Data(), method.Data());
+        historyEntry = new NHistoryEntry(fullpath.Data(), method.Data());
         historyEntry->SetPayloadIn(in);
         NLogTrace("History entry created for path: %s with payload: %s", fullpath.Data(), in.dump().c_str());
         fWorkspace.AddEntry(historyEntry);
@@ -628,7 +752,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 
       // loop over keys in wsOut["workspace"] and add them to workspace, overwriting existing ones if necessary
       if (!wsOut["workspace"].is_null()) {
-        // Build workspace with order of keys same as in NGnHistoryEntry
+        // Build workspace with order of keys same as in NHistoryEntry
         json workspace;
         for (const auto & entry : fWorkspace.GetEntries()) {
           // History entries use full path (e.g. "ngnt/open"), but workspace uses short keys ("open")
@@ -707,7 +831,7 @@ void NGnHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   // arg->SetContentType("text/plain");
 }
 
-TObject * NGnHttpServer::GetInputObject(const std::string & name)
+TObject * NHttpServer::GetInputObject(const std::string & name)
 {
   if (fObjectsMap.find(name) != fObjectsMap.end()) {
     return fObjectsMap[name];
@@ -715,29 +839,29 @@ TObject * NGnHttpServer::GetInputObject(const std::string & name)
   return nullptr;
 }
 
-void NGnHttpServer::ResetServer()
+void NHttpServer::ResetServer()
 {
   ///
   /// Clear workspace history first so DELETE handlers can still access input
   /// objects, then remove any remaining objects that weren't cleaned up by
   /// the handlers.
   ///
-  NLogInfo("NGnHttpServer::ResetServer: Clearing history ...");
+  NLogInfo("NHttpServer::ResetServer: Clearing history ...");
   ClearHistory();
-  NLogInfo("NGnHttpServer::ResetServer: Removing remaining input objects ...");
+  NLogInfo("NHttpServer::ResetServer: Removing remaining input objects ...");
   std::vector<std::string> keys;
   keys.reserve(fObjectsMap.size());
   for (const auto & pair : fObjectsMap) {
     keys.push_back(pair.first);
   }
   for (const auto & key : keys) {
-    NLogInfo("NGnHttpServer::ResetServer: Removing input object '%s'", key.c_str());
+    NLogInfo("NHttpServer::ResetServer: Removing input object '%s'", key.c_str());
     RemoveInputObject(key);
   }
-  NLogInfo("NGnHttpServer::ResetServer: Done.");
+  NLogInfo("NHttpServer::ResetServer: Done.");
 }
 
-bool NGnHttpServer::RemoveInputObject(const std::string & name)
+bool NHttpServer::RemoveInputObject(const std::string & name)
 {
   if (fObjectsMap.find(name) != fObjectsMap.end()) {
     TObject * obj = fObjectsMap[name];
@@ -752,7 +876,7 @@ bool NGnHttpServer::RemoveInputObject(const std::string & name)
   return !stillExists;
 }
 // For compatibility, provide GetJson and Export/Load wrappers
-json NGnHttpServer::GetJson() const
+json NHttpServer::GetJson() const
 {
   json historyJson = json::array();
 

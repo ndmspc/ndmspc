@@ -9,7 +9,7 @@
 
 #include <THttpCallArg.h>
 
-#include "ndmspc/http/NGnHttpServer.h"
+#include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/ndmspc.h"
 
 namespace Ndmspc {
@@ -43,9 +43,9 @@ json ErrorResponse(const json & id, int code, const std::string & message)
 
 } // namespace
 
-NMcpServer::NMcpServer(NGnHttpServer * server) : NMcpServer(server, Options{}) {}
+NMcpServer::NMcpServer(NHttpServer * server) : NMcpServer(server, Options{}) {}
 
-NMcpServer::NMcpServer(NGnHttpServer * server, Options opts) : fServer(server), fOpts(std::move(opts))
+NMcpServer::NMcpServer(NHttpServer * server, Options opts) : fServer(server), fOpts(std::move(opts))
 {
   if (fOpts.serverVersion.empty()) {
     fOpts.serverVersion = std::string(NDMSPC_VERSION) + "-" + NDMSPC_VERSION_RELEASE;

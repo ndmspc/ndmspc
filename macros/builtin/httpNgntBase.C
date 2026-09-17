@@ -3,7 +3,7 @@
 #include <TBufferJSON.h>
 #include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NGnNavigator.h>
-#include <ndmspc/http/NGnHttpServer.h>
+#include <ndmspc/http/NHttpServer.h>
 #include <ndmspc/core/NParameters.h>
 
 void httpNgntBase()
@@ -29,7 +29,7 @@ void httpNgntBase()
   // Store lambdas (must be non-capturing to convert to function pointer)
   handlers["health"] = [](std::string method, json & /*httpIn*/, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
-    auto server = Ndmspc::gNGnHttpServer;
+    auto server = Ndmspc::gNHttpServer;
 
     if (method.find("GET") != std::string::npos) {
       server->Print();
@@ -58,7 +58,7 @@ void httpNgntBase()
   // Store lambdas (must be non-capturing to convert to function pointer)
   handlers["debug"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
-    auto server = Ndmspc::gNGnHttpServer;
+    auto server = Ndmspc::gNHttpServer;
 
     NLogInfo("/debug method=%s in=%s", method.c_str(), httpIn.dump().c_str());
     httpOut["httpIn"] = httpIn;
@@ -86,7 +86,7 @@ void httpNgntBase()
 
   handlers["state"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> & inputs) {
-    auto server = Ndmspc::gNGnHttpServer;
+    auto server = Ndmspc::gNHttpServer;
 
     if (method.find("GET") != std::string::npos) {
       // Return current server workspaces and state, and inspector entries

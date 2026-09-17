@@ -6,7 +6,7 @@ Protocol** and drives them over both supported transports:
 - **stdio** — `ndmspc-mcp`, a self-contained process an MCP client spawns. It embeds the
   server machinery (no network listener), loads the built-in macros and serves JSON-RPC
   2.0 on stdin/stdout.
-- **Streamable HTTP** — `POST /api/mcp` on the running `ndmspc-server start ngnt`
+- **Streamable HTTP** — `POST /api/mcp` on the running `ndmspc-server`
   (on by default; disable with `--mcp false`). It shares the live session (opened `NGnTree`,
   navigator, workspace and state point) with the browser UI.
 
@@ -14,7 +14,7 @@ Protocol** and drives them over both supported transports:
 
 | File | Purpose |
 |---|---|
-| `run-server.sh` | Starts `ndmspc-server start ngnt --mcp true` (MCP endpoint enabled). |
+| `run-server.sh` | Starts `ndmspc-server --mcp true` (MCP endpoint enabled). |
 | `run-curl.sh` | Drives `POST /api/mcp` with curl: `initialize`, `tools/list`, `tools/call`. |
 | `run-demo.sh` | End-to-end check of both transports: stdio responses on stdout, HTTP responses on a live server; prints `RESULT: PASS`. |
 | `mcp.json` | Sample MCP client configuration for both transports. |

@@ -8,12 +8,12 @@
 #include <THttpCallArg.h>
 
 #include "ndmspc/http/NMcpServer.h"
-#include "ndmspc/http/NGnHttpServer.h"
-#include "ndmspc/http/NGnSchemaBuilder.h"
+#include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NSchemaBuilder.h"
 
 namespace {
 
-// Non-capturing free functions so they convert to Ndmspc::NGnHttpFuncPtr.
+// Non-capturing free functions so they convert to Ndmspc::NHttpFuncPtr.
 void EchoHandler(std::string method, json & in, json & out, json & /*wsOut*/,
                  std::map<std::string, TObject *> & /*objects*/)
 {
@@ -28,9 +28,9 @@ void FailingHandler(std::string /*method*/, json & /*in*/, json & out, json & /*
   out["error"] = "boom";
 }
 
-Ndmspc::NGnHttpServer * MakeServer(std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers = {})
+Ndmspc::NHttpServer * MakeServer(std::map<std::string, Ndmspc::NHttpFuncPtr> handlers = {})
 {
-  auto * serv = new Ndmspc::NGnHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  auto * serv = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
   serv->SetHttpHandlers(std::move(handlers));
   Ndmspc::gNdmspcMcpTools = nullptr; // isolate tests from any metadata registry
   return serv;
@@ -68,7 +68,7 @@ TEST(NMcpServerTest, InitializeReturnsCapabilitiesAndServerInfo)
 
 TEST(NMcpServerTest, ToolsListMirrorsRegisteredHandlersAndSkipsExcluded)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"]    = EchoHandler;
   handlers["ngnt/reshape"] = EchoHandler;
   handlers["debug"]        = EchoHandler;
@@ -88,11 +88,11 @@ TEST(NMcpServerTest, ToolsListMirrorsRegisteredHandlersAndSkipsExcluded)
 
 TEST(NMcpServerTest, ToolsListUsesInspectorSchemaAndAddsMethod)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
-  serv->GetWorkspace()["open"] = Ndmspc::NGnSchemaBuilder().String("file").Default("test.root").Build();
+  serv->GetWorkspace()["open"] = Ndmspc::NSchemaBuilder().String("file").Default("test.root").Build();
 
   Ndmspc::NMcpServer mcp(serv);
   json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", json::object()}});
@@ -109,7 +109,7 @@ TEST(NMcpServerTest, ToolsListUsesInspectorSchemaAndAddsMethod)
 
 TEST(NMcpServerTest, ToolsCallRoutesThroughServerAndEchoesArguments)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
@@ -131,7 +131,7 @@ TEST(NMcpServerTest, ToolsCallRoutesThroughServerAndEchoesArguments)
 
 TEST(NMcpServerTest, ToolsCallHonoursMethodArgument)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
@@ -150,7 +150,7 @@ TEST(NMcpServerTest, ToolsCallHonoursMethodArgument)
 
 TEST(NMcpServerTest, FailingToolSetsIsError)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = FailingHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
@@ -220,7 +220,7 @@ TEST(NMcpServerTest, NotificationsProduceNoResponse)
 
 TEST(NMcpServerTest, MetadataFromRegistryDrivesToolFields)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
@@ -251,7 +251,7 @@ TEST(NMcpServerTest, MetadataFromRegistryDrivesToolFields)
 
 TEST(NMcpServerTest, HiddenActionIsNotListedNorCallable)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
@@ -274,7 +274,7 @@ TEST(NMcpServerTest, HiddenActionIsNotListedNorCallable)
 
 TEST(NMcpServerTest, GenericDescriptionFallbackWithoutMetadata)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
@@ -335,7 +335,7 @@ TEST(NMcpServerTest, EnabledMcpEndpointAnswersRequests)
 // undeclared parameters; otherwise clients prune them (e.g. 'file' for ngnt/open).
 TEST(NMcpServerTest, InputSchemaAllowsUndeclaredArgumentsWhenNoInspectorSchema)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
@@ -350,7 +350,7 @@ TEST(NMcpServerTest, InputSchemaAllowsUndeclaredArgumentsWhenNoInspectorSchema)
 
 TEST(NMcpServerTest, MacroInputSchemaPropertiesAreMerged)
 {
-  std::map<std::string, Ndmspc::NGnHttpFuncPtr> handlers;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   handlers["ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));

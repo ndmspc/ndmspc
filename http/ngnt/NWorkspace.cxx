@@ -1,5 +1,5 @@
-#include "NGnWorkspace.h"
-#include "NGnHttpServer.h"
+#include "NWorkspace.h"
+#include "ndmspc/http/NHttpServer.h"
 
 #include <algorithm>
 #include <fstream>
@@ -7,25 +7,25 @@
 #include "ndmspc/core/NLogger.h"
 
 /// \cond CLASSIMP
-ClassImp(Ndmspc::NGnWorkspace);
+ClassImp(Ndmspc::NWorkspace);
 /// \endcond
 
 namespace Ndmspc {
 
-NGnWorkspace::NGnWorkspace(const char * name, const char * title, NGnHttpServer * server)
+NWorkspace::NWorkspace(const char * name, const char * title, NHttpServer * server)
     : TNamed(name, title), fServer(server)
 {
 }
 
-NGnWorkspace::~NGnWorkspace()
+NWorkspace::~NWorkspace()
 {
   Clear();
 }
 
-void NGnWorkspace::Print(Option_t * option) const
+void NWorkspace::Print(Option_t * option) const
 {
   (void)option;
-  NLogInfo("NGnWorkspace with %zu entries:", fEntries.size());
+  NLogInfo("NWorkspace with %zu entries:", fEntries.size());
   for (size_t i = 0; i < fEntries.size(); i++) {
     NLogInfo("  [%zu]: %s payload: in=%s out=%s", i, fEntries[i]->GetName(), fEntries[i]->GetPayloadIn().dump().c_str(),
              fEntries[i]->GetPayloadOut().dump().c_str());
@@ -34,7 +34,7 @@ void NGnWorkspace::Print(Option_t * option) const
   NLogInfo("State: %s", GetState().dump().c_str());
 }
 
-void NGnWorkspace::AddEntry(NGnHistoryEntry * entry)
+void NWorkspace::AddEntry(NHistoryEntry * entry)
 {
   if (entry) {
     RemoveEntry(entry->GetName());
@@ -44,14 +44,14 @@ void NGnWorkspace::AddEntry(NGnHistoryEntry * entry)
   }
 }
 
-bool NGnWorkspace::RemoveEntry(int index)
+bool NWorkspace::RemoveEntry(int index)
 {
   if (index < 0 || index >= static_cast<int>(fEntries.size())) {
     NLogError("Invalid workspace entry index: %d", index);
     return false;
   }
 
-  NGnHistoryEntry * entry = fEntries.at(index);
+  NHistoryEntry * entry = fEntries.at(index);
   json              in    = entry->GetPayloadIn();
   json              out;
   json              wsOut;
@@ -91,7 +91,7 @@ bool NGnWorkspace::RemoveEntry(int index)
   return true;
 }
 
-bool NGnWorkspace::RemoveEntry(const std::string & name)
+bool NWorkspace::RemoveEntry(const std::string & name)
 {
   // Find if entry exists and remove it along with all newer entries
   bool found = false;
@@ -115,7 +115,7 @@ bool NGnWorkspace::RemoveEntry(const std::string & name)
   return found;
 }
 
-void NGnWorkspace::Clear(Option_t *)
+void NWorkspace::Clear(Option_t *)
 {
   for (int i = static_cast<int>(fEntries.size()) - 1; i >= 0; i--) {
     RemoveEntry(i);
@@ -124,21 +124,21 @@ void NGnWorkspace::Clear(Option_t *)
   fState     = nullptr;
 }
 
-bool NGnWorkspace::LoadFromFile(const std::string & filename)
+bool NWorkspace::LoadFromFile(const std::string & filename)
 {
   (void)filename;
   // Implement loading logic as needed
   return false;
 }
 
-bool NGnWorkspace::ExportToFile(const std::string & filename) const
+bool NWorkspace::ExportToFile(const std::string & filename) const
 {
   (void)filename;
   // Implement export logic as needed
   return false;
 }
 
-json NGnWorkspace::GetInspectorSchema() const
+json NWorkspace::GetInspectorSchema() const
 {
   // Build an object that contains an OpenAPI-style `properties` section
   // plus a simplified `history` (list of keys) and `group` for UI ordering.
