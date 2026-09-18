@@ -23,11 +23,13 @@ RUN scripts/make.sh clean rpm taxi ui
 FROM docker.io/library/almalinux:10
 COPY --from=builder /builder/build/RPMS/x86_64/ndmspc*.rpm /
 # COPY --from=builder /builder/ndmspc-ui/dist /usr/share/ndmspc/ndmspc-ui
+# 'slurm' is the Slurm client (srun/sbatch/squeue/sinfo/scontrol/sacct/scancel) used
+# by the httpSlurm.C macro; the cluster's /etc/slurm is mounted at run time.
 RUN dnf install epel-release 'dnf-command(config-manager)' 'dnf-command(copr)' -y && \
   dnf config-manager --set-enabled crb && \
   dnf copr enable ndmspc/stable -y && \
   dnf update -y && \
-  dnf install -y ndmspc*.rpm && \
+  dnf install -y ndmspc*.rpm slurm && \
   dnf clean all && \
   rm -rf /var/cache/dnf/* && \
   rm -rf *.rpm && \
