@@ -48,6 +48,14 @@ add_custom_command(
     WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
     VERBATIM
 
+    # `build` only emits the publishable library (ndmspc-ui.es.js/.css,
+    # index.d.ts); `build:app` adds the runnable app (index.html + assets/) to
+    # the same dist. Both are installed as the server's static root, so the
+    # server without them answers `/` with 404.
+    COMMAND sh -c "${NPM_EXECUTABLE} run build:app --silent >> ${NDMSPC_UI_NPM_BUILD_LOG} 2>&1"
+    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
+    VERBATIM
+
     COMMAND ${CMAKE_COMMAND} -E touch ${NDMSPC_UI_BUILD_MARKER}
     WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
     VERBATIM
