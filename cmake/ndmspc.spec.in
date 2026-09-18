@@ -142,6 +142,21 @@ make install DESTDIR=%{buildroot}
 rm -f %{buildroot}/%{_datadir}/doc/httplib/README.md
 rm -f %{buildroot}/%{_datadir}/licenses/httplib/LICENSE
 
+# ROOT discovers .rootmap files along Root.DynamicPath, which is
+# ".:%{_libdir}/root:" - the dictionaries/rootmaps are installed in %{_libdir},
+# so cling cannot autoload 'Ndmspc::*' and users have to #include the headers
+# (e.g. <ndmspc/core/NGnTree.h>). Expose the ROOT artefacts where ROOT looks for
+# them; the real libraries stay in %{_libdir}, so linking (-lNdmspcCore, ldd)
+# is unaffected.
+mkdir -p %{buildroot}%{_libdir}/root
+for f in %{buildroot}%{_libdir}/libNdmspc*; do
+  case "$f" in
+    *.so|*.so.*|*.rootmap|*_rdict.pcm)
+      ln -sf "../$(basename "$f")" "%{buildroot}%{_libdir}/root/$(basename "$f")"
+      ;;
+  esac
+done
+
 %post
 %systemd_post ndmspc-http@*.service
 

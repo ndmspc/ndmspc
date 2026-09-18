@@ -112,3 +112,46 @@ pages:
       - public
   only:
     - develop
+
+# Slurm images on the ndmspc base image (AlmaLinux 10 + EPEL 10 Slurm RPMs), one
+# image per component the Slinky chart expects, pushed as
+# $CI_REGISTRY_IMAGE/<component>:<git tag>. Manual: run it from a tag pipeline to
+# (re)publish them, then deploy with
+#   -e slurm_image_registry=$CI_REGISTRY_IMAGE -e slurm_component_image_tag=<git tag>
+slurm-images:
+  stage: deploy-full
+  tags:
+    - images
+  variables:
+    SLURM_TARGETS: "slurmctld slurmd slurmdbd slurmrestd login"
+    # Slurm series the images must provide; the build fails when the COPR carries
+    # something else (e.g. it still only ships 24.05).
+    SLURM_SERIES: "26.05"
+    # Ref of SlinkyProject/containers the supervisord/entrypoint files come from.
+    SLINKY_REF: "main"
+  script:
+    - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - |
+      for target in $SLURM_TARGETS; do
+        podman build \
+          --build-arg NDMSPC_BASE="$CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME" \
+          --build-arg SLURM_SERIES="$SLURM_SERIES" \
+          --build-arg SLINKY_REF="$SLINKY_REF" \
+          --target "$target" \
+          --tag "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_REF_NAME" \
+          --tag "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHORT_SHA" \
+          -f ci/Dockerfile.slurm .
+      done
+    - |
+      for target in $SLURM_TARGETS; do
+        podman push "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_REF_NAME"
+        podman push "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHORT_SHA"
+      done
+    - |
+      echo "Published Slurm images for $CI_COMMIT_REF_NAME:"
+      for target in $SLURM_TARGETS; do
+        echo "  $CI_REGISTRY_IMAGE/$target:$CI_COMMIT_REF_NAME"
+      done
+  allow_failure: true
+  only:
+    - tags
