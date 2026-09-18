@@ -1,81 +1,61 @@
+# The web UI is not built from sources here. The ndmspc-ui project publishes a
+# ready-to-serve page tarball (index.html + assets/) to its GitLab Generic
+# Package Registry, and this project downloads the requested version and
+# installs it as the server's static root.
+#
+# `next` (the default) is republished from ndmspc-ui main on every push; a tag
+# such as v1.2.3 pins a release. No node/npm toolchain is needed.
+#
+# See https://gitlab.com/ndmspc/ndmspc-ui for the available versions.
 
-include(ExternalProject)
-set(NPM_EXECUTABLE "npm") # Ensure npm is in the PATH or specify the full path to npm
-# Define directories
-set(NDMSPC_UI_SRC_DIR ${CMAKE_BINARY_DIR}/ndmspc-ui-src)
+# Version of the prebuilt ndmspc-ui page to install. Selectable with
+# -DNDMSPC_UI_VERSION=..., the NDMSPC_UI_VERSION environment variable, or
+# `scripts/make.sh ui=<version>`.
+if(DEFINED ENV{NDMSPC_UI_VERSION} AND NOT "$ENV{NDMSPC_UI_VERSION}" STREQUAL "")
+  set(_ndmspc_ui_default_version "$ENV{NDMSPC_UI_VERSION}")
+else()
+  set(_ndmspc_ui_default_version "next")
+endif()
+set(NDMSPC_UI_VERSION "${_ndmspc_ui_default_version}" CACHE STRING "ndmspc-ui page version to download (e.g. next, v1.2.3)")
+
+# ndmspc-ui uploads the page tarball to its Generic Package Registry; the same
+# path serves `next` and released tags.
+set(NDMSPC_UI_PAGE_URL
+    "https://gitlab.com/api/v4/projects/ndmspc%2Fndmspc-ui/packages/generic/ndmspc-ui-page/${NDMSPC_UI_VERSION}/ndmspc-ui-page.tar.gz")
+
+set(NDMSPC_UI_ARCHIVE ${CMAKE_BINARY_DIR}/ndmspc-ui-page.tar.gz)
+# The tarball holds the page at its root; it is extracted here and this
+# directory is what gets installed as the server's static root.
 set(NDMSPC_UI_BUILD_OUTPUT_DIR ${CMAKE_BINARY_DIR}/ndmspc-ui)
 
-# Determine the actual output directory from ndmspc-ui's package.json
-set(NDMSPC_UI_PRODUCED_OUTPUT_DIR "dist") # <<< IMPORTANT: VERIFY AND ADJUST THIS
+# --- Download and unpack the page ---
+# Fetched on every configure so `next` tracks the latest ndmspc-ui main build.
+message(STATUS "Fetching ndmspc-ui page '${NDMSPC_UI_VERSION}' from ${NDMSPC_UI_PAGE_URL}")
 
-# Create a marker file for build completion
-set(NDMSPC_UI_BUILD_MARKER ${NDMSPC_UI_SRC_DIR}/npm_build_completed.marker)
-set(NDMSPC_UI_NPM_BUILD_LOG ${CMAKE_BINARY_DIR}/npm_build.log)
+file(DOWNLOAD ${NDMSPC_UI_PAGE_URL} ${NDMSPC_UI_ARCHIVE}
+    STATUS NDMSPC_UI_DOWNLOAD_STATUS
+    TLS_VERIFY ON)
+list(GET NDMSPC_UI_DOWNLOAD_STATUS 0 NDMSPC_UI_DOWNLOAD_CODE)
+list(GET NDMSPC_UI_DOWNLOAD_STATUS 1 NDMSPC_UI_DOWNLOAD_MESSAGE)
+if(NOT NDMSPC_UI_DOWNLOAD_CODE EQUAL 0)
+  message(FATAL_ERROR
+      "Failed to download ndmspc-ui page '${NDMSPC_UI_VERSION}' from ${NDMSPC_UI_PAGE_URL}: ${NDMSPC_UI_DOWNLOAD_MESSAGE}")
+endif()
 
-# --- External Project Setup for Cloning ---
-ExternalProject_Add(
-    ndmspc_ui_clone
-    GIT_REPOSITORY https://gitlab.com/ndmspc/ndmspc-ui.git
-    GIT_TAG main
-    UPDATE_COMMAND ""
-    SOURCE_DIR ${NDMSPC_UI_SRC_DIR}
-    INSTALL_COMMAND ""
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    TEST_COMMAND ""
-)
+# Unpack into a clean directory so switching versions cannot leave stale assets.
+file(REMOVE_RECURSE ${NDMSPC_UI_BUILD_OUTPUT_DIR})
+file(ARCHIVE_EXTRACT INPUT ${NDMSPC_UI_ARCHIVE} DESTINATION ${NDMSPC_UI_BUILD_OUTPUT_DIR})
 
-# --- Custom Command for npm install and npm run build ---
-add_custom_command(
-    OUTPUT ${NDMSPC_UI_BUILD_MARKER}
-    DEPENDS ndmspc_ui_clone
-
-    # One descriptive COMMENT for the entire set of commands
-    COMMENT "Installing and building ndmspc-ui with npm"
-
-    COMMAND ${CMAKE_COMMAND} -E rm -f ${NDMSPC_UI_BUILD_MARKER}
-    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
-    VERBATIM
-
-    # --include=dev keeps devDependencies when NODE_ENV=production is set;
-    # --legacy-peer-deps works around @react-three/fiber peer react ">=19 <19.3"
-    # while ndmspc-ui allows react ^19.2.6 (resolving to 19.3).
-    COMMAND ${NPM_EXECUTABLE} install --silent --include=dev --legacy-peer-deps
-    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
-    VERBATIM
-
-    COMMAND sh -c "${NPM_EXECUTABLE} run build --silent > ${NDMSPC_UI_NPM_BUILD_LOG} 2>&1"
-    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
-    VERBATIM
-
-    # `build` only emits the publishable library (ndmspc-ui.es.js/.css,
-    # index.d.ts); `build:app` adds the runnable app (index.html + assets/) to
-    # the same dist. Both are installed as the server's static root, so the
-    # server without them answers `/` with 404.
-    COMMAND sh -c "${NPM_EXECUTABLE} run build:app --silent >> ${NDMSPC_UI_NPM_BUILD_LOG} 2>&1"
-    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
-    VERBATIM
-
-    COMMAND ${CMAKE_COMMAND} -E touch ${NDMSPC_UI_BUILD_MARKER}
-    WORKING_DIRECTORY ${NDMSPC_UI_SRC_DIR}
-    VERBATIM
-)
-
-# --- Custom Target to Copy Built Assets ---
-add_custom_target(build_ndmspc_ui ALL
-    DEPENDS ${NDMSPC_UI_BUILD_MARKER}
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${NDMSPC_UI_SRC_DIR}/${NDMSPC_UI_PRODUCED_OUTPUT_DIR}
-        ${NDMSPC_UI_BUILD_OUTPUT_DIR}
-    COMMENT "Copying built UI assets from ${NDMSPC_UI_SRC_DIR}/${NDMSPC_UI_PRODUCED_OUTPUT_DIR} to ${NDMSPC_UI_BUILD_OUTPUT_DIR}"
-    VERBATIM
-)
+if(NOT EXISTS ${NDMSPC_UI_BUILD_OUTPUT_DIR}/index.html)
+  message(FATAL_ERROR
+      "ndmspc-ui page '${NDMSPC_UI_VERSION}' does not contain index.html; does that version exist in the ndmspc-ui package registry?")
+endif()
 
 # --- Clean Target ---
 add_custom_target(clean_ndmspc_ui
-    COMMAND ${CMAKE_COMMAND} -E rm -rf ${NDMSPC_UI_BUILD_OUTPUT_DIR} ${NDMSPC_UI_SRC_DIR}
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${NDMSPC_UI_BUILD_OUTPUT_DIR} ${NDMSPC_UI_ARCHIVE}
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Cleaning ndmspc-ui build artifacts"
+    COMMENT "Cleaning downloaded ndmspc-ui page"
     VERBATIM
 )
 

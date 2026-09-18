@@ -38,11 +38,6 @@ BuildRequires: root-roofit root-roofit-more
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
 Requires:      root-roofit root-roofit-more 
 
-%if %{with_ui}
-BuildRequires: nodejs, npm
-%endif
-
-
 %if %{with_taxi}
 BuildRequires: parquet-libs-devel
 %endif

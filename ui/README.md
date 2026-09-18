@@ -1,16 +1,37 @@
 # NDMSPC UI
 
-The web UI is not built from sources in this repository. `ui/CMakeLists.txt`
-clones [ndmspc-ui](https://gitlab.com/ndmspc/ndmspc-ui) (`main`) into
-`build/ndmspc-ui-src` with `ExternalProject`, runs `npm install` and
-`npm run build` there, and copies the resulting `dist/` into `build/ndmspc-ui`.
-It is installed to `share/ndmspc/ndmspc-ui` by the `%files ui` subpackage.
+The web UI is not built from sources in this repository. The
+[ndmspc-ui](https://gitlab.com/ndmspc/ndmspc-ui) project publishes a
+ready-to-serve page tarball (`index.html` + `assets/`) to its GitLab Generic
+Package Registry on every build. `ui/CMakeLists.txt` downloads the requested
+version at configure time and installs it to `share/ndmspc/ndmspc-ui` (the
+`%files ui` subpackage).
+
+## Version
+
+`NDMSPC_UI_VERSION` selects what to download (default `next`):
+
+- `next` — the latest `main` build of ndmspc-ui, republished on every push.
+- a tag such as `v1.2.3` — a fixed release.
+
+It can be set the usual ways:
+
+```bash
+scripts/make.sh ui=v1.2.3 install
+NDMSPC_UI_VERSION=v1.2.3 scripts/make.sh ui install
+cmake ../ -DWITH_UI=ON -DNDMSPC_UI_VERSION=v1.2.3 ...
+```
+
+The version maps to a file in the ndmspc-ui package registry:
+
+```
+https://gitlab.com/api/v4/projects/ndmspc%2Fndmspc-ui/packages/generic/ndmspc-ui-page/<version>/ndmspc-ui-page.tar.gz
+```
 
 ## Prerequisites
 
-- `nodejs` and `npm` (the RPM spec adds them as `BuildRequires` when
-  `%{with_ui}` is set)
-- network access to `gitlab.com` and `registry.npmjs.org` at build time
+- network access to `gitlab.com` when configuring with `WITH_UI=ON`
+- no `nodejs`/`npm` — the page is downloaded prebuilt
 
 Build with UI support enabled:
 
@@ -24,27 +45,12 @@ or, for the packaged build:
 cmake ../ -DWITH_UI=ON ...
 ```
 
-## npm flags
+## Refresh
 
-The `npm install` invocation in `ui/CMakeLists.txt` passes two flags that are
-required for the build to work outside a developer's personal npm
-configuration:
+The page is re-downloaded on every cmake configure, so re-configuring (for
+example with `scripts/make.sh ui`) picks up the current `next`. The
+`clean_ndmspc_ui` target removes the extracted page and the downloaded archive:
 
-- `--include=dev` — npm omits `devDependencies` when `NODE_ENV=production` is
-  exported. `tsc` and `vite` are devDependencies, so without this the build
-  fails with `tsc: command not found`.
-- `--legacy-peer-deps` — ndmspc-ui allows `react ^19.2.6`, which resolves to
-  React 19.3, while `@react-three/fiber@9.7.0` declares
-  `peer react ">=19 <19.3"`. Strict resolution fails with `ERESOLVE`.
-  Locally this is often masked by `legacy-peer-deps=true` in `~/.npmrc`, which
-  clean build roots such as COPR do not have.
-
-These flags exist because of the conflict above. If ndmspc-ui pins
-`react`/`react-dom` below 19.3, `--legacy-peer-deps` can be dropped.
-
-## Build log
-
-`npm run build` output is written to `build/npm_build.log` and echoed to the
-console, so failures surface in packaging logs. The
-`ndmspc-ui-src/npm_build_completed.marker` file records a successful build;
-`clean_ndmspc_ui` removes the marker along with the sources and output.
+```bash
+make clean_ndmspc_ui
+```
