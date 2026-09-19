@@ -1,8 +1,19 @@
 ///
 /// httpSlurm.C — HTTP/MCP interface to the cluster's Slurm.
-/// Registers: slurm/submit, slurm/jobs, slurm/job, slurm/nodes
-/// URLs:      POST /api/slurm/submit, GET /api/slurm/jobs, GET|DELETE /api/slurm/job,
-///            GET /api/slurm/nodes
+/// Registers: slurm/submit, slurm/jobs, slurm/job, slurm/nodes, slurm/output,
+///            slurm/log
+/// URLs:      POST /api/slurm/submit, GET /api/slurm/jobs,
+///            GET|POST|DELETE /api/slurm/job, GET /api/slurm/nodes,
+///            GET|POST /api/slurm/output, POST /api/slurm/log
+///
+/// slurm/job, slurm/output and slurm/log take the job id in the request body
+/// ({"id":"42"}): the URL query is reserved for the room router's ?room=<id>.
+///
+/// Logs: a job's output stays on the compute node it ran on, which nothing else can
+/// read. The submit handler therefore puts the room id in the job record
+/// (--comment) and the cluster's epilog pushes the finished log back to that room's
+/// slurm/log, so the room holds its own copy (in NDMSPC_SLURM_LOG_DIR, private to
+/// the room) and slurm/output serves it.
 ///
 /// Slurm is the source of truth: the handlers shell out to the Slurm clients and
 /// return their JSON. There is no local job registry (macros/builtin/mon is
@@ -19,6 +30,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <map>
 #include <string>
 #include <sys/wait.h>
@@ -75,6 +87,63 @@ std::string JobIdFrom(const std::string &sbatchOutput)
   return "";
 }
 
+// Where a room keeps the logs the compute nodes push to it ('slurm/log', sent by
+// the cluster's epilog when a job finishes). It is the room's own filesystem, so a
+// room only ever holds its own jobs' logs - and it is ephemeral: gone when the pod
+// goes (idle scale-to-zero, a new revision). Push to object storage as well when
+// logs have to outlive the room.
+std::string LogDir()
+{
+  return Env("NDMSPC_SLURM_LOG_DIR", "/tmp/ndmspc-slurm-logs");
+}
+
+std::string LogPath(const std::string &id)
+{
+  return LogDir() + "/" + id + ".out";
+}
+
+bool WriteLog(const std::string &id, const std::string &text, std::string &error)
+{
+  int rc = 0;
+  Run("mkdir -p " + Quote(LogDir()), rc);
+  std::ofstream out(LogPath(id), std::ios::binary | std::ios::trunc);
+  if (!out) {
+    error = "cannot write the log for job " + id;
+    return false;
+  }
+  out.write(text.data(), static_cast<std::streamsize>(text.size()));
+  out.close();
+  if (!out) {
+    error = "cannot write the log for job " + id;
+    return false;
+  }
+  return true;
+}
+
+// Last `maxBytes` of a file (the tail of a stored job log), reporting whether
+// anything was dropped.
+std::string ReadTail(const std::string &path, size_t maxBytes, bool &truncated, std::string &error)
+{
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    error = "cannot read '" + path + "'";
+    return "";
+  }
+  in.seekg(0, std::ios::end);
+  const std::streamoff size = in.tellg();
+  if (size < 0) {
+    error = "cannot size '" + path + "'";
+    return "";
+  }
+  truncated        = static_cast<size_t>(size) > maxBytes;
+  const std::streamoff start = truncated ? size - static_cast<std::streamoff>(maxBytes) : 0;
+  in.seekg(start, std::ios::beg);
+  std::string out(static_cast<size_t>(size - start), '\0');
+  in.read(&out[0], static_cast<std::streamsize>(out.size()));
+  out.resize(static_cast<size_t>(in.gcount()));
+  return out;
+}
+
 } // namespace
 
 void httpSlurm()
@@ -96,6 +165,19 @@ void httpSlurm()
   Ndmspc::RegisterMcpTool("slurm/jobs", "List the Slurm queue (squeue).");
   Ndmspc::RegisterMcpTool("slurm/job", "Inspect (GET) or cancel (DELETE) one Slurm job.");
   Ndmspc::RegisterMcpTool("slurm/nodes", "Show the Slurm partitions/nodes (sinfo).");
+  Ndmspc::RegisterMcpTool("slurm/output", {
+      .description = "Return the tail of a job's log, as pushed to this room by the "
+                     "compute node's epilog when the job finished.",
+      .methods     = {"GET", "POST"},
+      .inputSchema = {{"properties",
+                       {{"id", {{"type", "string"}}}, {"maxBytes", {{"type", "integer"}}}}}},
+  });
+  // Internal: the epilog posts a finished job's log here. Not part of the MCP surface.
+  Ndmspc::RegisterMcpTool("slurm/log", {
+      .description = "Store a job log pushed by the compute node's epilog.",
+      .methods     = {"POST"},
+      .hidden      = true,
+  });
 
   handlers["slurm/submit"] = [](std::string method, json &in, json &out, json &wsOut,
                                std::map<std::string, TObject *> &objects) {
@@ -142,7 +224,17 @@ void httpSlurm()
     if (!array.empty()) cmd += " --array=" + array;
     if (!jobName.empty()) cmd += " --job-name=" + jobName;
     if (!extra.empty()) cmd += " " + extra;
-    cmd += " " + Env("NDMSPC_SLURM_RUN", "/usr/bin/ndmspc-run") + " " + Quote(payload);
+    // Record the room in the job, so the compute node's epilog knows which room to
+    // push the finished log to (see the slurm role's job log push).
+    const std::string room = Env("NDMSPC_ROOM", "");
+    if (!room.empty() && Safe(room, 64) && room.find('/') == std::string::npos && room != "." && room != "..") {
+      cmd += " --comment=" + Quote(room);
+    }
+    // --wrap and not `sbatch <run> <args>`: sbatch takes its first non-option
+    // argument as a batch script *file* and rejects anything without a #! line
+    // ("This does not look like a batch script"), while ndmspc-run is a binary.
+    // --wrap makes sbatch generate the script around the command instead.
+    cmd += " --wrap=" + Quote(Env("NDMSPC_SLURM_RUN", "/usr/bin/ndmspc-run") + " " + payload);
 
     int         rc  = 0;
     std::string txt = Run(cmd, rc);
@@ -233,8 +325,10 @@ void httpSlurm()
     const std::string jsonOut = Run(Env("NDMSPC_SLURM_SINFO", "sinfo") + " --json", rc);
     if (rc == 0) {
       try {
+        // sinfo --json returns the nodes under "sinfo" (Slurm >= 23.11) and the
+        // partitions under "partitions".
         auto j            = json::parse(jsonOut);
-        out["nodes"]      = j.contains("nodes") ? j["nodes"] : json();
+        out["nodes"]      = j.contains("sinfo") ? j["sinfo"] : json();
         out["partitions"] = j.contains("partitions") ? j["partitions"] : json();
       } catch (...) {
         out["raw"] = jsonOut;
@@ -242,6 +336,70 @@ void httpSlurm()
     } else {
       out["raw"] = Run(Env("NDMSPC_SLURM_SINFO", "sinfo"), rc);
     }
+    ctx.Success();
+  };
+
+  handlers["slurm/output"] = [](std::string method, json &in, json &out, json &wsOut,
+                               std::map<std::string, TObject *> &objects) {
+    Ndmspc::NRouteContext ctx(method, in, out, wsOut, objects);
+    if (ctx.Server()) ctx.Server()->SetUseHistory(false);
+    const std::string id = ctx.GetString("id", "");
+    if (!Safe(id, 32)) {
+      ctx.Error("'id' is required");
+      return;
+    }
+
+    size_t maxBytes = 65536;
+    if (in.contains("maxBytes") && in["maxBytes"].is_number_integer()) {
+      const long long v = in["maxBytes"].get<long long>();
+      if (v > 0 && v <= 1048576) maxBytes = static_cast<size_t>(v);
+    }
+
+    bool              truncated = false;
+    std::string       error;
+    const std::string text = ReadTail(LogPath(id), maxBytes, truncated, error);
+    if (!error.empty()) {
+      ctx.Error("no log stored for job " + id +
+                " (the epilog on the compute node pushes it when the job finishes)");
+      return;
+    }
+
+    out["path"]      = LogPath(id);
+    out["stdOut"]    = text;
+    out["truncated"] = truncated;
+    ctx.Success();
+  };
+
+  handlers["slurm/log"] = [](std::string method, json &in, json &out, json &wsOut,
+                            std::map<std::string, TObject *> &objects) {
+    Ndmspc::NRouteContext ctx(method, in, out, wsOut, objects);
+    if (ctx.Server()) ctx.Server()->SetUseHistory(false);
+    if (!ctx.IsPost()) {
+      ctx.Error("POST required");
+      return;
+    }
+    const std::string id = ctx.GetString("id", "");
+    if (!Safe(id, 32)) {
+      ctx.Error("'id' is required");
+      return;
+    }
+    const std::string log = ctx.GetString("log", "");
+    if (log.empty()) {
+      ctx.Error("'log' is required");
+      return;
+    }
+    if (log.size() > 4 * 1024 * 1024) {
+      ctx.Error("log is larger than 4 MiB");
+      return;
+    }
+
+    std::string error;
+    if (!WriteLog(id, log, error)) {
+      ctx.Error(error);
+      return;
+    }
+    NLogInfo("Stored %zu bytes of log for job %s", log.size(), id.c_str());
+    out["bytes"] = log.size();
     ctx.Success();
   };
 }

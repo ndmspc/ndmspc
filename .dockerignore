@@ -19,3 +19,17 @@ share/
 # Ignore all .tmp files recursively
 **/*.tmp
 
+# VCS metadata and dev-only files. None of these are needed to build a package,
+# but they change often (e.g. agent/taste state, editor/project config) and would
+# otherwise inflate the build context and bust the `COPY .` layer in Dockerfile.base.
+.git/
+.gitignore
+.gitlab-ci.yml
+.commandcode/
+.vscode/
+.clangd
+.clang-format
+.mcp.json
+notes/
+compile_commands.json
+
