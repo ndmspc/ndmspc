@@ -1,7 +1,9 @@
 # FROM registry.gitlab.com/ndmspc/user/al9:dep AS builder
 FROM registry.gitlab.com/ndmspc/user/al10:dep AS builder
 ARG MY_PROJECT_VER=9999.0.0
-# Only copy what is needed for the build to reduce context size
+# COPY . brings in the whole tree; what actually lands in the image is trimmed by
+# .dockerignore (VCS metadata, build outputs, and dev-only files), which also keeps
+# irrelevant churn from busting this layer and forcing a full rebuild.
 COPY . /builder/
 WORKDIR /builder
 
@@ -21,27 +23,41 @@ RUN scripts/make.sh clean rpm taxi ui
 
 # FROM docker.io/library/almalinux:9
 FROM docker.io/library/almalinux:10
-COPY --from=builder /builder/build/RPMS/x86_64/ndmspc*.rpm /
 # COPY --from=builder /builder/ndmspc-ui/dist /usr/share/ndmspc/ndmspc-ui
 # 'slurm' is the Slurm client (srun/sbatch/squeue/sinfo/scontrol/sacct/scancel) used
-# by the httpSlurm.C macro; the cluster's /etc/slurm is mounted at run time.
-RUN dnf install epel-release 'dnf-command(config-manager)' 'dnf-command(copr)' -y && \
+# by the httpSlurm.C macro; the cluster's /etc/slurm is mounted at run time. The
+# client packages do not create the account SlurmUser names (only the daemon
+# subpackages do) while every Slurm client refuses a slurm.conf whose SlurmUser
+# does not exist ("Invalid user for SlurmUser slurm" + "Unable to process
+# configuration file"), so the RUN below creates it with the Slurm uid/gid (401).
+ARG MY_USER=user
+# Everything that touches the filesystem in this stage lives in one layer: repo
+# setup, package install, tini, and the user. (dnf clean all already empties
+# /var/cache/dnf, so no separate wipe; a separate useradd layer would each be a
+# full filesystem copy under the CI's vfs storage driver.) ENV is image config, not
+# a layer, so setting ROOT_INCLUDE_PATH here afterwards costs nothing.
+# No `dnf update`: a full-OS upgrade on every build is slow and non-reproducible;
+# refresh the almalinux base image instead when OS updates are wanted.
+# The ndmspc RPMs are bind-mounted from the builder stage instead of COPYed in, so
+# they never become an image layer and this stage keeps its build cache (which
+# `--squash` would throw away). Nothing to `rm` afterwards, either.
+RUN --mount=type=bind,from=builder,source=/builder/build/RPMS/x86_64,target=/rpms \
+  dnf install epel-release 'dnf-command(config-manager)' 'dnf-command(copr)' -y && \
   dnf config-manager --set-enabled crb && \
   dnf copr enable ndmspc/stable -y && \
-  dnf update -y && \
-  dnf install -y ndmspc*.rpm slurm && \
+  dnf install -y /rpms/ndmspc*.rpm slurm && \
+  (getent group slurm >/dev/null || groupadd -g 401 slurm) && \
+  (getent passwd slurm >/dev/null || \
+     useradd -r -u 401 -g slurm -d /home/slurm -s /usr/sbin/nologin slurm) && \
   dnf clean all && \
-  rm -rf /var/cache/dnf/* && \
-  rm -rf *.rpm && \
   TINI_VERSION=v0.19.0 && \
   curl -fsSL https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini -o /usr/bin/tini && \
-  chmod +x /usr/bin/tini
-ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
-ARG MY_USER=user
-RUN groupadd -g 1000 ${MY_USER} && \
+  chmod +x /usr/bin/tini && \
+  groupadd -g 1000 ${MY_USER} && \
   useradd -u 1000 -g ${MY_USER} -m -s /bin/bash ${MY_USER} && \
   mkdir -p /ndmspc && \
   chown -R ${MY_USER}:${MY_USER} /ndmspc
+# ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
 USER 1000
 WORKDIR /ndmspc
 RUN export NDMSPC_LOG_CONSOLE=0; export NDMSPC_LOG_RUN=1; root -b -q /usr/share/ndmspc/tutorial/02_storage/NStorage01Gaus.C && \

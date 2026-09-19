@@ -115,8 +115,8 @@ pages:
 
 # Slurm images on the ndmspc base image (AlmaLinux 10 + EPEL 10 Slurm RPMs), one
 # image per component the Slinky chart expects, pushed as
-# $CI_REGISTRY_IMAGE/<component>:<git tag>. Manual: run it from a tag pipeline to
-# (re)publish them, then deploy with
+# $CI_REGISTRY_IMAGE/<component>:<git tag> (+ :<short sha>) on tag pipelines.
+# allow_failure keeps a failed publish from failing the tag; then deploy with
 #   -e slurm_image_registry=$CI_REGISTRY_IMAGE -e slurm_component_image_tag=<git tag>
 slurm-images:
   stage: deploy-full
@@ -139,13 +139,11 @@ slurm-images:
           --build-arg SLINKY_REF="$SLINKY_REF" \
           --target "$target" \
           --tag "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_REF_NAME" \
-          --tag "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHORT_SHA" \
           -f ci/Dockerfile.slurm .
       done
     - |
       for target in $SLURM_TARGETS; do
         podman push "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_REF_NAME"
-        podman push "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHORT_SHA"
       done
     - |
       echo "Published Slurm images for $CI_COMMIT_REF_NAME:"
