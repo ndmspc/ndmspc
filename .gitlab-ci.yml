@@ -113,18 +113,23 @@ pages:
   only:
     - develop
 
-# Slurm images on the ndmspc base image (AlmaLinux 10 + EPEL 10 Slurm RPMs), one
-# image per component the Slinky chart expects, pushed as
-# $CI_REGISTRY_IMAGE/<component>:<git tag> (+ :<short sha>) on tag pipelines.
-# allow_failure keeps a failed publish from failing the tag; then deploy with
-#   -e slurm_image_registry=$CI_REGISTRY_IMAGE -e slurm_component_image_tag=<git tag>
-slurm-images:
+# The Slurm worker (compute node) image: ndmspc + ROOT on AlmaLinux 10, built FROM
+# the base image this project publishes, so it carries the same ndmspc release. It is
+# the one Slurm image that has to exist here, and it is built and pushed automatically
+# on every tag as $CI_REGISTRY_IMAGE/slurmd:<git tag>:
+#   -e slurm_slurmd_image=$CI_REGISTRY_IMAGE/slurmd:<git tag>
+#
+# No other Slurm image is built here: deployments run the upstream Slinky images,
+# which the devops project mirrors into registry.gitlab.com/ndmspc/devops.
+#
+# allow_failure keeps a failed publish from failing the tag.
+slurm-worker-image:
   stage: deploy-full
   tags:
     - images
   variables:
-    SLURM_TARGETS: "slurmctld slurmd slurmdbd slurmrestd login"
-    # Slurm series the images must provide; the build fails when the COPR carries
+    SLURM_TARGETS: "slurmd"
+    # Slurm series the image must provide; the build fails when the COPR carries
     # something else (e.g. it still only ships 24.05).
     SLURM_SERIES: "26.05"
     # Ref of SlinkyProject/containers the supervisord/entrypoint files come from.
@@ -146,7 +151,7 @@ slurm-images:
         podman push "$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_REF_NAME"
       done
     - |
-      echo "Published Slurm images for $CI_COMMIT_REF_NAME:"
+      echo "Published the Slurm worker for $CI_COMMIT_REF_NAME:"
       for target in $SLURM_TARGETS; do
         echo "  $CI_REGISTRY_IMAGE/$target:$CI_COMMIT_REF_NAME"
       done
