@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 #
 # The Slurm worker (compute node) image: the ndmspc base image (AlmaLinux 10 + ndmspc
-# + ROOT, with EPEL, CRB, the ndmspc COPR and tini already in place) plus the slurmd
-# daemon and the Slinky supervisord/entrypoint plumbing.
+# + ROOT, with EPEL, CRB, the ndmspc COPR and tini already in place) plus Slurm
+# itself, the slurmd daemon and the Slinky supervisord/entrypoint plumbing.
 #
 # It is the only Slurm image ndmspc builds, so the file is a single stage: nothing is
 # shared with another target to justify splitting it, and the stage is named 'slurmd'
@@ -43,56 +43,59 @@ WORKDIR /tmp/
 ARG SLINKY_FILES
 ARG SLURM_SERIES
 
-# The base already carries Slurm, EPEL, CRB, the COPR and tini, so only what the
-# worker needs on top is installed: supervisord (which runs the daemon) and the small
-# tools the Slinky scripts use, the slurmd stack with sssd (identity) and sshd (node
-# shell access), and openmpi for MPI jobs. No PMI package: upstream dropped slurm-pmi
-# in 21.08 in favour of pmix (slurm-libs owns libpmi.so.0/libpmi2.so.0 and pmix is a
-# Requires: of slurm).
+# The base carries EPEL, CRB, the COPR and tini but no Slurm (a room only needs the
+# REST API, see ci/Dockerfile.base), so this stage installs Slurm itself, on top of
+# what the worker needs: supervisord (which runs the daemon) and the small tools the
+# Slinky scripts use, the slurmd stack with sssd (identity) and sshd (node shell
+# access), and openmpi for MPI jobs. No PMI package: upstream dropped slurm-pmi in
+# 21.08 in favour of pmix (slurm-libs owns libpmi.so.0/libpmi2.so.0 and pmix is a
+# Requires: of slurm). The SlurmUser/SlurmdUser account the jobs run as (401) is
+# created here too — the base no longer has it, and the slurm packages the worker
+# needs do not create it either.
 RUN set -euxo pipefail; \
-    got="$(rpm -q --qf '%{VERSION}' slurm | cut -d. -f1,2)"; \
-    if [ "$got" != "${SLURM_SERIES}" ]; then \
-      echo "ERROR: slurm ${got} installed, but ${SLURM_SERIES} is required." >&2; \
-      echo "Add the ${SLURM_SERIES} series to the ndmspc COPR (or pass --build-arg SLURM_SERIES=${got})." >&2; \
-      exit 1; \
-    fi; \
-    dnf -y install --setopt='install_weak_deps=False' \
-      supervisor curl procps-ng iputils ncurses \
-      gawk socat \
-      openssh-server \
-      authselect sssd sssd-ad sssd-idp sssd-ipa sssd-krb5 sssd-ldap \
-      krb5-pkinit \
-      slurm-slurmd slurm-pam_slurm slurm-nss_slurm \
-      openmpi; \
-    dnf clean all; \
-    getent group slurm >/dev/null || groupadd --system --gid 401 slurm; \
-    getent passwd slurm >/dev/null || \
-      useradd --system --no-log-init --uid 401 --gid 401 --shell /usr/sbin/nologin slurm; \
-    mkdir -p /etc/supervisord.d /usr/local/bin /usr/local/entrypoint.d \
-             /var/spool/slurmd /etc/authselect; \
-    authselect create-profile slinky -b sssd; \
-    sed -i -E '/^(passwd|group):/ { /slurm/! s/(files)/\1 slurm/g }' /etc/authselect/custom/slinky/nsswitch.conf; \
-    authselect select custom/slinky with-mkhomedir --force; \
-    rm -f /etc/ssh/ssh_host_*
+  dnf -y install --setopt='install_weak_deps=False' \
+  supervisor curl procps-ng iputils ncurses \
+  gawk socat \
+  openssh-server \
+  authselect sssd sssd-ad sssd-idp sssd-ipa sssd-krb5 sssd-ldap \
+  krb5-pkinit \
+  slurm slurm-slurmd slurm-pam_slurm slurm-nss_slurm \
+  openmpi; \
+  dnf clean all; \
+  got="$(rpm -q --qf '%{VERSION}' slurm | cut -d. -f1,2)"; \
+  if [ "$got" != "${SLURM_SERIES}" ]; then \
+  echo "ERROR: slurm ${got} installed, but ${SLURM_SERIES} is required." >&2; \
+  echo "Add the ${SLURM_SERIES} series to the ndmspc COPR (or pass --build-arg SLURM_SERIES=${got})." >&2; \
+  exit 1; \
+  fi; \
+  getent group slurm >/dev/null || groupadd --system --gid 401 slurm; \
+  getent passwd slurm >/dev/null || \
+  useradd --system --no-log-init --uid 401 --gid 401 --shell /usr/sbin/nologin slurm; \
+  mkdir -p /etc/supervisord.d /usr/local/bin /usr/local/entrypoint.d \
+  /var/spool/slurmd /etc/authselect; \
+  authselect create-profile slinky -b sssd; \
+  sed -i -E '/^(passwd|group):/ { /slurm/! s/(files)/\1 slurm/g }' /etc/authselect/custom/slinky/nsswitch.conf; \
+  authselect select custom/slinky with-mkhomedir --force; \
+  rm -f /etc/ssh/ssh_host_*
 
 # The upstream plumbing, straight to where the chart's supervisord/entrypoint contract
 # expects it and with its final modes: the entrypoint is slurmd-entrypoint.sh under its
 # installed name (entrypoint.sh), and fakesystemd is what makes systemd-style unit
 # files work in the container.
 RUN set -euxo pipefail; \
-    for f in \
-      etc/supervisord.conf \
-      etc/supervisord.d/fakesystemd.ini \
-      etc/supervisord.d/slurmd.ini \
-      etc/supervisord.d/sshd.ini \
-      etc/supervisord.d/sssd.ini \
-      usr/local/bin/fakesystemd.sh \
-      usr/local/bin/slurmd-entrypoint.sh; do \
-      curl -fsSL --retry 3 --retry-delay 2 "${SLINKY_FILES}/${f}" -o "/${f}"; \
-    done; \
-    chmod 0644 /etc/supervisord.conf /etc/supervisord.d/*.ini; \
-    chmod 0755 /usr/local/bin/fakesystemd.sh; \
-    install -m0755 /usr/local/bin/slurmd-entrypoint.sh /usr/local/bin/entrypoint.sh; \
-    rm -f /usr/local/bin/slurmd-entrypoint.sh
+  for f in \
+  etc/supervisord.conf \
+  etc/supervisord.d/fakesystemd.ini \
+  etc/supervisord.d/slurmd.ini \
+  etc/supervisord.d/sshd.ini \
+  etc/supervisord.d/sssd.ini \
+  usr/local/bin/fakesystemd.sh \
+  usr/local/bin/slurmd-entrypoint.sh; do \
+  curl -fsSL --retry 3 --retry-delay 2 "${SLINKY_FILES}/${f}" -o "/${f}"; \
+  done; \
+  chmod 0644 /etc/supervisord.conf /etc/supervisord.d/*.ini; \
+  chmod 0755 /usr/local/bin/fakesystemd.sh; \
+  install -m0755 /usr/local/bin/slurmd-entrypoint.sh /usr/local/bin/entrypoint.sh; \
+  rm -f /usr/local/bin/slurmd-entrypoint.sh
 EXPOSE 6818/tcp 22/tcp
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

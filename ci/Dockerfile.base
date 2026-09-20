@@ -23,13 +23,6 @@ RUN scripts/make.sh clean rpm taxi ui
 
 # FROM docker.io/library/almalinux:9
 FROM docker.io/library/almalinux:10
-# COPY --from=builder /builder/ndmspc-ui/dist /usr/share/ndmspc/ndmspc-ui
-# 'slurm' is the Slurm client (srun/sbatch/squeue/sinfo/scontrol/sacct/scancel) used
-# by the httpSlurm.C macro; the cluster's /etc/slurm is mounted at run time. The
-# client packages do not create the account SlurmUser names (only the daemon
-# subpackages do) while every Slurm client refuses a slurm.conf whose SlurmUser
-# does not exist ("Invalid user for SlurmUser slurm" + "Unable to process
-# configuration file"), so the RUN below creates it with the Slurm uid/gid (401).
 ARG MY_USER=user
 # Everything that touches the filesystem in this stage lives in one layer: repo
 # setup, package install, tini, and the user. (dnf clean all already empties
@@ -45,10 +38,7 @@ RUN --mount=type=bind,from=builder,source=/builder/build/RPMS/x86_64,target=/rpm
   dnf install epel-release 'dnf-command(config-manager)' 'dnf-command(copr)' -y && \
   dnf config-manager --set-enabled crb && \
   dnf copr enable ndmspc/stable -y && \
-  dnf install -y /rpms/ndmspc*.rpm slurm && \
-  (getent group slurm >/dev/null || groupadd -g 401 slurm) && \
-  (getent passwd slurm >/dev/null || \
-     useradd -r -u 401 -g slurm -d /home/slurm -s /usr/sbin/nologin slurm) && \
+  dnf install -y /rpms/ndmspc*.rpm && \
   dnf clean all && \
   TINI_VERSION=v0.19.0 && \
   curl -fsSL https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini -o /usr/bin/tini && \
