@@ -17,6 +17,8 @@ default), so a `CN=mvala, ...` certificate is presented to the server as user `m
 | `run-server.sh` | Starts `ndmspc-server` with the grid certificate as the server certificate and the grid CA path for client verification. |
 | `run-client.sh` | Runs `ndmspc-ws-client` over `wss://`, presenting the grid certificate. |
 | `run-demo.sh` | End-to-end check: starts the server, runs an authenticated client (must succeed) and an anonymous client (must be rejected), then stops the server. |
+| `make-certs.sh` | Generates a throwaway CA, a server certificate (serverAuth EKU, SAN `localhost`) and an optional test client certificate. |
+| `run-browser.sh` | Browser scenario: starts the server with a browser-trusted certificate and CORS enabled, and prints the Firefox + ndmspc-ui steps. |
 
 ## Prerequisites
 
@@ -68,6 +70,41 @@ curl -sk --cert ~/.globus/usercert.pem --key <decrypted-key> \
   https://localhost:8443/api/state -D - -o /dev/null
 ```
 
+## Browser (Firefox) test
+
+The WebSocket client above cannot use a certificate loaded in a browser, so the UI
+(`ndmspc-ui`) has a second path: serve the mTLS front door with a certificate a browser
+can trust, and let the browser present its own client certificate.
+
+A grid **user** certificate cannot be the server certificate here: it carries only the
+`clientAuth` EKU and no SAN, and a browser has no equivalent of the client's
+`--allow-insecure` (see above). The browser scenario therefore uses a generated server
+certificate while verifying the **client** against `CA_PATH` — your CERN CA for a CERN
+user certificate, or the test CA for the generated one:
+
+```bash
+# self-contained: test CA + server certificate + optional test client certificate
+./make-certs.sh
+
+# verify your CERN user certificate as the client
+CA_PATH=/path/to/cern-ca ./run-browser.sh
+```
+
+`run-browser.sh` prints the exact steps; in short:
+
+1. Import `.certs/ca.pem` into Firefox as a trusted authority (*Settings → Privacy &
+   Security → Certificates → View Certificates → Authorities → Import*).
+2. Use your CERN certificate, or import the generated `.certs/client.p12` (password
+   `ndmspc`) under *Your Certificates*.
+3. In `ndmspc-ui`, set `VITE_X509_PROBE_URL="https://localhost:8444/api/state"` in
+   `.env.local` and restart `npm run dev`.
+4. Click **Sign in with X.509 certificate**: Firefox prompts for the certificate and the
+   profile shown comes from the `X-NDMSPC-User` response header.
+
+Cross-origin calls from the UI need CORS on the front door — `run-browser.sh` passes
+`--x509-cors http://localhost:5173`, which echoes the request origin and exposes
+`X-NDMSPC-User` / `X-NDMSPC-Subject` to the page.
+
 ## Configuration
 
 All scripts honour these environment variables:
@@ -85,6 +122,11 @@ All scripts honour these environment variables:
 | `URL` | `wss://localhost:$PORT/ws/root.websocket` | WebSocket endpoint for the client. |
 | `TIMEOUT` | `10` | Client run time in seconds. |
 | `WITH_CERT` | `1` | Set to `0` to connect without a client certificate (negative test). |
+| `SERVER_CERT` | `$GLOBUS_CERT` | Server certificate (`run-server.sh`); use `make-certs.sh` output for a browser test. |
+| `SERVER_KEY` | `$GLOBUS_KEY` | Server private key. |
+| `CA_FILE` | *(unset)* | CA bundle used to verify client certificates. |
+| `CA_PATH` | `$GRID_CA_PATH` | Hashed CA directory used to verify client certificates (the CERN CA for a CERN certificate). |
+| `CORS` | *(unset)* | Allowed CORS origins for browser clients, e.g. `http://localhost:5173`. |
 
 `run-client.sh` also honours the client's own passphrase variables when the `GLOBUS_*`
 sources are unset: `NDMSPC_KEY_PASS` (plain text, used when `GLOBUS_PASSWORD` is unset) and

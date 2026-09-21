@@ -341,6 +341,7 @@ Available settings:
 | `--x509-verify-optional` | `NDMSPC_X509_VERIFY_OPTIONAL` | `false` (client cert required) |
 | `--x509-identity` | `NDMSPC_X509_IDENTITY` | `cn` |
 | `--x509-internal-port` | `NDMSPC_X509_INTERNAL_PORT` | `8081` |
+| `--x509-cors` | `NDMSPC_X509_CORS` | Empty (CORS disabled) |
 
 When a CA file or CA path is set, client certificates are **required** by default. Set
 `--x509-verify-optional` to accept clients that present no certificate (a presented
