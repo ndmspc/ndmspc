@@ -103,6 +103,7 @@ Ndmspc::NX509Config X509ConfigFromEnvironment()
   const std::string identity = EnvString("NDMSPC_X509_IDENTITY");
   if (!identity.empty()) config.identity = identity;
   config.internalPort = static_cast<int>(EnvLong("NDMSPC_X509_INTERNAL_PORT", 8081));
+  config.cors = EnvString("NDMSPC_X509_CORS");
   return config;
 }
 
@@ -129,6 +130,7 @@ void AddX509Options(CLI::App * command, Ndmspc::NX509Config & config)
   command->add_flag("--x509-verify-optional", config.verifyOptional, "Do not require a client certificate (verify when presented)");
   command->add_option("--x509-identity", config.identity, "Identity attribute extracted from the client cert subject: 'cn' (default) or 'dn'");
   command->add_option("--x509-internal-port", config.internalPort, "Loopback port for the internal ROOT engine (default: 8081)");
+  command->add_option("--x509-cors", config.cors, "Allowed CORS origins for browser clients ('*' or a comma-separated list; empty disables CORS)");
 }
 
 void PrepareOidcConfig(Ndmspc::NOidcConfig & config, const Ndmspc::NX509Config & x509Config)

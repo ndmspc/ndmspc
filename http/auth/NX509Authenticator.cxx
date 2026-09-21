@@ -79,6 +79,45 @@ std::string RewriteUsernameInJson(const std::string & payload, const std::string
   return payload;
 }
 
+// Trims ASCII whitespace from both ends of a string.
+std::string Trim(const std::string & value)
+{
+  const auto begin = value.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) return {};
+  const auto end = value.find_last_not_of(" \t\r\n");
+  return value.substr(begin, end - begin + 1);
+}
+
+// Whether the request origin is covered by the configured list ("*" or a
+// comma-separated list of origins).
+bool OriginAllowed(const std::string & allowedOrigins, const std::string & origin)
+{
+  if (allowedOrigins.empty() || origin.empty()) return false;
+  std::size_t start = 0;
+  while (start <= allowedOrigins.size()) {
+    const std::size_t comma = allowedOrigins.find(',', start);
+    const std::string entry =
+        Trim(allowedOrigins.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
+    if (entry == "*" || entry == origin) return true;
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+  return false;
+}
+
+// Adds the CORS headers a browser needs to call the front door from another
+// origin and to read the identity headers. The request origin is echoed rather
+// than "*", so the response stays valid for credentialed requests too. No-op
+// when CORS is disabled or the origin is not allowed.
+void ApplyCors(const httplib::Request & req, httplib::Response & res, const std::string & allowedOrigins)
+{
+  const std::string origin = req.get_header_value("Origin");
+  if (!OriginAllowed(allowedOrigins, origin)) return;
+  res.set_header("Access-Control-Allow-Origin", origin);
+  res.set_header("Vary", "Origin");
+  res.set_header("Access-Control-Expose-Headers", "X-NDMSPC-User, X-NDMSPC-Subject");
+}
+
 } // namespace
 
 /**
@@ -155,6 +194,9 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
   SSL_CTX_set_verify(sslCtx, verifyMode, ClientCertVerifyCallback);
 
   auto forwardHttp = [&impl](const httplib::Request & req, httplib::Response & res) {
+    // Every path out of here (401, 502 and the proxied response) must carry the
+    // CORS headers, so this runs before the identity check.
+    ApplyCors(req, res, impl.config.cors);
     const std::string identity = gPeerIdentity;
     if (identity.empty()) {
       res.status = 401;
@@ -203,6 +245,20 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
   server->Delete(R"(/api.*)", httpHandler);
   server->Put(R"(/api.*)", httpHandler);
   server->Patch(R"(/api.*)", httpHandler);
+  // CORS preflight. The client certificate has already been verified in the TLS
+  // handshake, so this only answers the browser's OPTIONS probe.
+  server->Options(R"(/api.*)", [&impl](const httplib::Request & req, httplib::Response & res) {
+    ApplyCors(req, res, impl.config.cors);
+    if (res.get_header_value("Access-Control-Allow-Origin").empty()) {
+      res.status = 403;
+      return;
+    }
+    res.status = 204;
+    res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    const std::string requestedHeaders = req.get_header_value("Access-Control-Request-Headers");
+    res.set_header("Access-Control-Allow-Headers", requestedHeaders.empty() ? "Content-Type, Authorization" : requestedHeaders);
+    res.set_header("Access-Control-Max-Age", "600");
+  });
 
   // WebSocket: mTLS already authenticated this connection, so the client must
   // NOT send the OIDC-style "authenticate" frame. Bridge frames to the internal
