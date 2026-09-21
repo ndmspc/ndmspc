@@ -104,7 +104,7 @@ inline void RegisterMcpTool(const std::string & action, NMcpToolInfo info)
 ///       conversion to std::string, while a template parameter is not deduced from it.
 /// @note The std::is_convertible SFINAE constraint is deliberate: a C++20 `requires`
 ///       clause would be rejected by the ROOT interpreter (cling runs in C++17) when a
-///       macro such as httpNgnt.C includes this header.
+///       macro such as toolNgnt.C includes this header.
 template <typename T, std::enable_if_t<std::is_convertible_v<T, std::string>, int> = 0>
 inline void RegisterMcpTool(const std::string & action, const T & description)
 {

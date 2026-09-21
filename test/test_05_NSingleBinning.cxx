@@ -9,25 +9,24 @@
 
 class NSingleBinning01GausTest : public ::testing::Test {
   protected:
-  std::string testFile     = "test_NSingleBinning01Gaus.root";
-  std::string testJsonFile = "test.json";
+  static const std::string testFile;
+  std::string              testJsonFile = "test.json";
 
-  void SetUp() override
+  // The macro is deterministic, so build the tree once for the whole suite
+  // instead of once per test (5 tests would otherwise each regenerate it).
+  static void SetUpTestSuite()
   {
     // Only create the test file if it doesn't exist
     std::ifstream f(testFile);
     if (!f.good()) {
       NSingleBinning01Gaus(testFile);
     }
-    f.close();
   }
 
-  void TearDown() override
-  {
-    std::remove(testFile.c_str());
-    // Do not remove testFile here to allow reuse between tests
-  }
+  static void TearDownTestSuite() { std::remove(testFile.c_str()); }
 };
+
+const std::string NSingleBinning01GausTest::testFile = "test_NSingleBinning01Gaus.root";
 
 TEST_F(NSingleBinning01GausTest, CreatesOutputFile)
 {

@@ -106,7 +106,7 @@ int main(int argc, char ** argv)
   app.set_version_flag("--version", AppVersion(), "Print version information and exit");
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: "
-                 "$NDMSPC_DIR/macros/builtin/httpNgntBase.C,$NDMSPC_DIR/macros/builtin/httpNgnt.C)");
+                 "$NDMSPC_DIR/macros/tools/toolBase.C,$NDMSPC_DIR/macros/tools/toolNgnt.C)");
   app.add_option("--transport", transport, "Transport to serve (default: stdio)")
       ->check(CLI::IsMember({"stdio"}));
   app.add_flag("--all-tools", allTools, "Also expose internal actions (debug, openapi) as tools");
@@ -137,7 +137,7 @@ int main(int argc, char ** argv)
       NLogError("No macro file given and default directory '%s' not found. Provide one with -m.", dir.c_str());
       return 1;
     }
-    macroFilename = dir + "/macros/builtin/httpNgntBase.C," + dir + "/macros/builtin/httpNgnt.C";
+    macroFilename = dir + "/macros/tools/toolBase.C," + dir + "/macros/tools/toolNgnt.C";
   }
 
   auto server = std::make_unique<Ndmspc::NHttpServer>(/*engine=*/"", /*ws=*/true, /*heartbeat_ms=*/10000,

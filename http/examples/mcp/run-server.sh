@@ -10,7 +10,7 @@ PROJECT_DIR="$(readlink -m "$SCRIPT_DIR/../../..")"
 
 PORT="${PORT:-8080}"
 SERVER_BIN="${SERVER_BIN:-$PROJECT_DIR/bin/ndmspc-server}"
-MACROS="${MACROS:-$PROJECT_DIR/macros/builtin/httpNgntBase.C,$PROJECT_DIR/macros/builtin/httpNgnt.C}"
+MACROS="${MACROS:-$PROJECT_DIR/macros/tools/toolBase.C,$PROJECT_DIR/macros/tools/toolNgnt.C}"
 
 die() { echo "error: $*" >&2; exit 1; }
 

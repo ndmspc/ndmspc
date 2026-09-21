@@ -167,7 +167,7 @@ json constractGetQuestionnairesResponse(const std::string& location, const std::
     return response;
 }
 
-void httpNgntQuestionnaires () {
+void toolQuestionnaires() {
     auto &handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
     handlers["questionnaires"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,

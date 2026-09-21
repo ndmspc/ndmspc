@@ -245,8 +245,8 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
   # rootcling is handed (and records in the rootmap/pcm) the name each header is installed and
   # included under - <project>/<module dir>/<file> - which is the path ROOT autoloads classes
   # through at runtime. Headers install flat (RootLib PUBLIC_HEADER), so the directory part of a
-  # source-relative name is dropped here: a source in http/ngnt/ is ndmspc/http/NWorkspace.h, and
-  # naming it ndmspc/http/ngnt/NWorkspace.h would record a path that exists only in the build tree
+  # source-relative name is dropped here: a source in http/server/ is ndmspc/http/NWorkspace.h, and
+  # naming it ndmspc/http/server/NWorkspace.h would record a path that exists only in the build tree
   # and make every autoload fail with "Missing FileEntry". headerfiles keeps the real source names
   # for the DEPENDS below.
   foreach(f ${headerfiles})

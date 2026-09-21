@@ -1,5 +1,5 @@
 ///
-/// httpSlurm.C — HTTP/MCP interface to the cluster's Slurm over the REST API.
+/// toolSlurm.C — HTTP/MCP interface to the cluster's Slurm over the REST API.
 /// Registers: slurm/submit, slurm/jobs, slurm/job, slurm/nodes
 /// URLs:      POST /api/slurm/submit, GET /api/slurm/jobs,
 ///            GET|POST|DELETE /api/slurm/job, GET /api/slurm/nodes
@@ -21,7 +21,7 @@
 /// Job output stays on the compute node a job ran on, so a room does not see it; a
 /// log push through a Slurm epilog was removed and will be redone later.
 ///
-/// Usage: ndmspc-server -m "<dir>/httpNgntBase.C,<dir>/httpNgnt.C,<dir>/httpSlurm.C"
+/// Usage: ndmspc-server -m "<dir>/toolBase.C,<dir>/toolNgnt.C,<dir>/toolSlurm.C"
 ///
 /// Overridables:
 ///   NDMSPC_SLURM_REST_URL         (default http://slurm-restapi.slurm:6820)
@@ -264,7 +264,7 @@ int TimeToMinutes(const std::string &value)
 
 } // namespace
 
-void httpSlurm()
+void toolSlurm()
 {
   auto &handlers = *(Ndmspc::gNdmspcHttpHandlers);
 

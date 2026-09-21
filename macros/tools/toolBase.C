@@ -6,12 +6,12 @@
 #include <ndmspc/http/NHttpServer.h>
 #include <ndmspc/core/NParameters.h>
 
-void httpNgntBase()
+void toolBase()
 {
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
-  // MCP tool metadata (see httpNgnt.C for the convention)
+  // MCP tool metadata (see toolNgnt.C for the convention)
   Ndmspc::RegisterMcpTool("health", {
       .description = "Server health and workspace snapshot (GET prints the server, POST/PATCH return the workspace).",
       .methods     = {"GET", "POST", "PATCH", "DELETE"},

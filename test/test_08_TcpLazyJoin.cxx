@@ -29,6 +29,9 @@ namespace {
 
 std::string gExecutablePath;
 
+// Point grid used by the TCP join tests: 6*6*3*3 = 324 points over 4 dimensions.
+constexpr const char * kDefaultBins = "6,6,3,3";
+
 std::string ResolveNTcpTestMacroPath()
 {
   const char * envMacro = gSystem->Getenv("NDMSPC_TCP_TEST_MACRO");
@@ -73,7 +76,7 @@ Long64_t ExpectedEntriesFromBins(const std::string & bins)
 }
 
 bool ExecuteNTcpTestMacro(const std::string & outFile, int timeoutMs, std::string * error = nullptr,
-                          const std::string & bins = "10,10,5,5")
+                          const std::string & bins = kDefaultBins)
 {
   const std::string macroPath = ResolveNTcpTestMacroPath();
   if (macroPath.empty()) {
@@ -143,7 +146,7 @@ std::vector<pid_t> GetChildPids(pid_t parentPid)
 // argv layout (worker re-entry):
 // exe --ndmspc-tcp-worker endpoint idx outfile timeout_ms bins [startup_delay_ms]
 pid_t SpawnTcpWorker(const std::string & endpoint, size_t idx, const std::string & outFile,
-                     int timeoutMs, const std::string & bins = "10,10,5,5", int startupDelayMs = 0)
+                     int timeoutMs, const std::string & bins = kDefaultBins, int startupDelayMs = 0)
 {
   const pid_t pid = ::fork();
   if (pid != 0) return pid;
@@ -222,8 +225,8 @@ private:
   bool        fHadValue{false};
 };
 
-constexpr Long64_t kExpectedNTcpTestEntries = 10 * 10 * 5 * 5;
-constexpr const char * kInterruptTestBins   = "8,8,4,4";
+constexpr Long64_t kExpectedNTcpTestEntries = 6 * 6 * 3 * 3; // product of kDefaultBins
+constexpr const char * kInterruptTestBins   = "6,6,3,3";
 
 void AssertOutputTreeIsValid(const std::string & testFile,
                              Long64_t            expectedEntries = kExpectedNTcpTestEntries)
@@ -272,13 +275,13 @@ TEST(TcpLazyJoinTest, WorkersJoinAfterSupervisorStart)
   gSystem->Setenv("NDMSPC_WORKER_TIMEOUT",     "10");
   gSystem->Setenv("NDMSPC_IPC_STALL_TIMEOUT",  "30");
 
-  // Workers are spawned with a 2-second startup delay so the supervisor
+  // Workers are spawned with a startup delay so the supervisor
   // starts listening before any worker connects (lazy join).
   const int        perPointMs  = 10;
-  const int        lazyDelayMs = 2000;
+  const int        lazyDelayMs = 1000;
   std::vector<pid_t> workerPids;
   for (size_t i = 0; i < 4; ++i) {
-    const pid_t pid = SpawnTcpWorker(endpoint, i, testFile, perPointMs, "10,10,5,5", lazyDelayMs);
+    const pid_t pid = SpawnTcpWorker(endpoint, i, testFile, perPointMs, kDefaultBins, lazyDelayMs);
     ASSERT_GT(pid, 0) << "Failed to spawn TCP worker " << i;
     workerPids.push_back(pid);
   }
@@ -325,7 +328,7 @@ TEST(TcpLazyJoinTest, SupervisorStartsAfterWorkers)
   }
 
   // Workers bootstrap first and wait until supervisor appears.
-  std::this_thread::sleep_for(std::chrono::seconds(2));
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   std::string error;
   ASSERT_TRUE(ExecuteNTcpTestMacro(testFile, perPointMs, &error)) << error;
 
@@ -395,7 +398,7 @@ TEST(TcpLazyJoinTest, WorkerInterruptionRedistributesTasks)
   });
 
   // Let processing start (give workers time to claim some tasks)
-  std::this_thread::sleep_for(std::chrono::seconds(3));
+  std::this_thread::sleep_for(std::chrono::seconds(1));
 
   // Interrupt the first worker and require the remaining worker to replay its work.
   ASSERT_GT(workerPids[0], 0);

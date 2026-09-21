@@ -13,8 +13,7 @@ The module is organized by feature - the sources of a feature live in their own 
 | `auth/` | OIDC (Keycloak) and X509 client-certificate authentication, token clients, passphrase input |
 | `room/` | the room router and its client: `NRoomRouter`, `NRoomClient`, `NRoomSession` |
 | `mcp/` | the MCP endpoint |
-| `ngnt/` | the ngnt server pieces: `NWorkspace`, `NHistoryEntry`, `NRouteContext`, `NSchemaBuilder` |
-| `server/` | the HTTP/WebSocket layer: `NHttpServer` (engine, workspace, handler map, MCP, rooms), requests, handlers, clients |
+| `server/` | the HTTP/WebSocket layer: `NHttpServer` (engine, workspace, handler map, MCP, rooms), requests, handlers, clients, and the ngnt server pieces (`NWorkspace`, `NHistoryEntry`, `NRouteContext`, `NSchemaBuilder`) |
 | `cli/`, `tui/`, `examples/` | the executables, the room TUI and runnable examples |
 
 **Includes do not follow the directories.** Every header still installs flat into
@@ -527,7 +526,7 @@ them next to the handler, keyed by the same action name used in the handler map:
 ```cpp
 #include <ndmspc/http/NHttpServer.h>
 
-void httpMyCustom()
+void toolMyCustom()
 {
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
@@ -589,9 +588,9 @@ call — the endpoint is not exempt from authentication.
 ### stdio transport
 
 ```bash
-ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/builtin/httpNgntBase.C,httpNgnt.C
+ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/tools/toolBase.C,toolNgnt.C
 ndmspc-mcp --rooms                                         # additionally serve the room router (NRoomRouter)
-ndmspc-mcp -m /path/httpNgntBase.C,/path/httpNgnt.C
+ndmspc-mcp -m /path/toolBase.C,/path/toolNgnt.C
 ndmspc-mcp --all-tools                                      # also expose debug/openapi actions
 ```
 
