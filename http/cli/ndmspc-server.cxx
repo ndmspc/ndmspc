@@ -176,7 +176,7 @@ int main(int argc, char ** argv)
   std::string macroFilename;
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: auto-load "
-                 "$NDMSPC_DIR/macros/builtin/httpNgntBase.C,$NDMSPC_DIR/macros/builtin/httpNgnt.C)");
+                 "$NDMSPC_DIR/macros/tools/toolBase.C,$NDMSPC_DIR/macros/tools/toolNgnt.C)");
   app.add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
   app.add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
@@ -273,7 +273,7 @@ int main(int argc, char ** argv)
     if (macroFilename.empty()) {
       // check if ndmspcMacrosDir is exists
       if (gSystem->AccessPathName(ndmspcMacrosDir.c_str()) == 0) {
-        macroFilename = TString::Format("%s/macros/builtin/httpNgntBase.C,%s/macros/builtin/httpNgnt.C",
+        macroFilename = TString::Format("%s/macros/tools/toolBase.C,%s/macros/tools/toolNgnt.C",
                                         ndmspcMacrosDir.c_str(), ndmspcMacrosDir.c_str())
                             .Data();
         NLogInfo("No macro file given, using default macros ...");

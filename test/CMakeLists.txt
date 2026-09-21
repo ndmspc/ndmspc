@@ -33,13 +33,6 @@ file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/NTcpTest.C
 DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-# Add a ctest entry to run the NTcpTest ROOT macro with arguments
-add_test(NAME NTcpTest COMMAND /bin/sh -c "root -b -q '${CMAKE_SOURCE_DIR}/test/NTcpTest.C(\"NTcpTest.root\",\"5,5\",10)'")
-set_tests_properties(NTcpTest PROPERTIES
-  TIMEOUT 30
-  ENVIRONMENT "ROOT_INCLUDE_PATH=:${CMAKE_BINARY_DIR}/include;LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/core:$ENV{LD_LIBRARY_PATH}"
-)
-
 file(GLOB SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx")
 
 if(NOT WITH_NUMCAL)

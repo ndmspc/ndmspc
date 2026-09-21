@@ -69,10 +69,9 @@ http/
   auth/       OIDC (Keycloak) and X509 client-certificate authentication, token clients
   room/       the room router and its client: NRoomRouter, NRoomClient, NRoomSession
   mcp/        the MCP endpoint: NMcpServer
-  ngnt/       the ngnt server pieces: NWorkspace, NHistoryEntry, NRouteContext,
-              NSchemaBuilder
   server/     the HTTP/WebSocket layer: NHttpServer (engine, workspace, handler map, MCP,
-              rooms), NHttpRequest, NWsHandler, NWsClient, NWsClientInfo
+              rooms), NHttpRequest, NWsHandler, NWsClient, NWsClientInfo, and the ngnt
+              server pieces NWorkspace, NHistoryEntry, NRouteContext, NSchemaBuilder
   cli/        the executables: ndmspc-server, ndmspc-mcp, ndmspc-ws-client
   tui/        the room TUI: ndmspc-room-tui
   examples/   runnable examples (room, mcp, x509-mtls)

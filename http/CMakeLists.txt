@@ -1,6 +1,6 @@
 set(MODULE Http)
 set(PACKAGE Ndmspc${MODULE})
-# The sources live in feature subdirectories (auth/, room/, mcp/, ngnt/, server/), but the headers
+# The sources live in feature subdirectories (auth/, room/, mcp/, server/), but the headers
 # still install flat: a file in http/room/ is included as "ndmspc/http/NRoomRouter.h" like it always
 # was, so no consumer and no user macro has to change. CONFIGURE_DEPENDS so that moving a file
 # between the directories is picked up without a manual re-configure.

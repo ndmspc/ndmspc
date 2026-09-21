@@ -96,13 +96,11 @@ WARN_LOGFILE =
 WARN_AS_ERROR = @DOXYGEN_WARN_AS_ERROR@
 INPUT = @doxy_main_page@ \
         @CMAKE_SOURCE_DIR@/core \
-        @CMAKE_SOURCE_DIR@/http \
-        @CMAKE_SOURCE_DIR@/mon
+        @CMAKE_SOURCE_DIR@/http
 
 #        @CMAKE_SOURCE_DIR@/utils \
 #        @CMAKE_SOURCE_DIR@/hep \
 #        @CMAKE_SOURCE_DIR@/numcal \
-#        @CMAKE_SOURCE_DIR@/mon \
 #        @CMAKE_SOURCE_DIR@/taxi
 
 

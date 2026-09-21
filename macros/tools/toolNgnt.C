@@ -1,21 +1,21 @@
 ///
-/// httpNgnt.C — All-in-one macro registering all standard NGnTree HTTP handlers
-///              under the "ngnt" group prefix.
+/// toolNgnt.C — All-in-one tool macro registering the standard NGnTree actions
+///              under the "ngnt" group prefix (served as HTTP API, WebSocket and MCP tools).
 ///
 /// Registers: ngnt/open, ngnt/reshape, ngnt/map, ngnt/spectra, ngnt/point
 ///
 /// URLs:  /api/ngnt/open, /api/ngnt/reshape, /api/ngnt/map, /api/ngnt/spectra, /api/ngnt/point
 ///
 /// Usage:
-///   ndmspc-server -m "httpNgnt.C"
+///   ndmspc-server -m "toolNgnt.C"
 ///
-/// To add custom handlers alongside the built-in ones, create your own macro:
+/// To add custom tools alongside the built-in ones, create your own macro:
 ///
 ///   #include <ndmspc/http/NRouteContext.h>
 ///   #include <ndmspc/http/NSchemaBuilder.h>
 ///   #include <ndmspc/http/NHttpServer.h>
 ///
-///   void httpMyCustom() {
+///   void toolMyCustom() {
 ///     auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 ///
 ///     // Describe the action for MCP clients (ndmspc-mcp / POST /api/mcp).
@@ -31,7 +31,7 @@
 ///     };
 ///   }
 ///
-/// Then load: ndmspc-server -m "httpNgnt.C,httpMyCustom.C"
+/// Then load: ndmspc-server -m "toolNgnt.C,toolMyCustom.C"
 ///
 /// RegisterMcpTool accepts a full Ndmspc::NMcpToolInfo, e.g.
 ///   Ndmspc::RegisterMcpTool("myplugin/summary", {
@@ -286,7 +286,7 @@ json BuildSpectraSchema(Ndmspc::NGnTree * ngnt, const std::vector<std::string> &
 
 // ============================================================================
 
-void httpNgnt()
+void toolNgnt()
 {
   auto &      handlers = *(Ndmspc::gNdmspcHttpHandlers);
   std::string group    = "ngnt";

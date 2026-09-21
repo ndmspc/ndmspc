@@ -7,12 +7,12 @@
 #include <ndmspc/core/NGnNavigator.h>
 #include <ndmspc/http/NHttpServer.h>
 
-void httpNgntHnSparse()
+void toolHnSparse()
 {
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
-  // MCP tool metadata (see httpNgnt.C for the convention)
+  // MCP tool metadata (see toolNgnt.C for the convention)
   Ndmspc::RegisterMcpTool("open", {
       .description = "Open or close a ROOT file. POST with 'file' opens it, GET reports whether a file is open, "
                      "DELETE closes it.",

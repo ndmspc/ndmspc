@@ -282,12 +282,12 @@ FormCsvAppendResult AppendFormResponseToCsv(const json & form, const json & fiel
   return result;
 }
 
-void httpNgntForm()
+void toolForm()
 {
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
-  // MCP tool metadata (see httpNgnt.C for the convention)
+  // MCP tool metadata (see toolNgnt.C for the convention)
   Ndmspc::RegisterMcpTool("form",
                           "Submit a questionnaire response; it is appended to the CSV file "
                           "(NDMSPC_FORM_CSV_PATH).");

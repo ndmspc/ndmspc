@@ -22,8 +22,8 @@ or straight from the container:
 podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:next
 ```
 
-Without `-m`, the server loads the built-in macros (`httpNgntBase.C`,
-`httpNgnt.C`). Point a browser at <http://localhost:8080/> for the
+Without `-m`, the server loads the built-in tool macros (`toolBase.C`,
+`toolNgnt.C`). Point a browser at <http://localhost:8080/> for the
 web UI, or use the API at <http://localhost:8080/api/>.
 
 ## Run on a local kind cluster
