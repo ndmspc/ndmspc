@@ -4,7 +4,10 @@ namespace Ndmspc {
 
 NOidcSession NOidcSession::FromIdentity(const NOidcIdentity & identity)
 {
-  return {identity.subject, identity.preferredUsername, identity.expiresAt};
+  return {.subject = identity.subject,
+          .username = identity.preferredUsername,
+          .email = identity.email,
+          .expiresAt = identity.expiresAt};
 }
 
 } // namespace Ndmspc

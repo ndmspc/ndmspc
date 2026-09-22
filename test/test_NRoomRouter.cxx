@@ -15,6 +15,8 @@ namespace {
 
 using Ndmspc::IRoomCluster;
 using Ndmspc::NHttpResponse;
+using Ndmspc::NHttpServer;
+using Ndmspc::NRoomAccess;
 using Ndmspc::NRoomConfig;
 using Ndmspc::NRoomRouter;
 
@@ -211,22 +213,40 @@ class FakeCluster : public IRoomCluster {
 };
 
 /// @brief A configuration that never waits long, whatever the environment says.
-NRoomConfig Config(int readyTimeoutSec = 2)
+NRoomConfig Config(int readyTimeoutSec = 2, std::vector<std::string> admins = {})
 {
   NRoomConfig cfg;
   cfg.ns              = "default";
   cfg.param           = "room";
   cfg.prefix          = "ndmspc-room-";
   cfg.readyTimeoutSec = readyTimeoutSec;
+  cfg.admins          = std::move(admins);
   cfg.apiServer       = "https://api.test"; // the fake cluster answers whatever the router asks
   return cfg;
+}
+
+/// @brief The input of a request whose caller the server verified (what `_identity` carries).
+json Verified(const std::string & username, const std::string & email = "", json in = json::object())
+{
+  in["_identity"] = {{"user", username}, {"email", email}, {"subject", "subject-" + username}, {"verified", true}};
+  return in;
+}
+
+/// @brief The input of a request that only says who it is (a deployment with no login at all).
+json Asserted(const std::string & owner, json in = json::object())
+{
+  in["owner"] = owner;
+  return in;
 }
 
 struct Router {
   std::shared_ptr<FakeCluster> cluster = std::make_shared<FakeCluster>();
   std::unique_ptr<NRoomRouter> router;
 
-  explicit Router(int readyTimeoutSec = 2) : router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec), cluster)) {}
+  explicit Router(int readyTimeoutSec = 2, std::vector<std::string> admins = {})
+      : router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins)), cluster))
+  {
+  }
 
   /// The process's router lives forever; a test's does not, so its workers are stopped first -
   /// closing the rooms cancels them, and nothing may touch the router after it is gone.
@@ -247,16 +267,24 @@ struct Router {
     json out;
     if (action == "open") router->HandleOpen(method, in, out);
     else if (action == "status") router->HandleStatus(method, in, out);
-    else if (action == "list") router->HandleList(method, out);
+    else if (action == "list") router->HandleList(method, in, out);
     else if (action == "close") router->HandleClose(method, in, out);
-    else if (action == "backup") router->HandleBackup(method, out);
+    else if (action == "backup") router->HandleBackup(method, in, out);
     else if (action == "restore") router->HandleRestore(method, in, out);
     return out;
   }
 
   json Open(const std::string & room, bool wait)
   {
-    return Call("open", "POST", json({{"room", room}, {"wait", wait}}));
+    return OpenBy(json::object(), room, wait);
+  }
+
+  /// @brief Opens a room as a caller: `extra` carries the identity (or the asserted owner).
+  json OpenBy(json extra, const std::string & room, bool wait = false)
+  {
+    extra["room"] = room;
+    extra["wait"] = wait;
+    return Call("open", "POST", std::move(extra));
   }
 
   /// @brief Waits until a room's creation has finished (the worker runs in the background).
@@ -318,6 +346,19 @@ TEST(NRoomConfigTest, ReadsTheEnvironment)
   EXPECT_EQ(cfg.apiServer, "https://10.0.0.1:6443");
 }
 
+TEST(NRoomConfigTest, ReadsTheAdminList)
+{
+  EnvGuard admins("NDMSPC_ROOM_ADMINS", " alice@example.com , bob ");
+  const NRoomConfig cfg = NRoomConfig::FromEnv();
+  ASSERT_EQ(cfg.admins.size(), 2u);
+  EXPECT_EQ(cfg.admins[0], "alice@example.com"); // surrounding space is not an identity
+  EXPECT_EQ(cfg.admins[1], "bob");
+
+  // An empty (or absent) list means nobody is an admin, which is the default.
+  EnvGuard none("NDMSPC_ROOM_ADMINS", "");
+  EXPECT_TRUE(NRoomConfig::FromEnv().admins.empty());
+}
+
 TEST(NRoomConfigTest, WithoutAKubernetesEnvironmentThereIsNoApiServer)
 {
   EnvGuard host("KUBERNETES_SERVICE_HOST", nullptr);
@@ -370,7 +411,9 @@ TEST(NRoomRouterTest, NameIsThePrefixPlusTheSlug)
 TEST(NRoomRouterTest, OnlyObjectsCarryingTheRoomLabelCountAsRooms)
 {
   // What the router creates: both objects are stamped with the room label.
-  const json service = NRoomRouter::ServiceObject(Config(), "ndmspc-room-test", "test", "http://router.svc:80", json::object());
+  const json service =
+      NRoomRouter::ServiceObject(Config(), "ndmspc-room-test", "test", "http://router.svc:80", json::object(), "",
+                                 json::object());
   EXPECT_TRUE(NRoomRouter::HasRoomLabel(service));
   const json route = NRoomRouter::RouteObject(Config(), "ndmspc-room-test", "test", "revision-1", json::object());
   EXPECT_TRUE(NRoomRouter::HasRoomLabel(route));
@@ -405,6 +448,82 @@ TEST(NRoomRouterTest, ClientUrlCarriesTheRoomParameter)
 
   cfg.urlBase = "https://ndmspc.example.org";
   EXPECT_EQ(NRoomRouter::ClientUrl(cfg, "test"), "https://ndmspc.example.org/?room=test");
+
+  // With a token the link opens the room, which is what a client hands on.
+  EXPECT_EQ(NRoomRouter::ClientUrl(cfg, "test", "abc123"), "https://ndmspc.example.org/?room=test&token=abc123");
+}
+
+TEST(NRoomRouterTest, TokensAreRandomAndCarryALevel)
+{
+  const std::string first  = NRoomRouter::NewRoomToken();
+  const std::string second = NRoomRouter::NewRoomToken();
+  EXPECT_EQ(first.size(), 32u);
+  EXPECT_EQ(second.size(), 32u);
+  EXPECT_NE(first, second); // two rooms must never share a token
+
+  const json access = NRoomRouter::AccessJson("rw-token", "ro-token");
+  EXPECT_EQ(access["rw"], "rw-token");
+  EXPECT_EQ(access["ro"], "ro-token");
+  EXPECT_TRUE(NRoomRouter::AccessJson("", "").empty());
+}
+
+TEST(NRoomAccessTest, OnlyTheRoomsOwnTokensUnlockItAndTheLevelIsNamed)
+{
+  const json access = NRoomAccess::Parse(NRoomRouter::AccessJson("rw-token", "ro-token").dump());
+  EXPECT_EQ(NRoomAccess::LevelOf(access, "rw-token"), "rw");
+  EXPECT_EQ(NRoomAccess::LevelOf(access, "ro-token"), "ro");
+  EXPECT_EQ(NRoomAccess::LevelOf(access, "rw-toke"), ""); // a near miss grants nothing
+  EXPECT_EQ(NRoomAccess::LevelOf(access, "rw-tokens"), "");
+  EXPECT_EQ(NRoomAccess::LevelOf(access, ""), "");
+
+  // No configuration means no enforcement, and nothing to compare against.
+  EXPECT_TRUE(NRoomAccess::Parse("").empty());
+  EXPECT_TRUE(NRoomAccess::Parse("not json").empty());
+  EXPECT_TRUE(NRoomAccess::Parse("[1,2,3]").empty());
+  EXPECT_EQ(NRoomAccess::LevelOf(json::object(), "rw-token"), "");
+}
+
+TEST(NRoomAccessTest, AServerEnforcesAccessOnlyWhenItWasGivenTokens)
+{
+  // The switch is the environment variable, not the code: a server that was given no tokens (the
+  // router itself, an older image, a room created before access existed) refuses nothing.
+  {
+    EnvGuard    access("NDMSPC_ROOM_ACCESS", nullptr);
+    NHttpServer server("", /*ws=*/false, 10000, {}, /*startEngine=*/false);
+    EXPECT_FALSE(server.RoomAccessRequired());
+    EXPECT_TRUE(server.RoomAccessTokens().empty());
+  }
+
+  // ... and a room that was given them enforces them, at the levels it was given.
+  {
+    const std::string tokens = NRoomRouter::AccessJson("rw-token", "ro-token").dump();
+    EnvGuard          access("NDMSPC_ROOM_ACCESS", tokens.c_str());
+    NHttpServer       server("", /*ws=*/false, 10000, {}, /*startEngine=*/false);
+    EXPECT_TRUE(server.RoomAccessRequired());
+    EXPECT_EQ(server.RoomAccessLevel("rw-token"), "rw");
+    EXPECT_EQ(server.RoomAccessLevel("ro-token"), "ro");
+    EXPECT_EQ(server.RoomAccessLevel("rw-tokens"), "");
+    EXPECT_EQ(server.RoomAccessLevel(""), "");
+  }
+}
+
+TEST(NRoomAccessTest, TheTokenTravelsInTheLinkInAHeaderOrInTheRoomsCookie)
+{
+  // A link: what a page handed out carries.
+  EXPECT_EQ(NRoomAccess::TokenFromQuery("room=alpha&token=abc"), "abc");
+  EXPECT_EQ(NRoomAccess::TokenFromQuery("?token=abc&room=alpha"), "abc");
+  EXPECT_EQ(NRoomAccess::TokenFromQuery("room=alpha"), "");
+  EXPECT_EQ(NRoomAccess::TokenFromQuery("room=alpha&tokenish=abc"), ""); // only the exact name counts
+  EXPECT_EQ(NRoomAccess::TokenFromQuery("room=alpha&token="), "");      // an empty value is no token
+  EXPECT_EQ(NRoomAccess::TokenFromQuery(""), "");
+
+  // A cookie: what the room's page gives the browser, since the page's own scripts cannot add a
+  // header to their API and websocket calls.
+  EXPECT_EQ(NRoomAccess::TokenFromCookie("ndmspc-room-access=abc"), "abc");
+  EXPECT_EQ(NRoomAccess::TokenFromCookie("other=1; ndmspc-room-access=abc; more=2"), "abc");
+  EXPECT_EQ(NRoomAccess::TokenFromCookie("other=1"), "");
+  EXPECT_EQ(NRoomAccess::TokenFromCookie("ndmspc-room-access-extra=abc"), "");
+  EXPECT_EQ(NRoomAccess::TokenFromCookie(""), "");
 }
 
 TEST(NRoomRouterTest, QueryParsingDecodesAndKeepsEmptyValues)
@@ -433,8 +552,10 @@ TEST(NRoomRouterTest, ServiceObjectStampsTheRoomAndTheSkeletonWins)
   skeleton["serviceSpec"]["template"]["spec"]["containers"][0]["env"] =
       json::array({json::object({{"name", "NDMSPC_ROOM"}, {"value", "preset"}})});
 
+  const json access = json::object({{"rw", "rw-token"}, {"ro", "ro-token"}});
   const json service =
-      NRoomRouter::ServiceObject(Config(), "ndmspc-room-alpha", "alpha", "http://router.default.svc:80", skeleton);
+      NRoomRouter::ServiceObject(Config(), "ndmspc-room-alpha", "alpha", "http://router.default.svc:80", access,
+                                 "alice@example.com", skeleton);
 
   EXPECT_EQ(service["apiVersion"], "serving.knative.dev/v1");
   EXPECT_EQ(service["kind"], "Service");
@@ -448,6 +569,25 @@ TEST(NRoomRouterTest, ServiceObjectStampsTheRoomAndTheSkeletonWins)
 
   EXPECT_EQ(values["NDMSPC_ROOM"], "preset"); // what the skeleton sets wins
   EXPECT_EQ(values["NDMSPC_ROOM_STATE_URL"], "http://router.default.svc:80");
+
+  // The tokens reach the room, and a copy stays on the Service so that a router restart - and an
+  // idle room coming back - still know which links open it.
+  EXPECT_EQ(values["NDMSPC_ROOM_ACCESS"], access.dump());
+  EXPECT_EQ(service["metadata"]["annotations"]["ndmspc.io/room-access"], access.dump());
+  // The owner is kept beside the tokens and for the same reason: a restart, and an idle room waking
+  // up, must not lose who the room belongs to.
+  EXPECT_EQ(service["metadata"]["annotations"]["ndmspc.io/room-owner"], "alice@example.com");
+
+  // A room handed no tokens enforces nothing, so it must not get an empty switch either.
+  const json bare =
+      NRoomRouter::ServiceObject(Config(), "ndmspc-room-beta", "beta", "http://router.default.svc:80",
+                                 json::object(), "", skeleton);
+  std::map<std::string, std::string> bareValues;
+  for (const auto & entry : bare["spec"]["template"]["spec"]["containers"][0]["env"]) {
+    bareValues[entry["name"]] = entry["value"];
+  }
+  EXPECT_EQ(bareValues.count("NDMSPC_ROOM_ACCESS"), 0u);
+  EXPECT_FALSE(bare["metadata"].contains("annotations"));
 }
 
 TEST(NRoomRouterTest, RouteObjectPinsTheRoomQueryAndTheRevision)
@@ -522,7 +662,13 @@ TEST(NRoomRouterActionsTest, OpenCreatesTheServiceAndTheRouteAndWaitsForReady)
   EXPECT_EQ(out["payload"]["name"], "ndmspc-room-alpha");
   EXPECT_EQ(out["payload"]["revision"], "revision-1");
   EXPECT_EQ(out["payload"]["state"], "ready");
-  EXPECT_EQ(out["payload"]["url"], "?room=alpha");
+  // The url is the link a client hands on, so it carries the room's read-write token.
+  const std::string tokenRw = out["payload"]["access"]["rw"].get<std::string>();
+  const std::string tokenRo = out["payload"]["access"]["ro"].get<std::string>();
+  EXPECT_EQ(out["payload"]["url"], "?room=alpha&token=" + tokenRw);
+  EXPECT_EQ(tokenRw.size(), 32u);
+  EXPECT_EQ(tokenRo.size(), 32u);
+  EXPECT_NE(tokenRw, tokenRo); // the two levels are separate secrets
 
   const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
   const std::string routes   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes";
@@ -780,4 +926,207 @@ TEST(NRoomRouterActionsTest, TheMethodsEachActionAcceptsAreChecked)
   const json openNoRoom = test.Call("open", "POST", json::object());
   EXPECT_EQ(openNoRoom["result"], "failure");
   EXPECT_NE(openNoRoom["error"].get<std::string>().find("Missing room id"), std::string::npos);
+}
+
+// ---------------------------------------------------------------- ownership and admins
+
+TEST(NRoomOwnershipTest, ANewRoomBelongsToWhoeverCreatedIt)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // The verified email is preferred over the user name: an admin list is written in emails.
+  const json opened = test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  EXPECT_EQ(opened["payload"]["owner"], "alice@example.com");
+
+  // And it is kept on the room's own Service, beside its tokens, so a router restart does not lose
+  // it.
+  const json service =
+      test.cluster->LastBody("POST", "/apis/serving.knative.dev/v1/namespaces/default/services");
+  EXPECT_EQ(service["metadata"]["annotations"]["ndmspc.io/room-owner"], "alice@example.com");
+}
+
+TEST(NRoomOwnershipTest, ARoomKeepsTheOwnerItWasCreatedWith)
+{
+  // root is an admin, so opening someone else's room is allowed and reports the room as it is.
+  Router test(2, {"root@example.com"});
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+  const json reopened = test.OpenBy(Verified("root", "root@example.com"), "alpha", /*wait=*/true);
+  ASSERT_EQ(reopened["result"], "success");
+  EXPECT_EQ(reopened["payload"]["owner"], "alice@example.com");
+}
+
+TEST(NRoomOwnershipTest, AnIdentifiedCallerSeesTheirOwnRoomsAndAnAdminSeesAll)
+{
+  Router test(2, {"boss@example.com"});
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+  test.OpenBy(Verified("bob", "bob@example.com"), "beta", /*wait=*/true);
+  test.OpenBy(json::object(), "legacy", /*wait=*/true); // created by nobody identifiable: nobody's
+
+  const json admin = test.Call("list", "GET", Verified("boss", "boss@example.com"));
+  EXPECT_EQ(admin["payload"]["rooms"].size(), 3u);
+
+  const json mine = test.Call("list", "GET", Verified("alice", "alice@example.com"));
+  ASSERT_EQ(mine["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(mine["payload"]["rooms"][0]["room"], "alpha");
+  EXPECT_EQ(mine["payload"]["rooms"][0]["owner"], "alice@example.com");
+
+  const json theirs = test.Call("list", "GET", Verified("bob", "bob@example.com"));
+  ASSERT_EQ(theirs["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(theirs["payload"]["rooms"][0]["room"], "beta");
+
+  // A caller that says nothing about itself is answered as it always was: the whole registry, the
+  // room with no owner included. That is what a script and the TUI are.
+  const json anonymous = test.Call("list", "GET");
+  EXPECT_EQ(anonymous["payload"]["rooms"].size(), 3u);
+}
+
+TEST(NRoomOwnershipTest, AnAdminIsMatchedByEmailOrUserNameCaseInsensitively)
+{
+  // The list may name people by email or by user name; a caller matches on either.
+  Router test(2, {"Boss@Example.COM", "root"});
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+
+  // By email, whatever the case it is written in.
+  EXPECT_EQ(test.Call("list", "GET", Verified("boss", "boss@example.com"))["payload"]["rooms"].size(), 1u);
+  // By user name, for a deployment whose tokens carry no email.
+  EXPECT_EQ(test.Call("list", "GET", Verified("root", "root@example.com"))["payload"]["rooms"].size(), 1u);
+  // Someone in neither stays limited to their own rooms.
+  EXPECT_EQ(test.Call("list", "GET", Verified("carol", "carol@example.com"))["payload"]["rooms"].size(), 0u);
+}
+
+TEST(NRoomOwnershipTest, SomeoneElsesRoomIsRefusedNotOnlyHidden)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+
+  // bob may not read it, may not walk into it through room/open (which hands out its link), and may
+  // not delete it.
+  const json status = test.Call("status", "GET", Verified("bob", "bob@example.com", {{"room", "alpha"}}));
+  EXPECT_EQ(status["result"], "failure");
+  EXPECT_EQ(status["code"], "not_owner");
+
+  const json opened = test.OpenBy(Verified("bob", "bob@example.com"), "alpha");
+  EXPECT_EQ(opened["result"], "failure");
+  EXPECT_EQ(opened["code"], "not_owner");
+
+  const json closed = test.Call("close", "DELETE", Verified("bob", "bob@example.com", {{"room", "alpha"}}));
+  EXPECT_EQ(closed["result"], "failure");
+  EXPECT_EQ(closed["code"], "not_owner");
+  EXPECT_TRUE(test.router->Tracked("alpha")); // a refusal deletes nothing
+
+  // An anonymous caller - a script, or the TUI - keeps working on any room.
+  EXPECT_EQ(test.Call("status", "GET", json{{"room", "alpha"}})["result"], "success");
+}
+
+TEST(NRoomOwnershipTest, AVerifiedCallerBeatsWhatTheRequestAsserts)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // The request claims to be bob; the server knows it is alice, and the assertion is ignored.
+  json in       = Verified("alice", "alice@example.com");
+  in["owner"]   = "bob@example.com";
+  const json opened = test.OpenBy(in, "alpha", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  EXPECT_EQ(opened["payload"]["owner"], "alice@example.com");
+
+  // And bob does not get the room by having claimed it - nor by now claiming it again.
+  EXPECT_TRUE(test.Call("list", "GET", Asserted("bob@example.com"))["payload"]["rooms"].empty());
+  EXPECT_EQ(test.Call("list", "GET", Verified("alice", "alice@example.com"))["payload"]["rooms"].size(), 1u);
+}
+
+TEST(NRoomOwnershipTest, WithoutLoginTheOwnerIsWhatTheClientAsserts)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  const json opened = test.OpenBy(Asserted("alice@example.com"), "alpha", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  EXPECT_EQ(opened["payload"]["owner"], "alice@example.com");
+
+  EXPECT_EQ(test.Call("list", "GET", Asserted("alice@example.com"))["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(test.Call("list", "GET", Asserted("bob@example.com"))["payload"]["rooms"].size(), 0u);
+
+  // The assertion travels in the query too, which is how a link carries it.
+  const json query = test.Call("list", "GET", json{{"_query", "owner=alice%40example.com"}});
+  EXPECT_EQ(query["payload"]["rooms"].size(), 1u);
+}
+
+TEST(NRoomOwnershipTest, TheOwnerIsReadBackFromTheRoomsOwnService)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // A room the cluster already has, with its owner on the Service: this is what a router that has
+  // just restarted finds.
+  const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
+  json              service;
+  service["metadata"]["name"]                              = "ndmspc-room-alpha";
+  service["metadata"]["namespace"]                         = "default";
+  service["metadata"]["labels"]["ndmspc.io/room"]          = "alpha";
+  service["metadata"]["annotations"]["ndmspc.io/room-owner"] = "alice@example.com";
+  test.cluster->objects[services + "/ndmspc-room-alpha"]    = service;
+
+  test.OpenBy(json::object(), "beta", /*wait=*/true); // asking for any room adopts the cluster's rooms first
+
+  // The owner read back is the one callers are matched against.
+  const json status = test.Call("status", "GET", Verified("alice", "alice@example.com", {{"room", "alpha"}}));
+  ASSERT_EQ(status["result"], "success");
+  EXPECT_EQ(status["payload"]["owner"], "alice@example.com");
+
+  const json other = test.Call("status", "GET", Verified("bob", "bob@example.com", {{"room", "alpha"}}));
+  EXPECT_EQ(other["code"], "not_owner");
+}
+
+TEST(NRoomOwnershipTest, ABackupCarriesTheOwnerAndAScopedBackupOnlyOnesOwnRooms)
+{
+  Router test(2, {"boss@example.com"});
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+  test.OpenBy(Verified("bob", "bob@example.com"), "beta", /*wait=*/true);
+
+  const json mine = test.Call("backup", "GET", Verified("alice", "alice@example.com"));
+  ASSERT_EQ(mine["result"], "success");
+  ASSERT_EQ(mine["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(mine["payload"]["rooms"][0]["room"], "alpha");
+  EXPECT_EQ(mine["payload"]["rooms"][0]["owner"], "alice@example.com");
+
+  const json all = test.Call("backup", "GET", Verified("boss", "boss@example.com"));
+  EXPECT_EQ(all["payload"]["rooms"].size(), 2u);
+}
+
+TEST(NRoomOwnershipTest, ARestoreKeepsTheDocumentsOwnerAndRefusesSomeoneElsesRoom)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // carol may restore a document of her own rooms...
+  json document;
+  document["version"] = 1;
+  document["rooms"]   = json::array({json::object({{"room", "mine"}, {"owner", "carol@example.com"}})});
+  const json restored = test.Call("restore", "POST", Verified("carol", "carol@example.com", document));
+  ASSERT_EQ(restored["result"], "success");
+  ASSERT_EQ(restored["payload"]["restored"].size(), 1u);
+  EXPECT_EQ(test.Call("list", "GET", Verified("carol", "carol@example.com"))["payload"]["rooms"].size(), 1u);
+
+  // ... but not someone else's, and the refusal names what it would not touch.
+  json foreign;
+  foreign["version"] = 1;
+  foreign["rooms"]   = json::array({json::object({{"room", "mine"}, {"owner", "carol@example.com"}})});
+  const json refused = test.Call("restore", "POST", Verified("dave", "dave@example.com", foreign));
+  ASSERT_EQ(refused["result"], "success");
+  EXPECT_TRUE(refused["payload"]["restored"].empty());
+  ASSERT_EQ(refused["payload"]["failed"].size(), 1u);
+  EXPECT_EQ(refused["payload"]["failed"][0]["code"], "not_owner");
+  // The room is still carol's.
+  EXPECT_EQ(test.Call("list", "GET", Verified("carol", "carol@example.com"))["payload"]["rooms"].size(), 1u);
 }

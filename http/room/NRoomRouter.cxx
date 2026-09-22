@@ -12,6 +12,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -66,6 +67,28 @@ static std::string NRoomEnv(const char * name, const std::string & fallback)
   return (value != nullptr && *value != '\0') ? std::string(value) : fallback;
 }
 
+/**
+ * @brief Splits a comma-separated list, dropping empty entries and surrounding space.
+ * @param text The list, e.g. "alice@example.com, bob".
+ * @return The entries, in the order they were written.
+ */
+static std::vector<std::string> NRoomList(const std::string & text)
+{
+  std::vector<std::string> items;
+  std::string              current;
+  for (char c : text + ",") {
+    if (c != ',') {
+      current.push_back(c);
+      continue;
+    }
+    const auto first = current.find_first_not_of(" \t");
+    const auto last  = current.find_last_not_of(" \t");
+    if (first != std::string::npos) items.push_back(current.substr(first, last - first + 1));
+    current.clear();
+  }
+  return items;
+}
+
 // Parses "1/0", "true/false", "yes/no" and "on/off"; anything else keeps the fallback.
 bool NRoomConfig::ParseBool(const std::string & text, bool fallback)
 {
@@ -105,6 +128,7 @@ NRoomConfig NRoomConfig::FromEnv()
   c.readyTimeoutSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_READY_TIMEOUT", "45s"), 45);
   c.maxPreparing    = static_cast<int>(std::strtol(NRoomEnv("NDMSPC_ROOM_MAX_PREPARING", "4").c_str(), nullptr, 10));
   c.waitDefault     = ParseBool(NRoomEnv("NDMSPC_ROOM_WAIT", "true"), true);
+  c.admins          = NRoomList(NRoomEnv("NDMSPC_ROOM_ADMINS", ""));
   const std::string host = NRoomEnv("KUBERNETES_SERVICE_HOST", "");
   const std::string port = NRoomEnv("KUBERNETES_SERVICE_PORT", "443");
   c.apiServer            = host.empty() ? std::string() : ("https://" + host + ":" + port);
@@ -244,10 +268,99 @@ bool NRoomRouter::HasRoomLabel(const json & object)
   return labels.is_object() && labels.contains(kNRoomLabel);
 }
 
-// The URL a client is handed for a room: the external base plus the room parameter.
-std::string NRoomRouter::ClientUrl(const NRoomConfig & cfg, const std::string & value)
+// The URL a client is handed for a room: the external base, the room parameter and, when it has
+// one, the access token that lets it in.
+std::string NRoomRouter::ClientUrl(const NRoomConfig & cfg, const std::string & value, const std::string & token)
 {
-  return cfg.urlBase.empty() ? ("?" + cfg.param + "=" + value) : (cfg.urlBase + "/?" + cfg.param + "=" + value);
+  std::string url =
+      cfg.urlBase.empty() ? ("?" + cfg.param + "=" + value) : (cfg.urlBase + "/?" + cfg.param + "=" + value);
+  if (!token.empty()) url += "&" + std::string(kAccessParam) + "=" + token;
+  return url;
+}
+
+// A fresh room access token: 128 bits of entropy, hex, short enough to sit in a link. A room is the
+// only thing it guards and lives for hours, so there is no rotation and no secret store.
+std::string NRoomRouter::NewRoomToken()
+{
+  static const char digits[] = "0123456789abcdef";
+  std::random_device random;
+  std::string        token(32, '0');
+  for (auto & character : token) character = digits[random() & 0x0f];
+  return token;
+}
+
+// The tokens as they travel: into the room through its environment, back to clients in payloads,
+// and onto the room's own Service so that a router restart does not lose them.
+json NRoomRouter::AccessJson(const std::string & tokenRw, const std::string & tokenRo)
+{
+  json access = json::object();
+  if (!tokenRw.empty()) access["rw"] = tokenRw;
+  if (!tokenRo.empty()) access["ro"] = tokenRo;
+  return access;
+}
+
+// A room's tokens, read under the registry lock.
+json NRoomRouter::RoomAccess(const std::string & name) const
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  if (it == fRooms.end()) return json::object();
+  return NRoomRouter::AccessJson(it->second.tokenRw, it->second.tokenRo);
+}
+
+// A room's owner, read under the registry lock.
+std::string NRoomRouter::RoomOwner(const std::string & name) const
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  return it == fRooms.end() ? std::string() : it->second.owner;
+}
+
+// Whether a caller is one of the configured admins. The list may hold emails or user names, and a
+// caller is matched on every identifier they are known by, so a token whose user name differs from
+// its email still matches an entry naming either.
+bool NRoomRouter::IsAdmin(const NRequestIdentity & identity) const
+{
+  if (identity.Empty()) return false;
+  for (const auto & admin : fConfig.admins) {
+    if (identity.Matches(admin)) return true;
+  }
+  return false;
+}
+
+// Whether a caller may see and act on a room: see "Ownership and visibility" in the class note.
+bool NRoomRouter::MaySee(const NRoomState & room, const NRequestIdentity & identity) const
+{
+  // A request that says nothing about its caller is an operator's script or the room TUI, which the
+  // router has always answered with every room.
+  if (identity.Empty()) return true;
+  if (IsAdmin(identity)) return true;
+  // A room with no owner belongs to nobody, and Matches("") is false for everyone, so nobody but an
+  // admin or an anonymous caller is shown it.
+  return identity.Matches(room.owner);
+}
+
+// The owner a client asserts, used only when nothing verified the request (see RequestIdentity).
+std::string NRoomRouter::RequestOwner(json & in)
+{
+  const json owner = NdmspcRoomMember(in, "owner");
+  if (owner.is_string() && !owner.get<std::string>().empty()) return owner.get<std::string>();
+  const json query = NdmspcRoomMember(in, "_query");
+  if (query.is_string()) {
+    const auto params = NRoomRouter::ParseQuery(query.get<std::string>());
+    const auto it     = params.find("owner");
+    if (it != params.end() && !it->second.empty()) return it->second;
+  }
+  return {};
+}
+
+// The caller of a request: what the server verified wins, and the client's own word is the fallback.
+NRequestIdentity NRoomRouter::RequestIdentity(json & in)
+{
+  const NRequestIdentity identity = NRequestIdentity::FromJson(NdmspcRoomMember(in, "_identity"));
+  if (identity.verified) return identity;
+  const std::string asserted = NRoomRouter::RequestOwner(in);
+  return asserted.empty() ? identity : NRequestIdentity::FromAssertion(asserted);
 }
 
 
@@ -456,7 +569,8 @@ void NRoomRouter::StoreSnapshot(const std::string & name, const std::string & id
 }
 
 json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
-                                const std::string & stateUrl, const json & skeleton)
+                                const std::string & stateUrl, const json & access, const std::string & owner,
+                                const json & skeleton)
 {
   json service;
   service["apiVersion"]                      = "serving.knative.dev/v1";
@@ -466,8 +580,22 @@ json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & nam
   service["metadata"]["labels"][kNRoomLabel] = value;
   service["spec"]                            = skeleton.value("serviceSpec", json::object());
 
-  // Tag the server with the room id so a room can tell which room it is, and tell it where
-  // to report its session. A value the skeleton already sets wins.
+  // Keep the room's access tokens on the Service itself: a room scales to zero and the router can
+  // restart, and both have to come back knowing which links still open this room. Annotating the
+  // metadata does not create a revision, so a running room is not disturbed.
+  if (!access.is_null() && !access.empty()) {
+    service["metadata"]["annotations"][kAccessAnnotation] = access.dump();
+  }
+
+  // Its owner is kept there for the same reason: whoever created the room stays its owner across a
+  // restart, an idle room waking up, and a restore.
+  if (!owner.empty()) {
+    service["metadata"]["annotations"][kOwnerAnnotation] = owner;
+  }
+
+  // Tag the server with the room id so a room can tell which room it is, tell it where to report
+  // its session, and hand it the tokens its own traffic has to carry. A value the skeleton
+  // already sets wins.
   json & containers = service["spec"]["template"]["spec"]["containers"];
   if (!containers.is_array() || containers.empty()) containers = json::array({json::object()});
   json & env = containers[0]["env"];
@@ -485,6 +613,7 @@ json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & nam
   };
   ensureEnv("NDMSPC_ROOM", value);
   ensureEnv("NDMSPC_ROOM_STATE_URL", stateUrl);
+  if (!access.is_null() && !access.empty()) ensureEnv(kAccessEnv, access.dump());
 
   return service;
 }
@@ -728,6 +857,25 @@ void NRoomRouter::Adopt()
         if (state.snapshot.empty()) {
           state.snapshot = metadata.value("annotations", json::object()).value(kNRoomStateAnnotation, "");
         }
+        if (state.tokenRw.empty() || state.tokenRo.empty()) {
+          // Read the tokens back from the room's own Service. A room that predates them has none,
+          // and is left that way: minting here would roll a new revision on a running room.
+          const std::string text = metadata.value("annotations", json::object()).value(kAccessAnnotation, "");
+          if (!text.empty()) {
+            try {
+              const json access = json::parse(text);
+              if (state.tokenRw.empty()) state.tokenRw = access.value("rw", "");
+              if (state.tokenRo.empty()) state.tokenRo = access.value("ro", "");
+            }
+            catch (const std::exception &) {
+            }
+          }
+        }
+        if (state.owner.empty()) {
+          // Same for the owner: a room created before ownership existed has none, and stays unowned
+          // rather than being handed to whoever asks for it next.
+          state.owner = metadata.value("annotations", json::object()).value(kOwnerAnnotation, "");
+        }
         ++adopted;
       }
     }
@@ -801,7 +949,9 @@ void NRoomRouter::CaptureNow(const std::string & name, const std::string & value
 
   Ndmspc::NHttpRequest http;
   std::string         error;
-  const json          snapshot = Ndmspc::NRoomSession::Capture(http, baseUrl, value, error);
+  const json          access = RoomAccess(name);
+  const json          snapshot =
+      Ndmspc::NRoomSession::Capture(http, baseUrl, value, error, access.value(NRoomAccess::kReadWrite, ""));
   if (snapshot.is_null()) {
     // NRoomSession reports nothing for a room that has no file open, so a freshly
     // started pod can never overwrite a good snapshot with emptiness.
@@ -859,12 +1009,16 @@ void NRoomRouter::ReplaySession(const std::string & value, json & payload)
 
   std::string text;
   std::string revision;
+  std::string token;
   {
     std::lock_guard<std::mutex> lock(fMutex);
     const auto                  it = fRooms.find(name);
     if (it == fRooms.end()) return;
     text     = it->second.snapshot;
     revision = it->second.revision;
+    // The router talks to a room with its read-write token: a room that was given tokens
+    // refuses everything else, and this replay is just another client to it.
+    token = it->second.tokenRw;
   }
 
   if (text.empty()) return;
@@ -882,7 +1036,7 @@ void NRoomRouter::ReplaySession(const std::string & value, json & payload)
   std::string         error;
 
   std::string                       file;
-  const Ndmspc::NRoomSession::State state = Ndmspc::NRoomSession::Probe(http, baseUrl, file, error);
+  const Ndmspc::NRoomSession::State state = Ndmspc::NRoomSession::Probe(http, baseUrl, file, error, token);
   if (state == Ndmspc::NRoomSession::State::Active) {
     NLogInfo("[room] %s already has '%s' open; keeping the live session", name.c_str(), file.c_str());
     payload["session"] = "live";
@@ -894,7 +1048,7 @@ void NRoomRouter::ReplaySession(const std::string & value, json & payload)
     return;
   }
 
-  if (!Ndmspc::NRoomSession::Restore(http, baseUrl, snapshot, error)) {
+  if (!Ndmspc::NRoomSession::Restore(http, baseUrl, snapshot, error, token)) {
     NLogError("[room] cannot restore the session of %s: %s", name.c_str(), error.c_str());
     payload["restoreError"] = error;
     return;
@@ -1009,7 +1163,8 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, Replay
   json skeleton;
   if (!Skeleton(skeleton, error)) return fail(error);
 
-  const json service = NRoomRouter::ServiceObject(cfg, name, value, RouterBaseUrl(), skeleton);
+  const json access  = RoomAccess(name);
+  const json service = NRoomRouter::ServiceObject(cfg, name, value, RouterBaseUrl(), access, RoomOwner(name), skeleton);
   std::string applyCode;
   if (!Apply(SvcCollection(), SvcPath(name), service, error, applyCode)) return fail(error, applyCode);
 
@@ -1062,7 +1217,9 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, Replay
   payload["name"]     = name;
   payload["revision"] = revision;
   payload["param"]    = cfg.param;
-  payload["url"]      = NRoomRouter::ClientUrl(cfg, value);
+  payload["url"]      = NRoomRouter::ClientUrl(cfg, value, access.value("rw", ""));
+  payload["access"]   = access;
+  if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
   payload["ttl"]      = cfg.idleTtlSec;
   payload["state"]    = "ready";
   if (session.contains("session")) payload["session"] = session["session"];
@@ -1088,8 +1245,10 @@ bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay repla
     return false;
   }
 
-  int  generation = 0;
-  long startedAt  = 0;
+  int         generation = 0;
+  long        startedAt  = 0;
+  std::string tokenRw;
+  std::string tokenRo;
   {
     std::lock_guard<std::mutex> lock(fMutex);
     NRoomState &           state = fRooms[name];
@@ -1097,13 +1256,22 @@ bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay repla
     state.value                       = value;
     state.lastSeen                    = NdmspcRoomNow();
 
+    // Minted once, when the room is first asked for, and kept for its whole life (and read back
+    // from the Service after a router restart): a link that was handed out has to keep working.
+    if (state.tokenRw.empty()) state.tokenRw = NRoomRouter::NewRoomToken();
+    if (state.tokenRo.empty()) state.tokenRo = NRoomRouter::NewRoomToken();
+    tokenRw = state.tokenRw;
+    tokenRo = state.tokenRo;
+
     if (state.preparing) {
       // Already being prepared: report where it stands rather than starting a second worker.
       payload["room"]      = value;
       payload["name"]      = name;
       payload["revision"]  = state.revision;
       payload["param"]     = cfg.param;
-      payload["url"]       = NRoomRouter::ClientUrl(cfg, value);
+      payload["url"]       = NRoomRouter::ClientUrl(cfg, value, state.tokenRw);
+      payload["access"]    = NRoomRouter::AccessJson(state.tokenRw, state.tokenRo);
+      if (!state.owner.empty()) payload["owner"] = state.owner;
       payload["ttl"]       = cfg.idleTtlSec;
       payload["state"]     = "preparing";
       payload["phase"]     = state.phase;
@@ -1143,7 +1311,9 @@ bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay repla
   payload["room"]      = value;
   payload["name"]      = name;
   payload["param"]     = cfg.param;
-  payload["url"]       = NRoomRouter::ClientUrl(cfg, value);
+  payload["url"]       = NRoomRouter::ClientUrl(cfg, value, tokenRw);
+  payload["access"]    = NRoomRouter::AccessJson(tokenRw, tokenRo);
+  if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
   payload["ttl"]       = cfg.idleTtlSec;
   payload["state"]     = "preparing";
   payload["phase"]     = "service";
@@ -1517,9 +1687,9 @@ bool NRoomRouter::Register(NHttpServer * server)
   // -------------------------------------------------------------------------
   //  /api/room/list — rooms the router is tracking
   // -------------------------------------------------------------------------
-  handlers["room/list"] = [](std::string method, json & /*in*/, json & out, json & /*wsOut*/,
+  handlers["room/list"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
-    NRoomRouter::Instance().HandleList(method, out);
+    NRoomRouter::Instance().HandleList(method, in, out);
   };
   // -------------------------------------------------------------------------
   //  /api/room/close — delete a room
@@ -1555,9 +1725,9 @@ bool NRoomRouter::Register(NHttpServer * server)
   // data - ROOT files are not persisted - so what comes back is the session, not files.
   //
   // Nothing is called on the rooms, so exporting never wakes an idle room.
-  handlers["room/backup"] = [](std::string method, json & /*in*/, json & out, json & /*wsOut*/,
+  handlers["room/backup"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
-    NRoomRouter::Instance().HandleBackup(method, out);
+    NRoomRouter::Instance().HandleBackup(method, in, out);
   };
   // -------------------------------------------------------------------------
   //  /api/room/restore — ensure every room in a document and replay its session
@@ -1593,6 +1763,32 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
     out["result"] = "failure";
     out["error"]  = "Missing room id (send it in the body as {\"room\": \"<id>\"})";
     return;
+  }
+
+  // A room belongs to whoever creates it, and room/open is also how a client obtains a room's link,
+  // so this is where both halves of that rule are applied: a room the router does not know yet is
+  // claimed by the caller, and a room that already belongs to someone else is refused to an
+  // identified caller who is not an admin. A room that predates ownership stays unowned: nobody
+  // identified themselves when it was created, so there is nobody to give it to.
+  const NRequestIdentity identity = RequestIdentity(in);
+  const std::string     name      = NRoomRouter::RoomName(fConfig, id);
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it == fRooms.end()) {
+      if (!identity.Empty()) {
+        NRoomState & state = fRooms[name];
+        state.name         = name;
+        state.value        = id;
+        state.owner        = identity.Owner();
+      }
+    }
+    else if (!MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = "Room '" + id + "' belongs to " + it->second.owner;
+      return;
+    }
   }
 
   // Creating a room is slow and the router serves one request at a time, so the caller decides
@@ -1653,6 +1849,20 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
   const std::string name = NRoomRouter::RoomName(fConfig, id);
   Touch(name);
 
+  // Somebody else's room is not this caller's to look at: its answer carries the room's links and
+  // the session it is in.
+  const NRequestIdentity identity = RequestIdentity(in);
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it != fRooms.end() && !MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = "Room '" + id + "' belongs to " + it->second.owner;
+      return;
+    }
+  }
+
   out["result"]       = "success";
   out["payload"]["room"]     = id;
   out["payload"]["name"]     = name;
@@ -1669,6 +1879,11 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
       out["payload"]["revision"]    = it->second.revision;
       out["payload"]["lastSeen"]    = it->second.lastSeen;
       out["payload"]["hasSnapshot"] = !it->second.snapshot.empty();
+      // The links that open this room: a client needs them to hand one out, and until the room is
+      // adopted they are the only record of the tokens.
+      const json access = NRoomRouter::AccessJson(it->second.tokenRw, it->second.tokenRo);
+      if (!access.empty()) out["payload"]["access"] = access;
+      if (!it->second.owner.empty()) out["payload"]["owner"] = it->second.owner;
       // How the last creation left the room's session: a client that waited for a create with
       // wait=false follows it through here, and what the replay did belongs in that answer.
       if (!it->second.session.empty()) out["payload"]["session"] = it->second.session;
@@ -1712,7 +1927,7 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
 // ===========================================================================
 //  room/list
 // ===========================================================================
-void NRoomRouter::HandleList(const std::string & method, json & out)
+void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
 {
   if (method.find("GET") == std::string::npos) {
     out["result"] = "failure";
@@ -1720,16 +1935,25 @@ void NRoomRouter::HandleList(const std::string & method, json & out)
     return;
   }
 
+  // Who is asking decides what the list holds: see "Ownership and visibility".
+  const NRequestIdentity identity = RequestIdentity(in);
+
   json                     rooms = json::array();
   std::vector<std::string> stale;
   {
     std::lock_guard<std::mutex> lock(fMutex);
     for (const auto & entry : fRooms) {
+      // Filtered here, before the live status below: a room the caller may not see is also a room
+      // whose pod must not be probed (which would wake it) or whose session must not be captured.
+      if (!MaySee(entry.second, identity)) continue;
       json room;
       room["name"]     = entry.second.name;
       room["room"]     = entry.second.value;
       room["revision"] = entry.second.revision;
       room["lastSeen"] = entry.second.lastSeen;
+      const json access = NRoomRouter::AccessJson(entry.second.tokenRw, entry.second.tokenRo);
+      if (!access.empty()) room["access"] = access;
+      if (!entry.second.owner.empty()) room["owner"] = entry.second.owner;
       // A room is listed from the moment its creation starts, carrying what it is waiting for,
       // so a client can show the wait instead of an absent room.
       if (entry.second.preparing) {
@@ -1840,10 +2064,24 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
     return;
   }
 
+  // Deleting someone else's room is not this caller's to do.
+  const NRequestIdentity identity = RequestIdentity(in);
+  const std::string     name      = NRoomRouter::RoomName(fConfig, id);
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it != fRooms.end() && !MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = "Room '" + id + "' belongs to " + it->second.owner;
+      return;
+    }
+  }
+
   CloseRoom(id); // a room that is being created is cancelled on the way out
   out["result"]  = "success";
   out["payload"]["room"] = id;
-  out["payload"]["name"] = NRoomRouter::RoomName(fConfig, id);
+  out["payload"]["name"] = name;
 }
 
 // ===========================================================================
@@ -1898,7 +2136,7 @@ void NRoomRouter::HandleState(const std::string & method, json & in, json & out)
 // ===========================================================================
 //  room/backup
 // ===========================================================================
-void NRoomRouter::HandleBackup(const std::string & method, json & out)
+void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out)
 {
   if (method.find("GET") == std::string::npos && method.find("POST") == std::string::npos) {
     out["result"] = "failure";
@@ -1906,13 +2144,18 @@ void NRoomRouter::HandleBackup(const std::string & method, json & out)
     return;
   }
 
-  const NRoomConfig & cfg = fConfig;
+  const NRoomConfig &   cfg      = fConfig;
+  const NRequestIdentity identity = RequestIdentity(in);
 
-  // Copy the registry under the lock, then read each session outside it.
+  // Copy the registry under the lock, then read each session outside it. A caller exports the rooms
+  // it may see: an admin exports all of them, and anyone else their own.
   std::vector<NRoomState> rooms;
   {
     std::lock_guard<std::mutex> lock(fMutex);
-    for (const auto & entry : fRooms) rooms.push_back(entry.second);
+    for (const auto & entry : fRooms) {
+      if (!MaySee(entry.second, identity)) continue;
+      rooms.push_back(entry.second);
+    }
   }
 
   json document;
@@ -1930,6 +2173,14 @@ void NRoomRouter::HandleBackup(const std::string & method, json & out)
     entry["name"]     = room.name;
     entry["revision"] = room.revision; // informational: recomputed when the room is restored
     entry["lastSeen"] = room.lastSeen; // informational: reset when the room is restored
+
+    // Carry the tokens, so that restoring hands out the same links again instead of quietly
+    // minting new ones - which would roll the restored room's revision as well.
+    const json access = NRoomRouter::AccessJson(room.tokenRw, room.tokenRo);
+    if (!access.empty()) entry["access"] = access;
+
+    // And the owner, so the room comes back as the same person's rather than as nobody's.
+    if (!room.owner.empty()) entry["owner"] = room.owner;
 
     json       snapshot;
     const bool hasSnapshot = Ndmspc::NRoomSession::Decode(Snapshot(room.name, room.value), snapshot);
@@ -1990,10 +2241,40 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
   json restored = json::array();
   json failed   = json::array();
 
+  const NRequestIdentity identity = RequestIdentity(in);
+
   for (const auto & entry : rooms) {
     if (!entry.is_object()) continue;
     const std::string id = entry.value("room", "");
     if (id.empty()) continue;
+
+    // Take the document's owner and tokens first, so the room comes back as it was exported - the
+    // same person's room, with the same links - rather than as a new one: the registry is what the
+    // room's Service object is built from. A room that already exists and belongs to someone else is
+    // not this caller's to restore.
+    const json        owner     = NdmspcRoomMember(entry, "owner");
+    const std::string ownerText = owner.is_string() ? owner.get<std::string>() : std::string();
+    {
+      const std::string           name = NRoomRouter::RoomName(cfg, id);
+      std::lock_guard<std::mutex> lock(fMutex);
+      const auto                  it = fRooms.find(name);
+      if (it != fRooms.end() && !MaySee(it->second, identity)) {
+        json refusal;
+        refusal["room"]  = id;
+        refusal["name"]  = name;
+        refusal["code"]  = kNotOwner;
+        refusal["error"] = "Room '" + id + "' belongs to " + it->second.owner;
+        failed.push_back(std::move(refusal));
+        continue;
+      }
+      NRoomState & state = fRooms[name];
+      if (state.owner.empty() && !ownerText.empty()) state.owner = ownerText;
+      const json access = NdmspcRoomMember(entry, "access");
+      if (access.is_object() && !access.empty()) {
+        if (state.tokenRw.empty()) state.tokenRw = access.value("rw", "");
+        if (state.tokenRo.empty()) state.tokenRo = access.value("ro", "");
+      }
+    }
 
     json        payload;
     std::string error;

@@ -62,9 +62,11 @@ class NRoomSession {
    * @param roomBaseUrl Room base URL, e.g. http://ndmspc-room-x-00001.default.svc.cluster.local:80.
    * @param file Filled with the opened file name when the room is Active.
    * @param error Filled when the room is Unreachable.
+   * @param token The room's read-write access token, when it has one.
    * @return The room's state.
    */
-  static State Probe(NHttpRequest & http, const std::string & roomBaseUrl, std::string & file, std::string & error);
+  static State Probe(NHttpRequest & http, const std::string & roomBaseUrl, std::string & file, std::string & error,
+                     const std::string & token = std::string());
 
   /**
    * @brief Assemble a snapshot from the three things a session is.
@@ -91,10 +93,11 @@ class NRoomSession {
    * @param roomBaseUrl Room base URL.
    * @param roomId Room id, recorded in the snapshot.
    * @param error Filled when the room cannot be read.
+   * @param token The room's read-write access token, when it has one.
    * @return The snapshot, or a null json when the room has nothing open.
    */
   static json Capture(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & roomId,
-                      std::string & error);
+                      std::string & error, const std::string & token = std::string());
 
   /**
    * @brief Runs one replayed action.
@@ -132,10 +135,11 @@ class NRoomSession {
    * @param roomBaseUrl Room base URL.
    * @param snapshot The snapshot, as produced by Capture() and Decode().
    * @param error Filled with the first failing step.
+   * @param token The room's read-write access token, when it has one.
    * @return True when every step succeeded.
    */
   static bool Restore(NHttpRequest & http, const std::string & roomBaseUrl, const json & snapshot,
-                      std::string & error);
+                      std::string & error, const std::string & token = std::string());
 
   /**
    * @brief Whether an action defines session state and is therefore worth replaying.

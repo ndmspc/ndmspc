@@ -80,10 +80,12 @@ struct WsFilterGuard {
   ~WsFilterGuard() { Ndmspc::gNdmspcWsConnectFilter = nullptr; }
 };
 
-Ndmspc::NOidcResult Identity(std::string subject, std::string username)
+Ndmspc::NOidcResult Identity(std::string subject, std::string username, std::string email = "")
 {
-  return {.identity = Ndmspc::NOidcIdentity{std::move(subject), std::move(username),
-                                            std::chrono::system_clock::now() + std::chrono::minutes(5)},
+  return {.identity = Ndmspc::NOidcIdentity{.subject = std::move(subject),
+                                            .preferredUsername = std::move(username),
+                                            .email = std::move(email),
+                                            .expiresAt = std::chrono::system_clock::now() + std::chrono::minutes(5)},
           .error = Ndmspc::NOidcErrorCode::None, .diagnostic = {}};
 }
 

@@ -45,5 +45,15 @@ lives in [`core/tui`](../../core/tui/README.md), which compiles the amalgamated
   actions run one at a time, so queueing them would only hide the wait.
 - NLogger's console output is switched off while the screen owns the terminal;
   diagnostics are surfaced in the UI instead.
+- A room's access tokens (`NRoomAccess`, reported by the router as `access`) are shown in the
+  detail pane: the three URLs carry the token of the level being looked at, and `t` switches
+  between the read-write and the read-only one. `NRoomInfo` carries them (`tokenRw`/`tokenRo`), so
+  `--list` reports them too; a room the router reports no tokens for keeps the plain URLs, which is
+  also how an older room is told apart from one that enforces access.
+- A room's owner (`owner`, kept on the room's Service as `ndmspc.io/room-owner`) is shown as an
+  `OWNER` column and, for the selected room, in the detail pane; `--list` reports it per row. The
+  tool asserts who it is with `--owner` (`NDMSPC_ROOM_OWNER`), which the client adds to every
+  request, and the router then answers with that owner's rooms only and refuses the rest with
+  `not_owner`. Nothing is asserted by default, so an operator's run still sees every room.
 - `http/examples/room/` runs the tool against a mock of the router's MCP endpoint, which is
   the only way to exercise it away from a cluster.

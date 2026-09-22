@@ -302,6 +302,12 @@ int main(int argc, char ** argv)
     for (const auto & macro : macros) {
       // NLogInfo("Executing macro: %s", macro.c_str());
       TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
+      // OpenMacro logs why it could not read the file and answers nullptr; dereferencing that is a
+      // startup segfault, which says nothing about what was wrong with the path.
+      if (m == nullptr) {
+        NLogError("Cannot load macro '%s'. Check the path, or give the macro to load with -m.", macro.c_str());
+        exit(1);
+      }
       m->Exec();
     }
 
@@ -341,6 +347,9 @@ int main(int argc, char ** argv)
       NLogInfo("Internal ROOT engine listening on loopback port %d", x509Config.internalPort);
 
       Ndmspc::NX509Authenticator frontDoor(x509Config);
+      // The front door verifies the client certificate itself and forwards what it found in the
+      // request headers; the engine it forwards to is loopback-only, so nothing else can write them.
+      serv->SetTrustForwardedIdentity(true);
       if (!frontDoor.Start("0.0.0.0", port, internalBase)) {
         NLogError("Failed to start the X509 (mutual TLS) front-door on port %d", port);
         exit(1);

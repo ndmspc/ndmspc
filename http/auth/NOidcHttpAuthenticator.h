@@ -52,12 +52,28 @@ class NOidcHttpAuthenticator {
   static bool ApplyToRequest(const std::shared_ptr<IOidcTokenVerifier> & verifier, THttpCallArg * arg);
 
   /**
+   * @brief Apply bearer authentication to a request argument, reporting the verified session.
+   *
+   * The same as the two-argument form, and additionally hands back the verified session: the
+   * identity is otherwise only reachable piecemeal from the argument (its user name, plus the
+   * headers), and a caller that has to act on *who* is asking needs all of it.
+   *
+   * @param verifier Shared token verifier (may be null in anonymous mode).
+   * @param arg ROOT request/response argument.
+   * @param session Filled with the verified session on success (untouched in anonymous mode).
+   * @return true when the request is authenticated (or anonymous mode).
+   */
+  static bool ApplyToRequest(const std::shared_ptr<IOidcTokenVerifier> & verifier, THttpCallArg * arg,
+                             NOidcSession * session);
+
+  /**
    * @brief Headers set on the response argument after successful authentication.
    */
   static constexpr const char * kUserHeader = "X-NDMSPC-User";
   static constexpr const char * kSubjectHeader = "X-NDMSPC-Subject";               ///< Verified token subject
   static constexpr const char * kExpiresHeader = "X-NDMSPC-Token-Expires";         ///< Token expiry
   static constexpr const char * kAuthenticatedHeader = "X-NDMSPC-Authenticated";   ///< Authentication flag
+  static constexpr const char * kEmailHeader = "X-NDMSPC-Email";                   ///< Verified email claim
 
   /**
    * @brief Read the verified identity recorded on a request argument.

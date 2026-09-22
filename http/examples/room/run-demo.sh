@@ -25,13 +25,16 @@ HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8090}"
 FAIL_PORT="${FAIL_PORT:-$((PORT + 1))}"
 CAP_PORT="${CAP_PORT:-$((PORT + 2))}"
+OWNER_PORT="${OWNER_PORT:-$((PORT + 3))}"
 URL="http://$HOST:$PORT"
 CAP_URL="http://$HOST:$CAP_PORT"
+OWNER_URL="http://$HOST:$OWNER_PORT"
 CLIENT_BIN="${CLIENT_BIN:-$PROJECT_DIR/bin/ndmspc-room-tui}"
 ROOM="${ROOM:-mgmtest}"
 LOG="${LOG:-$(mktemp "${TMPDIR:-/tmp}/ndmspc-room-demo.XXXXXX.log")}"
 FAIL_LOG="${FAIL_LOG:-$(mktemp "${TMPDIR:-/tmp}/ndmspc-room-demo-fail.XXXXXX.log")}"
 CAP_LOG="${CAP_LOG:-$(mktemp "${TMPDIR:-/tmp}/ndmspc-room-demo-capacity.XXXXXX.log")}"
+OWNER_LOG="${OWNER_LOG:-$(mktemp "${TMPDIR:-/tmp}/ndmspc-room-demo-owner.XXXXXX.log")}"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -44,8 +47,9 @@ command -v python3 >/dev/null 2>&1 || die "python3 is required for the JSON asse
 mock_pid=""
 fail_pid=""
 cap_pid=""
+owner_pid=""
 cleanup() {
-  for pid in "$mock_pid" "$fail_pid" "$cap_pid"; do
+  for pid in "$mock_pid" "$fail_pid" "$cap_pid" "$owner_pid"; do
     [ -n "$pid" ] && kill "$pid" 2>/dev/null
     [ -n "$pid" ] && wait "$pid" 2>/dev/null
   done
@@ -83,6 +87,7 @@ sys.exit(0 if eval(sys.argv[2]) else 1)
 
 run() { "$CLIENT_BIN" --url "$URL" "$@"; }
 run_cap() { "$CLIENT_BIN" --url "$CAP_URL" "$@"; }
+run_owner() { "$CLIENT_BIN" --url "$OWNER_URL" "$@"; }
 
 echo "Starting the mock room router on $URL (log: $LOG) ..."
 HOST="$HOST" PORT="$PORT" SEED=demo TTL=3600 "$SCRIPT_DIR/run-mock-server.sh" >"$LOG" 2>&1 &
@@ -96,7 +101,7 @@ if ! wait_for_mock "$LOG" "$mock_pid"; then
 fi
 
 echo
-echo "== 1/10 --list sees the seeded room =="
+echo "== 1/11 --list sees the seeded room =="
 list_before="$(run --list)"; rc=$?
 echo "$list_before"
 if [ "$rc" -ne 0 ]; then
@@ -107,19 +112,24 @@ else
 fi
 
 echo
-echo "== 2/10 --open ensures a room and returns its URL =="
+echo "== 2/11 --open ensures a room and returns its URL =="
 open_out="$(run --open "$ROOM")"; rc=$?
 echo "$open_out"
 if [ "$rc" -ne 0 ]; then
   problem "--open exited $rc"
 else
   assert_json "$open_out" "opening '$ROOM' returns the room id" "d['room'] == '$ROOM'"
-  assert_json "$open_out" "the returned URL carries the room parameter" "d['url'] == '?room=$ROOM'"
+  # The URL is the link a client hands on, so it carries the token that opens the room: the
+  # read-write one, from the pair the router minted for it.
+  assert_json "$open_out" "the returned URL carries the room parameter and its read-write token" \
+    "d['url'] == '?room=$ROOM&token=' + d['access']['rw']"
+  assert_json "$open_out" "and the room's two access tokens are reported" \
+    "len(d['access']['rw']) == 32 and len(d['access']['ro']) == 32 and d['access']['rw'] != d['access']['ro']"
   assert_json "$open_out" "the resource name is prefixed" "d['name'] == 'ndmspc-room-$ROOM'"
 fi
 
 echo
-echo "== 3/10 --status reports the room as tracked and ready =="
+echo "== 3/11 --status reports the room as tracked and ready =="
 status_out="$(run --status "$ROOM")"; rc=$?
 echo "$status_out"
 if [ "$rc" -ne 0 ]; then
@@ -127,19 +137,22 @@ if [ "$rc" -ne 0 ]; then
 else
   assert_json "$status_out" "the room is tracked by the router" "d['tracked'] is True"
   assert_json "$status_out" "the room's Service exists and is ready" "d['exists'] is True and d['ready'] is True"
+  assert_json "$status_out" "status reports the tokens that open it" "len(d['access']['rw']) == 32"
 fi
 
 echo
-echo "== 4/10 the opened room appears in --list =="
+echo "== 4/11 the opened room appears in --list =="
 list_after="$(run --list)"; rc=$?
 if [ "$rc" -ne 0 ]; then
   problem "--list exited $rc"
 else
   assert_json "$list_after" "the opened room is listed" "any(r['room'] == '$ROOM' for r in d['rooms'])"
+  assert_json "$list_after" "and the listed room carries its access tokens" \
+    "[r for r in d['rooms'] if r['room'] == '$ROOM' and len(r['access']['ro']) == 32]"
 fi
 
 echo
-echo "== 5/10 --close removes the room =="
+echo "== 5/11 --close removes the room =="
 close_out="$(run --close "$ROOM")"; rc=$?
 echo "$close_out"
 if [ "$rc" -ne 0 ]; then
@@ -155,7 +168,7 @@ else
 fi
 
 echo
-echo "== 6/10 --backup writes the rooms and their sessions to a file =="
+echo "== 6/11 --backup writes the rooms and their sessions to a file =="
 # A fresh path: --backup refuses to overwrite, so the file must not exist yet (mktemp would
 # create it), hence a temporary directory with the file inside it.
 BACKUP_FILE="${BACKUP_FILE:-$(mktemp -d "${TMPDIR:-/tmp}/ndmspc-rooms.XXXXXX")/rooms.json}"
@@ -180,7 +193,7 @@ else
 fi
 
 echo
-echo "== 7/10 --restore brings a deleted room back, with its session =="
+echo "== 7/11 --restore brings a deleted room back, with its session =="
 run --close "$ROOM" >/dev/null 2>&1     # delete it: the file becomes the only copy
 if python3 -c '
 import json, sys
@@ -215,7 +228,7 @@ else
 fi
 
 echo
-echo "== 8/10 a failing router is reported, not ignored =="
+echo "== 8/11 a failing router is reported, not ignored =="
 HOST="$HOST" PORT="$FAIL_PORT" FAIL=1 SEED=demo "$SCRIPT_DIR/run-mock-server.sh" >"$FAIL_LOG" 2>&1 &
 fail_pid=$!
 if ! wait_for_mock "$FAIL_LOG" "$fail_pid"; then
@@ -234,7 +247,7 @@ else
 fi
 
 echo
-echo "== 9/10 --open --no-wait returns while the room is still being created =="
+echo "== 9/11 --open --no-wait returns while the room is still being created =="
 # The router creates a room in the background, so a client does not have to hold the router - or
 # itself - for the whole wait. The mock models that with a short PREPARE window.
 ASYNC_ROOM="${ROOM}async"
@@ -267,7 +280,7 @@ assert_json "$async_status" "and becomes ready without anyone waiting on room/op
 run --close "$ASYNC_ROOM" >/dev/null 2>&1
 
 echo
-echo "== 10/10 a room the cluster cannot schedule says so =="
+echo "== 10/11 a room the cluster cannot schedule says so =="
 # A router whose cluster has no room for another pod: the reason is the scheduler's own, and the
 # room carries the stable no_capacity code next to it.
 HOST="$HOST" PORT="$CAP_PORT" NO_ROOM_CAPACITY=1 SEED=demo "$SCRIPT_DIR/run-mock-server.sh" >"$CAP_LOG" 2>&1 &
@@ -287,6 +300,55 @@ else
   fi
   assert_json "$(run_cap --list)" "and the listed room carries the no_capacity code" \
     "[r for r in d['rooms'] if r['room'] == 'fullroom' and r['state'] == 'failed' and r['code'] == 'no_capacity']"
+fi
+
+echo
+echo "== 11/11 rooms have an owner: you see yours, an admin sees every room =="
+# A router that knows one admin, and a room nobody created here (the seeded one, which therefore
+# belongs to nobody).
+HOST="$HOST" PORT="$OWNER_PORT" SEED=shared ADMINS=admin@example.com "$SCRIPT_DIR/run-mock-server.sh" >"$OWNER_LOG" 2>&1 &
+owner_pid=$!
+if ! wait_for_mock "$OWNER_LOG" "$owner_pid"; then
+  problem "the ownership mock did not start"
+else
+  # A room belongs to whoever creates it, and comes back saying so.
+  alice_open="$(run_owner --owner alice@example.com --open alice-room)"; rc=$?
+  echo "$alice_open"
+  if [ "$rc" -ne 0 ]; then
+    problem "--open as alice exited $rc"
+  else
+    assert_json "$alice_open" "the room belongs to whoever opened it" "d['owner'] == 'alice@example.com'"
+  fi
+  run_owner --owner bob@example.com --open bob-room >/dev/null 2>&1
+
+  # Alice is shown her own room and nothing else: not bob's, and not the room nobody owns.
+  alice_list="$(run_owner --owner alice@example.com --list)"
+  echo "$alice_list"
+  assert_json "$alice_list" "a caller is shown only their own rooms" \
+    "[r['room'] for r in d['rooms']] == ['alice-room']"
+
+  # The admin sees all three, with whose each one is.
+  admin_list="$(run_owner --owner admin@example.com --list)"
+  assert_json "$admin_list" "an admin sees every room" \
+    "sorted(r['room'] for r in d['rooms']) == ['alice-room', 'bob-room', 'shared']"
+  assert_json "$admin_list" "and every room says whose it is" \
+    "[r['owner'] for r in d['rooms'] if r['room'] == 'bob-room'] == ['bob@example.com']"
+
+  # Someone else's room is refused rather than quietly handed over.
+  bob_close="$(run_owner --owner alice@example.com --close bob-room 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    problem "closing someone else's room succeeded"
+  elif ! grep -q "belongs to bob@example.com" <<<"$bob_close"; then
+    problem "the refusal did not say whose room it is"
+    echo "     got: $bob_close"
+  else
+    pass "someone else's room is refused, and the refusal names its owner"
+  fi
+
+  # A caller that says nothing about itself is an operator's script: every room, as it always was.
+  operator_list="$(run_owner --list)"
+  assert_json "$operator_list" "a caller that says nothing about itself still sees every room" \
+    "len(d['rooms']) == 3"
 fi
 
 echo

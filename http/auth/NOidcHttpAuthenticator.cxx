@@ -91,6 +91,12 @@ NHttpAuthResult NOidcHttpAuthenticator::Authenticate(const std::shared_ptr<IOidc
 
 bool NOidcHttpAuthenticator::ApplyToRequest(const std::shared_ptr<IOidcTokenVerifier> & verifier, THttpCallArg * arg)
 {
+  return ApplyToRequest(verifier, arg, nullptr);
+}
+
+bool NOidcHttpAuthenticator::ApplyToRequest(const std::shared_ptr<IOidcTokenVerifier> & verifier, THttpCallArg * arg,
+                                            NOidcSession * session)
+{
   if (!arg) return false;
 
   const auto authHeader = arg->GetRequestHeader("Authorization");
@@ -117,12 +123,15 @@ bool NOidcHttpAuthenticator::ApplyToRequest(const std::shared_ptr<IOidcTokenVeri
   // Record the verified identity on the argument so handlers can inspect it.
   // In anonymous mode there is no identity to record.
   if (result.session.username.empty() && result.session.subject.empty()) return true;
+  if (session != nullptr) *session = result.session;
   arg->SetUserName(result.session.username.c_str());
   arg->AddHeader(kUserHeader, result.session.username.c_str());
   arg->AddHeader(kSubjectHeader, result.session.subject.c_str());
   const auto expires = std::chrono::duration_cast<std::chrono::seconds>(result.session.expiresAt.time_since_epoch()).count();
   arg->AddHeader(kExpiresHeader, std::to_string(expires).c_str());
   arg->AddHeader(kAuthenticatedHeader, result.session.subject.c_str());
+  // A token need not carry an email; an absent header says exactly that.
+  if (!result.session.email.empty()) arg->AddHeader(kEmailHeader, result.session.email.c_str());
   return true;
 }
 

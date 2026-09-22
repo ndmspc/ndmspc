@@ -8,6 +8,7 @@
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NRoomAccess.h"
 
 namespace Ndmspc {
 namespace {
@@ -22,7 +23,8 @@ bool IsAuthorizationHeader(std::string name)
 {
   std::transform(name.begin(), name.end(), name.begin(), [](unsigned char value) { return std::tolower(value); });
   return name == "authorization" || name == "x-ndmspc-user" || name == "x-ndmspc-subject" ||
-         name == "x-ndmspc-token-expires" || name == "x-ndmspc-authenticated";
+         name == "x-ndmspc-token-expires" || name == "x-ndmspc-authenticated" ||
+         name == "x-ndmspc-room-token";
 }
 
 } // namespace
@@ -35,6 +37,43 @@ NWsHandler::NWsHandler(const char * name, const char * title, std::shared_ptr<IO
 }
 
 NWsHandler::~NWsHandler() = default;
+
+// A room that was given access tokens refuses a websocket that carries none. The upgrade is the
+// only place a websocket can present one - in its URL (what a page link passes on) or in the
+// cookie the room's page handed the browser - so this is where the connection is admitted or
+// turned away, and the level it grants is kept for the connection's lifetime.
+bool NWsHandler::ApplyRoomAccessToUpgrade(THttpCallArg * arg)
+{
+  if (arg == nullptr || Ndmspc::gNHttpServer == nullptr || !Ndmspc::gNHttpServer->RoomAccessRequired()) {
+    return true;
+  }
+
+  const char * query = arg->GetQuery();
+  std::string  token = NRoomAccess::TokenFromQuery(query != nullptr ? query : "");
+  if (token.empty()) token = NRoomAccess::TokenFromCookie(arg->GetRequestHeader("Cookie").Data());
+
+  const std::string level = Ndmspc::gNHttpServer->RoomAccessLevel(token);
+  if (level.empty()) {
+    NLogWarning("Refusing a websocket upgrade: %s",
+                token.empty() ? "no access token" : "an unknown access token");
+    return false;
+  }
+
+  {
+    std::lock_guard lock(fMutex);
+    fAccessLevels[arg->GetWSId()] = level;
+  }
+  NLogInfo("Websocket %lld admitted with a room token that may %s", static_cast<long long>(arg->GetWSId()),
+           level == NRoomAccess::kReadOnly ? "only read" : "read and write");
+  return true;
+}
+
+std::string NWsHandler::AccessLevelOf(ULong_t wsId) const
+{
+  std::lock_guard lock(fMutex);
+  const auto      it = fAccessLevels.find(wsId);
+  return it == fAccessLevels.end() ? std::string() : it->second;
+}
 
 Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 {
@@ -54,6 +93,8 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       const std::string query = arg->GetQuery() != nullptr ? arg->GetQuery() : "";
       if (!Ndmspc::gNdmspcWsConnectFilter(query)) return kFALSE;
     }
+    // ... and a room refuses an upgrade that carries no access token of its own.
+    if (!ApplyRoomAccessToUpgrade(arg)) return kFALSE;
     return kTRUE;
   }
 
@@ -123,6 +164,22 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
     if (isApiRequest) {
       json requestId = parsed.contains("requestId") ? parsed["requestId"] : json(nullptr);
       std::string method = parsed.value("method", "POST");
+
+      // A connection admitted with a read-only token may only read. The bridge reaches exactly the
+      // same handlers as /api/<path>, so the rule has to hold here as well.
+      if (AccessLevelOf(wsId) == NRoomAccess::kReadOnly && method.find("GET") == std::string::npos) {
+        NLogWarning("Refusing a %s request over websocket %lld: its room token is read-only", method.c_str(),
+                    static_cast<long long>(wsId));
+        json reply;
+        reply["event"]       = "ngnt_reply";
+        reply["requestId"]   = requestId;
+        reply["contentType"] = "application/json";
+        reply["payload"]     = json{{"result", "failure"},
+                                    {"error", "this room's access token is read-only"},
+                                    {"code", "read_only"}};
+        SendCharStarWS(wsId, reply.dump().c_str());
+        return kTRUE;
+      }
       std::string path = parsed["path"].get<std::string>();
       std::string query = parsed.value("query", "");
       json payload = parsed.contains("payload") ? parsed["payload"] : json::object();
@@ -301,6 +358,7 @@ void NWsHandler::RemoveClientAndAnnounce(ULong_t wsId)
   {
     std::lock_guard lock(fMutex);
     fPendingClients.erase(wsId);
+    fAccessLevels.erase(wsId);
     const auto client = fClients.find(wsId);
     if (client == fClients.end()) return;
     username = client->second.GetUsername();

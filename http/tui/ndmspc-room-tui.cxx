@@ -170,11 +170,23 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
     }
     json rooms = json::array();
     for (const auto & room : list.rooms) {
-      rooms.push_back({{"name", room.name},         {"room", room.room},         {"revision", room.revision},
-                       {"lastSeen", room.lastSeen}, {"ready", room.ready},       {"replicas", room.replicas},
-                       {"active", room.active},     {"state", room.state},       {"preparing", room.preparing},
-                       {"phase", room.phase},       {"error", room.error},       {"code", room.code},
-                       {"startedAt", room.startedAt}});
+      json entry = {{"name", room.name},         {"room", room.room},         {"revision", room.revision},
+                    {"lastSeen", room.lastSeen}, {"ready", room.ready},       {"replicas", room.replicas},
+                    {"active", room.active},     {"state", room.state},       {"preparing", room.preparing},
+                    {"phase", room.phase},       {"error", room.error},       {"code", room.code},
+                    {"startedAt", room.startedAt}};
+      // The tokens that open the room travel with the row, exactly as the router reports them: they
+      // are what a client hands on, and this listing is a script's view of the same registry.
+      if (room.HasAccess()) {
+        json access = json::object();
+        if (!room.tokenRw.empty()) access[Ndmspc::NRoomAccess::kReadWrite] = room.tokenRw;
+        if (!room.tokenRo.empty()) access[Ndmspc::NRoomAccess::kReadOnly] = room.tokenRo;
+        entry["access"] = access;
+      }
+      // Who it belongs to, when the router knows: a script has to be able to tell its own rooms from
+      // the rest, and a room with no owner has none to report.
+      if (!room.owner.empty()) entry["owner"] = room.owner;
+      rooms.push_back(std::move(entry));
     }
     PrintJson({{"rooms", rooms}, {"ttl", list.ttl}});
     return 0;
@@ -292,6 +304,7 @@ int main(int argc, char ** argv)
 {
   std::string serverUrl      = "http://localhost:8080";
   int         refreshSeconds = 5;
+  std::string owner;
   bool        listRooms      = false;
   std::string openRoom;
   std::string statusRoom;
@@ -330,6 +343,11 @@ int main(int argc, char ** argv)
                                         "(default: http://localhost:8080)")
       ->envname("NDMSPC_ROOM_URL");
   app.add_option("--refresh,-r", refreshSeconds, "Seconds between automatic room-list refreshes (0 = manual only)");
+  app.add_option("--owner", owner,
+                 "Act as this owner (an email address or a user name): the router then shows only the "
+                 "rooms that are yours, and refuses you someone else's. Empty (the default) says "
+                 "nothing about you, which is what an operator wants: every room, every action")
+      ->envname("NDMSPC_ROOM_OWNER");
   app.add_flag("--list", listRooms, "List the rooms the router is tracking, then exit (no terminal needed)");
   app.add_option("--open", openRoom,
                  "Ensure a room exists, print its URL, then exit (no terminal needed). Waits for the room "
@@ -455,6 +473,9 @@ int main(int argc, char ** argv)
   Ndmspc::NRoomClient client(endpoint, bearerToken,
                              std::make_shared<Ndmspc::NRoomHttpClientImpl>(
                                  certFile, keyFile, keyPasswordFileForClient, caFile, caPath, allowInsecure));
+  // Who this client is, when it was told: the router reads it as an asserted owner. It never
+  // overrides a verified identity - that is the server's to decide (see NRequestIdentity).
+  client.SetOwner(owner);
 
   // Validate the URL and the MCP handshake up front, so a wrong address or a server
   // without the MCP endpoint is reported before a screen is started. Only a router that

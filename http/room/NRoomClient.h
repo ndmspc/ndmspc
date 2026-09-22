@@ -8,6 +8,7 @@
 
 #include "ndmspc/core/NLogger.h"      ///< provides the global `json` (nlohmann) alias
 #include "ndmspc/http/NHttpRequest.h" ///< NHttpResponse
+#include "ndmspc/http/NRoomAccess.h"  ///< NRoomAccess: the token names and levels
 
 namespace Ndmspc {
 
@@ -31,6 +32,23 @@ struct NRoomInfo {
   std::string error;            ///< Why its creation failed ("" when it did not)
   std::string code;             ///< Stable reason behind `error`, e.g. "no_capacity" ("" when unknown)
   long        startedAt{0};     ///< Epoch seconds its creation started, for the elapsed time
+
+  /// Token that opens the room and may do anything in it ("" when it was given none).
+  std::string tokenRw;
+  /// Token that opens the room but may only read it ("" when it was given none).
+  std::string tokenRo;
+
+  /// Who created the room ("" for one created before ownership existed, or by nobody identifiable).
+  std::string owner;
+
+  /// @brief Whether the router reported access tokens for this room.
+  bool HasAccess() const { return !tokenRw.empty() || !tokenRo.empty(); }
+  /**
+   * @brief The token that opens this room at one level.
+   * @param level "rw" for the read-write token, anything else for the read-only one.
+   * @return The token, or "" when the room has none.
+   */
+  std::string TokenFor(const std::string & level) const;
 };
 
 /**
@@ -159,6 +177,19 @@ class NRoomClient {
   bool Initialize(std::string & error);
 
   /**
+   * @brief The owner this client acts as, sent with every room request.
+   *
+   * The router believes a verified identity - a token it checked itself, or the certificate a mutual
+   * TLS front door checked - and only falls back to what a client asserts, so this is what makes a
+   * room belong to someone where there is no login, and what limits this client to the rooms that
+   * are theirs. An empty owner (the default) says nothing about itself, which is what an operator's
+   * script wants: every room, every action.
+   *
+   * @param owner An email address or a user name.
+   */
+  void SetOwner(const std::string & owner) { fOwner = owner; }
+
+  /**
    * @brief List the rooms the router is tracking.
    * @return The rooms, the idle TTL, and any failure.
    */
@@ -254,6 +285,7 @@ class NRoomClient {
 
   std::string                      fEndpoint;    ///< MCP endpoint URL
   std::string                      fBearerToken; ///< Optional OIDC access token
+  std::string                      fOwner;       ///< Optional asserted owner, sent with every request
   std::shared_ptr<IRoomHttpClient> fHttpClient;  ///< Transport used for every call
   long long                        fNextId{0};   ///< JSON-RPC request id counter
 };
