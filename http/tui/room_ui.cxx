@@ -22,6 +22,7 @@
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
+#include "ndmspc/http/NRoomAccess.h"
 #include "ndmspc/http/NRoomClient.h"
 
 namespace Ndmspc {
@@ -153,10 +154,17 @@ std::string BaseUrl(const std::string & url)
   return base;
 }
 
-/// @brief The URL a client uses to reach a room served by the router.
+/// @brief The room's API endpoint: what an API client points at to talk to the room.
 std::string ServingUrl(const std::string & url, const std::string & roomId)
 {
   return BaseUrl(url) + "/api?room=" + roomId;
+}
+
+/// @brief The page to open the room in a browser: the router's own UI carrying the same
+/// ?room=<id> parameter, which the viewer uses to join the room.
+std::string PageUrl(const std::string & url, const std::string & roomId)
+{
+  return BaseUrl(url) + "?room=" + roomId;
 }
 
 /// @brief The WebSocket URL a client uses to reach a room served by the router.
@@ -173,6 +181,13 @@ std::string ServingWsUrl(const std::string & url, const std::string & roomId)
     base = "ws:" + base.substr(5);
   }
   return base + "/ws/root.websocket?room=" + roomId;
+}
+
+/// @brief Add the access token that opens a room to a URL built for it (no-op without one).
+std::string WithToken(const std::string & url, const std::string & token)
+{
+  if (token.empty()) return url;
+  return url + "&" + NRoomAccess::kParam + "=" + token;
 }
 
 /// @brief Whether a failure looks like rejected authentication.
@@ -484,6 +499,7 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
   std::vector<Element> lines;
   lines.push_back(hbox({
       text("ROOM") | bold | size(WIDTH, EQUAL, 22),
+      text("OWNER") | bold | size(WIDTH, EQUAL, 20),
       text("STATE") | bold | size(WIDTH, EQUAL, 11),
       text("PODS") | bold | size(WIDTH, EQUAL, 6),
       text("SEEN") | bold,
@@ -529,6 +545,9 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
 
     Element row = hbox({
         text(room.room) | size(WIDTH, EQUAL, 22),
+        // A room created before ownership existed, or by a caller that identified itself to nobody,
+        // has no owner - and that is worth showing as such rather than as an empty cell.
+        text(room.owner.empty() ? "-" : room.owner) | size(WIDTH, EQUAL, 20),
         roomState | size(WIDTH, EQUAL, 11),
         pods | size(WIDTH, EQUAL, 6),
         text(FormatAge(seenAt)),
@@ -543,7 +562,8 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
 }
 
 /// @brief Details of the selected room, plus its cached status payload.
-Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, size_t selected)
+Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, size_t selected,
+                     const std::string & accessLevel)
 {
   if (state.rooms.empty()) return vbox({text("Select a room to see its details.") | dim}) | flex;
 
@@ -557,6 +577,7 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
       room.preparing ? "-" : (std::to_string(room.replicas) + (room.active ? " (active)" : " (idle)"));
 
   lines.push_back(Field("resource", room.name));
+  lines.push_back(Field("owner", room.owner.empty() ? "-" : room.owner));
   lines.push_back(Field("revision", room.revision.empty() ? "-" : room.revision));
   lines.push_back(Field("state", stateText));
   if (room.preparing) lines.push_back(Field("phase", room.phase.empty() ? "service" : room.phase));
@@ -569,10 +590,22 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
 
   lines.push_back(separatorLight());
   if (room.preparing) lines.push_back(text("still being created - the URLs work once it is ready") | dim);
-  lines.push_back(text("client URL") | dim);
-  lines.push_back(text(ServingUrl(options.serverUrl, room.room)) | color(Color::Cyan) | flex);
-  lines.push_back(text("websocket URL") | dim);
-  lines.push_back(text(ServingWsUrl(options.serverUrl, room.room)) | color(Color::Cyan) | flex);
+
+  // The links carry the token that opens the room, at the level being looked at: one room hands out
+  // a read-write link and a read-only one, and which one is copied is the choice made here.
+  const std::string level = room.HasAccess() ? accessLevel : std::string();
+  const std::string token = room.TokenFor(level);
+  if (room.HasAccess()) {
+    lines.push_back(Field("access", level == NRoomAccess::kReadOnly ? "read-only (t: read-write)"
+                                                                   : "read-write (t: read-only)"));
+  }
+  const std::string suffix = token.empty() ? std::string() : " (" + level + ")";
+  lines.push_back(text("page URL" + suffix) | dim);
+  lines.push_back(text(WithToken(PageUrl(options.serverUrl, room.room), token)) | color(Color::Cyan) | flex);
+  lines.push_back(text("api URL" + suffix) | dim);
+  lines.push_back(text(WithToken(ServingUrl(options.serverUrl, room.room), token)) | color(Color::Cyan) | flex);
+  lines.push_back(text("websocket URL" + suffix) | dim);
+  lines.push_back(text(WithToken(ServingWsUrl(options.serverUrl, room.room), token)) | color(Color::Cyan) | flex);
 
   if (state.detailRoom == room.room && state.detail.is_object()) {
     lines.push_back(separatorLight());
@@ -601,6 +634,7 @@ Element RenderKeyBar()
       text(" c ") | inverted, text(" create  "),
       text(" d ") | inverted, text(" delete  "),
       text(" enter ") | inverted, text(" status  "),
+      text(" t ") | inverted, text(" rw/ro  "),
       text(" r ") | inverted, text(" refresh  "),
       text(" p ") | inverted, text(" pause  "),
       text(" ? ") | inverted, text(" help"),
@@ -651,7 +685,7 @@ Element RenderOpenDialog(const std::string & input, bool busy, const std::string
 Element RenderCloseDialog(const std::string & room, bool busy, bool preparing, const std::string & busyPhrase)
 {
   std::vector<Element> body = {
-      text("Delete the room '" + room + "' and its Knative Service?"),
+      text("Delete the room '" + room + "'?"),
   };
   // A room can be deleted while it is still being created - the router cancels that creation and
   // deletes what it had made so far, so say it rather than let it look like an ordinary delete.
@@ -679,6 +713,7 @@ Element RenderHelpDialog(const NRoomUiOptions & options)
                              Field("enter", "refresh the selected room's status"),
                              Field("c / o / a", "create a room"),
                              Field("d / Del", "delete a room"),
+                             Field("t", "hand out the read-write or the read-only link"),
                              Field("r", "refresh the room list now"),
                              Field("p", "pause / resume the automatic refresh"),
                              Field("?", "toggle this help"),
@@ -724,6 +759,8 @@ int RunRoomUi(const NRoomUiOptions & options)
   size_t      selected = 0;
   Dialog      dialog   = Dialog::None;
   std::string input;
+  /// Which link the detail pane shows: a room hands out a read-write and a read-only one.
+  std::string accessLevel = NRoomAccess::kReadWrite;
   int         frame = 0;
   worker.Start();
 
@@ -760,7 +797,7 @@ int RunRoomUi(const NRoomUiOptions & options)
         RenderHeader(snapshot, options, frame),
         separator(),
         hbox({RenderRoomTable(snapshot, selected, rows, frame) | size(WIDTH, EQUAL, 48), separator(),
-              RenderDetail(snapshot, options, selected)}) |
+              RenderDetail(snapshot, options, selected, accessLevel)}) |
             flex,
         separator(),
         RenderStatusLine(snapshot),
@@ -858,6 +895,15 @@ int RunRoomUi(const NRoomUiOptions & options)
       std::lock_guard<std::mutex> lock(state.mutex);
       state.paused = !state.paused;
       state.status = state.paused ? "automatic refresh paused" : "automatic refresh resumed";
+      return true;
+    }
+    if (event == Event::Character('t')) {
+      // Which link the pane shows: the level is a property of the token being handed out, so this
+      // only changes what is displayed - it does not touch the room.
+      const bool readOnly = accessLevel == NRoomAccess::kReadOnly;
+      accessLevel         = readOnly ? NRoomAccess::kReadWrite : NRoomAccess::kReadOnly;
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.status = readOnly ? "showing the read-write link" : "showing the read-only link";
       return true;
     }
     if (event == Event::Character('r')) {

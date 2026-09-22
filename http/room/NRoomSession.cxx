@@ -9,6 +9,8 @@
 
 #include "ndmspc/core/NUtils.h"
 
+#include "NRoomAccess.h"
+
 namespace Ndmspc {
 
 namespace {
@@ -45,11 +47,17 @@ std::string TrimBase(std::string url)
 }
 
 /// @brief GET a room endpoint and parse the response.
-bool GetJson(NHttpRequest & http, const std::string & url, json & out, std::string & error)
+///
+/// A room that was given access tokens refuses a request that carries none, so the router passes
+/// its read-write token along.
+bool GetJson(NHttpRequest & http, const std::string & url, json & out, std::string & error,
+             const std::string & token = std::string())
 {
   NHttpResponse response;
   try {
-    response = http.request("GET", url);
+    std::map<std::string, std::string> headers;
+    if (!token.empty()) headers[NRoomAccess::kHeader] = token;
+    response = http.request("GET", url, "", headers);
   }
   catch (const std::exception & e) {
     error = "cannot reach the room at " + url + " (" + e.what() + ")";
@@ -72,10 +80,11 @@ bool GetJson(NHttpRequest & http, const std::string & url, json & out, std::stri
 }
 
 /// @brief Read the drill-down state point a room currently holds.
-bool ReadPoint(NHttpRequest & http, const std::string & base, json & point, std::string & error)
+bool ReadPoint(NHttpRequest & http, const std::string & base, json & point, std::string & error,
+               const std::string & token = std::string())
 {
   json stateDoc;
-  if (!GetJson(http, base + "/api/state", stateDoc, error)) return false;
+  if (!GetJson(http, base + "/api/state", stateDoc, error, token)) return false;
 
   const json spectra = Member(Member(Member(stateDoc, "payload"), "metadata"), "spectra");
   point              = Member(spectra, "point");
@@ -90,12 +99,12 @@ bool NRoomSession::IsReplayable(const std::string & routeName)
 }
 
 NRoomSession::State NRoomSession::Probe(NHttpRequest & http, const std::string & roomBaseUrl, std::string & file,
-                                        std::string & error)
+                                        std::string & error, const std::string & token)
 {
   const std::string url = TrimBase(roomBaseUrl) + "/api/" + kOpenRoute;
 
   json response;
-  if (!GetJson(http, url, response, error)) return State::Unreachable;
+  if (!GetJson(http, url, response, error, token)) return State::Unreachable;
 
   // An empty room answers with a failure here ("File ... not opened"), so only a
   // successful response that actually carries a file name counts as an active session.
@@ -152,25 +161,25 @@ json NRoomSession::Build(const std::string & roomId, const std::string & file, c
 }
 
 json NRoomSession::Capture(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & roomId,
-                           std::string & error)
+                           std::string & error, const std::string & token)
 {
   const std::string base = TrimBase(roomBaseUrl);
 
   std::string file;
-  const State state = Probe(http, base, file, error);
+  const State state = Probe(http, base, file, error, token);
   if (state == State::Unreachable) return json();
   // Never let a room that has nothing open overwrite a good snapshot: a fresh pod is empty
   // for the first seconds of its life, which is exactly when a wake happens.
   if (state == State::Empty) return json();
 
   json root;
-  if (!GetJson(http, base + "/api/", root, error)) return json();
+  if (!GetJson(http, base + "/api/", root, error, token)) return json();
   const json history = Member(Member(root, "state"), "history");
 
   // The state point is optional and lives outside the history (only a PATCH writes it), so
   // a room that cannot report it is still worth capturing.
   json point;
-  if (!ReadPoint(http, base, point, error)) error.clear();
+  if (!ReadPoint(http, base, point, error, token)) error.clear();
 
   return Build(roomId, file, history, point);
 }
@@ -235,18 +244,19 @@ bool NRoomSession::RestoreInPlace(const json & snapshot, const Dispatch & dispat
 }
 
 bool NRoomSession::Restore(NHttpRequest & http, const std::string & roomBaseUrl, const json & snapshot,
-                           std::string & error)
+                           std::string & error, const std::string & token)
 {
   const std::string base = TrimBase(roomBaseUrl);
 
   // A room keeps HTTP 200 even when a handler fails, so a failed action is reported through
   // the dispatcher's error rather than by the transport. The response is still returned: a
   // caller that only wants the effect (the state point) reads the state back instead.
-  const Dispatch dispatch = [&http, &base](const std::string & method, const std::string & route, const json & body,
-                                           std::string & dispatchError) -> json {
+  const Dispatch dispatch = [&http, &base, &token](const std::string & method, const std::string & route,
+                                                   const json & body, std::string & dispatchError) -> json {
     const std::string                  url = base + "/api/" + route;
     std::map<std::string, std::string> headers;
     headers["Content-Type"] = "application/json";
+    if (!token.empty()) headers[NRoomAccess::kHeader] = token;
 
     NHttpResponse response;
     try {

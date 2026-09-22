@@ -15,6 +15,7 @@ namespace Ndmspc {
 struct NOidcIdentity {
   std::string subject;           ///< "sub" claim of the verified token
   std::string preferredUsername; ///< "preferred_username" claim (empty when absent)
+  std::string email;             ///< "email" claim (empty when absent)
   std::chrono::system_clock::time_point expiresAt; ///< Token expiry ("exp" claim)
 };
 
@@ -26,6 +27,7 @@ struct NOidcIdentity {
 struct NOidcSession {
   std::string subject;           ///< "sub" claim of the verified token
   std::string username;          ///< preferred_username, falls back to subject
+  std::string email;             ///< "email" claim (empty when absent)
   std::chrono::system_clock::time_point expiresAt; ///< Token expiry ("exp" claim)
 
   /**

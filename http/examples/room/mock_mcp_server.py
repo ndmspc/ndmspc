@@ -19,7 +19,17 @@ It mirrors httpRoom.C / NMcpServer.cxx:
 * the ``method`` argument is validated per action (GET/POST for open, GET for
   status and list, DELETE for close), and a missing room id is rejected with the
   same message the router uses;
-* a room's resource name is ``ndmspc-room-`` plus a DNS-1123 slug of the room id.
+* a room's resource name is ``ndmspc-room-`` plus a DNS-1123 slug of the room id;
+* a room carries access tokens (``access``: a read-write and a read-only one), which the router
+  mints when it creates the room and reports in ``room_open``, ``room_status``, ``room_list`` and
+  the backup document, with ``room_open``'s ``url`` carrying the read-write one. They are derived
+  here rather than minted, so a demo run is reproducible; nothing enforces them, because the mock
+  serves the router, not a room (a room is what refuses traffic without its token).
+* a room belongs to whoever creates it (``owner``), and its owner is reported with it. A caller
+  says who it is with ``owner`` and is shown only its own rooms - and refused someone else's room
+  with ``code=not_owner`` - unless it is in ``ADMINS``, or says nothing at all, which is what a
+  script does. The mock has no authentication, so it only ever sees an asserted owner; the router
+  prefers a verified identity over one (see NRequestIdentity).
 
 A room is created in the background by the real router: ``room_open`` with ``wait=false``
 registers it straight away with ``state=preparing`` and finishes the work off the request path.
@@ -34,10 +44,12 @@ Environment:
   TTL      idle TTL in seconds reported by room/list (default 3600)
   PREPARE  seconds a room opened with wait=false stays preparing (default 2, 0 = ready at once)
   FAIL     1 makes every room action fail, to exercise the client's error path
+  ADMINS   comma-separated owners who may see every room (default "": then nobody is an admin)
   NO_ROOM_CAPACITY  1 makes every *new* room fail the way the real router reports a pod the
            cluster cannot schedule: state=failed, code=no_capacity, with the scheduler's message
 """
 
+import hashlib
 import json
 import os
 import re
@@ -153,6 +165,40 @@ def slug(room_id):
     return "r%016x" % digest
 
 
+def token(room_id, level):
+    """One of a room's access tokens: 32 hex characters, stable for the same room and level.
+
+    The router mints these with a CSPRNG; the mock derives them so a demo run is reproducible
+    (the room, and so the links it hands out, are the same on every start).
+    """
+    digest = hashlib.sha256(("%s:%s" % (room_id, level)).encode()).hexdigest()
+    return digest[:32]
+
+
+def access_for(room_id):
+    """A room's tokens, as the router reports them: the levels are handed out with the link."""
+    return {"rw": token(room_id, "rw"), "ro": token(room_id, "ro")}
+
+
+def asserted_owner(arguments):
+    """The owner a request says it is.
+
+    The router believes a verified identity and falls back to what the client asserts; nothing here
+    verifies anything, so every caller of the mock is asserting who it is.
+    """
+    owner = arguments.get("owner")
+    return owner.strip() if isinstance(owner, str) else ""
+
+
+def may_see(room, owner, admins):
+    """Whether a caller may see a room: the router's rule, with the asserted owner only."""
+    if not owner:
+        return True  # a script, or the TUI run with no credentials: every room
+    if owner.lower() in admins:
+        return True  # an admin sees everything
+    return (room.get("owner") or "").lower() == owner.lower()
+
+
 class Rooms:
     """The in-memory room registry the real router keeps (and rebuilds from k8s)."""
 
@@ -185,6 +231,8 @@ class Rooms:
             "phase": "failed",
             "error": CAPACITY_ERROR,
             "code": "no_capacity",
+            # A failed room keeps the tokens it was opened with: they are what a client was handed.
+            "access": (existing or {}).get("access", access_for(room_id)),
         }
 
     def _advance(self):
@@ -225,10 +273,13 @@ class Rooms:
             "actions": [{"name": "ngnt/open", "in": {"file": "NBinnings01Gaus.root"}}],
         }
 
-    def open(self, room_id, wait=True):
+    def open(self, room_id, wait=True, owner=""):
         self._advance()
         name = self.name(room_id)
         existing = self.rooms.get(name)
+        # A room belongs to whoever creates it: an existing room keeps the owner it has, and one
+        # created by a caller that identified itself to nobody has none.
+        room_owner = (existing.get("owner") or "") if existing else owner
 
         # No capacity for another pod: the router registers the room and fails it a moment later,
         # with the scheduler's own message, so the mock does the same (immediately when there is no
@@ -253,6 +304,9 @@ class Rooms:
                 "preparing": True,
                 "phase": "service",
                 "startedAt": int(time.time()),
+                # Minted once and kept: the links a client was handed have to keep working.
+                "access": (existing or {}).get("access", access_for(room_id)),
+                "owner": room_owner,
             }
             if not self.capacity:
                 entry["no_capacity"] = True
@@ -269,6 +323,8 @@ class Rooms:
             "replicas": (existing or {}).get("replicas", 1),
             "active": True,
             "state": "ready",
+            "access": (existing or {}).get("access", access_for(room_id)),
+            "owner": room_owner,
         }
         self.rooms[name] = entry
         self.snapshots.setdefault(name, self.session(room_id))
@@ -285,6 +341,8 @@ class Rooms:
             "replicas": 0,
             "active": False,
             "state": "ready",
+            "access": access_for(room_id),
+            "owner": "",  # a seeded room is one nobody created here: it belongs to nobody
         }
 
     def status(self, room_id):
@@ -298,6 +356,9 @@ class Rooms:
             payload["lastSeen"] = entry["lastSeen"]
             payload["ready"] = entry["ready"]
             payload["state"] = entry.get("state", "ready" if entry["ready"] else "not ready")
+            payload["access"] = entry.get("access", access_for(room_id))
+            if entry.get("owner"):
+                payload["owner"] = entry["owner"]
             if entry.get("preparing"):
                 payload["preparing"] = True
                 payload["phase"] = entry.get("phase", "service")
@@ -312,17 +373,23 @@ class Rooms:
         self.snapshots.pop(name, None)
         return {"room": room_id, "name": name}
 
-    def backup(self, ttl):
-        """The document the router exports: the rooms plus their sessions, no ROOT data."""
+    def backup(self, ttl, owner="", admins=()):
+        """The document the router exports: the rooms the caller may see, plus their sessions."""
         entries = []
         for name in sorted(self.rooms):
             room = self.rooms[name]
+            if not may_see(room, owner, admins):
+                continue
             entry = {
                 "room": room["room"],
                 "name": room["name"],
                 "revision": room["revision"],
                 "lastSeen": room["lastSeen"],
             }
+            if room.get("access"):
+                entry["access"] = room["access"]
+            if room.get("owner"):
+                entry["owner"] = room["owner"]
             if name in self.snapshots:
                 entry["snapshot"] = self.snapshots[name]
             entries.append(entry)
@@ -333,14 +400,27 @@ class Rooms:
             "rooms": entries,
         }
 
-    def restore(self, document):
+    def restore(self, document, owner="", admins=()):
         """Additive, like the router: ensure each room, replay its session, delete nothing."""
         restored, failed = [], []
         for entry in document.get("rooms", []):
             room_id = entry.get("room", "")
             if not room_id:
                 continue
-            room = self.open(room_id)
+            existing = self.find(room_id)
+            if existing is not None and not may_see(existing, owner, admins):
+                # Someone else's room is not this caller's to restore, and is left untouched.
+                failed.append({"room": room_id, "name": self.name(room_id), "code": "not_owner",
+                               "error": "Room '%s' belongs to %s" % (room_id, existing.get("owner") or "nobody")})
+                continue
+            # The document's owner comes back with it, as the router does it; a document without one
+            # leaves the room unowned rather than handing it to whoever restored it.
+            document_owner = entry.get("owner") if isinstance(entry.get("owner"), str) else ""
+            room = self.open(room_id, owner=document_owner)
+            if isinstance(entry.get("access"), dict):
+                # Keep the tokens the document carries, as the router does: links handed out before
+                # the backup have to keep opening the room after the restore.
+                self.rooms[room["name"]]["access"] = entry["access"]
             if "snapshot" in entry:
                 self.snapshots[room["name"]] = entry["snapshot"]
             restored.append({"room": room_id, "name": room["name"], "revision": room["revision"],
@@ -351,14 +431,30 @@ class Rooms:
         self._advance()
         return [self.rooms[key] for key in sorted(self.rooms)]
 
+    def find(self, room_id):
+        """The entry of one room, or None when the router is not tracking it."""
+        return self.rooms.get(self.name(room_id))
+
 
 def call_tool(server, tool, arguments):
     """Reproduce one room handler from httpRoom.C."""
     method = arguments.get("method", "POST")
     room_id = arguments.get("room", "")
+    admins = getattr(server, "admins", [])
+    owner = asserted_owner(arguments)
 
-    def failure(message):
-        return {"result": "failure", "error": message}
+    def failure(message, code=""):
+        result = {"result": "failure", "error": message}
+        if code:
+            result["code"] = code
+        return result
+
+    def not_ours():
+        """The refusal for a room that belongs to someone else, or None when it is ours to use."""
+        entry = server.rooms.find(room_id)
+        if entry is not None and not may_see(entry, owner, admins):
+            return failure("Room '%s' belongs to %s" % (room_id, entry.get("owner") or "nobody"), "not_owner")
+        return None
 
     if server.fail:
         return failure("mock: forced failure (FAIL=1)")
@@ -366,13 +462,14 @@ def call_tool(server, tool, arguments):
     if tool == "room_list":
         if "GET" not in method:
             return failure("Unsupported HTTP method for room/list")
-        return {"result": "success", "payload": {"rooms": server.rooms.entries(), "ttl": server.ttl}}
+        visible = [room for room in server.rooms.entries() if may_see(room, owner, admins)]
+        return {"result": "success", "payload": {"rooms": visible, "ttl": server.ttl}}
 
-    # Backup and restore carry no room id: they act on the whole set.
+    # Backup and restore carry no room id: they act on the set the caller may see.
     if tool == "room_backup":
         if "GET" not in method and "POST" not in method:
             return failure("Unsupported HTTP method for room/backup")
-        return {"result": "success", "payload": server.rooms.backup(server.ttl)}
+        return {"result": "success", "payload": server.rooms.backup(server.ttl, owner, admins)}
 
     if tool == "room_restore":
         if "POST" not in method:
@@ -391,7 +488,7 @@ def call_tool(server, tool, arguments):
                     "The document came from a router configured differently (param '%s', prefix '%s')"
                     % (param, prefix)
                 )
-        return {"result": "success", "payload": server.rooms.restore(document)}
+        return {"result": "success", "payload": server.rooms.restore(document, owner, admins)}
 
     if not room_id:
         return failure('Missing room id (send it in the body as {"room": "<id>"})')
@@ -399,21 +496,31 @@ def call_tool(server, tool, arguments):
     if tool == "room_open":
         if "GET" not in method and "POST" not in method:
             return failure("Unsupported HTTP method for room/open")
+        # room/open is also how a client obtains a room's link, so a room that belongs to someone
+        # else is refused rather than handed over.
+        refusal = not_ours()
+        if refusal:
+            return refusal
         # The router's wait flag. A string is accepted too: the flag travels as JSON, but a
         # hand-written request may send "wait=false".
         wait = arguments.get("wait", True)
         if isinstance(wait, str):
             wait = wait.strip().lower() not in ("", "0", "false", "no", "off")
-        entry = server.rooms.open(room_id, bool(wait))
+        entry = server.rooms.open(room_id, bool(wait), owner)
+        access = entry.get("access", access_for(room_id))
         payload = {
             "room": room_id,
             "name": entry["name"],
             "revision": entry.get("revision", ""),
             "param": PARAM,
-            "url": "?%s=%s" % (PARAM, room_id),
+            # The link a client hands on, carrying the read-write token that opens the room.
+            "url": "?%s=%s&token=%s" % (PARAM, room_id, access["rw"]),
             "ttl": server.ttl,
             "state": entry.get("state", "ready"),
+            "access": access,
         }
+        if entry.get("owner"):
+            payload["owner"] = entry["owner"]
         if entry.get("preparing"):
             payload["phase"] = entry.get("phase", "service")
             payload["startedAt"] = entry.get("startedAt", 0)
@@ -422,11 +529,17 @@ def call_tool(server, tool, arguments):
     if tool == "room_status":
         if "GET" not in method:
             return failure("Unsupported HTTP method for room/status")
+        refusal = not_ours()
+        if refusal:
+            return refusal
         return {"result": "success", "payload": server.rooms.status(room_id)}
 
     if tool == "room_close":
         if "DELETE" not in method:
             return failure("Unsupported HTTP method for room/close")
+        refusal = not_ours()
+        if refusal:
+            return refusal
         return {"result": "success", "payload": server.rooms.close(room_id)}
 
     return failure("Unsupported action: " + tool)
@@ -552,6 +665,7 @@ def main():
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
     server.rooms = Rooms(prepare, capacity)
+    server.admins = [item.strip().lower() for item in os.environ.get("ADMINS", "").split(",") if item.strip()]
     server.ttl = ttl
     server.fail = fail
     for room_id in seed:

@@ -18,6 +18,7 @@
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NWorkspace.h"
 #include "ndmspc/http/NOidcConfig.h"
+#include "ndmspc/http/NRequestIdentity.h"
 #include "ndmspc/http/NWsHandler.h"
 
 class THttpCallArg;
@@ -180,6 +181,19 @@ class NHttpServer : public THttpServer {
   bool OidcEnabled() const { return static_cast<bool>(fOidcVerifier); }
 
   /**
+   * @brief Whether the server believes the identity an authenticating front door forwards.
+   *
+   * The X509 (mutual TLS) front door terminates TLS and verifies the client certificate itself, then
+   * forwards the result to this engine as X-NDMSPC-User / -Subject / -Email request headers, because
+   * the engine behind it serves anonymously. Enable this only where that door is the only way in (it
+   * forwards to a loopback address): anywhere else such a header is something any client can write,
+   * and believing it would let a caller name itself.
+   *
+   * @param trust True when this engine sits behind an authenticating front door.
+   */
+  void SetTrustForwardedIdentity(bool trust) { fTrustForwardedIdentity = trust; }
+
+  /**
    * @brief Set the heartbeat interval (ms). Recreates timer if running.
    * @param ms Interval in milliseconds. If <=0, heartbeat is disabled.
    */
@@ -245,6 +259,18 @@ class NHttpServer : public THttpServer {
    */
   virtual void ProcessRequest(std::shared_ptr<THttpCallArg> arg) override;
 
+  /**
+   * @brief Processes a request as a given caller.
+   *
+   * The same dispatch as ProcessRequest, with the caller stated instead of derived from the request:
+   * used by the MCP transport, which answers a tool call by dispatching a *synthetic* request of its
+   * own (with no headers, and nothing that could carry the identity of the client that asked).
+   *
+   * @param arg Shared pointer to THttpCallArg containing request data.
+   * @param identity The caller the action runs as.
+   */
+  void ProcessRequestAs(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity & identity);
+
   /// @brief Replace the HTTP handler map (thread-safe).
   void SetHttpHandlers(std::map<std::string, Ndmspc::NHttpFuncPtr> handlers);
 
@@ -292,6 +318,40 @@ class NHttpServer : public THttpServer {
   /// @brief Whether the MCP endpoint (POST /api/mcp) is enabled.
   bool IsMcpEnabled() const { return fMcpEnabled; }
 
+  /// @brief The access tokens this room was started with (empty when it was given none).
+  json RoomAccessTokens() const;
+  /// @brief Whether this server is a room that was given access tokens, and so enforces them.
+  bool RoomAccessRequired() const;
+  /// @brief The level a presented token grants here: "rw", "ro", or "" when it grants nothing.
+  std::string RoomAccessLevel(const std::string & token) const;
+  /// @brief The access token a request carries: `?token=`, the header, or the room's cookie.
+  std::string RequestAccessToken(THttpCallArg * arg) const;
+  /**
+   * @brief Enforce a room's access tokens on one request.
+   *
+   * A room that was given tokens serves nothing without one: a missing or unknown token is
+   * refused, and a read-only token may only issue GETs. Nothing is enforced when this server is
+   * not a room, or was given no tokens - an older image, or a room created before access existed.
+   *
+   * @param arg The request.
+   * @param method The request's HTTP method.
+   * @param isPage True for the page/static path, false for an `/api` one.
+   * @return True when the request may be served; otherwise the refusal is already written.
+   */
+  bool ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage);
+
+  /**
+   * @brief One request, dispatched to its handler with the caller it runs as.
+   *
+   * Both entry points end here, so the identity a handler sees is decided in exactly one place:
+   * `statedIdentity` when the caller knew it (the MCP transport), otherwise the one the request
+   * itself carries - a verified token, a forwarded front-door header, or nothing at all.
+   *
+   * @param arg The request.
+   * @param statedIdentity The caller to run as, or null to work it out from the request.
+   */
+  void Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity * statedIdentity);
+
   protected:
   /**
    * @brief Start the background heartbeat thread (internal).
@@ -314,6 +374,7 @@ class NHttpServer : public THttpServer {
   protected:
   NWsHandler *      fNWsHandler{nullptr}; ///<! WebSocket handler instance
   std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Shared OIDC token verifier (HTTP + WS)
+  bool              fTrustForwardedIdentity{false}; ///<! Whether the front door's identity headers are believed
   bool              fWsEnabled{false};   ///<! Whether WebSocket support was requested
   bool              fEngineStarted{false}; ///<! Whether the HTTP engine has been created
   std::chrono::seconds fAuthenticationTimeout{15}; ///<! WS authentication timeout
@@ -336,6 +397,10 @@ class NHttpServer : public THttpServer {
   mutable std::mutex fRoomMutex;              ///<! Guards the room-session fields below
   std::string        fRoomId;                 ///<! NDMSPC_ROOM: set when this server is a room
   std::string        fRoomStateUrl;           ///<! NDMSPC_ROOM_STATE_URL: the router to report to
+  // Copy-initialised on purpose: `json fRoomAccess{json::object()}` would call the initializer-list
+  // constructor and store `[{}]` - a *non-empty* array, which read as "this room enforces access"
+  // on every server, router included.
+  json               fRoomAccess = json::object(); ///<! NDMSPC_ROOM_ACCESS: the tokens to enforce
   std::string        fRoomPushed;             ///<! Last reported snapshot, to skip no-op reports
   bool               fRoomRestoring{false};   ///<! Guards the nested replay against recursion
   bool               fRoomRestored{false};    ///<! Nothing left to restore

@@ -249,7 +249,17 @@ NOidcResult NKeycloakOidcAuthenticator::Verify(std::string_view token)
       const auto claim = decoded.get_payload_claim("preferred_username");
       if (claim.get_type() == jwt::json::type::string && !claim.as_string().empty()) username = claim.as_string();
     }
-    return {.identity = NOidcIdentity{decoded.get_subject(), username, decoded.get_expires_at()},
+    // The email is reported beside the user name: it is the one identifier a person is likely to be
+    // named by elsewhere (an admin list, a room's owner), and a token need not carry it.
+    std::string email;
+    if (decoded.has_payload_claim("email")) {
+      const auto claim = decoded.get_payload_claim("email");
+      if (claim.get_type() == jwt::json::type::string) email = claim.as_string();
+    }
+    return {.identity = NOidcIdentity{.subject = decoded.get_subject(),
+                                      .preferredUsername = username,
+                                      .email = email,
+                                      .expiresAt = decoded.get_expires_at()},
             .error = NOidcErrorCode::None, .diagnostic = {}};
   }
   catch (const std::exception & exception) {

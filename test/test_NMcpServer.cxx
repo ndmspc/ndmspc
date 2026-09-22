@@ -370,3 +370,44 @@ TEST(NMcpServerTest, MacroInputSchemaPropertiesAreMerged)
   Ndmspc::gNdmspcMcpTools = nullptr;
   delete serv;
 }
+
+TEST(NMcpServerTest, AToolCallRunsAsTheCallerThatReachedTheEndpoint)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ngnt/open"] = EchoHandler;
+
+  auto *             serv = MakeServer(std::move(handlers));
+  Ndmspc::NMcpServer mcp(serv);
+
+  // A tool call is dispatched as a request of its own, built from the tool's arguments alone, so it
+  // carries none of the headers that would say who asked: the transport states the caller instead.
+  Ndmspc::NRequestIdentity identity;
+  identity.subject  = "subject-1";
+  identity.username = "alice";
+  identity.email    = "alice@example.com";
+  identity.verified = true;
+  mcp.SetCallerIdentity(identity);
+
+  json request = {{"jsonrpc", "2.0"},
+                  {"id", 22},
+                  {"method", "tools/call"},
+                  {"params", {{"name", "ngnt_open"}, {"arguments", {{"file", "x.root"}}}}}};
+  const json response = mcp.Handle(request);
+  const json & in     = response["result"]["structuredContent"]["echo"]["in"];
+  EXPECT_EQ(in["file"], "x.root");
+  EXPECT_EQ(in["_identity"]["user"], "alice");
+  EXPECT_EQ(in["_identity"]["email"], "alice@example.com");
+  EXPECT_EQ(in["_identity"]["subject"], "subject-1");
+  EXPECT_TRUE(in["_identity"]["verified"].get<bool>());
+
+  // A caller cannot name itself: what the endpoint established replaces anything it sent.
+  json spoofed = {{"jsonrpc", "2.0"},
+                  {"id", 23},
+                  {"method", "tools/call"},
+                  {"params", {{"name", "ngnt_open"},
+                              {"arguments", {{"_identity", {{"user", "root"}, {"verified", true}}}}}}}};
+  const json spoofedResponse = mcp.Handle(spoofed);
+  EXPECT_EQ(spoofedResponse["result"]["structuredContent"]["echo"]["in"]["_identity"]["user"], "alice");
+
+  delete serv;
+}

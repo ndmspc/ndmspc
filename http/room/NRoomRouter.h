@@ -11,6 +11,7 @@
 
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NHttpRequest.h"
+#include "NRoomAccess.h"
 
 namespace Ndmspc {
 
@@ -26,6 +27,8 @@ namespace Ndmspc {
  *   NDMSPC_ROOM_READY_TIMEOUT  how long to wait for a room to be Ready (default: 45s)
  *   NDMSPC_ROOM_MAX_PREPARING  rooms being created at the same time  (default: 4, 0 = no limit)
  *   NDMSPC_ROOM_WAIT           default for room/open's wait flag     (default: true)
+ *   NDMSPC_ROOM_ADMINS         users who may see and act on every room, by email or user name
+ *                              (default: empty - then nobody is an admin)
  *   NDMSPC_ROOM_TOKEN_FILE     ServiceAccount token                  (default: in-cluster path)
  *   NDMSPC_ROOM_CA_FILE        cluster CA bundle                     (default: in-cluster path)
  *
@@ -42,6 +45,7 @@ struct NRoomConfig {
   long        readyTimeoutSec{45};              ///< How long to wait for a room to become Ready, in seconds
   int         maxPreparing{4};                  ///< Rooms prepared at the same time (0 = no limit)
   bool        waitDefault{true};                ///< Default for room/open's wait flag
+  std::vector<std::string> admins;              ///< Users who may see and act on every room
   std::string apiServer;                        ///< In-cluster API server ("" = not in a cluster)
   std::string tokenFile;                        ///< ServiceAccount token
   std::string caFile;                           ///< Cluster CA bundle
@@ -66,6 +70,9 @@ struct NRoomState {
   std::string name;     ///< Kubernetes resource name (prefix + slug of the room id)
   std::string value;    ///< The room id, as chosen by the client
   std::string revision; ///< Latest ready Knative revision
+  std::string tokenRw;  ///< Access token for the room's read-write link (anything goes)
+  std::string tokenRo;  ///< Access token for the room's read-only link (GET only)
+  std::string owner;    ///< Who created the room ("" when nobody identified themselves, see Ownership)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
   std::string snapshot;    ///< Last captured session, replayed when the room wakes
 
@@ -154,6 +161,27 @@ class NRoomClusterClient : public IRoomCluster {
  * room/status with the `phase` it has reached; NDMSPC_ROOM_MAX_PREPARING bounds how many run at
  * once. The worker checks between steps whether the room was closed or superseded, so a slow create
  * cannot outlive the room it belongs to.
+ *
+ * ### Ownership and visibility
+ * A room belongs to whoever creates it, and the router records that owner when the room is made:
+ * the verified identity of the caller (a token's email or user name, or the certificate a
+ * mutual-TLS front door verified), or - when nothing verified the request - the `owner` it asserts.
+ * That is what keeps a deployment with no login usable while a deployment with one cannot be lied
+ * to. The owner is kept on the room's own Service as the annotation `ndmspc.io/room-owner`, beside
+ * its access tokens, so it survives a router restart and an idle room waking up; it is reported as
+ * `owner` by room/open, room/status, room/list and room/backup, and a room created before ownership
+ * existed simply has none.
+ *
+ * Who sees what follows from it. A caller with no identity at all (a script, or the room TUI run
+ * with no credentials) is answered as it always was: every room, every action. An identified caller
+ * who is not an admin gets their own rooms - `room/list` returns those, `room/status`, `room/open`
+ * and `room/close` refuse anyone else's with the code `not_owner`, and `room/restore` refuses a
+ * document entry that belongs to someone else. An admin (an identity listed in NDMSPC_ROOM_ADMINS,
+ * by email or user name, case-insensitively) sees and acts on every room.
+ *
+ * The identity reaches an action as the `_identity` key of its input JSON, the same way the request's
+ * query already does (`_query`): a handler is handed its method and its input and nothing else, so
+ * that is where it has to arrive.
  *
  * ### Websockets
  * The router serves no session of its own, so a websocket to this server must name a room it is
@@ -246,14 +274,14 @@ class NRoomRouter {
   void HandleOpen(const std::string & method, json & in, json & out);
   /// @brief room/status: whether a room is known and where its creation has reached.
   void HandleStatus(const std::string & method, json & in, json & out);
-  /// @brief room/list: the rooms being tracked.
-  void HandleList(const std::string & method, json & out);
+  /// @brief room/list: the rooms being tracked that the caller may see.
+  void HandleList(const std::string & method, json & in, json & out);
   /// @brief room/close: delete a room, cancelling a creation still running for it.
   void HandleClose(const std::string & method, json & in, json & out);
   /// @brief room/state: a room reports its session, or fetches it back.
   void HandleState(const std::string & method, json & in, json & out);
-  /// @brief room/backup: export every tracked room and its session.
-  void HandleBackup(const std::string & method, json & out);
+  /// @brief room/backup: export the tracked rooms the caller may see and their sessions.
+  void HandleBackup(const std::string & method, json & in, json & out);
   /// @brief room/restore: ensure every room in a document and replay its session.
   void HandleRestore(const std::string & method, json & in, json & out);
 
@@ -284,13 +312,62 @@ class NRoomRouter {
   static std::string RoomName(const NRoomConfig & cfg, const std::string & value);
   /// @brief Whether a cluster object is one of the router's rooms (carries the room label).
   static bool HasRoomLabel(const json & object);
-  /// @brief The URL a client is handed for a room: the external base plus the room parameter.
-  static std::string ClientUrl(const NRoomConfig & cfg, const std::string & value);
+  /// @brief The URL a client is handed for a room: the external base, the room parameter and, when
+  ///        given, the access token that lets it into the room.
+  static std::string ClientUrl(const NRoomConfig & cfg, const std::string & value,
+                               const std::string & token = std::string());
+  /// @brief A fresh room access token: 32 hex characters of entropy.
+  static std::string NewRoomToken();
+  /// @brief A room's access tokens as they travel: the room's environment, payloads, the Service.
+  static json AccessJson(const std::string & tokenRw, const std::string & tokenRo);
+
+  /**
+   * @brief Whether a caller may see a room and act on it (see "Ownership and visibility").
+   *
+   * A caller that carries no identity is answered the way any anonymous client always was - every
+   * room - because that is what scripts and the room TUI are. An admin sees every room. Anyone else
+   * sees only the rooms whose owner is one of their identifiers; a room with no owner belongs to
+   * nobody and so is theirs to nobody.
+   *
+   * @param room The room to judge.
+   * @param identity The caller.
+   * @return True when the caller may see the room and act on it.
+   */
+  bool MaySee(const NRoomState & room, const NRequestIdentity & identity) const;
+
+  /**
+   * @brief The caller of a request: what the server verified, or else what the client asserts.
+   *
+   * The server puts the verified identity in the request's input JSON itself (see NRequestIdentity);
+   * the `owner` a client sends (body or query) is only consulted when nothing verified the request,
+   * and never overrides it.
+   *
+   * @param in The request's input JSON.
+   * @return The caller's identity (empty when the request says nothing about itself).
+   */
+  static NRequestIdentity RequestIdentity(json & in);
+
+  /**
+   * @brief The owner a request asserts: its `owner` member, or the `owner` of its query string.
+   * @param in The request's input JSON.
+   * @return The asserted owner, or "" when there is none.
+   */
+  static std::string RequestOwner(json & in);
+
+  /// @brief The query parameter a room accepts its access token in.
+  static constexpr const char * kAccessParam = NRoomAccess::kParam;
+  /// @brief The header a programmatic client presents its access token in.
+  static constexpr const char * kAccessHeader = NRoomAccess::kHeader;
+  /// @brief The Service annotation holding a room's access tokens.
+  static constexpr const char * kAccessAnnotation = NRoomAccess::kAnnotation;
+  /// @brief The environment variable that carries the tokens into the room itself.
+  static constexpr const char * kAccessEnv = NRoomAccess::kEnv;
   /// @brief The room parameter of a query string, or "" when it is absent or empty.
   static std::string RoomParameter(const std::string & query, const std::string & param);
   /// @brief The per-room Knative Service object (skeleton spec + the room's own environment).
   static json ServiceObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
-                            const std::string & stateUrl, const json & skeleton);
+                            const std::string & stateUrl, const json & access, const std::string & owner,
+                            const json & skeleton);
   /// @brief The per-room HTTPRoute object: the `?<param>=<id>` match, the `/ws` alias, the headers.
   static json RouteObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
                           const std::string & revision, const json & skeleton);
@@ -305,6 +382,12 @@ class NRoomRouter {
   /// @brief The `code` reported when a room's name is taken by something that is not a room.
   static constexpr const char * kNameConflict = "name_conflict";
 
+  /// @brief The `code` reported when a caller asks for a room that belongs to someone else.
+  static constexpr const char * kNotOwner = "not_owner";
+
+  /// @brief The Service annotation holding the room's owner (see "Ownership and visibility").
+  static constexpr const char * kOwnerAnnotation = "ndmspc.io/room-owner";
+
   private:
   /**
    * @brief One Kubernetes API call (through the injected cluster).
@@ -316,6 +399,15 @@ class NRoomRouter {
    */
   NHttpResponse Request(const std::string & method, const std::string & path, const std::string & body = "",
                         const std::string & contentType = "application/json");
+
+  /// @brief A room's access tokens, from the registry (empty when the room has none).
+  json RoomAccess(const std::string & name) const;
+
+  /// @brief A room's owner, from the registry ("" when it has none).
+  std::string RoomOwner(const std::string & name) const;
+
+  /// @brief Whether a caller is one of NDMSPC_ROOM_ADMINS (by email or user name, case-insensitively).
+  bool IsAdmin(const NRequestIdentity & identity) const;
 
   // API paths.
   /// @brief The Knative Services collection path of this router's namespace.

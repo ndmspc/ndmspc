@@ -247,8 +247,11 @@ Successful requests carry the verified identity in response headers:
 | `X-NDMSPC-Subject` | JWT `sub` claim |
 | `X-NDMSPC-Token-Expires` | Token expiry as Unix seconds |
 | `X-NDMSPC-Authenticated` | JWT `sub` claim |
+| `X-NDMSPC-Email` | JWT `email` claim (the header is absent when the token carries none) |
 
 Client-supplied `X-NDMSPC-*` headers are never trusted: they are stripped from API-over-WebSocket messages and ignored by the bearer check.
+
+The identity also travels *to* the handler, which otherwise only ever receives its method and its input: the server writes it into that input as the `_identity` key (`{user, email, subject, verified}`) — the same seam the request's query already uses as `_query`. A client-supplied `_identity` is replaced by what the server itself established, so an action can trust `verified`. What acts on it today is the [room router](#ownership-and-admins).
 
 ### Reuse in a standalone HTTP server
 
@@ -670,6 +673,85 @@ connection is going to the wrong endpoint, since a connection for a room is rout
 own pod, which keeps serving its websocket either way. `--ws false` (`NDMSPC_WS=0`) serves no
 websocket at all, and then none of this applies.
 
+### Access tokens (rw / ro)
+
+A room can be given **access tokens**, and a room that has them serves nothing without one. They
+gate *joining the room* — the room's page, its `/api` and its websocket — not the router: the router
+keeps serving without a token, and it is the room's own process that turns a stranger away.
+
+Two are minted per room when it is created, one per level:
+
+- **`rw`** may do anything in the room;
+- **`ro`** may only read: a non-GET is refused.
+
+They are reported as `access` in `room_open`, `room_status`, `room_list` and the backup document, and
+`room_open`'s `url` carries the **read-write** one — that URL is the link a client hands on. The pair
+is also kept on the room's own Service, as the annotation `ndmspc.io/room-access`, and handed to the
+room as the environment variable `NDMSPC_ROOM_ACCESS` (a JSON object with the two tokens). Keeping
+them on the Service is what lets a router restart — and an idle room coming back — still know which
+links open it. A room is only ever given tokens when it is created: an existing room adopted after a
+router restart keeps whatever its annotation says, so a room created before this existed has none.
+
+A client presents its token in one of three ways, depending on what it is:
+
+| Client | Carries the token as | Why |
+| ------ | -------------------- | --- |
+| A browser following a link | `?token=<hex>` in the URL | the link is what was handed out |
+| A script | `X-NDMSPC-Room-Token: <hex>` | no query string to build, nothing in the URL bar |
+| The page's own scripts | the cookie the page sets | a page cannot add a header to its API or websocket calls, so a page request that carried a valid token answers with `Set-Cookie: ndmspc-room-access=<token>; Path=/; HttpOnly; SameSite=Lax` and the browser sends it from then on |
+
+Refusals keep the shapes this server already uses: an `/api` request answers HTTP 200 with
+`{"result": "failure", "code": ..., "error": ...}`, where the code is `access_denied` (no token),
+`invalid_access_token` (a token that grants nothing) or `read_only` (a non-GET with a read-only
+token). A page request is answered `404` — ROOT's civetweb cannot send a body together with an error
+status, so `_404_` is the only refusal it offers, which also avoids telling a stranger that the room
+exists. A websocket upgrade that carries no valid token is refused. The page's own `/assets/*` stay
+open: they are inert files, and the browser re-fetches them on reload with the cookie it was given.
+
+Nothing is enforced when `NDMSPC_ROOM_ACCESS` is absent, which is how a room created before this
+existed (or served by an older image) keeps working — the switch is that variable, not the code. The
+router's own calls into a room (capturing a session, replaying one) present the read-write token, so
+they are admitted like any other client.
+
+The token travels in the URL, so it appears in the room pod's request log and in a browser's history;
+that is the price of a link that can be handed on, and the header is there for clients that would
+rather not put it in a URL.
+
+### Ownership and admins
+
+A room belongs to whoever creates it. The router records that owner when the room is made - the
+verified identity of the caller (the email or user name of a token it checked itself, or the
+certificate a mutual-TLS front door checked), or, when nothing verified the request, the `owner` it
+asserts - and keeps it on the room's own Service as the annotation `ndmspc.io/room-owner`, beside its
+access tokens, so it survives a router restart, an idle room waking up, and a restore. Every payload
+reports it as `owner`; a room created before this existed simply has none.
+
+Who is shown what follows from it:
+
+| Caller | `room/list` | `status` / `open` / `close` | `backup` / `restore` |
+| ------ | ----------- | --------------------------- | -------------------- |
+| An admin (`NDMSPC_ROOM_ADMINS`; matched on any of the caller's identifiers, case-insensitively) | every room | any room | every room |
+| Identified, not an admin | their own rooms | only their own - otherwise `not_owner` | only their own; a document entry belonging to someone else fails with `not_owner` |
+| Nobody identified | every room | any room | every room |
+
+A caller counts as identified when the server verified it, or when it asserted an owner. A verified
+identity wins: a request cannot claim to be someone else while carrying a token that says otherwise.
+A caller that says nothing about itself - a script, or `ndmspc-room-tui` run with no credentials - is
+answered exactly as it was before, which is what keeps operator tooling working. A room with no owner
+belongs to nobody, so it is shown to nobody but an admin or an anonymous caller.
+
+Refusals use the shape room actions always use - `result: "failure"` with a stable `code` - and the
+code here is `not_owner`, for a room that belongs to someone else. `room/open` refuses it too, because
+that call answers with the room's own link: without the refusal, knowing a room id would be enough to
+walk into the room. `room/backup` exports the rooms its caller may see and `room/restore` refuses a
+document entry that belongs to someone else, so neither can be used to reach around `room/list`.
+
+**The assertion is not a boundary.** With no OIDC configured - or an engine that was not told an
+authenticating front door stands in front of it - anyone who can reach the router can claim any
+owner, so this decides what people are *shown*, not what they may have. What makes it a boundary is a
+verified identity: OIDC, or the X509 front door. The room's own access tokens remain the gate on the
+room itself, whoever created it.
+
 ### Architecture
 
 The rooms it tracks, the configuration and the Kubernetes access all live in the object, and the
@@ -701,6 +783,13 @@ ndmspc-room-tui --url http://ndmspc.127.0.0.1.sslip.io:8009
 The router must have the room macro loaded (`--rooms true` / `NDMSPC_ROOMS=1`); when the
 room tools are missing the tool says so at startup instead of showing an empty table.
 
+By default the tool says nothing about who is using it, which the router answers as an operator's
+tool: every room, every action. `--owner <email-or-user-name>` (or `NDMSPC_ROOM_OWNER`) makes it act
+as someone instead, so the router then shows it only that owner's rooms and refuses the rest - the
+same thing the UI does with the identity of whoever is signed in to it (see
+[Ownership and admins](#ownership-and-admins)). A login (`--oidc-*`, or a client certificate) needs
+no flag: the router believes the verified identity, and an asserted owner never overrides one.
+
 ### Keys
 
 | Key | Action |
@@ -711,6 +800,7 @@ room tools are missing the tool says so at startup instead of showing an empty t
 | `d` / `Del` | Delete a room, after confirmation |
 | `r` | Refresh the room list now |
 | `p` | Pause / resume the automatic refresh |
+| `t` | Switch the detail pane between the read-write and the read-only link |
 | `?` | Key help |
 | `q` / `Esc` | Quit |
 
@@ -719,6 +809,11 @@ resting state and is presented as such rather than as a problem; the detail pane
 `/api?room=<id>` URL to hand to a client and the `/ws/root.websocket?room=<id>` URL for a
 WebSocket client — the handshake carries the same `?room=` parameter, which is what keeps a
 room awake.
+
+For a room that was given access tokens (see [Access tokens](#access-tokens-rw--ro)) the pane also
+shows which level it is displaying and appends that token to all three URLs, so the link that gets
+handed on is chosen where it is copied: `t` switches between the read-write and the read-only one.
+A room the router reports no tokens for (an older one) shows the plain URLs and nothing to choose.
 
 On the router that parameter is not optional: with rooms enabled the router's own websocket serves
 nothing, so a connection to `/ws/root.websocket` without `?room=<id>` — or naming a room the router
@@ -732,7 +827,8 @@ useful where only scripts and the UI talk to the entry service. It is on by defa
 other server's, and leaves room clients untouched either way: a connection naming a room is routed
 to that room's own pod, which keeps serving its websocket.
 
-The table shows what the router reports: `active` / `idle` for a room that is up, `preparing` with
+The table shows what the router reports: the room, whose it is (`OWNER`; `-` for a room created
+before ownership existed, or by nobody identifiable), `active` / `idle` for a room that is up, `preparing` with
 a spinner while its creation is still running — the `SEEN` column then reads as how long it has
 been creating — and `failed` when a creation did not get there. The detail pane adds the creation's
 `phase` (`service`, `ready`, `route`, `restore`) while it is still preparing, and its error when it
@@ -782,6 +878,7 @@ unless you add `--force`.
 |---|---|---|---|
 | `--url,-u` | `NDMSPC_ROOM_URL` | `http://localhost:8080` | Router base URL, or a full `.../api/mcp` endpoint |
 | `--refresh,-r` | | `5` | Seconds between automatic refreshes (`0` = manual only) |
+| `--owner` | `NDMSPC_ROOM_OWNER` | | Act as this owner (an email address or user name): the router then shows only its rooms. Empty says nothing about the caller, which keeps the operator's view of every room |
 | `--cert` / `--key` | | | Client certificate and key for mutual TLS |
 | `--key-pass` / `--key-pass-file` | `NDMSPC_KEY_PASS` / `NDMSPC_KEY_PASS_FILE` | | Private-key passphrase, or a base64 file holding it; an encrypted key with no source prompts on a terminal |
 | `--ca-file` / `--ca-path` | | | Verify the server against a specific CA |
@@ -858,8 +955,10 @@ Persisting data would mean choosing a backend and a lifetime. Backends: a per-ro
 by the router (works, but node-local with a single-node storage class), an RWX filesystem (NFS /
 CephFS, tolerant of rescheduling), object storage (S3/MinIO with a sync at the end of a session,
 nothing attached to the pod), or pointing rooms at an existing data service such as EOS. And
-because rooms have no owner - the router tracks an id, not a user - storage would live and die
-with the room unless a workspace is keyed by an authenticated user instead, which needs OIDC.
+because a room's owner is only a name the router recorded - it authenticates nobody, and the room
+itself knows its access tokens, not its users - storage would live and die with the room unless a
+workspace were keyed by an authenticated user the room could also see, which needs OIDC to reach the
+room itself.
 
 ## Room backup and restore
 

@@ -23,10 +23,12 @@ class FakeVerifier : public Ndmspc::IOidcTokenVerifier {
   std::vector<std::string> tokens;
 };
 
-Ndmspc::NOidcResult Identity(std::string subject, std::string username)
+Ndmspc::NOidcResult Identity(std::string subject, std::string username, std::string email = "")
 {
-  return {.identity = Ndmspc::NOidcIdentity{std::move(subject), std::move(username),
-                                            std::chrono::system_clock::now() + std::chrono::minutes(5)},
+  return {.identity = Ndmspc::NOidcIdentity{.subject = std::move(subject),
+                                            .preferredUsername = std::move(username),
+                                            .email = std::move(email),
+                                            .expiresAt = std::chrono::system_clock::now() + std::chrono::minutes(5)},
           .error = Ndmspc::NOidcErrorCode::None, .diagnostic = {}};
 }
 
@@ -112,6 +114,38 @@ TEST(NOidcHttpAuthenticatorTest, ApplyToRequestRecordsIdentityOnSuccess)
   EXPECT_FALSE(arg->Is404());
   const std::string body(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
   EXPECT_TRUE(body.empty()); // no error body on success
+}
+
+TEST(NOidcHttpAuthenticatorTest, ApplyToRequestReportsTheEmailAndTheSession)
+{
+  auto verifier = std::make_shared<FakeVerifier>();
+  verifier->results.push_back(Identity("subject-1", "alice", "alice@example.com"));
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetRequestHeader("Authorization: Bearer access-token\r\n");
+
+  Ndmspc::NOidcSession session;
+  ASSERT_TRUE(Ndmspc::NOidcHttpAuthenticator::ApplyToRequest(verifier, arg.get(), &session));
+
+  // The session is what a caller that has to act on *who* is asking needs: the email is the
+  // identifier a person is named by elsewhere (an admin list, a room's owner) and it does not travel
+  // on the argument itself.
+  EXPECT_EQ(session.subject, "subject-1");
+  EXPECT_EQ(session.username, "alice");
+  EXPECT_EQ(session.email, "alice@example.com");
+  EXPECT_STREQ(arg->GetHeader("X-NDMSPC-Email").Data(), "alice@example.com");
+}
+
+TEST(NOidcHttpAuthenticatorTest, EmailHeaderIsAbsentWhenTheTokenHasNoEmail)
+{
+  auto verifier = std::make_shared<FakeVerifier>();
+  verifier->results.push_back(Identity("subject-1", "alice"));
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetRequestHeader("Authorization: Bearer access-token\r\n");
+
+  Ndmspc::NOidcSession session;
+  ASSERT_TRUE(Ndmspc::NOidcHttpAuthenticator::ApplyToRequest(verifier, arg.get(), &session));
+  EXPECT_EQ(session.email, "");
+  EXPECT_EQ(arg->GetHeader("X-NDMSPC-Email").Length(), 0);
 }
 
 TEST(NOidcHttpAuthenticatorTest, ApplyToRequestRejectsAndWritesErrorBody)

@@ -152,6 +152,24 @@ class NWsHandler : public THttpWSHandler {
    * @param wsId WebSocket client id.
    */
   void RemoveClientAndAnnounce(ULong_t wsId);
+  /**
+   * @brief Admit an upgrading connection against the room's access tokens.
+   *
+   * A room that was given tokens serves nothing without one, and a websocket does not go through
+   * the HTTP gate - so the upgrade has to carry the token in its URL (what a page link passes on)
+   * or in the room's cookie. The level the token grants is remembered for the connection, which is
+   * how a read-only one is kept to GETs over the API bridge.
+   *
+   * @param arg The upgrade request.
+   * @return True when the connection may be established.
+   */
+  bool ApplyRoomAccessToUpgrade(THttpCallArg * arg);
+  /**
+   * @brief The room-access level a connection was admitted with.
+   * @param wsId WebSocket client id.
+   * @return "rw", "ro", or "" when this connection needed no token.
+   */
+  std::string AccessLevelOf(ULong_t wsId) const;
   /// @brief Drop clients whose token expired and pending clients past the auth timeout.
   void ExpireConnections();
   /// @brief Build the "clients" broadcast payload.
@@ -161,6 +179,7 @@ class NWsHandler : public THttpWSHandler {
 
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
   std::map<ULong_t, NWsPendingClient> fPendingClients; ///<! Runtime pending authentication state
+  std::map<ULong_t, std::string>   fAccessLevels; ///<! Room-access level per admitted connection
   mutable std::mutex               fMutex;      ///<! Mutex for thread-safe client map access
   std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Runtime token verifier
   std::chrono::seconds fAuthenticationTimeout; ///<! Runtime authentication timeout

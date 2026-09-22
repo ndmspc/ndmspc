@@ -95,6 +95,21 @@ router again. Creating a room is slow (a revision has to become ready), so `room
 once with `state=preparing` and leave the work to a background thread that reports its progress on
 the room's registry entry; a server without the flag never touches any of this.
 
+Each room is also given access tokens (`access`: a read-write and a read-only one, reported by the
+actions, kept on the room's own Service as the annotation `ndmspc.io/room-access`, and handed to the
+room as `NDMSPC_ROOM_ACCESS`). What refuses a stranger is the **room's own process** — its page, its
+`/api` and its websocket — with a read-only token held to GETs, while the router's calls into a room
+present the read-write one and `NHttpServer` can be told to enforce nothing at all.
+
+And each room belongs to whoever creates it: the router records the caller's identity — the email or
+user name of a token it verified, the certificate a mutual-TLS front door verified, or, when nothing
+verified the request, the `owner` it asserts — in the `ndmspc.io/room-owner` annotation beside those
+tokens, and reports it as `owner`. An identified caller is shown their own rooms and refused the rest
+with `not_owner`; an admin (`NDMSPC_ROOM_ADMINS`) is shown every room; a caller that identifies
+itself to nobody — a script — is answered as it always was. The identity reaches an action as the
+`_identity` key of its input JSON, set by `NHttpServer` (and passed through the MCP transport), since
+a handler is only handed its method and its input.
+
 Unlike the macro handlers (which are user content and stay macros), this is a compiled framework
 capability, like the MCP part: every rule and the whole room lifecycle are code, exercised by
 `test/test_NRoomRouter.cxx`. The state it keeps — the rooms it tracks, the configuration and the

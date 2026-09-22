@@ -21,6 +21,7 @@
 #include "ndmspc/http/NHttpRequest.h"
 #include "ndmspc/http/NMcpServer.h"
 #include "ndmspc/http/NOidcHttpAuthenticator.h"
+#include "ndmspc/http/NRoomAccess.h"
 #include "ndmspc/http/NRoomSession.h"
 #include "ndmspc/ndmspc.h"
 #include "NHttpServer.h"
@@ -72,6 +73,106 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcCo
   if (!fRoomId.empty() && !fRoomStateUrl.empty()) {
     NLogInfo("Room '%s' reports its session to %s", fRoomId.c_str(), fRoomStateUrl.c_str());
   }
+
+  // The tokens the router minted for this room: what lets it refuse a stranger. A room served
+  // without them (an older image, or one created before access existed) enforces nothing.
+  if (const char * access = std::getenv(NRoomAccess::kEnv); access != nullptr && *access != '\0') {
+    fRoomAccess = NRoomAccess::Parse(access);
+    if (!fRoomAccess.empty()) {
+      NLogInfo("Room '%s' requires an access token (a read-write and a read-only one were minted)",
+               fRoomId.c_str());
+    }
+  }
+}
+
+json NHttpServer::RoomAccessTokens() const
+{
+  std::lock_guard<std::mutex> lock(fRoomMutex);
+  return fRoomAccess;
+}
+
+bool NHttpServer::RoomAccessRequired() const
+{
+  std::lock_guard<std::mutex> lock(fRoomMutex);
+  // An object with tokens in it, or nothing: anything else (a server that was never a room, a
+  // stray value) must not switch enforcement on.
+  return fRoomAccess.is_object() && !fRoomAccess.empty();
+}
+
+std::string NHttpServer::RoomAccessLevel(const std::string & token) const
+{
+  std::lock_guard<std::mutex> lock(fRoomMutex);
+  return NRoomAccess::LevelOf(fRoomAccess, token);
+}
+
+std::string NHttpServer::RequestAccessToken(THttpCallArg * arg) const
+{
+  if (arg == nullptr) return {};
+
+  // The link carries the token; a script may send it as a header; a browser is given a cookie by
+  // the page it loaded, because a page's own scripts cannot add a header to their API calls.
+  const char * query = arg->GetQuery();
+  std::string  token = NRoomAccess::TokenFromQuery(query != nullptr ? query : "");
+  if (!token.empty()) return token;
+
+  token = arg->GetRequestHeader(NRoomAccess::kHeader).Data();
+  if (!token.empty()) return token;
+
+  return NRoomAccess::TokenFromCookie(arg->GetRequestHeader("Cookie").Data());
+}
+
+bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage)
+{
+  if (arg == nullptr || !RoomAccessRequired()) return true;
+
+  // A request bridged from a WebSocket carries no token of its own: that connection was admitted
+  // with one at its upgrade, and the read-only rule is applied there (see NWsHandler).
+  if (arg->GetWSId() != 0) return true;
+
+  const std::string token = RequestAccessToken(arg);
+  const std::string level = RoomAccessLevel(token);
+
+  if (level.empty()) {
+    NLogWarning("Refusing a %s request to %s of room '%s': %s", method.c_str(), isPage ? "the page" : "/api",
+                fRoomId.c_str(), token.empty() ? "no access token" : "an unknown access token");
+    if (isPage) {
+      // ROOT's civetweb cannot send a body with an error status, so _404_ is the only refusal it
+      // offers - which also avoids telling a stranger that this room exists at all.
+      arg->Set404();
+    }
+    else {
+      // The same shape the OIDC gate uses: HTTP 200, with the reason in the JSON envelope.
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"},
+                           {"error", token.empty() ? "this room requires an access token"
+                                                   : "this room does not accept that access token"},
+                           {"code", token.empty() ? "access_denied" : "invalid_access_token"}}
+                          .dump());
+      arg->AddNoCacheHeader();
+    }
+    return false;
+  }
+
+  if (level == NRoomAccess::kReadOnly && method.find("GET") == std::string::npos) {
+    NLogWarning("Refusing a %s request to /api of room '%s': that token is read-only", method.c_str(),
+                fRoomId.c_str());
+    arg->SetContentType("application/json");
+    arg->SetContent(json{{"result", "failure"},
+                         {"error", "this room's access token is read-only"},
+                         {"code", "read_only"}}
+                        .dump());
+    arg->AddNoCacheHeader();
+    return false;
+  }
+
+  // A browser that arrived on a link hands the token on as a cookie, so the page's own scripts keep
+  // working for the rest of the session.
+  if (isPage) {
+    const std::string cookie =
+        std::string(NRoomAccess::kCookie) + "=" + token + "; Path=/; HttpOnly; SameSite=Lax";
+    arg->AddHeader("Set-Cookie", cookie.c_str());
+  }
+  return true;
 }
 
 bool NHttpServer::StartEngine(const char * engine)
@@ -463,8 +564,22 @@ void NHttpServer::RoomSessionRestoreOnce()
 
 void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {
+  Dispatch(std::move(arg), nullptr);
+}
+
+void NHttpServer::ProcessRequestAs(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity & identity)
+{
+  Dispatch(std::move(arg), &identity);
+}
+
+void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity * statedIdentity)
+{
 
   // NLogInfo("NHttpServer::ProcessRequest");
+
+  NRequestIdentity identity;                    ///< Who this request runs as, once it is known
+  const bool        identityStated = statedIdentity != nullptr;
+  if (identityStated) identity = *statedIdentity;
 
   TString method   = arg->GetMethod();
   TString path     = arg->GetPathName();
@@ -491,6 +606,14 @@ void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   // if fullpath does not start with "/api" or "api", process it with base class handler
 
   if (!(fullpath.BeginsWith("/api/"))) {
+    // A room is entered through its page, so the page needs the access token too - otherwise a
+    // stale link would still open a session. Its own assets are left alone (they are inert, and a
+    // reload re-fetches them with the cookie the page handed the browser), and so is the
+    // websocket, whose upgrade carries its own check.
+    const std::string page    = fullpath.Data();
+    const bool        isAsset = page.rfind("/assets/", 0) == 0 || page.rfind("/ws", 0) == 0;
+    if (!isAsset && !ApplyRoomAccess(arg.get(), method.Data(), /*isPage=*/true)) return;
+
     NLogTrace("Using base http server for path: %s", fullpath.Data());
     THttpServer::ProcessRequest(arg);
     return;
@@ -509,11 +632,28 @@ void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
   const bool isWsBridged = arg->GetWSId() != 0;
   if (fOidcVerifier && !isWsBridged && !fullpath.IsNull() && fullpath != "openapi/inspector" &&
       fullpath != "inspector/openapi") {
-    if (!NOidcHttpAuthenticator::ApplyToRequest(fOidcVerifier, arg.get())) {
+    NOidcSession session;
+    if (!NOidcHttpAuthenticator::ApplyToRequest(fOidcVerifier, arg.get(), &session)) {
       NLogDebug("OIDC authentication failed for %s request to /api/%s", method.Data(), fullpath.Data());
       return;
     }
+    if (!identityStated) identity = NRequestIdentity::FromSession(session);
   }
+
+  // Where nothing verified the caller itself, two weaker sources remain: an authenticating front
+  // door that verified them and forwarded what it found, and a user name something authenticated
+  // earlier (a bridged WebSocket connection). A request that offers neither carries no identity, and
+  // an action that needs one falls back to what the client asserts.
+  if (!identityStated && identity.Empty()) {
+    if (fTrustForwardedIdentity) identity = NRequestIdentity::FromForwardedHeaders(arg.get());
+    if (identity.Empty() && arg->GetUserName() != nullptr) {
+      identity = NRequestIdentity::FromUsername(arg->GetUserName());
+    }
+  }
+
+  // The room's own gate, on every /api request including the bridged, MCP and replay ones - which
+  // already carry their identity, so it passes them through.
+  if (!ApplyRoomAccess(arg.get(), method.Data(), /*isPage=*/false)) return;
 
   json out;
   json wsOut;
@@ -578,6 +718,9 @@ void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         return;
       }
       Ndmspc::NMcpServer mcp(this);
+      // A tool call is dispatched as a request of its own (see NMcpServer::CallTool), so it runs as
+      // the caller that reached this endpoint - which is what lets a per-user action work over MCP.
+      mcp.SetCallerIdentity(identity);
       json              response = rawContent.empty() ? mcp.Handle(json(nullptr)) : mcp.HandleText(rawContent);
 
       arg->AddHeader("Access-Control-Allow-Origin", GetCors());
@@ -617,6 +760,13 @@ void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
         NLogTrace("Passing query to HTTP handler: %s", query.c_str());
       }
     }
+
+    // The caller's identity travels with the request, in the same place its query does: a handler is
+    // only ever handed its method and its input, and an action that is per-user (the room router) has
+    // to know who is asking. Assigned here, after the body was parsed and from what the server itself
+    // established, so a client cannot write its own.
+    if (!identity.Empty() && in.is_null()) in = json::object();
+    if (in.is_object()) in["_identity"] = identity.ToJson();
 
     NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
 

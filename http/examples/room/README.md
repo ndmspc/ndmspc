@@ -24,6 +24,18 @@ the handler envelope (`{"result":"success","payload":{…}}` /
 `Missing room id (send it in the body as {"room": "<id>"})` message and the
 `ndmspc-room-<slug>` resource naming all come from there.
 
+A room's access tokens (`access`: a read-write and a read-only one, with `room_open`'s `url`
+carrying the read-write one) come from there too, with one deliberate difference: the router mints
+them with a CSPRNG, while the mock derives them from the room id so a demo run is reproducible.
+Nothing enforces them here — a room is what refuses traffic without its token, and the mock stands
+in for the router, not for a room.
+
+Its owner comes from there as well: a room belongs to whoever created it, a caller that says who it
+is (`owner`, or `--owner` on the client) is shown only its own rooms and refused the rest with
+`code=not_owner`, and a caller listed in `ADMINS` sees every room — while one that says nothing about
+itself, which is what a script does, still sees every room. The mock authenticates nothing, so it
+only ever sees an asserted owner; the router believes a verified identity over one.
+
 ## Files
 
 | File | Purpose |
@@ -49,11 +61,14 @@ python3 --version    # the mock and run-demo.sh need python3
 ```
 
 It starts the mock, then asserts: `--list` sees the seeded room; `--open` returns the
-room and its `?room=<id>` URL; `--status` reports it tracked and ready; the new room
-appears in `--list`; `--close` removes it and it disappears from `--list`; `--backup`
-writes a file holding the rooms and their sessions; `--restore` brings a closed room back
-**with its session**; and a router that fails is reported with a non-zero exit code. It
-prints `RESULT: PASS` at the end.
+room and the `?room=<id>&token=<rw>` link a client hands on, with the room's two access
+tokens; `--status` reports it tracked and ready, and reports the tokens that open it; the new
+room appears in `--list` carrying its tokens; `--close` removes it and it disappears from
+`--list`; `--backup` writes a file holding the rooms and their sessions; `--restore` brings a
+closed room back **with its session**; a router that fails is reported with a non-zero exit
+code; and, on a router that knows an admin, a room belongs to whoever opened it, a caller is
+shown only their own rooms, an admin sees every room, and someone else's room is refused when it
+is closed. It prints `RESULT: PASS` at the end.
 
 ## Running the parts separately
 

@@ -202,6 +202,9 @@ NRoomResult NRoomClient::Call(const std::string & tool, const std::string & meth
   for (auto item = extra.begin(); item != extra.end(); ++item) {
     arguments[item.key()] = item.value();
   }
+  // Who we are, when the caller of this client said: the router reads it as an asserted owner (an
+  // explicit one in `extra` wins, and the server's own verified identity wins over both).
+  if (!fOwner.empty() && !arguments.contains("owner")) arguments["owner"] = fOwner;
 
   json message;
   message["jsonrpc"]             = "2.0";
@@ -290,6 +293,14 @@ NRoomListResult NRoomClient::List()
       room.error     = NUtils::GetJsonString(Member(entry, "error"));
       room.code      = NUtils::GetJsonString(Member(entry, "code"));
       room.startedAt = NUtils::GetJsonInt(Member(entry, "startedAt"));
+      // The tokens that open the room. Empty for a room created before access existed, which is
+      // also how a client tells that a room enforces nothing.
+      const json access = Member(entry, "access");
+      room.tokenRw      = NUtils::GetJsonString(Member(access, NRoomAccess::kReadWrite));
+      room.tokenRo      = NUtils::GetJsonString(Member(access, NRoomAccess::kReadOnly));
+      // Who the room belongs to: empty for a room created before ownership existed, or by a caller
+      // that identified itself to nobody.
+      room.owner = NUtils::GetJsonString(Member(entry, "owner"));
       list.rooms.push_back(std::move(room));
     }
   }
@@ -297,6 +308,11 @@ NRoomListResult NRoomClient::List()
 
   list.ok = true;
   return list;
+}
+
+std::string NRoomInfo::TokenFor(const std::string & level) const
+{
+  return level == NRoomAccess::kReadOnly ? tokenRo : tokenRw;
 }
 
 NRoomResult NRoomClient::Open(const std::string & roomId, bool wait)

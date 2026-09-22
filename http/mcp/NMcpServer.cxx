@@ -225,7 +225,9 @@ json NMcpServer::CallTool(const std::string & toolName, const json & arguments) 
   arg->SetFileName(handlerKey.c_str());
   if (!in.empty()) arg->SetPostData(in.dump());
 
-  fServer->ProcessRequest(arg);
+  // Run as the caller that reached this endpoint: the synthetic request below is built from the
+  // tool's arguments alone, so nothing else would say who asked (see SetCallerIdentity).
+  fServer->ProcessRequestAs(arg, fCallerIdentity);
 
   std::string text;
   if (arg->GetContent() != nullptr && arg->GetContentLength() > 0) {

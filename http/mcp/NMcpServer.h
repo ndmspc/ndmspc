@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ndmspc/core/NLogger.h" ///< provides the global `json` (nlohmann) alias
+#include "ndmspc/http/NRequestIdentity.h"
 
 namespace Ndmspc {
 
@@ -16,11 +17,11 @@ struct NMcpToolInfo; ///< defined in NHttpServer.h (handler + MCP registration A
 /// \brief Exposes the registered NGnTree HTTP handlers as Model Context Protocol
 ///        (MCP) tools.
 ///
-/// The server is stateless: it translates JSON-RPC 2.0 requests into calls against
-/// an in-process NHttpServer. Each `tools/call` is routed through
-/// NHttpServer::ProcessRequest (the same path used by the HTTP API and the
-/// WebSocket bridge), so history, the workspace merge, the WebSocket broadcast and
-/// the authentication gate all behave exactly as they do for UI clients.
+/// The server is stateless apart from the caller a tool call runs as: it translates JSON-RPC 2.0
+/// requests into calls against an in-process NHttpServer. Each `tools/call` is routed through
+/// NHttpServer::ProcessRequestAs (the same path used by the HTTP API and the WebSocket bridge, which
+/// derives the caller from the request itself), so history, the workspace merge, the WebSocket
+/// broadcast and the authentication gate all behave exactly as they do for UI clients.
 ///
 /// Supported JSON-RPC methods: `initialize`, `notifications/initialized`,
 /// `tools/list`, `tools/call`, `ping`.
@@ -69,6 +70,18 @@ class NMcpServer {
   /// @brief Resolve a tool name back to its registered handler key ("" when unknown).
   std::string FindHandlerKey(const std::string & toolName) const;
 
+  /**
+   * @brief The caller every tool call of this instance runs as.
+   *
+   * A tool call is dispatched as a request of its own, built from the tool's arguments alone, so it
+   * carries none of the headers that would say who asked. The transport that owns this instance
+   * states the caller instead: the HTTP endpoint sets it from the request it is answering, and the
+   * stdio transport - which has no caller - leaves it empty.
+   *
+   * @param identity The caller (empty for an anonymous one).
+   */
+  void SetCallerIdentity(const NRequestIdentity & identity) { fCallerIdentity = identity; }
+
   private:
   /**
    * @brief Whether a handler action is excluded from the tool list.
@@ -91,6 +104,7 @@ class NMcpServer {
 
   NHttpServer * fServer{nullptr}; ///< Server whose handlers are exposed
   Options         fOpts;            ///< MCP server options
+  NRequestIdentity fCallerIdentity; ///< Caller tool calls run as (empty = anonymous)
 };
 
 } // namespace Ndmspc
