@@ -305,6 +305,9 @@ NRoomListResult NRoomClient::List()
     }
   }
   if (payload.contains("ttl") && payload["ttl"].is_number()) list.ttl = payload["ttl"].get<int>();
+  // Whether the router answered as an admin: the view says so rather than keeping its own copy of
+  // the admin list, which could differ from the router's.
+  list.admin = NUtils::GetJsonBool(Member(payload, "admin"));
 
   list.ok = true;
   return list;

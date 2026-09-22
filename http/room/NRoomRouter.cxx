@@ -354,13 +354,59 @@ std::string NRoomRouter::RequestOwner(json & in)
   return {};
 }
 
+// The email a client asserts alongside its owner, when it sent one.
+std::string NRoomRouter::RequestOwnerEmail(json & in)
+{
+  const json email = NdmspcRoomMember(in, "owner_email");
+  if (email.is_string() && !email.get<std::string>().empty()) return email.get<std::string>();
+  const json query = NdmspcRoomMember(in, "_query");
+  if (query.is_string()) {
+    const auto params = NRoomRouter::ParseQuery(query.get<std::string>());
+    const auto it     = params.find("owner_email");
+    if (it != params.end() && !it->second.empty()) return it->second;
+  }
+  return {};
+}
+
 // The caller of a request: what the server verified wins, and the client's own word is the fallback.
 NRequestIdentity NRoomRouter::RequestIdentity(json & in)
 {
   const NRequestIdentity identity = NRequestIdentity::FromJson(NdmspcRoomMember(in, "_identity"));
   if (identity.verified) return identity;
-  const std::string asserted = NRoomRouter::RequestOwner(in);
-  return asserted.empty() ? identity : NRequestIdentity::FromAssertion(asserted);
+  // A client may say more than one thing about itself: a user name names what it creates, and the
+  // email it adds lets an admin list written in emails recognise it.
+  return NRequestIdentity::FromAssertion(NRoomRouter::RequestOwner(in), NRoomRouter::RequestOwnerEmail(in));
+}
+
+// The id a room gets when its creator is known: their name in front of it, so that two people can
+// both have a room called "mine" without one of them taking the other's. The name is the owner's
+// (their user name, as NRequestIdentity::Owner documents it), which keeps the id - a URL, a label
+// and a resource name at once - short and free of an '@'.
+std::string NRoomRouter::Qualify(const NRequestIdentity & identity, const std::string & id)
+{
+  const std::string owner = identity.Owner();
+  if (owner.empty()) return id;
+  return owner + "-" + id;
+}
+
+// The room a request names: an id that already names one is that room, and a new id is the caller's.
+NRoomRouter::NRoomRef NRoomRouter::Resolve(const std::string & id, const NRequestIdentity & identity) const
+{
+  const std::string plain = NRoomRouter::RoomName(fConfig, id);
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(plain);
+    if (it != fRooms.end()) return {plain, it->second.value.empty() ? id : it->second.value};
+  }
+  const std::string qualified = NRoomRouter::Qualify(identity, id);
+  return {NRoomRouter::RoomName(fConfig, qualified), qualified};
+}
+
+// What to tell a caller who asked for a room that is not theirs to use.
+std::string NRoomRouter::NotOwnerMessage(const std::string & id, const std::string & owner)
+{
+  if (owner.empty()) return "Room '" + id + "' has no owner, so it is not yours to use";
+  return "Room '" + id + "' belongs to " + owner;
 }
 
 
@@ -577,8 +623,13 @@ json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & nam
   service["kind"]                            = "Service";
   service["metadata"]["name"]                = name;
   service["metadata"]["namespace"]           = cfg.ns;
-  service["metadata"]["labels"][kNRoomLabel] = value;
+  service["metadata"]["labels"][kNRoomLabel] = NRoomRouter::Slug(value, 63);
   service["spec"]                            = skeleton.value("serviceSpec", json::object());
+
+  // The label marks the object as a room and can hold only a slug of the id; the id itself - which
+  // an email address qualifies, and a label value may not contain - travels in an annotation, so the
+  // router can read the room back after a restart knowing exactly which id it was.
+  service["metadata"]["annotations"][kRoomIdAnnotation] = value;
 
   // Keep the room's access tokens on the Service itself: a room scales to zero and the router can
   // restart, and both have to come back knowing which links still open this room. Annotating the
@@ -626,7 +677,7 @@ json NRoomRouter::RouteObject(const NRoomConfig & cfg, const std::string & name,
   route["kind"]                            = "HTTPRoute";
   route["metadata"]["name"]                = name;
   route["metadata"]["namespace"]           = cfg.ns;
-  route["metadata"]["labels"][kNRoomLabel] = value;
+  route["metadata"]["labels"][kNRoomLabel] = NRoomRouter::Slug(value, 63);
 
   route["spec"]["parentRefs"] = json::array({skeleton.value("routeParentRef", json::object())});
   if (skeleton.contains("routeHostname") && skeleton["routeHostname"].is_string()) {
@@ -848,7 +899,14 @@ void NRoomRouter::Adopt()
         NRoomState & state = fRooms[name];
         state.name              = name;
         if (state.value.empty()) {
-          state.value = metadata.value("labels", json::object()).value(kNRoomLabel, "");
+          // The id is in the annotation; the label carries only its slug, because a label value
+          // cannot hold the '@' of the email an id may be qualified with. A room created before that
+          // annotation existed has the id in the label itself, which is what this falls back to.
+          const json annotations = metadata.value("annotations", json::object());
+          state.value            = annotations.value(kRoomIdAnnotation, "");
+          if (state.value.empty()) {
+            state.value = metadata.value("labels", json::object()).value(kNRoomLabel, "");
+          }
         }
         if (state.revision.empty()) {
           state.revision = item.value("status", json::object()).value("latestReadyRevisionName", "");
@@ -1765,28 +1823,30 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
     return;
   }
 
-  // A room belongs to whoever creates it, and room/open is also how a client obtains a room's link,
-  // so this is where both halves of that rule are applied: a room the router does not know yet is
-  // claimed by the caller, and a room that already belongs to someone else is refused to an
-  // identified caller who is not an admin. A room that predates ownership stays unowned: nobody
-  // identified themselves when it was created, so there is nobody to give it to.
+  // A room belongs to whoever creates it, and room/open is the call that creates one - so this is
+  // where both halves of that rule are applied. The id names the room: one that already exists is
+  // that room (and is refused to a caller it does not belong to, since this call answers with the
+  // room's own link), while an id that names nothing yet becomes the caller's own - which is what
+  // lets two people both have a room called "mine", one named after each of them.
   const NRequestIdentity identity = RequestIdentity(in);
-  const std::string     name      = NRoomRouter::RoomName(fConfig, id);
+  const NRoomRef         ref     = Resolve(id, identity);
+  bool                   created = false;
   {
     std::lock_guard<std::mutex> lock(fMutex);
-    const auto                  it = fRooms.find(name);
+    const auto                  it = fRooms.find(ref.name);
     if (it == fRooms.end()) {
+      created = true;
       if (!identity.Empty()) {
-        NRoomState & state = fRooms[name];
-        state.name         = name;
-        state.value        = id;
+        NRoomState & state = fRooms[ref.name];
+        state.name         = ref.name;
+        state.value        = ref.value;
         state.owner        = identity.Owner();
       }
     }
     else if (!MaySee(it->second, identity)) {
       out["result"] = "failure";
       out["code"]   = kNotOwner;
-      out["error"]  = "Room '" + id + "' belongs to " + it->second.owner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
       return;
     }
   }
@@ -1802,7 +1862,7 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   std::string code;
   bool        started = false;
   try {
-    started = EnsureStart(id, wait, Replay::Stored, payload, error, code);
+    started = EnsureStart(ref.value, wait, Replay::Stored, payload, error, code);
   }
   catch (const std::exception & e) {
     // A failure here must not take the router down with it: report it like any other.
@@ -1811,18 +1871,24 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
     started = false;
   }
   if (!started) {
-    NLogError("[room] open failed for '%s': %s", id.c_str(), error.c_str());
+    NLogError("[room] open failed for '%s': %s", ref.value.c_str(), error.c_str());
     out["result"] = "failure";
     out["error"]  = error;
     if (!code.empty()) out["code"] = code;
     return;
   }
   if (payload.value("state", std::string()) == "preparing") {
-    NLogInfo("[room] room '%s' is being prepared (%s)", id.c_str(), payload.value("phase", "").c_str());
+    NLogInfo("[room] room '%s' is being prepared (%s)", ref.value.c_str(), payload.value("phase", "").c_str());
   }
   else {
-    NLogInfo("[room] room '%s' ready (%s)", id.c_str(), payload.value("revision", "").c_str());
+    NLogInfo("[room] room '%s' %s (%s)", ref.value.c_str(), created ? "created" : "already there",
+             payload.value("revision", "").c_str());
   }
+
+  // Whether this call made the room or found it: the answer is the same either way - room/open is
+  // ensure, which is what every client relies on - but a client that just pressed "create" may want
+  // to say which of the two happened.
+  payload["created"] = created;
 
   out["result"]  = "success";
   out["payload"] = payload;
@@ -1846,26 +1912,26 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
     return;
   }
 
-  const std::string name = NRoomRouter::RoomName(fConfig, id);
-  Touch(name);
+  const NRequestIdentity identity = RequestIdentity(in);
+  const NRoomRef         ref      = Resolve(id, identity);
+  Touch(ref.name);
 
   // Somebody else's room is not this caller's to look at: its answer carries the room's links and
   // the session it is in.
-  const NRequestIdentity identity = RequestIdentity(in);
   {
     std::lock_guard<std::mutex> lock(fMutex);
-    const auto                  it = fRooms.find(name);
+    const auto                  it = fRooms.find(ref.name);
     if (it != fRooms.end() && !MaySee(it->second, identity)) {
       out["result"] = "failure";
       out["code"]   = kNotOwner;
-      out["error"]  = "Room '" + id + "' belongs to " + it->second.owner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
       return;
     }
   }
 
   out["result"]       = "success";
-  out["payload"]["room"]     = id;
-  out["payload"]["name"]     = name;
+  out["payload"]["room"]     = ref.value;
+  out["payload"]["name"]     = ref.name;
   out["payload"]["param"]    = fConfig.param;
 
   // What its creation is doing, if anything: a room is registered as soon as its creation
@@ -1873,7 +1939,7 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
   std::string state;
   {
     std::lock_guard<std::mutex> lock(fMutex);
-    const auto                  it = fRooms.find(name);
+    const auto                  it = fRooms.find(ref.name);
     out["payload"]["tracked"]      = (it != fRooms.end());
     if (it != fRooms.end()) {
       out["payload"]["revision"]    = it->second.revision;
@@ -1904,7 +1970,7 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
 
   // Report the live cluster view too - for a room that is still being prepared, it is simply
   // not there yet.
-  const auto response = Request("GET", SvcPath(name));
+  const auto response = Request("GET", SvcPath(ref.name));
   out["payload"]["exists"] = (response.status == 200);
   if (response.status == 200) {
     try {
@@ -2044,6 +2110,10 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   out["result"]           = "success";
   out["payload"]["rooms"] = rooms;
   out["payload"]["ttl"]   = fConfig.idleTtlSec;
+  // Whether this caller was treated as an admin. A view can then say why the list is wider than the
+  // caller's own rooms - or that it is not - without keeping a second copy of the admin list that
+  // could drift from this one.
+  out["payload"]["admin"] = IsAdmin(identity);
 }
 
 // ===========================================================================
@@ -2066,22 +2136,22 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
 
   // Deleting someone else's room is not this caller's to do.
   const NRequestIdentity identity = RequestIdentity(in);
-  const std::string     name      = NRoomRouter::RoomName(fConfig, id);
+  const NRoomRef         ref      = Resolve(id, identity);
   {
     std::lock_guard<std::mutex> lock(fMutex);
-    const auto                  it = fRooms.find(name);
+    const auto                  it = fRooms.find(ref.name);
     if (it != fRooms.end() && !MaySee(it->second, identity)) {
       out["result"] = "failure";
       out["code"]   = kNotOwner;
-      out["error"]  = "Room '" + id + "' belongs to " + it->second.owner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
       return;
     }
   }
 
-  CloseRoom(id); // a room that is being created is cancelled on the way out
+  CloseRoom(ref.value); // a room that is being created is cancelled on the way out
   out["result"]  = "success";
-  out["payload"]["room"] = id;
-  out["payload"]["name"] = name;
+  out["payload"]["room"] = ref.value;
+  out["payload"]["name"] = ref.name;
 }
 
 // ===========================================================================
@@ -2263,7 +2333,7 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
         refusal["room"]  = id;
         refusal["name"]  = name;
         refusal["code"]  = kNotOwner;
-        refusal["error"] = "Room '" + id + "' belongs to " + it->second.owner;
+        refusal["error"] = NRoomRouter::NotOwnerMessage(id, it->second.owner);
         failed.push_back(std::move(refusal));
         continue;
       }

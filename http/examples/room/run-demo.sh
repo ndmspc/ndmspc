@@ -311,34 +311,49 @@ owner_pid=$!
 if ! wait_for_mock "$OWNER_LOG" "$owner_pid"; then
   problem "the ownership mock did not start"
 else
-  # A room belongs to whoever creates it, and comes back saying so.
+  # A room belongs to whoever creates it - and is named after them, so the same id is a different
+  # room for somebody else.
   alice_open="$(run_owner --owner alice@example.com --open alice-room)"; rc=$?
   echo "$alice_open"
   if [ "$rc" -ne 0 ]; then
     problem "--open as alice exited $rc"
   else
-    assert_json "$alice_open" "the room belongs to whoever opened it" "d['owner'] == 'alice@example.com'"
+    assert_json "$alice_open" "a room is named after whoever opened it" \
+      "d['room'] == 'alice@example.com-alice-room' and d['owner'] == 'alice@example.com'"
+    assert_json "$alice_open" "and room/open says that it created it" "d['created'] is True"
   fi
-  run_owner --owner bob@example.com --open bob-room >/dev/null 2>&1
 
-  # Alice is shown her own room and nothing else: not bob's, and not the room nobody owns.
+  # room/open is ensure, so the same call again is not an error - it says it found the room.
+  alice_again="$(run_owner --owner alice@example.com --open alice-room)"
+  assert_json "$alice_again" "opening it again says it was already there" \
+    "d['room'] == 'alice@example.com-alice-room' and d['created'] is False"
+
+  # The same id is bob's own room, not alice's.
+  bob_mine="$(run_owner --owner bob@example.com --open mine)"
+  echo "$bob_mine"
+  assert_json "$bob_mine" "the same id is somebody else's own room" \
+    "d['room'] == 'bob@example.com-mine' and d['created'] is True"
+
+  # Alice is shown her own rooms and nothing else: not bob's, and not the room nobody owns.
   alice_list="$(run_owner --owner alice@example.com --list)"
   echo "$alice_list"
   assert_json "$alice_list" "a caller is shown only their own rooms" \
-    "[r['room'] for r in d['rooms']] == ['alice-room']"
+    "sorted(r['room'] for r in d['rooms']) == ['alice@example.com-alice-room']"
 
   # The admin sees all three, with whose each one is.
   admin_list="$(run_owner --owner admin@example.com --list)"
   assert_json "$admin_list" "an admin sees every room" \
-    "sorted(r['room'] for r in d['rooms']) == ['alice-room', 'bob-room', 'shared']"
+    "sorted(r['room'] for r in d['rooms']) == ['alice@example.com-alice-room', 'bob@example.com-mine', 'shared']"
   assert_json "$admin_list" "and every room says whose it is" \
-    "[r['owner'] for r in d['rooms'] if r['room'] == 'bob-room'] == ['bob@example.com']"
+    "[r['owner'] for r in d['rooms'] if r['room'] == 'bob@example.com-mine'] == ['bob@example.com']"
+  assert_json "$admin_list" "and the list says it was answered as an admin" "d['admin'] is True"
+  assert_json "$alice_list" "while a caller's own list says it was not" "d['admin'] is False"
 
   # Someone else's room is refused rather than quietly handed over.
-  bob_close="$(run_owner --owner alice@example.com --close bob-room 2>&1)"; rc=$?
+  bob_close="$(run_owner --owner bob@example.com --close alice@example.com-alice-room 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ]; then
     problem "closing someone else's room succeeded"
-  elif ! grep -q "belongs to bob@example.com" <<<"$bob_close"; then
+  elif ! grep -q "belongs to alice@example.com" <<<"$bob_close"; then
     problem "the refusal did not say whose room it is"
     echo "     got: $bob_close"
   else

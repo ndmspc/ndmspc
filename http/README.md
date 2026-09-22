@@ -734,17 +734,35 @@ Who is shown what follows from it:
 | Identified, not an admin | their own rooms | only their own - otherwise `not_owner` | only their own; a document entry belonging to someone else fails with `not_owner` |
 | Nobody identified | every room | any room | every room |
 
+A new room is named after whoever asks for it: `mine` becomes `alice@example.com-mine` (see below).
+`room/list` also says whether the caller was answered as an admin (`admin`), so a view can show why it
+is being given more than its own rooms without keeping a second copy of the list.
+
 A caller counts as identified when the server verified it, or when it asserted an owner. A verified
 identity wins: a request cannot claim to be someone else while carrying a token that says otherwise.
-A caller that says nothing about itself - a script, or `ndmspc-room-tui` run with no credentials - is
-answered exactly as it was before, which is what keeps operator tooling working. A room with no owner
-belongs to nobody, so it is shown to nobody but an admin or an anonymous caller.
+A client that knows both names for itself should send both - `owner` (what names its rooms) and
+`owner_email` - because an admin list may be written in either, and one name alone matches only that
+one. A caller that says nothing about itself - a script, or `ndmspc-room-tui` run with no credentials
+- is answered exactly as it was before, which is what keeps operator tooling working. A room with no
+owner belongs to nobody, so it is shown to nobody but an admin or an anonymous caller.
+
+The owner is part of the room's **id**, not only of its metadata: an identified caller's `mine` is
+stored as `alice-mine` (the owner is the name it is called by - its user name, or its email when that
+is all a token carries), and that is the id in its link, its Service, its session and every
+payload - which is what lets two people both own a room called "mine" without one of them taking the
+other's. An id that already names a room is always that room (a link that was handed on has to keep
+working whoever follows it, and a room created before ownership existed keeps its own id); only an id
+that names nothing yet becomes the caller's own. So `room/open` answers with the id it used, and says
+whether it created the room (`created`) or found it already there - it is *ensure*, and an existing
+room is never an error. `room/restore` is the one exception: a document names its rooms, and they come
+back under the names they were exported with.
 
 Refusals use the shape room actions always use - `result: "failure"` with a stable `code` - and the
-code here is `not_owner`, for a room that belongs to someone else. `room/open` refuses it too, because
-that call answers with the room's own link: without the refusal, knowing a room id would be enough to
-walk into the room. `room/backup` exports the rooms its caller may see and `room/restore` refuses a
-document entry that belongs to someone else, so neither can be used to reach around `room/list`.
+code here is `not_owner`, for a room that belongs to someone else (or to nobody). `room/open` refuses
+it too, because that call answers with the room's own link: without the refusal, knowing a room id
+would be enough to walk into the room. `room/backup` exports the rooms its caller may see and
+`room/restore` refuses a document entry that belongs to someone else, so neither can be used to reach
+around `room/list`.
 
 **The assertion is not a boundary.** With no OIDC configured - or an engine that was not told an
 authenticating front door stands in front of it - anyone who can reach the router can claim any
@@ -786,8 +804,9 @@ room tools are missing the tool says so at startup instead of showing an empty t
 By default the tool says nothing about who is using it, which the router answers as an operator's
 tool: every room, every action. `--owner <email-or-user-name>` (or `NDMSPC_ROOM_OWNER`) makes it act
 as someone instead, so the router then shows it only that owner's rooms and refuses the rest - the
-same thing the UI does with the identity of whoever is signed in to it (see
-[Ownership and admins](#ownership-and-admins)). A login (`--oidc-*`, or a client certificate) needs
+same thing the UI does with the identity of whoever is signed in to it, or with the anonymous one its
+deployment was told to claim while nobody is (`VITE_NDMSPC_ANONYMOUS_USER`); see
+[Ownership and admins](#ownership-and-admins). A login (`--oidc-*`, or a client certificate) needs
 no flag: the router believes the verified identity, and an asserted owner never overrides one.
 
 ### Keys

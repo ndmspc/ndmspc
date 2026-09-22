@@ -46,7 +46,14 @@ struct NRequestIdentity {
   /// @brief Whether nothing identifies this request at all.
   bool Empty() const { return subject.empty() && username.empty() && email.empty(); }
 
-  /// @brief What stands for this identity in one string: the email, else the user name, else the subject.
+  /**
+   * @brief What this identity is named by: the user name, else the email, else the subject.
+   *
+   * One string is all a room id, a URL, a Kubernetes label and a resource name have room for, so it
+   * is the short, stable one: what a person answers to. It is what a room created on this identity's
+   * behalf is called after, and what is recorded as its owner - which is also why the user name comes
+   * first here while matching (Identifiers) uses every form.
+   */
   std::string Owner() const;
 
   /**
@@ -70,8 +77,18 @@ struct NRequestIdentity {
   /// @brief The identity of a verified token session.
   static NRequestIdentity FromSession(const NOidcSession & session);
 
-  /// @brief An identity the client asserted (nothing was verified, so `verified` stays false).
-  static NRequestIdentity FromAssertion(const std::string & owner);
+  /**
+   * @brief An identity the client asserted (nothing was verified, so `verified` stays false).
+   *
+   * A client may know more than one name for itself - a user name and an email, say - and says so:
+   * the first names what it creates, and every one of them counts for matching, so an admin list may
+   * be written in either.
+   *
+   * @param owner The name the client answers to ("" for none).
+   * @param email Its email, when it sent one ("" otherwise).
+   * @return The asserted identity.
+   */
+  static NRequestIdentity FromAssertion(const std::string & owner, const std::string & email = std::string());
 
   /// @brief The identity implied by a user name the server already authenticated.
   static NRequestIdentity FromUsername(const std::string & username);

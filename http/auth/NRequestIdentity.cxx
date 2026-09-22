@@ -50,8 +50,8 @@ std::string NRequestIdentity::Normalize(const std::string & value)
 
 std::string NRequestIdentity::Owner() const
 {
-  if (!email.empty()) return email;
   if (!username.empty()) return username;
+  if (!email.empty()) return email;
   return subject;
 }
 
@@ -101,10 +101,11 @@ NRequestIdentity NRequestIdentity::FromSession(const NOidcSession & session)
   return identity;
 }
 
-NRequestIdentity NRequestIdentity::FromAssertion(const std::string & owner)
+NRequestIdentity NRequestIdentity::FromAssertion(const std::string & owner, const std::string & email)
 {
   NRequestIdentity identity;
   identity.username = owner;
+  identity.email    = email;
   identity.verified = false;
   return identity;
 }

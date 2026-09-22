@@ -70,6 +70,11 @@ struct NRoomListResult {
   std::string            error;     ///< Actionable failure reason when ok is false
   std::vector<NRoomInfo> rooms;     ///< Rooms the router is tracking
   int                    ttl{0};    ///< Idle TTL in seconds, after which a room is deleted
+  /**
+   * Whether the router answered this caller as an admin (see NDMSPC_ROOM_ADMINS), which is why the
+   * list may hold rooms that are not the caller's. False for a caller the router could not identify.
+   */
+  bool                   admin{false};
 };
 
 /**
