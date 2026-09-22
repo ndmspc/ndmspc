@@ -199,6 +199,32 @@ def may_see(room, owner, admins):
     return (room.get("owner") or "").lower() == owner.lower()
 
 
+def qualify(owner, room_id):
+    """The id a room gets when its creator is known: their name in front of it."""
+    return "%s-%s" % (owner, room_id) if owner else room_id
+
+
+def resolve(server, room_id, owner):
+    """The room a request names.
+
+    The router's rule (NRoomRouter::Resolve): an id that already names a room is that room, so a link
+    that was handed on keeps working whatever the caller is and a room created before any of this
+    keeps its own id; an id that names nothing is the caller's own, and is qualified with them - which
+    is what lets two people both have a room called "mine".
+    """
+    entry = server.rooms.find(room_id)
+    if entry is not None:
+        return entry["room"]
+    return qualify(owner, room_id)
+
+
+def not_owner_message(room_id, owner):
+    """The refusal's message, which says whose the room is - or that it is nobody's."""
+    if not owner:
+        return "Room '%s' has no owner, so it is not yours to use" % room_id
+    return "Room '%s' belongs to %s" % (room_id, owner)
+
+
 class Rooms:
     """The in-memory room registry the real router keeps (and rebuilds from k8s)."""
 
@@ -449,11 +475,11 @@ def call_tool(server, tool, arguments):
             result["code"] = code
         return result
 
-    def not_ours():
+    def not_ours(room_id):
         """The refusal for a room that belongs to someone else, or None when it is ours to use."""
         entry = server.rooms.find(room_id)
         if entry is not None and not may_see(entry, owner, admins):
-            return failure("Room '%s' belongs to %s" % (room_id, entry.get("owner") or "nobody"), "not_owner")
+            return failure(not_owner_message(room_id, entry.get("owner") or ""), "not_owner")
         return None
 
     if server.fail:
@@ -463,7 +489,8 @@ def call_tool(server, tool, arguments):
         if "GET" not in method:
             return failure("Unsupported HTTP method for room/list")
         visible = [room for room in server.rooms.entries() if may_see(room, owner, admins)]
-        return {"result": "success", "payload": {"rooms": visible, "ttl": server.ttl}}
+        return {"result": "success",
+                "payload": {"rooms": visible, "ttl": server.ttl, "admin": bool(owner) and owner.lower() in admins}}
 
     # Backup and restore carry no room id: they act on the set the caller may see.
     if tool == "room_backup":
@@ -493,31 +520,37 @@ def call_tool(server, tool, arguments):
     if not room_id:
         return failure('Missing room id (send it in the body as {"room": "<id>"})')
 
+    # An id that already names a room is that room; a new one is the caller's own, named after them.
+    resolved = resolve(server, room_id, owner)
+
     if tool == "room_open":
         if "GET" not in method and "POST" not in method:
             return failure("Unsupported HTTP method for room/open")
         # room/open is also how a client obtains a room's link, so a room that belongs to someone
         # else is refused rather than handed over.
-        refusal = not_ours()
+        refusal = not_ours(resolved)
         if refusal:
             return refusal
+        # room/open is ensure: an existing room is not an error, and `created` says which happened.
+        created = server.rooms.find(resolved) is None
         # The router's wait flag. A string is accepted too: the flag travels as JSON, but a
         # hand-written request may send "wait=false".
         wait = arguments.get("wait", True)
         if isinstance(wait, str):
             wait = wait.strip().lower() not in ("", "0", "false", "no", "off")
-        entry = server.rooms.open(room_id, bool(wait), owner)
+        entry = server.rooms.open(resolved, bool(wait), owner)
         access = entry.get("access", access_for(room_id))
         payload = {
-            "room": room_id,
+            "room": resolved,
             "name": entry["name"],
             "revision": entry.get("revision", ""),
             "param": PARAM,
             # The link a client hands on, carrying the read-write token that opens the room.
-            "url": "?%s=%s&token=%s" % (PARAM, room_id, access["rw"]),
+            "url": "?%s=%s&token=%s" % (PARAM, resolved, access["rw"]),
             "ttl": server.ttl,
             "state": entry.get("state", "ready"),
             "access": access,
+            "created": created,
         }
         if entry.get("owner"):
             payload["owner"] = entry["owner"]
@@ -529,18 +562,18 @@ def call_tool(server, tool, arguments):
     if tool == "room_status":
         if "GET" not in method:
             return failure("Unsupported HTTP method for room/status")
-        refusal = not_ours()
+        refusal = not_ours(resolved)
         if refusal:
             return refusal
-        return {"result": "success", "payload": server.rooms.status(room_id)}
+        return {"result": "success", "payload": server.rooms.status(resolved)}
 
     if tool == "room_close":
         if "DELETE" not in method:
             return failure("Unsupported HTTP method for room/close")
-        refusal = not_ours()
+        refusal = not_ours(resolved)
         if refusal:
             return refusal
-        return {"result": "success", "payload": server.rooms.close(room_id)}
+        return {"result": "success", "payload": server.rooms.close(resolved)}
 
     return failure("Unsupported action: " + tool)
 

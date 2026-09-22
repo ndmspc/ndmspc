@@ -30,11 +30,14 @@ them with a CSPRNG, while the mock derives them from the room id so a demo run i
 Nothing enforces them here — a room is what refuses traffic without its token, and the mock stands
 in for the router, not for a room.
 
-Its owner comes from there as well: a room belongs to whoever created it, a caller that says who it
-is (`owner`, or `--owner` on the client) is shown only its own rooms and refused the rest with
-`code=not_owner`, and a caller listed in `ADMINS` sees every room — while one that says nothing about
-itself, which is what a script does, still sees every room. The mock authenticates nothing, so it
-only ever sees an asserted owner; the router believes a verified identity over one.
+Its owner comes from there as well: a room belongs to whoever created it and is named after them
+(`mine` is `alice@example.com-mine`), a caller that says who it is (`owner`, or `--owner` on the
+client) is shown only its own rooms and refused the rest with `code=not_owner`, and a caller listed
+in `ADMINS` sees every room — while one that says nothing about itself, which is what a script does,
+still sees every room. An id that already names a room is that room, so a link keeps working and
+`room_open` answers with the id it used plus `created`: it is ensure, and an existing room is not an
+error. The mock authenticates nothing, so it only ever sees an asserted owner; the router believes a
+verified identity over one.
 
 ## Files
 

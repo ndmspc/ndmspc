@@ -1,6 +1,7 @@
 stages:
   - build
   - deploy
+  - deploy-slurm
   - deploy-full
 
 image: quay.io/podman/stable
@@ -81,38 +82,6 @@ base-image:
   only:
     - tags
 
-prod-image:
-  stage: deploy-full
-  tags:
-    - images
-  script:
-    - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - export MY_PROJECT_VER=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f1)
-    - export MY_PROJECT_VER_RELEASE=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f2)
-    - podman build --build-arg MY_PROJECT_VER="${CI_COMMIT_REF_NAME/v/}" -f ci/Dockerfile --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
-    - podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
-    # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
-    - if [ -z "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:latest; fi
-    - if [ -n "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:next; fi
-  allow_failure: true
-  # when: manual
-  only:
-    - tags
-
-pages:
-  image: registry.gitlab.com/ndmspc/user/fc44:dep
-  stage: deploy
-  tags:
-    - ndmspc-hosted
-  script:
-    - scripts/make.sh doc install
-    - mv share/doc/ndmspc/html public
-  artifacts:
-    paths:
-      - public
-  only:
-    - develop
-
 # The Slurm worker (compute node) image: ndmspc + ROOT on AlmaLinux 10, built FROM
 # the base image this project publishes, so it carries the same ndmspc release. It is
 # the one Slurm image that has to exist here, and it is built and pushed automatically
@@ -124,7 +93,7 @@ pages:
 #
 # allow_failure keeps a failed publish from failing the tag.
 slurm-worker-image:
-  stage: deploy-full
+  stage: deploy-slurm
   tags:
     - images
   variables:
@@ -158,3 +127,35 @@ slurm-worker-image:
   allow_failure: true
   only:
     - tags
+
+prod-image:
+  stage: deploy-full
+  tags:
+    - images
+  script:
+    - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - export MY_PROJECT_VER=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f1)
+    - export MY_PROJECT_VER_RELEASE=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f2)
+    - podman build --build-arg MY_PROJECT_VER="${CI_COMMIT_REF_NAME/v/}" -f ci/Dockerfile --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
+    - podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
+    - if [ -z "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:latest; fi
+    - if [ -n "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:next; fi
+  allow_failure: true
+  # when: manual
+  only:
+    - tags
+
+pages:
+  image: registry.gitlab.com/ndmspc/user/fc44:dep
+  stage: deploy
+  tags:
+    - ndmspc-hosted
+  script:
+    - scripts/make.sh doc install
+    - mv share/doc/ndmspc/html public
+  artifacts:
+    paths:
+      - public
+  only:
+    - develop

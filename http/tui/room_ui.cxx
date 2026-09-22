@@ -49,6 +49,9 @@ struct State {
   std::mutex             mutex;
   std::vector<NRoomInfo> rooms;
   int                    ttl{0};
+  /// Whether the router answered this session as an admin (NDMSPC_ROOM_ADMINS), which is why the
+  /// list may hold rooms that are not its own.
+  bool                   admin{false};
   std::string            status;     ///< Last successful action or information
   std::string            error;      ///< Last failure; cleared by the next success
   std::string            detailRoom; ///< The room the cached status payload belongs to
@@ -67,6 +70,7 @@ struct State {
 struct Snapshot {
   std::vector<NRoomInfo> rooms;
   int                    ttl{0};
+  bool                   admin{false};
   std::string            status;
   std::string            error;
   std::string            detailRoom;
@@ -85,6 +89,7 @@ Snapshot TakeSnapshot(State & state)
   Snapshot                    copy;
   copy.rooms         = state.rooms;
   copy.ttl           = state.ttl;
+  copy.admin         = state.admin;
   copy.status        = state.status;
   copy.error         = state.error;
   copy.detailRoom    = state.detailRoom;
@@ -327,6 +332,7 @@ void Worker::RefreshList()
   else {
     fState.rooms     = list.rooms;
     fState.ttl       = list.ttl;
+    fState.admin     = list.admin;
     fState.connected = true;
     fState.error.clear();
 
@@ -485,11 +491,14 @@ Element RenderHeader(const Snapshot & state, const NRoomUiOptions & options, int
   if (state.paused) freshness = text("paused") | color(Color::Yellow);
 
   const std::string ttl = state.ttl > 0 ? "   idle TTL " + std::to_string(state.ttl) + "s" : "";
+  // The router said it answered as an admin: say so, since the list then holds other people's rooms.
+  const std::string admin = state.admin ? "   [admin]" : "";
 
   return vbox({
       hbox({text("ndmspc-room-tui") | bold, filler(), connection}),
       hbox({text("router: " + BaseUrl(options.serverUrl)) | dim, filler(), activity}),
-      hbox({text(std::to_string(state.rooms.size()) + " room(s)") | dim, text(ttl) | dim, filler(), freshness}),
+      hbox({text(std::to_string(state.rooms.size()) + " room(s)") | dim, text(ttl) | dim,
+            text(admin) | dim, filler(), freshness}),
   });
 }
 
@@ -664,7 +673,7 @@ std::string BusyPhrase(const Snapshot & state)
 Element RenderOpenDialog(const std::string & input, bool busy, const std::string & busyPhrase)
 {
   std::vector<Element> body = {
-      text("Room id (any string; the router creates one Knative Service for it):"),
+      text("Room id (any string; a room you create is named after you):"),
       hbox({text("> ") | bold, text(input), text(busy ? " working..." : "_") | dim}),
       text(""),
   };

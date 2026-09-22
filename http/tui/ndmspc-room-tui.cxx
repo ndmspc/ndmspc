@@ -188,7 +188,7 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
       if (!room.owner.empty()) entry["owner"] = room.owner;
       rooms.push_back(std::move(entry));
     }
-    PrintJson({{"rooms", rooms}, {"ttl", list.ttl}});
+    PrintJson({{"rooms", rooms}, {"ttl", list.ttl}, {"admin", list.admin}});
     return 0;
   }
 

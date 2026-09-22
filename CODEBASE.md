@@ -104,8 +104,12 @@ present the read-write one and `NHttpServer` can be told to enforce nothing at a
 And each room belongs to whoever creates it: the router records the caller's identity — the email or
 user name of a token it verified, the certificate a mutual-TLS front door verified, or, when nothing
 verified the request, the `owner` it asserts — in the `ndmspc.io/room-owner` annotation beside those
-tokens, and reports it as `owner`. An identified caller is shown their own rooms and refused the rest
-with `not_owner`; an admin (`NDMSPC_ROOM_ADMINS`) is shown every room; a caller that identifies
+tokens, and reports it as `owner`. The owner is part of the room's id, too: an identified caller's
+`mine` is the room `alice@example.com-mine`, so two people can both have a room called "mine", and an
+id that already names a room is always that room (a handed-on link keeps working, and a room from
+before this keeps its own id) — which is why `room/open`, otherwise ensure, answers with the id it
+used and whether it created the room. An identified caller is shown their own rooms and refused the
+rest with `not_owner`; an admin (`NDMSPC_ROOM_ADMINS`) is shown every room; a caller that identifies
 itself to nobody — a script — is answered as it always was. The identity reaches an action as the
 `_identity` key of its input JSON, set by `NHttpServer` (and passed through the MCP transport), since
 a handler is only handed its method and its input.

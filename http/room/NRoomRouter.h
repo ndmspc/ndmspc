@@ -177,7 +177,18 @@ class NRoomClusterClient : public IRoomCluster {
  * who is not an admin gets their own rooms - `room/list` returns those, `room/status`, `room/open`
  * and `room/close` refuse anyone else's with the code `not_owner`, and `room/restore` refuses a
  * document entry that belongs to someone else. An admin (an identity listed in NDMSPC_ROOM_ADMINS,
- * by email or user name, case-insensitively) sees and acts on every room.
+ * by email or user name, case-insensitively) sees and acts on every room - and `room/list` reports
+ * whether the caller was treated as one (`admin`), so a view can say why it is being shown more than
+ * its own rooms without keeping a second copy of the list.
+ *
+ * The owner is part of the room's *id*, not only of its metadata: an identified caller's `mine` is
+ * stored as `alice@example.com-mine`, so two people can both have a room called "mine" without one
+ * of them taking the other's, and the id a room is known by is the same one in its link, its
+ * Service, its session and every payload. An id that already names a room is always that room
+ * (a link that was handed on has to keep working, and a room created before ownership existed keeps
+ * its own id); only an id that names nothing yet becomes the caller's own. `room/open` therefore
+ * answers with the id it actually used, and says whether it created the room (`created`) or found it
+ * already there.
  *
  * The identity reaches an action as the `_identity` key of its input JSON, the same way the request's
  * query already does (`_query`): a handler is handed its method and its input and nothing else, so
@@ -336,6 +347,51 @@ class NRoomRouter {
   bool MaySee(const NRoomState & room, const NRequestIdentity & identity) const;
 
   /**
+   * @brief The room a request names: the resource name it lives under, and the id it is stored as.
+   *
+   * The two differ once the caller has an identity: the id is then qualified with it (`mine` becomes
+   * `alice@example.com-mine`), which is what lets two people both own a room called "mine". The
+   * resource name is always the prefix plus the slug of the id, so nothing else has to care.
+   */
+  struct NRoomRef {
+    std::string name;  ///< Kubernetes resource name (prefix + slug of the id)
+    std::string value; ///< The room id the router stores it under
+  };
+
+  /**
+   * @brief Reads a room id the way a request means it (see "Ownership and visibility").
+   *
+   * An id that already names a room is that room: a link that was handed on keeps working whatever
+   * the caller is, and a room created before ownership existed stays reachable under its own id.
+   * Whether the caller may then *see* it is a separate question, answered by MaySee - an id that
+   * belongs to someone else is refused rather than quietly duplicated.
+   *
+   * An id that names nothing is the caller's own, and becomes `Qualify(identity, id)` - the id itself
+   * when the caller has no identity, which is how a deployment without a login keeps working.
+   *
+   * @param id The room id from the request.
+   * @param identity The caller.
+   * @return The resource name and the stored id to use.
+   */
+  NRoomRef Resolve(const std::string & id, const NRequestIdentity & identity) const;
+
+  /**
+   * @brief The id a room gets when its creator is known: their name in front of it.
+   * @param identity The creator.
+   * @param id The id they asked for.
+   * @return `"<owner>-<id>"`, or `id` unchanged when the identity is empty.
+   */
+  static std::string Qualify(const NRequestIdentity & identity, const std::string & id);
+
+  /**
+   * @brief The message for a refused room, which says whose it is - or that it is nobody's.
+   * @param id The room id the caller asked for.
+   * @param owner The room's owner ("" when it has none).
+   * @return The message for the refusal.
+   */
+  static std::string NotOwnerMessage(const std::string & id, const std::string & owner);
+
+  /**
    * @brief The caller of a request: what the server verified, or else what the client asserts.
    *
    * The server puts the verified identity in the request's input JSON itself (see NRequestIdentity);
@@ -353,6 +409,17 @@ class NRoomRouter {
    * @return The asserted owner, or "" when there is none.
    */
   static std::string RequestOwner(json & in);
+
+  /**
+   * @brief The email a request asserts beside its owner: `owner_email`, or that of its query string.
+   *
+   * A client that knows both names for itself can send both, so an admin list written in emails
+   * recognises it even when the owner that names its rooms is a user name.
+   *
+   * @param in The request's input JSON.
+   * @return The asserted email, or "" when there is none.
+   */
+  static std::string RequestOwnerEmail(json & in);
 
   /// @brief The query parameter a room accepts its access token in.
   static constexpr const char * kAccessParam = NRoomAccess::kParam;
@@ -387,6 +454,16 @@ class NRoomRouter {
 
   /// @brief The Service annotation holding the room's owner (see "Ownership and visibility").
   static constexpr const char * kOwnerAnnotation = "ndmspc.io/room-owner";
+
+  /**
+   * @brief The Service annotation holding a room's id.
+   *
+   * The room label carries only the id's slug: a Kubernetes label value allows alphanumerics, `-`,
+   * `_` and `.` and nothing else, so an id that is qualified with an email address (`alice@…-mine`)
+   * cannot be one - while an annotation value can. Rooms created before ownership existed have the
+   * id in the label itself, which is what Adopt falls back to.
+   */
+  static constexpr const char * kRoomIdAnnotation = "ndmspc.io/room-id";
 
   private:
   /**

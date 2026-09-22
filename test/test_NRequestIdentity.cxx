@@ -17,17 +17,18 @@ TEST(NRequestIdentityTest, EmptyIdentityKnowsNothing)
   EXPECT_FALSE(identity.verified);
 }
 
-TEST(NRequestIdentityTest, OwnerPrefersTheEmailThenTheUserThenTheSubject)
+TEST(NRequestIdentityTest, OwnerIsTheNameTheIdentityIsCalledBy)
 {
   NRequestIdentity identity;
   identity.subject = "subject-1";
   EXPECT_EQ(identity.Owner(), "subject-1");
 
-  identity.username = "alice";
-  EXPECT_EQ(identity.Owner(), "alice");
-
+  // The email, only when that is all there is: a room id, a URL and a label are no place for one.
   identity.email = "alice@example.com";
   EXPECT_EQ(identity.Owner(), "alice@example.com");
+
+  identity.username = "alice";
+  EXPECT_EQ(identity.Owner(), "alice");
 }
 
 TEST(NRequestIdentityTest, MatchesAnyIdentifierCaseInsensitively)
@@ -81,6 +82,15 @@ TEST(NRequestIdentityTest, AnAssertionIsNeverVerified)
   EXPECT_EQ(asserted.Owner(), "alice@example.com");
   EXPECT_TRUE(asserted.Matches("alice@example.com"));
 
+  // What it knows itself by: what it answers to names what it creates, and every name counts for
+  // matching - which is what lets an admin list be written in emails.
+  const auto both = NRequestIdentity::FromAssertion("mvala", "martin.vala@cern.ch");
+  EXPECT_FALSE(both.verified);
+  EXPECT_EQ(both.Owner(), "mvala");
+  EXPECT_TRUE(both.Matches("mvala"));
+  EXPECT_TRUE(both.Matches("Martin.Vala@CERN.ch"));
+  EXPECT_FALSE(both.Matches("somebody-else"));
+
   // A user name only appears on an argument that something authenticated.
   const auto authenticated = NRequestIdentity::FromUsername("alice");
   EXPECT_TRUE(authenticated.verified);
@@ -113,5 +123,5 @@ TEST(NRequestIdentityTest, ASessionIsVerifiedAndCarriesTheEmail)
 
   const auto identity = NRequestIdentity::FromSession(session);
   EXPECT_TRUE(identity.verified);
-  EXPECT_EQ(identity.Owner(), "alice@example.com");
+  EXPECT_EQ(identity.Owner(), "alice"); // the name it is called by, not the address
 }

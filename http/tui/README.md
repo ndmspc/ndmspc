@@ -50,10 +50,15 @@ lives in [`core/tui`](../../core/tui/README.md), which compiles the amalgamated
   between the read-write and the read-only one. `NRoomInfo` carries them (`tokenRw`/`tokenRo`), so
   `--list` reports them too; a room the router reports no tokens for keeps the plain URLs, which is
   also how an older room is told apart from one that enforces access.
-- A room's owner (`owner`, kept on the room's Service as `ndmspc.io/room-owner`) is shown as an
-  `OWNER` column and, for the selected room, in the detail pane; `--list` reports it per row. The
-  tool asserts who it is with `--owner` (`NDMSPC_ROOM_OWNER`), which the client adds to every
-  request, and the router then answers with that owner's rooms only and refuses the rest with
-  `not_owner`. Nothing is asserted by default, so an operator's run still sees every room.
+- A room's owner (`owner`, kept on the room's Service as `ndmspc.io/room-owner`) is part of the
+  room's *id*: a room an identified caller creates is named after them (`alice@example.com-mine`), so
+  two people can both have a room called "mine". It is shown as an `OWNER` column and, for the
+  selected room, in the detail pane; `--list` reports the id and the owner per row. The tool asserts
+  who it is with `--owner` (`NDMSPC_ROOM_OWNER`), which the client adds to every request, and the
+  router then answers with that owner's rooms only and refuses the rest with `not_owner`. Nothing is
+  asserted by default, so an operator's run still sees every room - and creates rooms under their own
+  (unqualified) ids. `room_open`'s `created` says whether the room was made or was already there, and
+  the header shows `[admin]` - and `--list` reports `admin` - when the router answered this session
+  as an admin, since the table then holds other people's rooms.
 - `http/examples/room/` runs the tool against a mock of the router's MCP endpoint, which is
   the only way to exercise it away from a cluster.
