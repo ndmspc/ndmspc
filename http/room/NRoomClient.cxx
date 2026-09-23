@@ -293,6 +293,23 @@ NRoomListResult NRoomClient::List()
       room.error     = NUtils::GetJsonString(Member(entry, "error"));
       room.code      = NUtils::GetJsonString(Member(entry, "code"));
       room.startedAt = NUtils::GetJsonInt(Member(entry, "startedAt"));
+      // The size it runs at and what that allows: the rooms view shows both, so the TUI reads them
+      // from the same payload rather than guessing at a room's shape.
+      room.profile       = NUtils::GetJsonString(Member(entry, "profile"));
+      const json resources = Member(entry, "resources");
+      const json requests  = Member(resources, "requests");
+      const json limits    = Member(resources, "limits");
+      room.cpuRequest      = NUtils::GetJsonString(Member(requests, "cpu"));
+      room.memoryRequest   = NUtils::GetJsonString(Member(requests, "memory"));
+      room.cpuLimit        = NUtils::GetJsonString(Member(limits, "cpu"));
+      room.memoryLimit     = NUtils::GetJsonString(Member(limits, "memory"));
+      // Why it died last, while the router still knows: the one thing a room that was killed cannot
+      // report about itself.
+      const json lastError   = Member(entry, "lastError");
+      room.lastErrorReason   = NUtils::GetJsonString(Member(lastError, "reason"));
+      room.lastErrorMessage  = NUtils::GetJsonString(Member(lastError, "message"));
+      room.lastErrorExit     = NUtils::GetJsonInt(Member(lastError, "exitCode"));
+      room.lastErrorAt       = NUtils::GetJsonInt(Member(lastError, "at"));
       // The tokens that open the room. Empty for a room created before access existed, which is
       // also how a client tells that a room enforces nothing.
       const json access = Member(entry, "access");

@@ -33,6 +33,22 @@ struct NRoomInfo {
   std::string code;             ///< Stable reason behind `error`, e.g. "no_capacity" ("" when unknown)
   long        startedAt{0};     ///< Epoch seconds its creation started, for the elapsed time
 
+  /// The pod profile the room runs at ("" for a deployment that offers no profiles).
+  std::string profile;
+  /// What its container requests and is limited to, as Kubernetes spells them ("" when undeclared).
+  /// The requests are what the room reserves; the web rooms view shows them the same way.
+  std::string cpuRequest, cpuLimit, memoryRequest, memoryLimit;
+
+  /// Why the room's container last died ("" until it has). A room the kernel killed for using more
+  /// memory than its limit never says so itself, so the router reads the pod and reports it here.
+  std::string lastErrorReason;
+  std::string lastErrorMessage;   ///< The router's sentence for that, for a one-line display
+  /// -1 when unknown, not 0: 0 is a real exit code (a container that exited cleanly), so "no death
+  /// recorded" has to be a value of its own. `NUtils::GetJsonInt` reads an absent member as -1, which
+  /// is what these are defaulted to, so an absent `lastError` cannot look like a clean exit.
+  int  lastErrorExit{-1};   ///< The exit code it died with
+  long lastErrorAt{-1};     ///< Epoch seconds it died (as above, when unknown)
+
   /// Token that opens the room and may do anything in it ("" when it was given none).
   std::string tokenRw;
   /// Token that opens the room but may only read it ("" when it was given none).

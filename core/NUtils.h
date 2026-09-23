@@ -486,6 +486,37 @@ class NUtils : TObject {
   static json GetSystemStats();
 
   /**
+   * @brief How many CPUs this process may actually use.
+   *
+   * Inside a container `std::thread::hardware_concurrency()` answers for the *node*, which is not what
+   * the process may use: a room limited to 250m runs on a machine with 64 cores and may use a quarter
+   * of one, and every percentage computed against the node's count is then wrong. The cgroup is what
+   * the kernel enforces, so that is what this reports - fractional when the limit asks for less than a
+   * whole core - and the node's count only when nothing limits it.
+   *
+   * @param cgroupRoot Where the cgroup hierarchy is mounted; a parameter so the rule can be tested
+   *                   against fixtures rather than whatever machine the test runs on.
+   * @return The CPUs available, per the quota or the period that is in force (never 0).
+   */
+  static double AvailableCpuCount(const std::string & cgroupRoot = "/sys/fs/cgroup");
+
+  /**
+   * @brief How much memory this process may use, in kB.
+   *
+   * The memory twin of {@link AvailableCpuCount}: inside a container the machine's memory is not the
+   * process's ceiling - a room limited to 1 GiB runs on a node with many - and the cgroup is what the
+   * kernel enforces, so that is what this reports. A cgroup that limits nothing answers 0, which a
+   * caller reads as "no known maximum"; the node's own memory is what it may then reach, and is the
+   * fallback.
+   *
+   * @param cgroupRoot Where the cgroup hierarchy is mounted.
+   * @param memInfoPath Where to read the node's memory total from when nothing limits the process.
+   * @return The ceiling in kB, or 0 when nothing says.
+   */
+  static long AvailableMemoryKb(const std::string & cgroupRoot = "/sys/fs/cgroup",
+                                const std::string & memInfoPath = "/proc/meminfo");
+
+  /**
    * @brief Get TFile read/write statistics by inspecting ROOT's list of open files
    * @return json object containing per-file and aggregated IO statistics
    */

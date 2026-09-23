@@ -299,6 +299,343 @@ json NRoomRouter::AccessJson(const std::string & tokenRw, const std::string & to
   return access;
 }
 
+// What a room's Service declares its container may use: the cpu and memory of its requests and
+// limits, spelled exactly as Kubernetes holds them ("500m", "2", "512Mi"). The skeleton the router
+// stamped onto the Service is the only source, so a room that declares nothing answers an empty
+// object and its payload carries no `resources` at all. Nothing here reports *use*: that needs the
+// cluster's metrics API, and a scaled-to-zero room has no pod to measure anyway.
+json NRoomRouter::ServiceResources(const json & service)
+{
+  json out = json::object();
+  if (!service.is_object()) return out;
+
+  const json spec       = service.value("spec", json::object());
+  const json tmpl       = spec.is_object() ? spec.value("template", json::object()) : json::object();
+  const json podSpec    = tmpl.is_object() ? tmpl.value("spec", json::object()) : json::object();
+  const json containers = podSpec.is_object() ? podSpec.value("containers", json::array()) : json::array();
+  if (!containers.is_array() || containers.empty() || !containers.at(0).is_object()) return out;
+
+  const json resources = containers.at(0).value("resources", json::object());
+  if (!resources.is_object()) return out;
+
+  for (const char * key : {"requests", "limits"}) {
+    const json declared = resources.value(key, json::object());
+    if (!declared.is_object()) continue;
+
+    json entry = json::object();
+    for (const char * field : {"cpu", "memory"}) {
+      if (declared.contains(field)) entry[field] = declared[field];
+    }
+    if (!entry.empty()) out[key] = entry;
+  }
+
+  return out;
+}
+
+// The profiles a skeleton defines, and the names they answer to, as one message for the error.
+namespace {
+std::string KnownProfiles(const json & profiles)
+{
+  std::string list;
+  for (auto it = profiles.begin(); it != profiles.end(); ++it) {
+    if (!list.empty()) list += ", ";
+    list += it.key();
+  }
+  return list;
+}
+} // namespace
+
+// Which profile a room is created with: the one this open asked for, or the skeleton's default.
+//
+// The names are the deployment's - the router never knows what "small" means - so this only decides
+// *which* one, and `ProfileResources` says what it is worth. A skeleton that defines no profiles at
+// all answers an empty name and no error: that is a deployment which offers no sizes, and rooms are
+// then whatever their own spec declares (what every room was before profiles existed).
+std::string NRoomRouter::ProfileName(const json & skeleton, const std::string & requested, std::string & error)
+{
+  const json profiles = skeleton.value("profiles", json::object());
+  if (!profiles.is_object() || profiles.empty()) return std::string();
+
+  std::string name = requested;
+  if (name.empty()) name = skeleton.value("defaultProfile", std::string());
+  if (name.empty()) {
+    error = "the room skeleton defines profiles but no defaultProfile to fall back on";
+    return std::string();
+  }
+  if (!profiles.contains(name) || !profiles[name].is_object()) {
+    error = "unknown room profile '" + name + "' (this deployment offers: " + KnownProfiles(profiles) + ")";
+    return std::string();
+  }
+  return name;
+}
+
+// What a profile allows a room to use, from the skeleton.
+json NRoomRouter::ProfileResources(const json & skeleton, const std::string & name, std::string & error)
+{
+  if (name.empty()) return json::object();
+
+  const json profiles = skeleton.value("profiles", json::object());
+  if (!profiles.is_object() || !profiles.contains(name) || !profiles[name].is_object()) {
+    error = "unknown room profile '" + name + "' (this deployment offers: " + KnownProfiles(profiles) + ")";
+    return json::object();
+  }
+
+  const json resources = profiles[name].value("resources", json::object());
+  if (!resources.is_object() || resources.empty()) {
+    error = "room profile '" + name + "' declares no resources";
+    return json::object();
+  }
+  return resources;
+}
+
+namespace {
+// A Kubernetes quantity's number and its suffix ("250m", "1", "1.5Gi"), so both readers below start
+// the same way: Kubernetes writes a decimal number followed by a unit, and nothing else. Junk leaves
+// the suffix as it found it - which is why the callers can tell "no number" from "no unit".
+double QuantityNumber(const std::string & quantity, std::string & suffix)
+{
+  suffix.clear();
+  if (quantity.empty()) return 0;
+
+  char *       end{nullptr};
+  const double value = std::strtod(quantity.c_str(), &end);
+  if (end == nullptr || end == quantity.c_str()) return 0; // no number at all
+  suffix = end;
+  return value;
+}
+} // namespace
+
+// A Kubernetes CPU quantity in milli-cores (0 when it is not one).
+long NRoomRouter::CpuMillis(const std::string & quantity)
+{
+  std::string  suffix;
+  const double value = QuantityNumber(quantity, suffix);
+  if (suffix.empty()) return static_cast<long>(value * 1000.0 + 0.5);   // plain cores: "1", "1.5"
+  if (suffix == "m") return static_cast<long>(value + 0.5);             // milli-cores: "250m"
+  if (suffix == "u") return static_cast<long>(value / 1000.0 + 0.5);    // micro-cores
+  if (suffix == "n") return static_cast<long>(value / 1000000.0 + 0.5); // nano-cores
+  return 0;
+}
+
+// A Kubernetes memory quantity in bytes (0 when it is not one).
+long NRoomRouter::Bytes(const std::string & quantity)
+{
+  std::string  suffix;
+  const double value = QuantityNumber(quantity, suffix);
+  if (value <= 0) return 0;
+  if (suffix.empty()) return static_cast<long>(value + 0.5); // plain bytes
+
+  // The power-of-two suffixes and their decimal twins, exactly as Kubernetes defines them.
+  const std::pair<const char *, double> suffixes[] = {{"Ki", 1024.0},
+                                                      {"Mi", 1024.0 * 1024},
+                                                      {"Gi", 1024.0 * 1024 * 1024},
+                                                      {"Ti", 1024.0 * 1024 * 1024 * 1024},
+                                                      {"Pi", 1024.0 * 1024 * 1024 * 1024 * 1024},
+                                                      {"Ei", 1024.0 * 1024 * 1024 * 1024 * 1024 * 1024},
+                                                      {"K", 1000.0},
+                                                      {"k", 1000.0},
+                                                      {"M", 1000.0 * 1000},
+                                                      {"G", 1000.0 * 1000 * 1000},
+                                                      {"T", 1000.0 * 1000 * 1000 * 1000},
+                                                      {"P", 1000.0 * 1000 * 1000 * 1000 * 1000}};
+  for (const auto & [name, factor] : suffixes) {
+    if (suffix != name) continue;
+    return static_cast<long>(value * factor + 0.5);
+  }
+  return 0;
+}
+
+// A Kubernetes timestamp (RFC 3339, seconds precision) as epoch seconds; 0 when it is not one.
+//
+// Kubernetes writes these itself and always in this shape ("2026-09-23T14:17:01Z"), so reading the
+// fields positionally is enough - and portable, where strptime/timegm are libc extensions this
+// project's strict -std=c++23 does not declare.
+long NRoomRouter::Rfc3339(const std::string & value)
+{
+  int year{0}, month{0}, day{0}, hour{0}, minute{0}, second{0};
+  if (std::sscanf(value.c_str(), "%4d-%2d-%2dT%2d:%2d:%2dZ", &year, &month, &day, &hour, &minute,
+                  &second) != 6) {
+    return 0;
+  }
+
+  const std::chrono::year_month_day date{std::chrono::year{year},
+                                         std::chrono::month{static_cast<unsigned>(month)},
+                                         std::chrono::day{static_cast<unsigned>(day)}};
+  if (!date.ok() || hour > 23 || minute > 59 || second > 60) return 0;
+
+  const std::chrono::sys_days days{date};
+  const std::chrono::sys_seconds seconds = std::chrono::time_point_cast<std::chrono::seconds>(days) +
+                                           std::chrono::hours{hour} + std::chrono::minutes{minute} +
+                                           std::chrono::seconds{second};
+  return static_cast<long>(seconds.time_since_epoch().count());
+}
+
+// Whether a container termination reason is a failure: a container that finished its work is not one,
+// and neither is a pod that never said why.
+bool NRoomRouter::FailedReason(const std::string & reason)
+{
+  return !reason.empty() && reason != "Completed";
+}
+
+namespace {
+// The termination a container reports, wherever it reports it: `state` while it is still down,
+// `lastState` once it has come back - and only in `state` does a killed container stay down. The
+// restart count travels with it, since it belongs to the same story.
+json ContainerTermination(const json & container, const char * where)
+{
+  json terminated = container.value(where, json::object()).value("terminated", json::object());
+  if (terminated.is_object()) {
+    terminated["restartCount"] = container.value("restartCount", 0);
+  }
+  return terminated;
+}
+} // namespace
+
+// Why a pod's container last died: the newest failure among its containers.
+json NRoomRouter::PodTermination(const json & pod)
+{
+  const json statuses = pod.value("status", json::object()).value("containerStatuses", json::array());
+  if (!statuses.is_array()) return json::object();
+
+  json newest;
+  long newestAt = -1;
+  for (const auto & container : statuses) {
+    if (!container.is_object()) continue;
+    for (const char * where : {"lastState", "state"}) {
+      const json terminated = ContainerTermination(container, where);
+      const std::string reason = terminated.value("reason", std::string());
+      if (!NRoomRouter::FailedReason(reason)) continue;
+
+      const long at = NRoomRouter::Rfc3339(terminated.value("finishedAt", std::string()));
+      // A pod can hold the history of more than one container, and a roll can leave two pods around:
+      // the newest death is the one worth reporting.
+      if (at < newestAt) continue;
+      newest   = json{{"reason", reason},
+                      {"exitCode", terminated.value("exitCode", 0)},
+                      {"at", at},
+                      {"restarts", terminated.value("restartCount", 0)}};
+      newestAt = at;
+    }
+  }
+  return newest;
+}
+
+// Why a pod's container is down right now: a failure with no running container to explain it away.
+json NRoomRouter::PodFailure(const json & pod)
+{
+  const json statuses = pod.value("status", json::object()).value("containerStatuses", json::array());
+  if (!statuses.is_array()) return json::object();
+
+  json failure;
+  long failureAt = -1;
+  for (const auto & container : statuses) {
+    if (!container.is_object()) continue;
+    const json state = container.value("state", json::object());
+    // It is running: whatever it did before is history, not a failure in progress.
+    if (state.is_object() && state.contains("running")) continue;
+
+    for (const char * where : {"state", "lastState"}) {
+      const json terminated = ContainerTermination(container, where);
+      const std::string reason = terminated.value("reason", std::string());
+      if (!NRoomRouter::FailedReason(reason)) continue;
+
+      const long at = NRoomRouter::Rfc3339(terminated.value("finishedAt", std::string()));
+      if (at < failureAt) continue;
+      failure   = json{{"reason", reason},
+                       {"exitCode", terminated.value("exitCode", 0)},
+                       {"at", at},
+                       {"restarts", terminated.value("restartCount", 0)}};
+      failureAt = at;
+      break; // `state` first: it is the more recent of the two when a container is down
+    }
+  }
+  return failure;
+}
+
+// The sentence a client shows for a termination: what happened, in the room's own terms.
+std::string NRoomRouter::TerminationMessage(const std::string & reason, int exitCode)
+{
+  if (reason == "OOMKilled") return "the room was killed for using more memory than its limit";
+  if (reason == "Evicted") return "the room's pod was evicted (its node was under pressure)";
+  if (reason == "ContainerStatusUnknown") return "the room's container went away with its node";
+  if (reason == "Error") return "the room's process exited with code " + std::to_string(exitCode);
+  return "the room's container stopped: " + reason;
+}
+
+// What a client shows about a room's death, or nothing at all when the room has not died.
+json NRoomRouter::LastErrorJson(const std::string & reason, int exitCode, long at, int restarts)
+{
+  if (reason.empty()) return json::object();
+  return json{{"reason", reason},
+              {"exitCode", exitCode},
+              {"at", at},
+              {"restarts", restarts},
+              {"message", NRoomRouter::TerminationMessage(reason, exitCode)}};
+}
+
+// Why a room's container last died, read under the registry lock.
+json NRoomRouter::RoomLastError(const std::string & name) const
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  if (it == fRooms.end()) return json::object();
+  return NRoomRouter::LastErrorJson(it->second.lastReason, it->second.lastExit, it->second.lastAt,
+                                    it->second.lastRestarts);
+}
+
+// The pods of one room, or every room's pods when the selector names no particular one.
+std::string NRoomRouter::PodsPath(const std::string & labelSelector) const
+{
+  return "/api/v1/namespaces/" + fConfig.ns + "/pods?labelSelector=" + labelSelector;
+}
+
+// Remembers why a room's container died: in the registry, and on the room's Service.
+//
+// The registry is what makes it reportable while this process lives; the annotation is what makes it
+// outlive the pod (a room that scales to zero takes its pod, and the pod's status with it). Neither
+// is fatal when it fails: a room that cannot be annotated is still a room.
+void NRoomRouter::NoteTermination(const std::string & name, const json & termination)
+{
+  if (!termination.is_object() || termination.empty()) return;
+
+  const std::string reason = termination.value("reason", std::string());
+  const long        at     = termination.value("at", 0L);
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it == fRooms.end()) return;
+    // An older death never replaces a newer one, and a death already recorded is not written again:
+    // every room/list would otherwise patch the Service.
+    if (it->second.lastAt > 0 && at > 0 && at < it->second.lastAt) return;
+    if (it->second.lastReason == reason && it->second.lastAt == at) return;
+    it->second.lastReason   = reason;
+    it->second.lastExit     = termination.value("exitCode", 0);
+    it->second.lastAt       = at;
+    it->second.lastRestarts = termination.value("restarts", 0);
+  }
+
+  std::string error;
+  if (!Annotate(name, kLastErrorAnnotation, termination.dump(), error)) {
+    NLogWarning("[room] cannot record why %s died: %s", name.c_str(), error.c_str());
+  }
+}
+
+// A room's profile, read under the registry lock.
+std::string NRoomRouter::RoomProfile(const std::string & name) const
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  return it == fRooms.end() ? std::string() : it->second.profile;
+}
+
+// Records the profile a room is created with, under the registry lock.
+void NRoomRouter::SetProfile(const std::string & name, const std::string & profile)
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  if (it != fRooms.end()) it->second.profile = profile;
+}
+
 // A room's tokens, read under the registry lock.
 json NRoomRouter::RoomAccess(const std::string & name) const
 {
@@ -363,6 +700,23 @@ std::string NRoomRouter::RequestOwnerEmail(json & in)
   if (query.is_string()) {
     const auto params = NRoomRouter::ParseQuery(query.get<std::string>());
     const auto it     = params.find("owner_email");
+    if (it != params.end() && !it->second.empty()) return it->second;
+  }
+  return {};
+}
+
+// The profile a room/open asks for, when it names one.
+//
+// Read the way the owner is: the body first, then the query, so a link can carry the size a room is
+// wanted at (`?profile=large`) as well as a script that posts it.
+std::string NRoomRouter::RequestProfile(json & in)
+{
+  const json profile = NdmspcRoomMember(in, "profile");
+  if (profile.is_string() && !profile.get<std::string>().empty()) return profile.get<std::string>();
+  const json query = NdmspcRoomMember(in, "_query");
+  if (query.is_string()) {
+    const auto params = NRoomRouter::ParseQuery(query.get<std::string>());
+    const auto it     = params.find("profile");
     if (it != params.end() && !it->second.empty()) return it->second;
   }
   return {};
@@ -495,7 +849,7 @@ bool NRoomRouter::Skeleton(json & out, std::string & error)
   return true;
 }
 
-// Creates the object, or merge-patches its spec when it already exists.
+// Creates the object, or merge-patches its spec and annotations when it already exists.
 // An object that already holds the name but is not one of ours is never touched: the room fails
 // with name_conflict instead, so a name that happens to be taken (the router's own Service above
 // all) cannot be overwritten.
@@ -520,7 +874,15 @@ bool NRoomRouter::Apply(const std::string & collection, const std::string & item
       return false;
     }
     json patch;
-    patch["spec"]       = object.value("spec", json::object());
+    patch["spec"] = object.value("spec", json::object());
+    // The annotations travel with the spec, because they are part of what a room is: its size (see
+    // kProfileAnnotation) has to survive a resize, so the next open - or a router that restarts -
+    // still knows which profile the room was last asked for. Only the keys this object carries are
+    // touched, so the session snapshot stored beside them is left alone.
+    const json annotations = object.value("metadata", json::object()).value("annotations", json::object());
+    if (annotations.is_object() && !annotations.empty()) {
+      patch["metadata"]["annotations"] = annotations;
+    }
     const auto response = Request("PATCH", item, patch.dump(), "application/merge-patch+json");
     if (response.status < 200 || response.status >= 300) {
       error = "PATCH " + item + " failed (HTTP " + std::to_string(response.status) + "): " + response.body;
@@ -540,11 +902,14 @@ bool NRoomRouter::Apply(const std::string & collection, const std::string & item
   return true;
 }
 
-// Stores a room's session snapshot on its own Knative Service.
-bool NRoomRouter::Annotate(const std::string & name, const std::string & snapshot, std::string & error)
+// Stores something a room has to keep on its own Knative Service: its session snapshot, and why its
+// container last died. An annotation is the place for state that has to outlive this process but
+// belongs to the room rather than to the router.
+bool NRoomRouter::Annotate(const std::string & name, const std::string & key, const std::string & value,
+                           std::string & error)
 {
   json patch;
-  patch["metadata"]["annotations"][kNRoomStateAnnotation] = snapshot;
+  patch["metadata"]["annotations"][key] = value;
 
   const auto response =
       Request("PATCH", SvcPath(name), patch.dump(), "application/merge-patch+json");
@@ -609,14 +974,14 @@ void NRoomRouter::StoreSnapshot(const std::string & name, const std::string & id
   }
 
   std::string error;
-  if (!Annotate(name, text, error)) {
+  if (!Annotate(name, kNRoomStateAnnotation, text, error)) {
     NLogWarning("[room] cannot store the session of %s: %s", name.c_str(), error.c_str());
   }
 }
 
 json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
                                 const std::string & stateUrl, const json & access, const std::string & owner,
-                                const json & skeleton)
+                                const json & skeleton, const std::string & profile, const json & resources)
 {
   json service;
   service["apiVersion"]                      = "serving.knative.dev/v1";
@@ -644,6 +1009,12 @@ json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & nam
     service["metadata"]["annotations"][kOwnerAnnotation] = owner;
   }
 
+  // And its profile, for the same reason: the size a room was asked for is part of what it is, so a
+  // restart (and every payload) still knows it without the caller repeating the choice.
+  if (!profile.empty()) {
+    service["metadata"]["annotations"][kProfileAnnotation] = profile;
+  }
+
   // Tag the server with the room id so a room can tell which room it is, tell it where to report
   // its session, and hand it the tokens its own traffic has to carry. A value the skeleton
   // already sets wins.
@@ -665,6 +1036,13 @@ json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & nam
   ensureEnv("NDMSPC_ROOM", value);
   ensureEnv("NDMSPC_ROOM_STATE_URL", stateUrl);
   if (!access.is_null() && !access.empty()) ensureEnv(kAccessEnv, access.dump());
+
+  // What the room's profile allows it to use. The skeleton carries no resources of its own, so this
+  // is where a room's size is decided - and re-deciding it (another profile on a later open) is what
+  // resizes a room.
+  if (resources.is_object() && !resources.empty()) {
+    containers[0]["resources"] = resources;
+  }
 
   return service;
 }
@@ -715,39 +1093,42 @@ json NRoomRouter::RouteObject(const NRoomConfig & cfg, const std::string & name,
   return route;
 }
 
+// A room's pods, as the cluster answered them ({} when it did not).
+json NRoomRouter::RoomPods(const std::string & name, const std::string & revision)
+{
+  // Knative labels each pod with its revision; before one exists, fall back to the room's service.
+  const std::string selector = revision.empty() ? ("serving.knative.dev%2Fservice%3D" + name)
+                                                : ("serving.knative.dev%2Frevision%3D" + revision);
+
+  const auto response = Request("GET", PodsPath(selector));
+  if (response.status != 200) return json::object();
+
+  try {
+    return json::parse(response.body);
+  }
+  catch (const std::exception &) {
+    return json::object();
+  }
+}
+
 // The scheduler's own words for a pod it cannot place.
 //
 // A Knative Service only ever reports "waiting for a Revision to become ready"; the reason lives on
 // the pod ("0/1 nodes are available: 1 Insufficient cpu"), so that is where this looks. Returns
 // kTRUE when a pod of that revision is reported unschedulable, with the message in reason.
-//
-// This needs read access to pods. When the cluster refuses (403) or answers anything else, it
-// simply reports no reason and the caller keeps its previous behaviour - a missing permission must
-// not fail a room.
-bool NRoomRouter::PodUnschedulable(const std::string & name, const std::string & revision, std::string & reason)
+bool NRoomRouter::PodUnschedulable(const json & pods, std::string & reason)
 {
-  const NRoomConfig & cfg = fConfig;
-
-  // Knative labels each pod with its revision; before one exists, fall back to the room's service.
-  const std::string selector = revision.empty() ? ("serving.knative.dev%2Fservice%3D" + name)
-                                                : ("serving.knative.dev%2Frevision%3D" + revision);
-
-  const auto response = Request("GET", "/api/v1/namespaces/" + cfg.ns + "/pods?labelSelector=" + selector);
-  if (response.status != 200) return false;
-
-  try {
-    const json items = json::parse(response.body).value("items", json::array());
-    for (const auto & pod : items) {
-      const json conditions = pod.value("status", json::object()).value("conditions", json::array());
-      for (const auto & condition : conditions) {
-        if (condition.value("type", "") != "PodScheduled" || condition.value("status", "") != "False") continue;
-        if (condition.value("reason", "") != "Unschedulable") continue;
-        reason = condition.value("message", "the cluster cannot place the room's pod");
-        return true;
-      }
+  // Bound to a name, like every list this file walks: `value()` returns a temporary, and a range-for
+  // over one iterates memory that is already gone (it survives by luck, or segfaults).
+  const json items = pods.value("items", json::array());
+  for (const auto & pod : items) {
+    const json conditions = pod.value("status", json::object()).value("conditions", json::array());
+    for (const auto & condition : conditions) {
+      if (condition.value("type", "") != "PodScheduled" || condition.value("status", "") != "False") continue;
+      if (condition.value("reason", "") != "Unschedulable") continue;
+      reason = condition.value("message", "the cluster cannot place the room's pod");
+      return true;
     }
-  }
-  catch (const std::exception &) {
   }
   return false;
 }
@@ -757,8 +1138,10 @@ bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, st
 {
   const long  deadline = NdmspcRoomNow() + fConfig.readyTimeoutSec;
   std::string lastMessage;
-  std::string lastUnschedulable;   // the scheduler's verdict, and how often in a row it has said it
+  std::string lastUnschedulable; // the scheduler's verdict, and how often in a row it has said it
   int         unschedulableSeen = 0;
+  std::string lastFailure;       // why its container keeps dying, and how often in a row
+  int         failureSeen = 0;
 
   while (NdmspcRoomNow() < deadline) {
     const auto response = Request("GET", SvcPath(name));
@@ -783,16 +1166,18 @@ bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, st
           return true;
         }
 
-        // A pod the scheduler cannot place will never become ready, and the Service will never say
-        // why: report the scheduler's own words now instead of waiting out the whole timeout. The
-        // verdict has to repeat, so a race while another room scales up cannot fail this one.
+        // A pod that is not becoming ready says why in its own two ways, and both are worth more than
+        // the Service's silence: the scheduler refusing to place it, and a container that keeps
+        // dying. Either verdict has to repeat, so a race while another room scales up, or a container
+        // that is merely restarting, cannot fail a room.
+        const json  pods = RoomPods(name, created);
         std::string unschedulable;
-        if (PodUnschedulable(name, created, unschedulable)) {
+        if (PodUnschedulable(pods, unschedulable)) {
           if (unschedulable == lastUnschedulable) {
             ++unschedulableSeen;
           }
           else {
-            lastUnschedulable  = unschedulable;
+            lastUnschedulable = unschedulable;
             unschedulableSeen = 1;
           }
           if (unschedulableSeen >= 2) {
@@ -806,7 +1191,42 @@ bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, st
           unschedulableSeen = 0;
         }
 
-        for (const auto & condition : status.value("conditions", json::array())) {
+        // A container the kernel killed - the room outgrew its profile - leaves nothing but this.
+        const json roomPods = pods.value("items", json::array());
+        json       failure;
+        json       failurePod;
+        for (const auto & pod : roomPods) {
+          const json found = NRoomRouter::PodFailure(pod);
+          if (found.empty()) continue;
+          failure    = found;
+          failurePod = pod;
+          break;
+        }
+        if (!failure.empty()) {
+          // Remember it whether or not the creation fails: a client that is not waiting for this
+          // room still deserves to see why it cannot come up.
+          NoteTermination(name, NRoomRouter::PodTermination(failurePod));
+          const std::string reason = failure.value("reason", std::string());
+          if (reason == lastFailure) {
+            ++failureSeen;
+          }
+          else {
+            lastFailure = reason;
+            failureSeen = 1;
+          }
+          if (failureSeen >= 2) {
+            error = NRoomRouter::TerminationMessage(reason, failure.value("exitCode", 0));
+            code  = NRoomRouter::kContainerError;
+            return false;
+          }
+        }
+        else {
+          lastFailure.clear();
+          failureSeen = 0;
+        }
+
+        const json conditions = status.value("conditions", json::array());
+        for (const auto & condition : conditions) {
           if (condition.value("type", "") == "Ready") lastMessage = condition.value("message", "");
         }
       }
@@ -934,6 +1354,28 @@ void NRoomRouter::Adopt()
           // rather than being handed to whoever asks for it next.
           state.owner = metadata.value("annotations", json::object()).value(kOwnerAnnotation, "");
         }
+        if (state.profile.empty()) {
+          // And its size: a room keeps the profile it was created with, so opening it again does not
+          // silently resize it. A room created before profiles existed has none, and takes the
+          // skeleton's default the next time it is opened.
+          state.profile = metadata.value("annotations", json::object()).value(kProfileAnnotation, "");
+        }
+        if (state.lastReason.empty()) {
+          // And why it died last: the pod that said so is long gone (which is what the annotation is
+          // for), and a room that comes back should still be able to tell a client that its
+          // predecessor ran out of memory. An annotation that cannot be read is one this router does
+          // not have, not a reason to fail the adoption.
+          try {
+            const json reason = json::parse(
+                metadata.value("annotations", json::object()).value(kLastErrorAnnotation, ""));
+            state.lastReason   = reason.value("reason", std::string());
+            state.lastExit     = reason.value("exitCode", 0);
+            state.lastAt       = reason.value("at", 0L);
+            state.lastRestarts = reason.value("restarts", 0);
+          }
+          catch (const std::exception &) {
+          }
+        }
         ++adopted;
       }
     }
@@ -1035,7 +1477,7 @@ void NRoomRouter::CaptureNow(const std::string & name, const std::string & value
   NLogInfo("[room] captured the session of %s (file '%s')", name.c_str(), file.c_str());
 
   std::string patchError;
-  if (!Annotate(name, text, patchError)) {
+  if (!Annotate(name, kNRoomStateAnnotation, text, patchError)) {
     NLogWarning("[room] cannot store the session of %s: %s", name.c_str(), patchError.c_str());
   }
 }
@@ -1198,8 +1640,8 @@ bool NRoomRouter::Stopped(const std::string & name, int generation)
 //
 // Holds no lock across the Kubernetes waits, and stops as soon as the room is closed or a newer
 // request for it supersedes this one.
-bool NRoomRouter::EnsureWorker(const std::string & value, int generation, Replay replay, json & payload,
-                                   std::string & error, std::string & code)
+bool NRoomRouter::EnsureWorker(const std::string & value, int generation, const std::string & requestedProfile,
+                                   Replay replay, json & payload, std::string & error, std::string & code)
 {
   const NRoomConfig & cfg  = fConfig;
   const std::string        name = NRoomRouter::RoomName(cfg, value);
@@ -1221,8 +1663,20 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, Replay
   json skeleton;
   if (!Skeleton(skeleton, error)) return fail(error);
 
+  // The room's size: what this open asked for, or - on an open that names none - whatever the room
+  // already runs, so re-opening a room never resizes it behind the caller's back. Only a room that
+  // has no profile of its own takes the skeleton's default.
+  std::string       profileError;
+  const std::string wanted   = requestedProfile.empty() ? RoomProfile(name) : requestedProfile;
+  const std::string profile  = NRoomRouter::ProfileName(skeleton, wanted, profileError);
+  if (!profileError.empty()) return fail(profileError, kUnknownProfile);
+  const json resources = NRoomRouter::ProfileResources(skeleton, profile, profileError);
+  if (!profileError.empty()) return fail(profileError, kUnknownProfile);
+  SetProfile(name, profile);
+
   const json access  = RoomAccess(name);
-  const json service = NRoomRouter::ServiceObject(cfg, name, value, RouterBaseUrl(), access, RoomOwner(name), skeleton);
+  const json service = NRoomRouter::ServiceObject(cfg, name, value, RouterBaseUrl(), access, RoomOwner(name),
+                                                 skeleton, profile, resources);
   std::string applyCode;
   if (!Apply(SvcCollection(), SvcPath(name), service, error, applyCode)) return fail(error, applyCode);
 
@@ -1278,6 +1732,7 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, Replay
   payload["url"]      = NRoomRouter::ClientUrl(cfg, value, access.value("rw", ""));
   payload["access"]   = access;
   if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
+  if (!profile.empty()) payload["profile"] = profile;
   payload["ttl"]      = cfg.idleTtlSec;
   payload["state"]    = "ready";
   if (session.contains("session")) payload["session"] = session["session"];
@@ -1293,8 +1748,8 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, Replay
 // replay Whether the room's stored session is replayed once it is up.
 // payload Receives the room's state and, once it is ready, its URL.
 // error  Actionable reason when the call itself could not be started.
-bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay replay, json & payload,
-                                  std::string & error, std::string & code)
+bool NRoomRouter::EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay,
+                                  json & payload, std::string & error, std::string & code)
 {
   const NRoomConfig & cfg  = fConfig;
   const std::string        name = NRoomRouter::RoomName(cfg, value);
@@ -1330,6 +1785,8 @@ bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay repla
       payload["url"]       = NRoomRouter::ClientUrl(cfg, value, state.tokenRw);
       payload["access"]    = NRoomRouter::AccessJson(state.tokenRw, state.tokenRo);
       if (!state.owner.empty()) payload["owner"] = state.owner;
+      // What this open asked for, so a client can say what the room is being created as.
+      if (!profile.empty()) payload["profile"] = profile;
       payload["ttl"]       = cfg.idleTtlSec;
       payload["state"]     = "preparing";
       payload["phase"]     = state.phase;
@@ -1364,7 +1821,7 @@ bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay repla
     startedAt  = state.startedAt;
   }
 
-  if (wait) return EnsureWorker(value, generation, replay, payload, error, code);
+  if (wait) return EnsureWorker(value, generation, profile, replay, payload, error, code);
 
   payload["room"]      = value;
   payload["name"]      = name;
@@ -1372,6 +1829,7 @@ bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay repla
   payload["url"]       = NRoomRouter::ClientUrl(cfg, value, tokenRw);
   payload["access"]    = NRoomRouter::AccessJson(tokenRw, tokenRo);
   if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
+  if (!profile.empty()) payload["profile"] = profile;
   payload["ttl"]       = cfg.idleTtlSec;
   payload["state"]     = "preparing";
   payload["phase"]     = "service";
@@ -1382,12 +1840,13 @@ bool NRoomRouter::EnsureStart(const std::string & value, bool wait, Replay repla
   // entry, which is what room/list and room/status report to every other client.
   ReapWorkers();
   auto done = std::make_shared<std::atomic<bool>>(false);
-  SpawnWorker(value, std::thread([this, value, generation, replay, done]() {
+  SpawnWorker(value, std::thread([this, value, generation, profile, replay, done]() {
                 json        result;
                 std::string failure;
                 std::string code;
                 try {
-                  if (!EnsureWorker(value, generation, replay, result, failure, code) && !failure.empty()) {
+                  if (!EnsureWorker(value, generation, profile, replay, result, failure, code) &&
+                      !failure.empty()) {
                     NLogError("[room] '%s' could not be created: %s", value.c_str(), failure.c_str());
                   }
                 }
@@ -1674,10 +2133,18 @@ bool NRoomRouter::Register(NHttpServer * server)
       .description = "Ensure a room exists (one Knative Service per room) and return the URL that "
                      "serves it. POST/GET with 'room' in the body. With wait=false the call returns "
                      "at once with state=preparing and the room is created in the background - poll "
-                     "room/status or room/list for the outcome.",
+                     "room/status or room/list for the outcome. 'profile' picks one of the room "
+                     "skeleton's sizes (see room/list for the ones this deployment offers); without "
+                     "it a room keeps the size it already has, and a new one takes the skeleton's "
+                     "default.",
       .methods     = {"GET", "POST"},
       .inputSchema = {{"properties",
                        {{"room", {{"type", "string"}, {"description", "Room id (any client-chosen string)."}}},
+                        {"profile",
+                         {{"type", "string"},
+                          {"description", "Room skeleton profile to create (or resize) the room at, e.g. "
+                                          "small; defaults to the room's own, or the skeleton's "
+                                          "defaultProfile."}}},
                         {"wait",
                          {{"type", "boolean"},
                           {"description", "Wait for the room to be ready before answering (default true); "
@@ -1696,6 +2163,15 @@ bool NRoomRouter::Register(NHttpServer * server)
                      "room whose creation is still running is listed as well, with state=preparing and "
                      "the phase it has reached; one whose creation failed is listed with state=failed "
                      "and the error.",
+      .methods     = {"GET"},
+  });
+  Ndmspc::RegisterMcpTool("room/capacity", {
+      .description = "Report the cluster's capacity for rooms: what its nodes have (allocatable), what "
+                     "the rooms and everything else already reserve (requests), and what is left "
+                     "(free, plus a per-node breakdown). These are reservations, not live usage - the "
+                     "same numbers the scheduler weighs, which is what decides whether another room "
+                     "can start. Needs read access to nodes and pods cluster-wide: without it the "
+                     "answer carries complete=false and only the parts it could read.",
       .methods     = {"GET"},
   });
   Ndmspc::RegisterMcpTool("room/close", {
@@ -1748,6 +2224,13 @@ bool NRoomRouter::Register(NHttpServer * server)
   handlers["room/list"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleList(method, in, out);
+  };
+  // -------------------------------------------------------------------------
+  //  /api/room/capacity — what the cluster has, and what the rooms reserve
+  // -------------------------------------------------------------------------
+  handlers["room/capacity"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                                 std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleCapacity(method, in, out);
   };
   // -------------------------------------------------------------------------
   //  /api/room/close — delete a room
@@ -1856,13 +2339,17 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   // is being prepared and poll room/status: the work then runs off the request path, which keeps
   // the router answering everyone else and lets several rooms be prepared at once. The session
   // replay - the call that wakes the room - happens inside that work either way.
+  // The size the caller asks for, if any: resolved against the skeleton while the room is created,
+  // so a name this deployment does not offer comes back as a failure with `unknown_profile`.
+  const std::string profile = NRoomRouter::RequestProfile(in);
+
   const bool wait = NRoomRouter::WaitFlag(fConfig, in);
   json        payload;
   std::string error;
   std::string code;
   bool        started = false;
   try {
-    started = EnsureStart(ref.value, wait, Replay::Stored, payload, error, code);
+    started = EnsureStart(ref.value, profile, wait, Replay::Stored, payload, error, code);
   }
   catch (const std::exception & e) {
     // A failure here must not take the router down with it: report it like any other.
@@ -1875,6 +2362,10 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
     out["result"] = "failure";
     out["error"]  = error;
     if (!code.empty()) out["code"] = code;
+    // A creation that failed because the room's container keeps dying says so in its own terms: the
+    // reason is what tells a user to give the room a bigger profile.
+    const json lastError = RoomLastError(ref.name);
+    if (!lastError.empty()) out["payload"]["lastError"] = lastError;
     return;
   }
   if (payload.value("state", std::string()) == "preparing") {
@@ -1889,6 +2380,11 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   // ensure, which is what every client relies on - but a client that just pressed "create" may want
   // to say which of the two happened.
   payload["created"] = created;
+
+  // What happened to the room last time, when anything did: a client that is opening a room back up
+  // is exactly the client that wants to know its predecessor ran out of memory.
+  const json lastError = RoomLastError(ref.name);
+  if (!lastError.empty()) payload["lastError"] = lastError;
 
   out["result"]  = "success";
   out["payload"] = payload;
@@ -1929,6 +2425,16 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
     }
   }
 
+  // Why its container last died, while the cluster still remembers: a room that is not serving has
+  // no other witness, and this is the call a client makes when it wants to know what happened.
+  const json itsPods = RoomPods(ref.name, "").value("items", json::array());
+  for (const auto & pod : itsPods) {
+    const json termination = NRoomRouter::PodTermination(pod);
+    if (termination.empty()) continue;
+    NoteTermination(ref.name, termination);
+    break;
+  }
+
   out["result"]       = "success";
   out["payload"]["room"]     = ref.value;
   out["payload"]["name"]     = ref.name;
@@ -1950,6 +2456,10 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
       const json access = NRoomRouter::AccessJson(it->second.tokenRw, it->second.tokenRo);
       if (!access.empty()) out["payload"]["access"] = access;
       if (!it->second.owner.empty()) out["payload"]["owner"] = it->second.owner;
+      if (!it->second.profile.empty()) out["payload"]["profile"] = it->second.profile;
+      const json lastError = NRoomRouter::LastErrorJson(it->second.lastReason, it->second.lastExit,
+                                                        it->second.lastAt, it->second.lastRestarts);
+      if (!lastError.empty()) out["payload"]["lastError"] = lastError;
       // How the last creation left the room's session: a client that waited for a create with
       // wait=false follows it through here, and what the replay did belongs in that answer.
       if (!it->second.session.empty()) out["payload"]["session"] = it->second.session;
@@ -1977,12 +2487,18 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
       const json svc    = json::parse(response.body);
       const json status = svc.value("status", json::object());
       bool       ready  = false;
-      for (const auto & condition : status.value("conditions", json::array())) {
+      const json conditions = status.value("conditions", json::array());
+      for (const auto & condition : conditions) {
         if (condition.value("type", "") == "Ready") ready = (condition.value("status", "") == "True");
       }
       out["payload"]["ready"]    = ready;
       out["payload"]["revision"] = status.value("latestReadyRevisionName", "");
       if (state.empty()) state   = ready ? "ready" : "not ready";
+
+      // What the room may use (see `ServiceResources`): the detail pane asks for it here, and the
+      // list reports the same numbers for every room.
+      const json resources = NRoomRouter::ServiceResources(svc);
+      if (!resources.empty()) out["payload"]["resources"] = resources;
     }
     catch (const std::exception &) {
     }
@@ -2004,6 +2520,37 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // Who is asking decides what the list holds: see "Ownership and visibility".
   const NRequestIdentity identity = RequestIdentity(in);
 
+  // Why the rooms' containers last died: one pods list for the whole namespace, matched to rooms by
+  // the Knative label that carries their Service name. This happens before the registry is read, so
+  // a note it finds is part of what this answer reports, and it is one API call however many rooms
+  // there are. The pod is deleted when a room scales to zero, which is why what it reports here is
+  // remembered rather than looked up again later.
+  {
+    const auto pods = Request("GET", PodsPath("serving.knative.dev%2Fservice"));
+    if (pods.status == 200) {
+      std::map<std::string, json> newest;
+      try {
+        const json allPods = json::parse(pods.body).value("items", json::array());
+        for (const auto & pod : allPods) {
+          const std::string service = pod.value("metadata", json::object())
+                                          .value("labels", json::object())
+                                          .value("serving.knative.dev/service", std::string());
+          if (service.empty()) continue;
+          const json termination = NRoomRouter::PodTermination(pod);
+          if (termination.empty()) continue;
+          // A roll leaves two pods around: the later death is the one worth keeping.
+          const auto seen = newest.find(service);
+          if (seen == newest.end() || termination.value("at", 0L) > seen->second.value("at", 0L)) {
+            newest[service] = termination;
+          }
+        }
+      }
+      catch (const std::exception &) {
+      }
+      for (const auto & entry : newest) NoteTermination(entry.first, entry.second);
+    }
+  }
+
   json                     rooms = json::array();
   std::vector<std::string> stale;
   {
@@ -2020,6 +2567,12 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       const json access = NRoomRouter::AccessJson(entry.second.tokenRw, entry.second.tokenRo);
       if (!access.empty()) room["access"] = access;
       if (!entry.second.owner.empty()) room["owner"] = entry.second.owner;
+      if (!entry.second.profile.empty()) room["profile"] = entry.second.profile;
+      // Why its container last died, if it ever did: the reason a room the user expected to be
+      // serving is not, which Kubernetes otherwise keeps to itself.
+      const json lastError = NRoomRouter::LastErrorJson(entry.second.lastReason, entry.second.lastExit,
+                                                        entry.second.lastAt, entry.second.lastRestarts);
+      if (!lastError.empty()) room["lastError"] = lastError;
       // A room is listed from the moment its creation starts, carrying what it is waiting for,
       // so a client can show the wait instead of an absent room.
       if (entry.second.preparing) {
@@ -2061,12 +2614,18 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       const json svc    = json::parse(response.body);
       const json status = svc.value("status", json::object());
       bool       ready  = false;
-      for (const auto & condition : status.value("conditions", json::array())) {
+      const json conditions = status.value("conditions", json::array());
+      for (const auto & condition : conditions) {
         if (condition.value("type", "") == "Ready") ready = (condition.value("status", "") == "True");
       }
       room["ready"]    = ready;
       room["revision"] = status.value("latestReadyRevisionName", room.value("revision", ""));
       room["state"]    = ready ? "ready" : "not ready";
+
+      // What the room may use, from the Service the router itself stamped: known while the room is
+      // scaled to zero, and absent for a room whose skeleton declares nothing.
+      const json resources = NRoomRouter::ServiceResources(svc);
+      if (!resources.empty()) room["resources"] = resources;
 
       const std::string revision = room.value("revision", "");
       if (!revision.empty()) {
@@ -2114,6 +2673,260 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // caller's own rooms - or that it is not - without keeping a second copy of the admin list that
   // could drift from this one.
   out["payload"]["admin"] = IsAdmin(identity);
+
+  // The sizes this deployment offers, so a client can let a user choose one without knowing the
+  // names: the same skeleton the rooms are created from. A skeleton without profiles - a deployment
+  // that offers no sizes - simply reports none, and the choice is not shown at all.
+  json skeleton;
+  std::string skeletonError;
+  if (Skeleton(skeleton, skeletonError)) {
+    const json profiles = skeleton.value("profiles", json::object());
+    if (profiles.is_object() && !profiles.empty()) {
+      out["payload"]["profiles"]       = profiles;
+      out["payload"]["defaultProfile"] = skeleton.value("defaultProfile", std::string());
+    }
+  }
+  else {
+    NLogWarning("[room] cannot report the room profiles: %s", skeletonError.c_str());
+  }
+}
+
+// ===========================================================================
+//  room/capacity
+// ===========================================================================
+namespace {
+/// @brief Adds what a set of containers declares on one side: `requests` (what they reserve) or
+///        `limits` (the most they may reach).
+///
+/// A container that declares nothing on that side contributes nothing, and a quantity nobody can read
+/// is counted as nothing: the answer reports what was asked for, never a guess.
+void AddResources(long & cpuMillis, long & bytes, const json & containers, const char * side)
+{
+  if (!containers.is_array()) return;
+  for (const auto & container : containers) {
+    if (!container.is_object()) continue;
+    const json declared = container.value("resources", json::object()).value(side, json::object());
+    if (!declared.is_object()) continue;
+    cpuMillis += NRoomRouter::CpuMillis(declared.value("cpu", std::string()));
+    bytes += NRoomRouter::Bytes(declared.value("memory", std::string()));
+  }
+}
+
+/// @brief The amounts every figure in room/capacity is written as, in their base units.
+json Amounts(long cpuMillis, long bytes)
+{
+  return json{{"cpuMillis", cpuMillis}, {"memBytes", bytes}};
+}
+} // namespace
+
+void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & out)
+{
+  (void)in;
+  if (method.find("GET") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/capacity";
+    return;
+  }
+
+  // What the cluster has to give: `allocatable` is the number the scheduler counts, and the ceiling
+  // a room's requests have to fit under.
+  bool       nodesRead = false;
+  long       allocCpu  = 0;
+  long       allocMem  = 0;
+  json       perNode   = json::array();
+  const auto nodes     = Request("GET", "/api/v1/nodes");
+  if (nodes.status == 200) {
+    try {
+      const json items = json::parse(nodes.body).value("items", json::array());
+      for (const auto & node : items) {
+        const json allocatable = node.value("status", json::object()).value("allocatable", json::object());
+        const long cpu         = NRoomRouter::CpuMillis(allocatable.value("cpu", std::string()));
+        const long mem         = NRoomRouter::Bytes(allocatable.value("memory", std::string()));
+        allocCpu += cpu;
+        allocMem += mem;
+        perNode.push_back(json{{"name", node.value("metadata", json::object()).value("name", "")},
+                               {"allocatable", Amounts(cpu, mem)}});
+      }
+      nodesRead = true;
+    }
+    catch (const std::exception &) {
+      nodesRead = false;
+      allocCpu  = 0;
+      allocMem  = 0;
+      perNode   = json::array();
+    }
+  }
+
+  // What is already spoken for: every pod, not only this namespace's, because a room lands wherever
+  // the scheduler finds room and everything else on the cluster is competing for the same nodes.
+  bool        podsRead = false;
+  long        reqCpu   = 0;
+  long        reqMem   = 0;
+  long        limCpu   = 0;
+  long        limMem   = 0;
+  long        roomCpu  = 0;
+  long        roomMem  = 0;
+  long        roomLimCpu = 0;
+  long        roomLimMem = 0;
+  json        byNode   = json::object();
+  std::map<std::string, bool> roomServices;
+  const auto  pods = Request("GET", "/api/v1/pods");
+  if (pods.status == 200) {
+    try {
+      const json clusterPods = json::parse(pods.body).value("items", json::array());
+      for (const auto & pod : clusterPods) {
+        // A pod that has finished holds nothing: counting it would inflate what is reserved.
+        const std::string phase = pod.value("status", json::object()).value("phase", std::string());
+        if (phase == "Succeeded" || phase == "Failed") continue;
+
+        const json spec = pod.value("spec", json::object());
+        long       cpu  = 0;
+        long       mem  = 0;
+        AddResources(cpu, mem, spec.value("containers", json::array()), "requests");
+        reqCpu += cpu;
+        reqMem += mem;
+
+        // And the other side of the same declaration: what the pods may reach. Reservations decide
+        // whether a room starts, ceilings decide how much it can take once it has.
+        long limCpuPerPod = 0;
+        long limMemPerPod = 0;
+        AddResources(limCpuPerPod, limMemPerPod, spec.value("containers", json::array()), "limits");
+        limCpu += limCpuPerPod;
+        limMem += limMemPerPod;
+
+        const std::string node = spec.value("nodeName", std::string());
+        if (!node.empty()) {
+          const json held = byNode.value(node, json::object());
+          // Both sides per node: what it reserves, and what it may reach. The second is what a fit by
+          // ceilings has to subtract, the way the first is what a fit by reservations subtracts.
+          byNode[node] = json{{"cpuMillis", held.value("cpuMillis", 0L) + cpu},
+                              {"memBytes", held.value("memBytes", 0L) + mem},
+                              {"limCpuMillis", held.value("limCpuMillis", 0L) + limCpuPerPod},
+                              {"limMemBytes", held.value("limMemBytes", 0L) + limMemPerPod}};
+        }
+
+        // The label Knative puts on a room's pods (and on the sidecar beside them): what the rooms
+        // reserve, sidecars included - which is what a room really costs the cluster. The entry
+        // Service is a Knative Service too, so a pod only counts as a room when the router named it
+        // like one: counting the router itself would be a lie about what the rooms cost.
+        const std::string service =
+            pod.value("metadata", json::object()).value("labels", json::object()).value("serving.knative.dev/service", std::string());
+        if (!service.empty() && service.rfind(fConfig.prefix, 0) == 0) {
+          roomCpu += cpu;
+          roomMem += mem;
+          roomLimCpu += limCpuPerPod;
+          roomLimMem += limMemPerPod;
+          roomServices[service] = true;
+        }
+      }
+      podsRead = true;
+    }
+    catch (const std::exception &) {
+      podsRead = false;
+      reqCpu   = 0;
+      reqMem   = 0;
+      roomCpu  = 0;
+      roomMem  = 0;
+      byNode   = json::object();
+    }
+  }
+
+  out["result"] = "success";
+  if (nodesRead) {
+    out["payload"]["nodes"]       = static_cast<int>(perNode.size());
+    out["payload"]["allocatable"] = Amounts(allocCpu, allocMem);
+  }
+  if (podsRead) {
+    // Both sides of what the cluster has been promised: what the pods reserve, and the most they may
+    // reach. A client can show either; `free` below is about reservations, because that is what the
+    // scheduler places.
+    out["payload"]["requests"] = Amounts(reqCpu, reqMem);
+    out["payload"]["limits"]   = Amounts(limCpu, limMem);
+    out["payload"]["rooms"]    = json{{"count", static_cast<int>(roomServices.size())},
+                                      {"requests", Amounts(roomCpu, roomMem)},
+                                      {"limits", Amounts(roomLimCpu, roomLimMem)}};
+    out["payload"]["other"]    = json{{"requests", Amounts(reqCpu - roomCpu, reqMem - roomMem)},
+                                      {"limits", Amounts(limCpu - roomLimCpu, limMem - roomLimMem)}};
+  }
+  if (nodesRead && podsRead) {
+    out["payload"]["free"] = Amounts(std::max(0L, allocCpu - reqCpu), std::max(0L, allocMem - reqMem));
+
+    // Per node too, because what is free across the cluster is not what one room can use: 4 GiB free
+    // spread as 2 + 2 starts nothing, and only the biggest node's free predicts that.
+    for (auto & node : perNode) {
+      const std::string name = node.value("name", std::string());
+      const json        used = byNode.value(name, json::object());
+      const long cpu = used.value("cpuMillis", 0L);
+      const long mem = used.value("memBytes", 0L);
+      node["requests"] = Amounts(cpu, mem);
+      node["free"]     = Amounts(std::max(0L, node["allocatable"].value("cpuMillis", 0L) - cpu),
+                                 std::max(0L, node["allocatable"].value("memBytes", 0L) - mem));
+    }
+    out["payload"]["perNode"] = perNode;
+
+    // How many more rooms of each profile could still start. A room has to fit on *one* node, so this
+    // is the biggest free node against what a profile asks for - and the tighter of a profile's two
+    // requests is what limits it, which is what a user needs in order to choose a size.
+    long bestCpu = 0;
+    long bestMem = 0;
+    long bestLimCpu = 0;
+    long bestLimMem = 0;
+    for (const auto & node : perNode) {
+      bestCpu = std::max(bestCpu, node["free"].value("cpuMillis", 0L));
+      bestMem = std::max(bestMem, node["free"].value("memBytes", 0L));
+
+      // The same node's headroom by ceilings: what it can give minus the limits its pods declare. A
+      // room that never reaches its limit costs less than this says, which is what "if every room
+      // peaked at once" means.
+      const json held = byNode.value(node.value("name", std::string()), json::object());
+      bestLimCpu = std::max(bestLimCpu, std::max(0L, node["allocatable"].value("cpuMillis", 0L) -
+                                                          held.value("limCpuMillis", 0L)));
+      bestLimMem = std::max(bestLimMem, std::max(0L, node["allocatable"].value("memBytes", 0L) -
+                                                          held.value("limMemBytes", 0L)));
+    }
+
+    json        skeleton;
+    std::string skeletonError;
+    json        fits = json::object();
+    if (Skeleton(skeleton, skeletonError)) {
+      json byRequests = json::object();
+      json byLimits   = json::object();
+      // Bound to a name: `value()` returns a temporary, and a range-for over one iterates memory that
+      // is already gone - it survives by luck in a test and segfaults in a release build.
+      const json offered = skeleton.value("profiles", json::object());
+      for (const auto & profile : offered.items()) {
+        std::string profileError;
+        const json  declared = NRoomRouter::ProfileResources(skeleton, profile.key(), profileError);
+
+        // Each side against what it costs on that side: a room's reservations against the node's
+        // reservations-headroom, its ceilings against the node's ceilings-headroom.
+        const auto fit = [](long freeCpu, long freeMem, const json & ask) {
+          const long cpu = NRoomRouter::CpuMillis(ask.value("cpu", std::string()));
+          const long mem = NRoomRouter::Bytes(ask.value("memory", std::string()));
+          if (cpu <= 0 || mem <= 0) return json::object(); // a size that asks for nothing constrains nothing
+
+          const long byCpu = freeCpu / cpu;
+          const long byMem = freeMem / mem;
+          return json{{"count", std::min(byCpu, byMem)}, {"limitedBy", byCpu <= byMem ? "cpu" : "memory"}};
+        };
+
+        const json requested = fit(bestCpu, bestMem, declared.value("requests", json::object()));
+        if (!requested.empty()) byRequests[profile.key()] = requested;
+        const json limited = fit(bestLimCpu, bestLimMem, declared.value("limits", json::object()));
+        if (!limited.empty()) byLimits[profile.key()] = limited;
+      }
+
+      if (!byRequests.empty() || !byLimits.empty()) {
+        fits = json{{"requests", byRequests}, {"limits", byLimits}};
+      }
+    }
+    if (!fits.empty()) out["payload"]["fits"] = fits;
+  }
+
+  // Whether these numbers cover the whole cluster. They are gathered from what this router is allowed
+  // to read, so a missing permission answers with less rather than with something invented - the same
+  // rule that keeps a room working when pods cannot be listed.
+  out["payload"]["complete"] = nodesRead && podsRead;
 }
 
 // ===========================================================================
@@ -2353,7 +3166,9 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
     bool        ensured = false;
     std::string code;
     try {
-      ensured = EnsureStart(id, /*wait=*/true, Replay::None, payload, error, code);
+      // No profile: a restored room is re-created from today's skeleton, so it takes the skeleton's
+      // default unless it already had a size of its own.
+      ensured = EnsureStart(id, /*profile=*/std::string(), /*wait=*/true, Replay::None, payload, error, code);
     }
     catch (const std::exception & e) {
       error   = std::string("cannot create the room: ") + e.what();

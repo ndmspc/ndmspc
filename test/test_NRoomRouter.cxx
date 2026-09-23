@@ -58,6 +58,82 @@ class FakeCluster : public IRoomCluster {
   bool unschedulable{false};      ///< The room's pod cannot be placed
   bool podsForbidden{false};      ///< The cluster refuses to list pods
   int  replicas{0};               ///< What the latest revision reports
+  json pods = json::array();      ///< The pods the cluster reports, as Kubernetes writes them
+  json nodes = json::array();     ///< The nodes the cluster reports (room/capacity)
+  /// Every pod on the cluster (room/capacity) - a wider list than the room namespace's.
+  json clusterPods = json::array();
+  bool nodesForbidden{false};       ///< The cluster refuses to list nodes
+  bool clusterPodsForbidden{false}; ///< The cluster refuses the cluster-wide pods list
+
+  /// @brief Adds a node and what it can give.
+  void AddNode(const std::string & name, const std::string & cpu, const std::string & memory)
+  {
+    json node;
+    node["metadata"]["name"]                = name;
+    node["status"]["allocatable"]["cpu"]    = cpu;
+    node["status"]["allocatable"]["memory"] = memory;
+    nodes.push_back(node);
+  }
+
+  /// @brief Adds a pod to the cluster-wide list, with what its containers request.
+  /// @param service Its room's Service name, when it is a room pod ("" for everything else).
+  /// @param node The node it runs on ("" for one the scheduler has not placed).
+  /// @param cpu The container's CPU request; `sidecarCpu` adds a second container (Knative's).
+  /// @param phase Its phase, so a test can add one that has finished.
+  void AddPod(const std::string & service, const std::string & node, const std::string & cpu,
+              const std::string & memory, const std::string & sidecarCpu = "",
+              const std::string & sidecarMemory = "", const std::string & phase = "Running",
+              const std::string & limitCpu = "", const std::string & limitMemory = "")
+  {
+    json containers = json::array();
+    const auto container = [](const std::string & c, const std::string & m, const std::string & lc,
+                              const std::string & lm) {
+      json one;
+      one["resources"]["requests"] = json{{"cpu", c}, {"memory", m}};
+      // The other side of the declaration, which room/capacity reports as `limits`.
+      if (!lc.empty() || !lm.empty()) one["resources"]["limits"] = json{{"cpu", lc}, {"memory", lm}};
+      return one;
+    };
+    containers.push_back(container(cpu, memory, limitCpu, limitMemory));
+    if (!sidecarCpu.empty() || !sidecarMemory.empty()) {
+      containers.push_back(container(sidecarCpu, sidecarMemory, "", ""));
+    }
+
+    json pod;
+    pod["metadata"]["name"] = "pod-" + std::to_string(clusterPods.size());
+    if (!service.empty()) pod["metadata"]["labels"]["serving.knative.dev/service"] = service;
+    pod["spec"]["nodeName"]   = node;
+    pod["spec"]["containers"] = containers;
+    pod["status"]["phase"]    = phase;
+    clusterPods.push_back(pod);
+  }
+
+  /// @brief Adds a pod whose container last died, the way Kubernetes records it.
+  /// @param service The room's Service name (the label that ties the pod to a room).
+  /// @param reason The container's termination reason, e.g. OOMKilled.
+  /// @param exitCode The code it died with.
+  /// @param finishedAt When it died (RFC 3339).
+  /// @param restarts How many times the container had been restarted.
+  /// @param running Whether a container is running again now (so the death is history).
+  void AddTerminatedPod(const std::string & service, const std::string & reason, int exitCode,
+                        const std::string & finishedAt, int restarts = 1, bool running = false)
+  {
+    json terminated;
+    terminated["reason"]     = reason;
+    terminated["exitCode"]   = exitCode;
+    terminated["finishedAt"] = finishedAt;
+
+    json container;
+    container["restartCount"] = restarts;
+    container["lastState"]["terminated"] = terminated;
+    if (running) container["state"]["running"]["startedAt"] = finishedAt;
+    else container["state"]["terminated"] = terminated;
+
+    json pod;
+    pod["metadata"]["labels"]["serving.knative.dev/service"] = service;
+    pod["status"]["containerStatuses"]                       = json::array({container});
+    pods.push_back(pod);
+  }
 
   std::map<std::string, json>                      objects; ///< Path -> stored object
   std::vector<std::pair<std::string, std::string>> calls;   ///< Every (method, path) in order
@@ -103,10 +179,25 @@ class FakeCluster : public IRoomCluster {
       return Ok(configMap);
     }
 
-    // The room pods: the router only asks whether one is unschedulable.
+    // The nodes, and every pod on the cluster: what room/capacity counts.
+    if (path.rfind("/api/v1/nodes", 0) == 0) {
+      if (nodesForbidden) return Status(403, "{\"message\":\"nodes is forbidden\"}");
+      json list;
+      list["items"] = nodes;
+      return Ok(list);
+    }
+    if (path.rfind("/api/v1/pods", 0) == 0) {
+      if (clusterPodsForbidden) return Status(403, "{\"message\":\"pods is forbidden\"}");
+      json list;
+      list["items"] = clusterPods;
+      return Ok(list);
+    }
+
+    // The room pods: what the router reads to say why a room is not serving - the scheduler refusing
+    // to place one, and a container that died (the only record of a room the kernel killed).
     if (path.rfind("/api/v1/namespaces/default/pods", 0) == 0) {
       if (podsForbidden) return Status(403, "{\"message\":\"pods is forbidden\"}");
-      json items = json::array();
+      json items = pods;
       if (unschedulable) {
         const std::string message = "0/1 nodes are available: 1 Insufficient cpu.";
         json              condition;
@@ -249,6 +340,15 @@ struct Router {
   {
   }
 
+  /// @brief A second router over a cluster another one already used: a restart, which is what tells
+  ///        what the router keeps in the cluster from what it only kept in its own memory.
+  Router(std::shared_ptr<FakeCluster> existing, int readyTimeoutSec = 2,
+         std::vector<std::string> admins = {})
+      : cluster(std::move(existing)),
+        router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins)), cluster))
+  {
+  }
+
   /// The process's router lives forever; a test's does not, so its workers are stopped first -
   /// closing the rooms cancels them, and nothing may touch the router after it is gone.
   ~Router()
@@ -269,6 +369,7 @@ struct Router {
     if (action == "open") router->HandleOpen(method, in, out);
     else if (action == "status") router->HandleStatus(method, in, out);
     else if (action == "list") router->HandleList(method, in, out);
+    else if (action == "capacity") router->HandleCapacity(method, in, out);
     else if (action == "close") router->HandleClose(method, in, out);
     else if (action == "backup") router->HandleBackup(method, in, out);
     else if (action == "restore") router->HandleRestore(method, in, out);
@@ -414,7 +515,7 @@ TEST(NRoomRouterTest, OnlyObjectsCarryingTheRoomLabelCountAsRooms)
   // What the router creates: both objects are stamped with the room label.
   const json service =
       NRoomRouter::ServiceObject(Config(), "ndmspc-room-test", "test", "http://router.svc:80", json::object(), "",
-                                 json::object());
+                                 json::object(), /*profile=*/std::string(), /*resources=*/json::object());
   EXPECT_TRUE(NRoomRouter::HasRoomLabel(service));
   const json route = NRoomRouter::RouteObject(Config(), "ndmspc-room-test", "test", "revision-1", json::object());
   EXPECT_TRUE(NRoomRouter::HasRoomLabel(route));
@@ -556,7 +657,8 @@ TEST(NRoomRouterTest, ServiceObjectStampsTheRoomAndTheSkeletonWins)
   const json access = json::object({{"rw", "rw-token"}, {"ro", "ro-token"}});
   const json service =
       NRoomRouter::ServiceObject(Config(), "ndmspc-room-alpha", "alpha", "http://router.default.svc:80", access,
-                                 "alice@example.com", skeleton);
+                                 "alice@example.com", skeleton, /*profile=*/std::string(),
+                                 /*resources=*/json::object());
 
   EXPECT_EQ(service["apiVersion"], "serving.knative.dev/v1");
   EXPECT_EQ(service["kind"], "Service");
@@ -582,7 +684,8 @@ TEST(NRoomRouterTest, ServiceObjectStampsTheRoomAndTheSkeletonWins)
   // A room handed no tokens enforces nothing, so it must not get an empty switch either.
   const json bare =
       NRoomRouter::ServiceObject(Config(), "ndmspc-room-beta", "beta", "http://router.default.svc:80",
-                                 json::object(), "", skeleton);
+                                 json::object(), "", skeleton, /*profile=*/std::string(),
+                                 /*resources=*/json::object());
   std::map<std::string, std::string> bareValues;
   for (const auto & entry : bare["spec"]["template"]["spec"]["containers"][0]["env"]) {
     bareValues[entry["name"]] = entry["value"];
@@ -1340,4 +1443,565 @@ TEST(NRoomOwnershipTest, ARestoreKeepsTheIdsTheDocumentNames)
   ASSERT_EQ(restored["payload"]["restored"].size(), 1u);
   EXPECT_EQ(restored["payload"]["restored"][0]["room"], "mine");
   EXPECT_TRUE(test.router->Tracked("mine"));
+}
+
+// ---------------------------------------------------------------------------------------------
+//  Declared resources
+// ---------------------------------------------------------------------------------------------
+
+/// @brief A Service whose container declares what it may use.
+json ServiceDeclaring(const json & resources)
+{
+  json service;
+  service["metadata"]["name"]      = "ndmspc-room-gauged";
+  service["metadata"]["namespace"] = "default";
+  service["metadata"]["labels"]["ndmspc.io/room"] = "gauged";
+  service["spec"]["template"]["spec"]["containers"] =
+      json::array({json::object({{"name", "ndmspc"}, {"resources", resources}})});
+  return service;
+}
+
+TEST(NRoomRouterTest, ServiceResourcesReportsOnlyWhatTheServiceDeclares)
+{
+  // What the skeleton stamped on the Service, handed over as Kubernetes spells it.
+  const json declared = NRoomRouter::ServiceResources(ServiceDeclaring(
+      {{"requests", {{"cpu", "500m"}, {"memory", "512Mi"}}}, {"limits", {{"cpu", "2"}, {"memory", "2Gi"}}}}));
+  EXPECT_EQ(declared["requests"]["cpu"], "500m");
+  EXPECT_EQ(declared["requests"]["memory"], "512Mi");
+  EXPECT_EQ(declared["limits"]["cpu"], "2");
+  EXPECT_EQ(declared["limits"]["memory"], "2Gi");
+
+  // A side that declares nothing is left out rather than reported as empty.
+  const json requestsOnly = NRoomRouter::ServiceResources(
+      ServiceDeclaring({{"requests", {{"cpu", "500m"}}}}));
+  EXPECT_EQ(requestsOnly["requests"]["cpu"], "500m");
+  EXPECT_FALSE(requestsOnly["requests"].contains("memory"));
+  EXPECT_FALSE(requestsOnly.contains("limits"));
+
+  // A room that declares nothing at all reports nothing, which is what leaves `resources` out of
+  // its payload - the UI then shows a dash instead of a zero.
+  EXPECT_TRUE(NRoomRouter::ServiceResources(ServiceDeclaring(json::object())).empty());
+  EXPECT_TRUE(NRoomRouter::ServiceResources(json::object()).empty());
+  EXPECT_TRUE(NRoomRouter::ServiceResources(json({{"spec", json::object()}})).empty());
+
+  // Shapes an API server could hand back but that carry no resources: an empty container list, and
+  // a `resources` that is not an object. Neither may throw.
+  EXPECT_TRUE(NRoomRouter::ServiceResources(json({{"spec",
+      {{"template", {{"spec", {{"containers", json::array()}}}}}}}})).empty());
+  EXPECT_TRUE(NRoomRouter::ServiceResources(ServiceDeclaring(json("nonsense"))).empty());
+  EXPECT_TRUE(NRoomRouter::ServiceResources(json({{"spec", {{"template", {{"spec",
+      {{"containers", json::array({json("nonsense")})}}}}}}}})).empty());
+}
+
+/// @brief A skeleton that offers three sizes, the way the devops role renders them.
+json SkeletonWithProfiles()
+{
+  json skeleton;
+  skeleton["serviceSpec"]["template"]["spec"]["containers"] =
+      json::array({json::object({{"name", "ndmspc"}})});
+  skeleton["defaultProfile"] = "small";
+  skeleton["profiles"]       = {
+      {"small",
+       {{"resources",
+         {{"requests", {{"cpu", "250m"}, {"memory", "256Mi"}}},
+          {"limits", {{"cpu", "1"}, {"memory", "1Gi"}}}}}}},
+      {"medium",
+       {{"resources",
+         {{"requests", {{"cpu", "500m"}, {"memory", "512Mi"}}},
+          {"limits", {{"cpu", "2"}, {"memory", "2Gi"}}}}}}},
+      {"large",
+       {{"resources",
+         {{"requests", {{"cpu", "1"}, {"memory", "1Gi"}}},
+          {"limits", {{"cpu", "4"}, {"memory", "4Gi"}}}}}}},
+  };
+  return skeleton;
+}
+
+TEST(NRoomRouterTest, ProfileNameAndResourcesComeFromTheSkeleton)
+{
+  const json skeleton = SkeletonWithProfiles();
+  std::string error;
+
+  // The name asked for wins; nothing asks for one means the skeleton's default.
+  EXPECT_EQ(NRoomRouter::ProfileName(skeleton, "large", error), "large");
+  EXPECT_TRUE(error.empty());
+  EXPECT_EQ(NRoomRouter::ProfileName(skeleton, "", error), "small");
+  EXPECT_TRUE(error.empty());
+
+  // The names are the deployment's: this only resolves them.
+  EXPECT_EQ(NRoomRouter::ProfileResources(skeleton, "large", error)["requests"]["memory"], "1Gi");
+  EXPECT_EQ(NRoomRouter::ProfileResources(skeleton, "large", error)["limits"]["cpu"], "4");
+  EXPECT_EQ(NRoomRouter::ProfileResources(skeleton, "small", error)["requests"]["cpu"], "250m");
+
+  // A name this deployment does not offer is refused, and says what it does offer.
+  const std::string unknown = NRoomRouter::ProfileName(skeleton, "huge", error);
+  EXPECT_TRUE(unknown.empty());
+  EXPECT_NE(error.find("unknown room profile 'huge'"), std::string::npos);
+  EXPECT_NE(error.find("small"), std::string::npos);
+  EXPECT_NE(error.find("large"), std::string::npos);
+
+  // A skeleton without profiles is not an error: it offers no sizes, and rooms are then whatever
+  // their own spec declares (what every room was before profiles existed).
+  const json bare = {{"serviceSpec", json::object()}};
+  error.clear();
+  EXPECT_EQ(NRoomRouter::ProfileName(bare, "small", error), "");
+  EXPECT_TRUE(error.empty());
+  EXPECT_TRUE(NRoomRouter::ProfileResources(bare, "", error).empty());
+  EXPECT_TRUE(error.empty());
+
+  // Profiles without a default have nothing to fall back on, and say so.
+  json nodefault = SkeletonWithProfiles();
+  nodefault.erase("defaultProfile");
+  error.clear();
+  EXPECT_EQ(NRoomRouter::ProfileName(nodefault, "", error), "");
+  EXPECT_NE(error.find("no defaultProfile"), std::string::npos);
+}
+
+TEST(NRoomRouterActionsTest, AProfileSizesTheRoomAndTravelsInThePayloads)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles();
+
+  // A room created with no profile takes the skeleton's default.
+  const json opened = test.Open("plain", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  EXPECT_EQ(opened["payload"]["profile"], "small");
+
+  // And one that asks for a size of its own gets it, on its Service and in every payload.
+  const json large = test.Call("open", "POST", json({{"room", "big"}, {"profile", "large"}}));
+  ASSERT_EQ(large["result"], "success");
+  EXPECT_EQ(large["payload"]["profile"], "large");
+
+  const json service = test.cluster->objects["/apis/serving.knative.dev/v1/namespaces/default/services/"
+                                             "ndmspc-room-big"];
+  const json resources = service["spec"]["template"]["spec"]["containers"][0]["resources"];
+  EXPECT_EQ(resources["requests"]["cpu"], "1");
+  EXPECT_EQ(resources["limits"]["memory"], "4Gi");
+  EXPECT_EQ(service["metadata"]["annotations"][NRoomRouter::kProfileAnnotation], "large");
+
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 2u);
+  for (const auto & room : list["payload"]["rooms"]) {
+    if (room["room"] == "big") {
+      EXPECT_EQ(room["profile"], "large");
+    }
+    if (room["room"] == "plain") {
+      EXPECT_EQ(room["profile"], "small");
+    }
+  }
+  // The client is told which sizes exist, so it can offer the choice without knowing their names.
+  EXPECT_EQ(list["payload"]["defaultProfile"], "small");
+  ASSERT_TRUE(list["payload"]["profiles"].contains("large"));
+  EXPECT_EQ(list["payload"]["profiles"]["large"]["resources"]["limits"]["cpu"], "4");
+
+  const json status = test.Call("status", "GET", json({{"room", "big"}}));
+  EXPECT_EQ(status["payload"]["profile"], "large");
+
+  // A name the deployment does not offer is refused, and the room is not created.
+  const json bad = test.Call("open", "POST", json({{"room", "wrong"}, {"profile", "huge"}}));
+  EXPECT_EQ(bad["result"], "failure");
+  EXPECT_EQ(bad["code"], NRoomRouter::kUnknownProfile);
+  EXPECT_NE(bad["error"].get<std::string>().find("unknown room profile"), std::string::npos);
+  EXPECT_EQ(test.cluster->objects.count("/apis/serving.knative.dev/v1/namespaces/default/services/"
+                                        "ndmspc-room-wrong"),
+            0u);
+}
+
+TEST(NRoomRouterActionsTest, ReopeningARoomKeepsItsSizeUnlessAnotherIsAskedFor)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles();
+
+  ASSERT_EQ(test.Call("open", "POST", json({{"room", "sized"}, {"profile", "medium"}}))["result"], "success");
+  const std::string entry =
+      "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-sized";
+
+  // An open that names no profile leaves the room as it is - it must not silently become the
+  // skeleton's default.
+  ASSERT_EQ(test.Open("sized", /*wait=*/true)["result"], "success");
+  EXPECT_EQ(test.cluster->objects[entry]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]
+                ["cpu"],
+            "500m");
+  EXPECT_EQ(test.cluster->objects[entry]["metadata"]["annotations"][NRoomRouter::kProfileAnnotation],
+            "medium");
+
+  // Asking for another size resizes it.
+  const json resized = test.Call("open", "POST", json({{"room", "sized"}, {"profile", "large"}}));
+  ASSERT_EQ(resized["result"], "success");
+  EXPECT_EQ(resized["payload"]["profile"], "large");
+  EXPECT_EQ(test.cluster->objects[entry]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]
+                ["cpu"],
+            "1");
+  EXPECT_EQ(test.cluster->objects[entry]["metadata"]["annotations"][NRoomRouter::kProfileAnnotation],
+            "large");
+}
+
+TEST(NRoomRouterActionsTest, AnAdoptedRoomKeepsTheProfileItsServiceCarries)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles();
+
+  // A room the cluster already has, created at another size: adopting it reads the profile back, so
+  // opening it again does not resize it.
+  const std::string entry =
+      "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-big";
+  json service = test.cluster->objects[entry];
+  service["metadata"]["name"]                     = "ndmspc-room-big";
+  service["metadata"]["labels"]["ndmspc.io/room"] = "big";
+  // What the API server stamps on a Service it created: the readiness wait compares it with the
+  // observed generation, so a room seeded without one is never reported ready.
+  service["metadata"]["generation"] = 1;
+  service["metadata"]["annotations"][NRoomRouter::kProfileAnnotation] = "large";
+  service["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"] = "1";
+  test.cluster->objects[entry] = service;
+
+  test.Open("alpha", /*wait=*/true); // adopts what the cluster already has
+
+  const json list = test.Call("list", "GET");
+  bool       seen = false;
+  for (const auto & room : list["payload"]["rooms"]) {
+    if (room["room"] != "big") continue;
+    seen = true;
+    EXPECT_EQ(room["profile"], "large");
+  }
+  EXPECT_TRUE(seen);
+
+  ASSERT_EQ(test.Open("big", /*wait=*/true)["result"], "success");
+  EXPECT_EQ(test.cluster->objects[entry]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]
+                ["cpu"],
+            "1");
+}
+
+/// @brief A pod as Kubernetes writes one whose container died, for the rules that read it.
+json PodWith(const json & container)
+{
+  json pod;
+  pod["status"]["containerStatuses"] = json::array({container});
+  return pod;
+}
+
+json KilledContainer(const std::string & reason, int exitCode, const std::string & finishedAt,
+                     int restarts = 1)
+{
+  json terminated;
+  terminated["reason"]     = reason;
+  terminated["exitCode"]   = exitCode;
+  terminated["finishedAt"] = finishedAt;
+
+  json container;
+  container["restartCount"] = restarts;
+  container["lastState"]["terminated"] = terminated;
+  container["state"]["terminated"]     = terminated;
+  return container;
+}
+
+TEST(NRoomRouterTest, QuantitiesAreReadAsKubernetesWritesThem)
+{
+  // CPU in milli-cores, however it is written.
+  EXPECT_EQ(NRoomRouter::CpuMillis("250m"), 250L);
+  EXPECT_EQ(NRoomRouter::CpuMillis("1"), 1000L);
+  EXPECT_EQ(NRoomRouter::CpuMillis("1.5"), 1500L);
+  EXPECT_EQ(NRoomRouter::CpuMillis("0.25"), 250L);
+  EXPECT_EQ(NRoomRouter::CpuMillis(""), 0L);
+  EXPECT_EQ(NRoomRouter::CpuMillis("half a core"), 0L);
+
+  // Memory in bytes, with the power-of-two suffixes and their decimal twins.
+  EXPECT_EQ(NRoomRouter::Bytes("512Mi"), 536870912L);
+  EXPECT_EQ(NRoomRouter::Bytes("1Gi"), 1073741824L);
+  EXPECT_EQ(NRoomRouter::Bytes("1.5Gi"), 1610612736L);
+  EXPECT_EQ(NRoomRouter::Bytes("2G"), 2000000000L);
+  EXPECT_EQ(NRoomRouter::Bytes("100"), 100L);
+  EXPECT_EQ(NRoomRouter::Bytes(""), 0L);
+  EXPECT_EQ(NRoomRouter::Bytes("lots"), 0L);
+}
+
+TEST(NRoomRouterActionsTest, ACapacityRunCountsTheClusterTheRoomsAndWhatIsLeft)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles(); // so "how many more fit" has sizes to answer for
+  // Two nodes of 4 CPU / 8 GiB each, a room on the first (its container plus Knative's sidecar), a
+  // platform pod on the second, and a pod that has finished - which must not be counted at all.
+  test.cluster->AddNode("node-a", "4", "8Gi");
+  test.cluster->AddNode("node-b", "4", "8Gi");
+  test.cluster->AddPod("ndmspc-room-x", "node-a", "250m", "256Mi", "100m", "64Mi", "Running", "1", "1Gi");
+  test.cluster->AddPod("", "node-b", "1", "1Gi", "", "", "Running", "2", "2Gi");
+  // The router's own entry Service is a Knative Service, but it is not a room: its pod belongs in
+  // "everything else", or the rooms' share of the cluster would include the thing measuring it.
+  test.cluster->AddPod("ndmspc-router", "node-b", "100m", "64Mi", "", "", "Running", "200m", "128Mi");
+  test.cluster->AddPod("", "node-b", "4", "4Gi", "", "", "Succeeded", "4", "4Gi");
+
+  const json capacity = test.Call("capacity", "GET");
+  ASSERT_EQ(capacity["result"], "success");
+  const json payload = capacity["payload"];
+
+  EXPECT_EQ(payload["complete"], true);
+  EXPECT_EQ(payload["nodes"], 2);
+  EXPECT_EQ(payload["allocatable"]["cpuMillis"], 8000);
+  EXPECT_EQ(payload["allocatable"]["memBytes"], 2L * 8 * 1024 * 1024 * 1024);
+
+  // Everything that is not finished: the room and its sidecar, the platform pod, and the router's own
+  // pod - which is a Knative pod too, but not a room.
+  EXPECT_EQ(payload["requests"]["cpuMillis"], 1450);
+  // And the ceilings the same pods declare, which a client can show instead of the reservations.
+  EXPECT_EQ(payload["limits"]["cpuMillis"], 3200); // the room's 1 core + 2 + 200m
+  EXPECT_EQ(payload["rooms"]["requests"]["cpuMillis"], 350);
+  EXPECT_EQ(payload["rooms"]["requests"]["memBytes"], 335544320); // 256Mi + 64Mi
+  EXPECT_EQ(payload["rooms"]["limits"]["cpuMillis"], 1000);       // the room container's limit
+  EXPECT_EQ(payload["rooms"]["count"], 1);
+  EXPECT_EQ(payload["other"]["requests"]["cpuMillis"], 1100);
+  EXPECT_EQ(payload["other"]["limits"]["cpuMillis"], 2200);
+  EXPECT_EQ(payload["free"]["cpuMillis"], 6550);
+  EXPECT_EQ(payload["free"]["memBytes"],
+            2L * 8 * 1024 * 1024 * 1024 - 335544320 - 1073741824 - 67108864);
+
+  // How many more rooms of each size could start, and what runs out first: the biggest free node
+  // against what the profile asks for (the room must fit on one node, not across two).
+  // By what a room reserves: what the scheduler places.
+  ASSERT_TRUE(payload["fits"]["requests"].contains("small"));
+  EXPECT_EQ(payload["fits"]["requests"]["small"]["count"], 14); // 3650 free / small's 250m request
+  EXPECT_EQ(payload["fits"]["requests"]["small"]["limitedBy"], "cpu");
+  EXPECT_EQ(payload["fits"]["requests"]["large"]["count"], 3); // 3650 / large's 1 core request
+  EXPECT_EQ(payload["fits"]["requests"]["large"]["limitedBy"], "cpu");
+
+  // And by the ceilings those rooms may reach: node-a can give 4 cores less the room's own 1-core
+  // limit, so three small rooms fit at 1 core each - fewer than the reservations allow, which is the
+  // whole point of showing both.
+  ASSERT_TRUE(payload["fits"]["limits"].contains("small"));
+  EXPECT_EQ(payload["fits"]["limits"]["small"]["count"], 3); // 3000 free by limits / small's 1 core
+  EXPECT_EQ(payload["fits"]["limits"]["small"]["limitedBy"], "cpu");
+
+  // Per node as well, so a cluster whose free memory is spread thin can be told from one that still
+  // has a node a big room could land on.
+  ASSERT_EQ(payload["perNode"].size(), 2u);
+  for (const auto & node : payload["perNode"]) {
+    if (node["name"] == "node-a") {
+      EXPECT_EQ(node["requests"]["cpuMillis"], 350);
+      EXPECT_EQ(node["free"]["cpuMillis"], 3650);
+    }
+    else {
+      EXPECT_EQ(node["name"], "node-b");
+      EXPECT_EQ(node["requests"]["cpuMillis"], 1100);
+      EXPECT_EQ(node["free"]["memBytes"], 8L * 1024 * 1024 * 1024 - 1073741824 - 67108864);
+    }
+  }
+}
+
+TEST(NRoomRouterActionsTest, ACapacityRunSaysWhenItCouldNotReadTheCluster)
+{
+  Router test;
+  test.cluster->AddNode("node-a", "4", "8Gi");
+  test.cluster->AddPod("ndmspc-room-x", "node-a", "250m", "256Mi");
+
+  // The pods are forbidden: the nodes are still worth reporting, and nothing is invented.
+  test.cluster->clusterPodsForbidden = true;
+  const json blocked               = test.Call("capacity", "GET");
+  ASSERT_EQ(blocked["result"], "success");
+  EXPECT_EQ(blocked["payload"]["complete"], false);
+  EXPECT_TRUE(blocked["payload"].contains("allocatable"));
+  EXPECT_FALSE(blocked["payload"].contains("requests"));
+  EXPECT_FALSE(blocked["payload"].contains("free"));
+
+  // The other way round: no nodes, but the rooms are visible.
+  test.cluster->clusterPodsForbidden = false;
+  test.cluster->nodesForbidden       = true;
+  const json partial                 = test.Call("capacity", "GET");
+  EXPECT_EQ(partial["payload"]["complete"], false);
+  EXPECT_FALSE(partial["payload"].contains("allocatable"));
+  EXPECT_EQ(partial["payload"]["rooms"]["count"], 1);
+  EXPECT_FALSE(partial["payload"].contains("free"));
+}
+
+TEST(NRoomRouterActionsTest, ACapacityRunOnAnEmptyClusterIsZeroNotACrash)
+{
+  Router test;
+  const json capacity = test.Call("capacity", "GET");
+  ASSERT_EQ(capacity["result"], "success");
+  // Both reads answered, so the answer is complete - and complete over nothing is zero, not missing.
+  EXPECT_EQ(capacity["payload"]["complete"], true);
+  EXPECT_EQ(capacity["payload"]["nodes"], 0);
+  EXPECT_EQ(capacity["payload"]["free"]["memBytes"], 0);
+  EXPECT_EQ(capacity["payload"]["free"]["cpuMillis"], 0);
+  EXPECT_EQ(capacity["payload"]["rooms"]["count"], 0);
+  EXPECT_EQ(capacity["payload"]["perNode"].size(), 0u);
+
+  // And it is a GET: anything else is refused like every other action.
+  EXPECT_EQ(test.Call("capacity", "POST")["result"], "failure");
+}
+
+TEST(NRoomRouterTest, Rfc3339ReadsTheTimestampsKubernetesWrites)
+{
+  // The epoch is what the rest of the payloads use, so a client can show an age without parsing.
+  EXPECT_EQ(NRoomRouter::Rfc3339("2000-01-01T00:00:00Z"), 946684800L);
+  EXPECT_EQ(NRoomRouter::Rfc3339("2026-09-23T14:17:01Z"), 1790173021L);
+  // Midnight and a time zone offset are not the shapes Kubernetes writes, and junk is not a time.
+  EXPECT_EQ(NRoomRouter::Rfc3339(""), 0L);
+  EXPECT_EQ(NRoomRouter::Rfc3339("yesterday"), 0L);
+  EXPECT_EQ(NRoomRouter::Rfc3339("2026-13-40T99:99:99Z"), 0L);
+  EXPECT_EQ(NRoomRouter::Rfc3339("2026-02-30T00:00:00Z"), 0L);
+}
+
+TEST(NRoomRouterTest, PodTerminationTellsTheHistoryFromTheStateOfThings)
+{
+  const json killed = PodWith(KilledContainer("OOMKilled", 137, "2026-09-23T14:17:01Z", 3));
+  const json death  = NRoomRouter::PodTermination(killed);
+  EXPECT_EQ(death["reason"], "OOMKilled");
+  EXPECT_EQ(death["exitCode"], 137);
+  EXPECT_EQ(death["at"], 1790173021L);
+  EXPECT_EQ(death["restarts"], 3);
+  EXPECT_EQ(NRoomRouter::PodFailure(killed)["reason"], "OOMKilled");
+
+  // A container that came back is running, so its death is history: reported, but not a failure in
+  // progress - that is what keeps a room that was restarted once from failing its next creation.
+  const json recovered = killed;
+  json       container = recovered["status"]["containerStatuses"][0];
+  container["state"]   = json::object({{"running", json::object({{"startedAt", "2026-09-23T14:18:00Z"}})}});
+  const json back      = PodWith(container);
+  EXPECT_EQ(NRoomRouter::PodTermination(back)["reason"], "OOMKilled");
+  EXPECT_TRUE(NRoomRouter::PodFailure(back).empty());
+
+  // A container that finished its work is not a failure, and neither is a pod that says nothing.
+  EXPECT_TRUE(NRoomRouter::PodTermination(PodWith(KilledContainer("Completed", 0, "2026-09-23T14:17:01Z")))
+                  .empty());
+  EXPECT_TRUE(NRoomRouter::PodTermination(json::object()).empty());
+  EXPECT_TRUE(NRoomRouter::PodTermination(PodWith(json::object())).empty());
+
+  // A pod can hold more than one container: the newest death is the one worth reporting.
+  json two;
+  two["status"]["containerStatuses"] = json::array({KilledContainer("Error", 1, "2026-09-23T10:00:00Z"),
+                                                    KilledContainer("OOMKilled", 137, "2026-09-23T14:17:01Z")});
+  EXPECT_EQ(NRoomRouter::PodTermination(two)["reason"], "OOMKilled");
+}
+
+TEST(NRoomRouterActionsTest, ARoomThatWasKilledSaysSoInTheListAndTheStatus)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles();
+  ASSERT_EQ(test.Open("doomed", /*wait=*/true)["result"], "success");
+
+  test.cluster->AddTerminatedPod("ndmspc-room-doomed", "OOMKilled", 137, "2026-09-23T14:17:01Z", 2);
+
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  const json noted = list["payload"]["rooms"][0]["lastError"];
+  EXPECT_EQ(noted["reason"], "OOMKilled");
+  EXPECT_EQ(noted["exitCode"], 137);
+  EXPECT_EQ(noted["at"], 1790173021L);
+  EXPECT_EQ(noted["restarts"], 2);
+  EXPECT_NE(noted["message"].get<std::string>().find("memory"), std::string::npos);
+
+  EXPECT_EQ(test.Call("status", "GET", json({{"room", "doomed"}}))["payload"]["lastError"]["reason"],
+            "OOMKilled");
+
+  // The note is kept on the room's own Service, so it outlives the pod (a room that scales to zero
+  // takes its pod, and with it the only record Kubernetes had).
+  const std::string entry = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-doomed";
+  ASSERT_TRUE(test.cluster->objects[entry]["metadata"]["annotations"].contains(
+      NRoomRouter::kLastErrorAnnotation));
+
+  // And the pod going away does not take the note with it: this is what a client sees when it opens
+  // the page long after the room died.
+  test.cluster->pods = json::array();
+  const json remembered = test.Call("list", "GET")["payload"]["rooms"][0]["lastError"];
+  EXPECT_EQ(remembered["reason"], "OOMKilled");
+  EXPECT_EQ(remembered["at"], 1790173021L);
+
+  // A router that restarts adopts the room and reads the note back off its Service.
+  Router restarted(test.cluster);
+  ASSERT_EQ(restarted.Open("doomed", /*wait=*/true)["result"], "success");
+  const json adopted = restarted.Call("list", "GET")["payload"]["rooms"][0]["lastError"];
+  EXPECT_EQ(adopted["reason"], "OOMKilled");
+  EXPECT_EQ(adopted["restarts"], 2);
+
+  // Opening a room that died reports it too: the client pressing "create" is the one that wants to
+  // know why its predecessor is gone.
+  EXPECT_EQ(restarted.Open("doomed", /*wait=*/true)["payload"]["lastError"]["reason"], "OOMKilled");
+}
+
+TEST(NRoomRouterActionsTest, ARoomThatDiesWhileItIsCreatedFailsWithItsReason)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles();
+  // A revision that never becomes ready, whose container the kernel keeps killing: the creation has
+  // to end with the room's own reason rather than waiting out the timeout.
+  test.cluster->readyAfterGets = 0;
+  test.cluster->AddTerminatedPod("ndmspc-room-doomed", "OOMKilled", 137, "2026-09-23T14:17:01Z", 5);
+
+  const json opened = test.Open("doomed", /*wait=*/true);
+  EXPECT_EQ(opened["result"], "failure");
+  EXPECT_EQ(opened["code"], NRoomRouter::kContainerError);
+  EXPECT_NE(opened["error"].get<std::string>().find("memory"), std::string::npos);
+  EXPECT_EQ(opened["payload"]["lastError"]["reason"], "OOMKilled");
+}
+
+TEST(NRoomRouterActionsTest, TheNewestDeathIsTheOneKept)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles();
+  ASSERT_EQ(test.Open("twice", /*wait=*/true)["result"], "success");
+
+  // A roll leaves two pods behind: the later death is the one a client should be told about.
+  test.cluster->AddTerminatedPod("ndmspc-room-twice", "Error", 1, "2026-09-23T10:00:00Z");
+  test.cluster->AddTerminatedPod("ndmspc-room-twice", "OOMKilled", 137, "2026-09-23T14:17:01Z");
+  EXPECT_EQ(test.Call("list", "GET")["payload"]["rooms"][0]["lastError"]["reason"], "OOMKilled");
+
+  // An older death never replaces a newer one, however often the list is asked again.
+  test.cluster->pods = json::array();
+  test.cluster->AddTerminatedPod("ndmspc-room-twice", "Error", 1, "2026-09-23T09:00:00Z");
+  const json kept = test.Call("list", "GET")["payload"]["rooms"][0]["lastError"];
+  EXPECT_EQ(kept["reason"], "OOMKilled");
+  EXPECT_EQ(kept["at"], 1790173021L);
+}
+
+TEST(NRoomRouterActionsTest, ARoomThatNeverDiedHasNoLastError)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithProfiles();
+  ASSERT_EQ(test.Open("healthy", /*wait=*/true)["result"], "success");
+
+  EXPECT_FALSE(test.Call("list", "GET")["payload"]["rooms"][0].contains("lastError"));
+  EXPECT_FALSE(test.Call("status", "GET", json({{"room", "healthy"}}))["payload"].contains("lastError"));
+
+  // A cluster that will not let the router read pods (403) is not a broken room: the answer simply
+  // has nothing to say about why rooms die.
+  test.cluster->podsForbidden = true;
+  const json list            = test.Call("list", "GET");
+  EXPECT_EQ(list["result"], "success");
+  EXPECT_FALSE(list["payload"]["rooms"][0].contains("lastError"));
+}
+
+TEST(NRoomRouterActionsTest, ARoomsDeclaredResourcesTravelInTheListAndTheStatus)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // A room the cluster already has, whose Service declares what its container may use.
+  const std::string gauged = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-gauged";
+  test.cluster->objects[gauged] = ServiceDeclaring(
+      {{"requests", {{"cpu", "500m"}, {"memory", "512Mi"}}}, {"limits", {{"cpu", "2"}, {"memory", "2Gi"}}}});
+  // And one created from a skeleton that declares nothing (a container without resources).
+  test.cluster->skeleton = {
+      {"serviceSpec", {{"template", {{"spec", {{"containers", json::array({json::object({{"name", "ndmspc"}})})}}}}}}}};
+  ASSERT_EQ(test.Open("bare", /*wait=*/true)["result"], "success");
+
+  json listed;
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 2u);
+  for (const auto & room : list["payload"]["rooms"]) {
+    if (room["room"] == "gauged") listed = room;
+  }
+  ASSERT_TRUE(listed.is_object());
+  EXPECT_EQ(listed["resources"]["requests"]["cpu"], "500m");
+  EXPECT_EQ(listed["resources"]["requests"]["memory"], "512Mi");
+  EXPECT_EQ(listed["resources"]["limits"]["cpu"], "2");
+  EXPECT_EQ(listed["resources"]["limits"]["memory"], "2Gi");
+
+  const json bare = test.Call("status", "GET", json({{"room", "bare"}}));
+  EXPECT_EQ(bare["result"], "success");
+  EXPECT_FALSE(bare["payload"].contains("resources"));
+
+  // The detail pane's own call reports them too, so selecting a room needs no second source.
+  const json status = test.Call("status", "GET", json({{"room", "gauged"}}));
+  EXPECT_EQ(status["result"], "success");
+  EXPECT_EQ(status["payload"]["resources"]["requests"]["cpu"], "500m");
+  EXPECT_EQ(status["payload"]["resources"]["limits"]["memory"], "2Gi");
 }
