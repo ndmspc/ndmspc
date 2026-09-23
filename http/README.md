@@ -627,9 +627,10 @@ are served both as `/api/room/*` and as MCP tools):
 
 | Action | Methods | What it does |
 | ------ | ------- | ------------ |
-| `room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. |
+| `room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. `profile` (body or query) picks one of the skeleton's sizes — see [Room profiles](#room-profiles) — and resizes an existing room when it differs from the one it runs. |
 | `room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached. |
 | `room/list` | GET | Every room being tracked, including those still preparing and those whose creation failed. |
+| `room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
 | `room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
 | `room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
 | `room/backup` | GET | Every tracked room and its session as one JSON document. |
@@ -770,6 +771,117 @@ owner, so this decides what people are *shown*, not what they may have. What mak
 verified identity: OIDC, or the X509 front door. The room's own access tokens remain the gate on the
 room itself, whoever created it.
 
+### Declared resources
+
+A room's container is shaped by the **room skeleton** — `room-skeleton.json` in the ConfigMap the
+router clones per room — so that is where a room's requests and limits are set. `room/list` and
+`room/status` report what the room's Service declares, alongside everything else a room is:
+
+```json
+"resources": {
+  "requests": { "cpu": "500m", "memory": "512Mi" },
+  "limits":   { "cpu": "2",    "memory": "2Gi" }
+}
+```
+
+The values are handed over exactly as Kubernetes holds them (`500m`, `2`, `512Mi`). A side that
+declares nothing is left out, and a room whose skeleton declares nothing reports no `resources` at
+all, so a view shows a dash rather than a zero. The skeleton the role ships today sets no resources,
+which is why the field appears once one does.
+
+This is what a room is *allowed*, not what it is *using*: it is read from the Service, so it holds
+while the room is scaled to zero, which is when it is most useful. Usage is a different question and
+needs the cluster's metrics API — a scaled-to-zero room has no pod to measure, and a running room's
+own process reports its CPU and memory over the websocket heartbeat instead.
+
+### Room profiles
+
+A room's size is a **profile**: a named set of container resources the deployment defines in the room
+skeleton, beside `serviceSpec`, and `room/open` takes one by name:
+
+```json
+"defaultProfile": "small",
+"profiles": {
+  "small":  { "resources": { "requests": {"cpu":"250m","memory":"256Mi"}, "limits": {"cpu":"1","memory":"1Gi"} } },
+  "medium": { "resources": { "requests": {"cpu":"500m","memory":"512Mi"}, "limits": {"cpu":"2","memory":"2Gi"} } },
+  "large":  { "resources": { "requests": {"cpu":"1","memory":"1Gi"},      "limits": {"cpu":"4","memory":"4Gi"} } }
+}
+```
+
+The names are the deployment's — the router never knows what "small" means, it only resolves it — so
+a deployment can offer as many, and call them whatever, as it likes (the devops role's
+`ndmspc_room_profiles` is what renders this block). `room/open` with `profile` (body, or `?profile=`
+in the query) welds that profile's `resources` onto the room's container; without one a room keeps
+the profile it already has, and a room that has none takes `defaultProfile`. `room/list` reports
+`profiles`, each with its resources, and `defaultProfile`, so a client can offer the choice without
+knowing the names in advance, and reports each room's `profile` beside its resources.
+
+The choice is kept as the annotation `ndmspc.io/room-profile`, so it survives a router restart,
+an idle room waking up and a restore; `room/status` and `room/open` report it too. Opening an existing
+room with a **different** profile resizes it — the room's container resources are patched from the new
+profile, which rolls a new revision — while an open that names the same profile, or none, leaves the
+Service alone. A name the deployment does not offer fails with `code: unknown_profile`, and the room is
+not created. A skeleton that declares no profiles at all is a deployment that offers no sizes: rooms
+are then whatever their own spec declares, which is what every room was before profiles existed.
+
+A room created before its deployment offered profiles has none, and takes `defaultProfile` the next
+time it is opened — which resizes it from whatever it declared on its own. The rules are one rule
+("the size in play is the one asked for, else the room's, else the default"), so a deployment that
+turns profiles on moves its existing rooms onto the default rather than leaving them at a size
+nothing describes any more; give such a room a profile explicitly to choose where it lands.
+
+### Cluster capacity
+
+`room/capacity` answers "how much do the rooms cost, and what is left?" with the numbers the
+scheduler itself uses. Nothing is measured live — there is no metrics-server in this deployment — so
+"used" means **reserved**: the `requests` a room's containers declare, which is exactly what decides
+whether the next room can start (`no_capacity`). A room's live consumption is a different question,
+and the room's own page answers it from the heartbeat.
+
+```json
+{ "nodes": 1,
+  "allocatable": { "cpuMillis": 8000, "memBytes": 17179869184 },
+  "requests":    { "cpuMillis": 4100, "memBytes": 7516192768 },
+  "limits":      { "cpuMillis": 9000, "memBytes": 17179869184 },
+  "rooms":       { "count": 3,
+                   "requests": { "cpuMillis": 1250, "memBytes": 2147483648 },
+                   "limits":   { "cpuMillis": 4000, "memBytes": 8589934592 } },
+  "other":       { "requests": { "cpuMillis": 2850, "memBytes": 5368709120 },
+                   "limits":   { "cpuMillis": 5000, "memBytes": 8589934592 } },
+  "free":        { "cpuMillis": 3900, "memBytes": 9663676416 },
+  "perNode": [
+    { "name": "kind-control-plane",
+      "allocatable": { "cpuMillis": 8000, "memBytes": 17179869184 },
+      "requests":    { "cpuMillis": 4100, "memBytes": 7516192768 },
+      "free":        { "cpuMillis": 3900, "memBytes": 9663676416 } }
+  ],
+  "complete": true }
+```
+
+- `allocatable` is the sum of the nodes' `status.allocatable`; amounts are base units
+  (`cpuMillis`, `memBytes`) because they are sums, not the quantities Kubernetes wrote down.
+- `requests` and `limits` are the two sides of what the cluster's pods declare: what they reserve, and
+  the most they may reach. They are summed over every pod on the cluster that has not finished, and
+  the `rooms`/`other` groups split that the same way — `rooms` over the pods carrying
+  `serving.knative.dev/service` (a room's pod *and* Knative's sidecar beside it, so a room's real cost
+  is what it says), `other` everything that is not a room. A pod that declares no limit contributes
+  nothing to the limits side rather than a ceiling it does not have.
+- `free` is allocatable minus requests, floored at zero. **Free is always about reservations**, whatever
+  a client shows: it is reservations the scheduler places, so only those predict whether another room
+  starts — a limits lens says how much a running room can burst into, not what fits.
+- `fits` says how many more rooms of each profile could start on the emptiest node, and it comes in both
+  sides (`{"requests": {"small": {"count": 14, "limitedBy": "cpu"}, …}, "limits": {…}}`): by what a room
+  *reserves*, and by the *ceilings* it may reach — the second subtracting the pods' limits from the node
+  the way the first subtracts their requests, so it answers "if every room reached its limit at once".
+  The reservations count is the placement prediction; the limits count is the worst case.
+- **`perNode` matters**, because free memory across a cluster is not free memory on a node: 4 GiB free
+  spread as 2 + 2 starts nothing. The largest single node's `free` is what predicts whether a room of a
+  given profile can start, which is why the rooms panel reports both.
+- `complete: false` means part of the answer could not be read — the router needs `get`/`list` on
+  `nodes` and cluster-wide `list` on `pods` (the deployment's `roles/ndmspc` grants it as a read-only
+  `ClusterRole`). The parts it could read are still reported, and nothing is estimated: a figure the
+  router cannot stand behind is a figure it does not send.
+
 ### Architecture
 
 The rooms it tracks, the configuration and the Kubernetes access all live in the object, and the
@@ -856,9 +968,40 @@ failed.
 A failure carries the router's `error` and, when it can name the cause, a stable `code`:
 `no_capacity` means the cluster could not place the room's pod — the row reads `no capacity`, the
 detail pane shows the scheduler's own message (`0/1 nodes are available: 1 Insufficient cpu`), and
-the status line announces it for the room you just created. The router reads that reason from the
-pod itself, so its service account needs `get` / `list` on `pods`; without that permission the
-failure is still reported, just without the cause.
+the status line announces it for the room you just created. `container_error` means the room's own
+container keeps dying: a room created at a profile too small for what it loads is killed by the kernel
+before it can serve, and the failure says so instead of waiting out the timeout. The router reads both
+reasons from the pod itself, so its service account needs `get` / `list` on `pods`; without that
+permission the failure is still reported, just without the cause.
+
+### What killed a room
+
+A room that runs out of memory is killed by the kernel, so it never gets to say anything itself: the
+websocket closes and the only witness left is the pod's own status. The router reads that status —
+`status.containerStatuses[].lastState.terminated` — and reports it on every room description:
+
+```json
+"lastError": {
+  "reason": "OOMKilled",     // the container's own reason ("Error", "Evicted", ...)
+  "exitCode": 137,
+  "at": 1758639421,          // epoch seconds it terminated
+  "restarts": 2,             // how many times the container had been restarted by then
+  "message": "the room was killed for using more memory than its limit"
+}
+```
+
+The block is absent for a room that has never died, and a container that exited `Completed` is not a
+failure and is not reported. `room/list` reports it per room, `room/status` and `room/open` report it
+for the room they are about, and a room whose container keeps dying while it is being created fails
+with `container_error` carrying the same block.
+
+Because Knative deletes a pod when its revision scales to zero, the pod is not a durable record: what
+the router finds is remembered in its registry (so it keeps reporting while the pod is gone) and as
+the Service annotation `ndmspc.io/room-last-error` (so it survives a router restart, an idle room
+waking up and a restore — `room/list`'s first refresh after a restart reads it back). The annotation
+dies with the Service, so closing a room clears its history: a room created again says nothing about
+its predecessor. The memory a room may use is its profile's limit, so an `OOMKilled` note is the
+deployment saying "give this room a bigger profile".
 
 Creating a room does not block the screen: the TUI calls `room/open` with `wait=false`, so the
 router registers the room and does the slow part — a Knative Service, its first revision, the

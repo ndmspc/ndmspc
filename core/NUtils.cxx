@@ -2083,11 +2083,107 @@ json NUtils::GetSystemStats()
   out["mem_rss_kb"]   = info.fMemResident;
   out["mem_vsize_kb"] = info.fMemVirtual;
 
-  // Report number of logical CPUs available on the host
-  unsigned int hc  = std::thread::hardware_concurrency();
-  out["cpu_count"] = (hc == 0) ? 1 : static_cast<int>(hc);
+  // What the process may use, which inside a container is the cgroup's quota and not the node's core
+  // count (see AvailableCpuCount): reporting the node would make every percentage a client computes
+  // from this read a fraction of a machine the process was never given.
+  out["cpu_count"] = NUtils::AvailableCpuCount();
+
+  // And its memory ceiling, the same way (0 when nothing limits it): a client showing "RSS / max"
+  // needs the pod's limit, and the pod's limit is the cgroup's.
+  out["mem_max_kb"] = NUtils::AvailableMemoryKb();
 
   return out;
+}
+
+double NUtils::AvailableCpuCount(const std::string & cgroupRoot)
+{
+  const auto quoted = [](std::istream & stream, double & value) {
+    std::string text;
+    if (!(stream >> text) || text == "max") return false;
+    try {
+      value = std::stod(text);
+    }
+    catch (const std::exception &) {
+      return false;
+    }
+    return true;
+  };
+
+  // cgroup v2: the quota and the period in one file ("150000 100000" is a core and a half).
+  {
+    std::ifstream max(cgroupRoot + "/cpu.max");
+    std::string   quotaText;
+    double        quota = 0;
+    double        period = 0;
+    if (max >> quotaText >> period && quotaText != "max" && period > 0) {
+      try {
+        quota = std::stod(quotaText);
+      }
+      catch (const std::exception &) {
+        quota = 0;
+      }
+      if (quota > 0) return quota / period;
+    }
+  }
+
+  // cgroup v1: the same two numbers in two files, where -1 (or anything not positive) means nothing.
+  {
+    std::ifstream quotaFile(cgroupRoot + "/cpu/cpu.cfs_quota_us");
+    std::ifstream periodFile(cgroupRoot + "/cpu/cpu.cfs_period_us");
+    double        quota  = 0;
+    double        period = 0;
+    if (quoted(quotaFile, quota) && quoted(periodFile, period) && quota > 0 && period > 0) {
+      return quota / period;
+    }
+  }
+
+  // Nothing limits this process: the node's logical CPUs are the honest ceiling.
+  const unsigned int host = std::thread::hardware_concurrency();
+  return host == 0 ? 1.0 : static_cast<double>(host);
+}
+
+long NUtils::AvailableMemoryKb(const std::string & cgroupRoot, const std::string & memInfoPath)
+{
+  const auto bytes = [](const std::string & text, double & value) {
+    if (text.empty() || text == "max") return false;
+    try {
+      value = std::stod(text);
+    }
+    catch (const std::exception &) {
+      return false;
+    }
+    // cgroup v1 writes a sentinel just under the largest signed 64-bit value to mean "no limit".
+    return value > 0 && value < 1e18;
+  };
+
+  // cgroup v2: the ceiling in one file, in bytes, or "max".
+  {
+    std::ifstream max(cgroupRoot + "/memory.max");
+    std::string   text;
+    double        limit = 0;
+    if (max >> text && bytes(text, limit)) return static_cast<long>(limit / 1024);
+  }
+
+  // cgroup v1: the same ceiling in its own file, with the same sentinel for "no limit".
+  {
+    std::ifstream limitFile(cgroupRoot + "/memory/memory.limit_in_bytes");
+    std::string   text;
+    double        limit = 0;
+    if (limitFile >> text && bytes(text, limit)) return static_cast<long>(limit / 1024);
+  }
+
+  // Nothing limits it: the node's memory is what it may reach. A machine that will not say answers 0,
+  // which a caller reads as no known maximum rather than as zero bytes.
+  std::ifstream meminfo(memInfoPath);
+  std::string   line;
+  while (std::getline(meminfo, line)) {
+    if (line.rfind("MemTotal:", 0) != 0) continue;
+    std::istringstream values(line.substr(9));
+    long               kb = 0;
+    if (values >> kb && kb > 0) return kb;
+    break;
+  }
+  return 0;
 }
 
 json NUtils::GetTFileIOStats()

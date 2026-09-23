@@ -376,6 +376,62 @@ TEST_F(NRoomClientTest, BackupSendsAToolsCallAndHandsBackTheDocument)
   EXPECT_FALSE(request["params"]["arguments"].contains("room"));
 }
 
+// The table and detail pane read these, so the parse is what the TUI shows: the size the room runs
+// at, both sides of what that allows, and why it died last (which a room the kernel killed never
+// reports itself).
+TEST_F(NRoomClientTest, ListReadsTheProfileResourcesAndLastError)
+{
+  const json room = json::parse(R"({
+    "room": "test", "state": "ready", "profile": "small", "pods": "1/1",
+    "resources": {"requests": {"cpu": "250m", "memory": "256Mi"},
+                  "limits": {"cpu": "1", "memory": "1Gi"}},
+    "lastError": {"reason": "OOMKilled", "exitCode": 137,
+                  "message": "container was OOM killed", "at": "2026-09-23T18:00:00Z"}
+  })");
+  fake->responseBody =
+      McpEnvelope({{"result", "success"}, {"payload", {{"rooms", json::array({room})}, {"ttl", 3600}}}});
+
+  const Ndmspc::NRoomListResult list = Client().List();
+
+  ASSERT_TRUE(list.ok) << list.error;
+  ASSERT_EQ(list.rooms.size(), 1u);
+  const Ndmspc::NRoomInfo & info = list.rooms[0];
+  EXPECT_EQ(info.profile, "small");
+  EXPECT_EQ(info.cpuRequest, "250m");
+  EXPECT_EQ(info.memoryRequest, "256Mi");
+  EXPECT_EQ(info.cpuLimit, "1");
+  EXPECT_EQ(info.memoryLimit, "1Gi");
+  EXPECT_EQ(info.lastErrorReason, "OOMKilled");
+  EXPECT_EQ(info.lastErrorExit, 137);
+  EXPECT_EQ(info.lastErrorMessage, "container was OOM killed");
+}
+
+TEST_F(NRoomClientTest, ListLeavesWhatIsAbsentEmptyRatherThanInventingIt)
+{
+  fake->responseBody = McpEnvelope({{"result", "success"},
+                                    {"payload", {{"rooms", json::array({{{"room", "plain"}, {"state", "ready"}}})}, {"ttl", 0}}}});
+
+  const Ndmspc::NRoomListResult list = Client().List();
+
+  ASSERT_TRUE(list.ok) << list.error;
+  ASSERT_EQ(list.rooms.size(), 1u);
+  const Ndmspc::NRoomInfo & info = list.rooms[0];
+  // A room from before profiles and limits existed carries neither, and says nothing about a death it
+  // never had. Each is a straight read of the payload, so the empty string is what "absent" looks like.
+  EXPECT_TRUE(info.profile.empty());
+  EXPECT_TRUE(info.cpuRequest.empty());
+  EXPECT_TRUE(info.memoryRequest.empty());
+  EXPECT_TRUE(info.cpuLimit.empty());
+  EXPECT_TRUE(info.memoryLimit.empty());
+  EXPECT_TRUE(info.lastErrorReason.empty());
+  EXPECT_TRUE(info.lastErrorMessage.empty());
+  // -1, because that is what `NUtils::GetJsonInt` reads an absent member as, and what the struct
+  // defaults to. Deliberately not 0: a container that exits cleanly reports 0, so 0 would be
+  // indistinguishable from "this room never died".
+  EXPECT_EQ(info.lastErrorExit, -1);
+  EXPECT_EQ(info.lastErrorAt, -1);
+}
+
 TEST_F(NRoomClientTest, RestoreCarriesTheDocumentAndSendsPost)
 {
   const json document = {{"version", 1}, {"rooms", json::array({{{"room", "test"}}})}};

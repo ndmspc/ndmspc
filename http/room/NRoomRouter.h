@@ -73,8 +73,16 @@ struct NRoomState {
   std::string tokenRw;  ///< Access token for the room's read-write link (anything goes)
   std::string tokenRo;  ///< Access token for the room's read-only link (GET only)
   std::string owner;    ///< Who created the room ("" when nobody identified themselves, see Ownership)
+  std::string profile;  ///< The room skeleton profile it was created with ("" when the skeleton has none)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
   std::string snapshot;    ///< Last captured session, replayed when the room wakes
+
+  /// Why the room's container last died, and when. Kept here because the pod that carries the reason
+  /// goes away with the room when it scales to zero (see kLastErrorAnnotation and NoteTermination).
+  std::string lastReason;      ///< The container's own reason, e.g. OOMKilled ("" until it has died)
+  int         lastExit{0};     ///< The exit code it died with
+  long        lastAt{0};       ///< Epoch seconds it finished (0 while unknown)
+  int         lastRestarts{0}; ///< How many times its container had been restarted by then
 
   bool        preparing{false}; ///< An ensure is running for this room right now
   std::string phase;            ///< Where it is: service, ready, route, restore, failed, cancelled
@@ -287,6 +295,8 @@ class NRoomRouter {
   void HandleStatus(const std::string & method, json & in, json & out);
   /// @brief room/list: the rooms being tracked that the caller may see.
   void HandleList(const std::string & method, json & in, json & out);
+  /// @brief room/capacity: what the cluster has, what the rooms reserve, and what is left.
+  void HandleCapacity(const std::string & method, json & in, json & out);
   /// @brief room/close: delete a room, cancelling a creation still running for it.
   void HandleClose(const std::string & method, json & in, json & out);
   /// @brief room/state: a room reports its session, or fetches it back.
@@ -327,10 +337,82 @@ class NRoomRouter {
   ///        given, the access token that lets it into the room.
   static std::string ClientUrl(const NRoomConfig & cfg, const std::string & value,
                                const std::string & token = std::string());
+  /**
+   * @brief Which profile a room is created with: the one asked for, or the skeleton's
+   *        `defaultProfile`.
+   *
+   * A profile is a named set of container resources in the skeleton (`profiles`, beside
+   * `serviceSpec`), so a deployment decides which sizes exist and what they are worth - the router
+   * only resolves the name. A room is given one when it is created, and keeps it (see
+   * {@link kProfileAnnotation}) until another open asks for a different one.
+   *
+   * @param skeleton The room skeleton.
+   * @param requested The profile the caller asked for; "" takes the default.
+   * @param error Filled when a name could not be resolved (an unknown one, or a skeleton that
+   *              defines profiles without a default); untouched when it could. An empty result with
+   *              no error means the skeleton defines no profiles at all, which is not a failure.
+   * @return The resolved profile name, or "" when the skeleton defines none.
+   */
+  static std::string ProfileName(const json & skeleton, const std::string & requested, std::string & error);
+  /// @brief The resources a profile allows, resolved from the skeleton (empty for an empty name).
+  static json ProfileResources(const json & skeleton, const std::string & name, std::string & error);
+  /**
+   * @brief A Kubernetes timestamp (RFC 3339, seconds precision) as epoch seconds.
+   * @return The instant, or 0 when the value is not one - so "the cluster did not say" stays
+   *         distinguishable from "it said 1970".
+   */
+  static long Rfc3339(const std::string & value);
+  /// @brief Whether a container termination reason is a failure worth reporting ("Completed" is not).
+  static bool FailedReason(const std::string & reason);
+  /**
+   * @brief Why a pod's container last died: `{"reason","exitCode","at","restarts"}`, or `{}`.
+   *
+   * This is the history, so a container that died and came back still answers. It is the only record
+   * of the case this exists for: a room that ran out of memory is killed by the kernel, and the
+   * kernel tells nobody but the pod's status.
+   */
+  static json PodTermination(const json & pod);
+  /**
+   * @brief Why a pod's container is down right now: the same shape, or `{}` when nothing has failed.
+   *
+   * Unlike {@link PodTermination} this ignores the history of a container that is running: a room
+   * that was restarted once and is serving again is not a failure in progress.
+   */
+  static json PodFailure(const json & pod);
+  /**
+   * @brief The sentence a client shows for a termination: what happened, in the room's own terms.
+   * @param reason The container's reason as Kubernetes spells it (`OOMKilled`, `Error`, ...).
+   * @param exitCode The exit code it died with, used when the reason alone is not enough.
+   */
+  static std::string TerminationMessage(const std::string & reason, int exitCode);
+  /// @brief The `lastError` block clients show, or `{}` when the room has no record of dying.
+  static json LastErrorJson(const std::string & reason, int exitCode, long at, int restarts);
+  /**
+   * @brief A Kubernetes CPU quantity in milli-cores: `250m` → 250, `1` → 1000, `1.5` → 1500.
+   *
+   * Anything it cannot read answers 0 - a request nobody can read is counted as nothing rather than
+   * failing what asks (see room/capacity), the same way an unreadable termination reason is simply
+   * not reported.
+   */
+  static long CpuMillis(const std::string & quantity);
+  /// @brief A Kubernetes memory quantity in bytes: `512Mi`, `1Gi`, `1.5Gi`, `100` → bytes (0 on junk).
+  static long Bytes(const std::string & quantity);
   /// @brief A fresh room access token: 32 hex characters of entropy.
   static std::string NewRoomToken();
   /// @brief A room's access tokens as they travel: the room's environment, payloads, the Service.
   static json AccessJson(const std::string & tokenRw, const std::string & tokenRo);
+  /**
+   * @brief The container resources a room's Service declares: requests and limits for cpu and memory,
+   *        as the room skeleton set them.
+   *
+   * This is what the room is *allowed*, not what it is using, which is why it is read from the
+   * Service: it holds while the room is scaled to zero. Empty for a Service that declares none, and
+   * for one shaped unexpectedly - the payloads then carry no `resources` at all.
+   *
+   * @param service A Knative Service object.
+   * @return `{"requests": {...}, "limits": {...}}`, with the members that were declared.
+   */
+  static json ServiceResources(const json & service);
 
   /**
    * @brief Whether a caller may see a room and act on it (see "Ownership and visibility").
@@ -411,6 +493,14 @@ class NRoomRouter {
   static std::string RequestOwner(json & in);
 
   /**
+   * @brief The room profile a request asks for: its `profile` member, or that of its query string.
+   * @param in The request's input JSON.
+   * @return The profile asked for, or "" when the request names none (the room then keeps its own,
+   *         or takes the skeleton's default).
+   */
+  static std::string RequestProfile(json & in);
+
+  /**
    * @brief The email a request asserts beside its owner: `owner_email`, or that of its query string.
    *
    * A client that knows both names for itself can send both, so an admin list written in emails
@@ -431,10 +521,17 @@ class NRoomRouter {
   static constexpr const char * kAccessEnv = NRoomAccess::kEnv;
   /// @brief The room parameter of a query string, or "" when it is absent or empty.
   static std::string RoomParameter(const std::string & query, const std::string & param);
-  /// @brief The per-room Knative Service object (skeleton spec + the room's own environment).
+  /**
+   * @brief The per-room Knative Service object (skeleton spec + the room's own environment).
+   *
+   * @param profile The profile the room is created with; "" when the skeleton offers none. Stored as
+   *                an annotation so the room keeps it across a restart.
+   * @param resources What that profile allows, welded onto the room's container - which is what gives
+   *                  a room its size.
+   */
   static json ServiceObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
                             const std::string & stateUrl, const json & access, const std::string & owner,
-                            const json & skeleton);
+                            const json & skeleton, const std::string & profile, const json & resources);
   /// @brief The per-room HTTPRoute object: the `?<param>=<id>` match, the `/ws` alias, the headers.
   static json RouteObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
                           const std::string & revision, const json & skeleton);
@@ -452,8 +549,37 @@ class NRoomRouter {
   /// @brief The `code` reported when a caller asks for a room that belongs to someone else.
   static constexpr const char * kNotOwner = "not_owner";
 
+  /// @brief The `code` reported when room/open names a profile the skeleton does not define.
+  static constexpr const char * kUnknownProfile = "unknown_profile";
+
+  /**
+   * @brief The `code` reported when a room's container keeps dying while the room is being created.
+   *
+   * The reason travels beside it (see `lastError`), because "container_error" alone does not say
+   * whether the room needs a bigger profile or something else is wrong with it.
+   */
+  static constexpr const char * kContainerError = "container_error";
+
   /// @brief The Service annotation holding the room's owner (see "Ownership and visibility").
   static constexpr const char * kOwnerAnnotation = "ndmspc.io/room-owner";
+
+  /**
+   * @brief The Service annotation holding the room skeleton profile a room was created with.
+   *
+   * Kept on the Service so a room keeps its size across a router restart, an idle room waking up and
+   * a restore, and so every payload can report it. Annotating does not create a revision, so a
+   * running room is not disturbed by it; a room created before profiles existed simply has none.
+   */
+  static constexpr const char * kProfileAnnotation = "ndmspc.io/room-profile";
+
+  /**
+   * @brief The Service annotation holding why a room's container last died.
+   *
+   * The pod that carries the reason is deleted when the room scales to zero, so it has to be kept
+   * somewhere that outlives it - an annotation survives a router restart, a scale-to-zero and an
+   * Adopt, exactly as the profile and the session snapshot do. `room/list` reports it as `lastError`.
+   */
+  static constexpr const char * kLastErrorAnnotation = "ndmspc.io/room-last-error";
 
   /**
    * @brief The Service annotation holding a room's id.
@@ -553,7 +679,8 @@ class NRoomRouter {
    * @param error Filled when the annotation cannot be written.
    * @return True on success.
    */
-  bool Annotate(const std::string & name, const std::string & snapshot, std::string & error);
+  bool Annotate(const std::string & name, const std::string & key, const std::string & value,
+                std::string & error);
   /**
    * @brief Returns a room's stored session snapshot.
    *
@@ -578,17 +705,25 @@ class NRoomRouter {
    */
   void Delete(const std::string & name);
   /**
-   * @brief The scheduler's own words for a pod it cannot place.
+   * @brief A room's pods, as the cluster answered them.
    *
-   * Needs read access to pods; when the cluster refuses, it reports no reason and the caller keeps
-   * its previous behaviour - a missing permission must not fail a room.
+   * Needs read access to pods; when the cluster refuses (403) or answers anything else, this is an
+   * empty object and every caller keeps its previous behaviour - a missing permission must not fail
+   * a room.
    *
-   * @param name Room name (used when no revision exists yet).
-   * @param revision Knative revision name ("" falls back to the room's Service).
-   * @param reason Filled with the scheduler's message.
-   * @return True when a pod of this room is reported unschedulable.
+   * @param name Kubernetes name of the room.
+   * @param revision Knative revision name ("" falls back to the room's Service, for the pods that
+   *                 exist before a revision is named).
+   * @return The pods list as the API wrote it, or `{}`.
    */
-  bool PodUnschedulable(const std::string & name, const std::string & revision, std::string & reason);
+  json RoomPods(const std::string & name, const std::string & revision);
+  /**
+   * @brief The scheduler's own words for a pod it cannot place.
+   * @param pods What {@link RoomPods} answered.
+   * @param reason Filled with the scheduler's message.
+   * @return True when one of those pods is reported unschedulable.
+   */
+  static bool PodUnschedulable(const json & pods, std::string & reason);
   /**
    * @brief Waits for a room's newest revision to be the ready one.
    * @param name Kubernetes name of the room.
@@ -607,6 +742,36 @@ class NRoomRouter {
   void Touch(const std::string & name);
   /// @brief Adopts the rooms that already exist in the cluster into the registry (once per process).
   void Adopt();
+  /**
+   * @brief Remembers why a room's container died: in the registry and on the room's Service.
+   *
+   * The registry is what makes it reportable right now; the annotation is what makes it survive the
+   * pod (a room that scales to zero takes its pod, and the pod's status with it) and this process.
+   *
+   * @param name Kubernetes name of the room.
+   * @param termination What {@link PodTermination} answered.
+   */
+  void NoteTermination(const std::string & name, const json & termination);
+  /**
+   * @brief Why a room's container last died, read under the registry lock.
+   * @param name Kubernetes name of the room.
+   * @return The `lastError` block, or `{}` when the room has no record of dying.
+   */
+  json RoomLastError(const std::string & name) const;
+  /// @brief The pods API path for one label selector: a single room's, or every room's.
+  std::string PodsPath(const std::string & labelSelector) const;
+  /**
+   * @brief The profile a room is running, read under the registry lock.
+   * @param name Kubernetes name of the room.
+   * @return The profile name, or "" when the room has none.
+   */
+  std::string RoomProfile(const std::string & name) const;
+  /**
+   * @brief Records the profile a room is (or is being) created with.
+   * @param name Kubernetes name of the room.
+   * @param profile The resolved profile name.
+   */
+  void SetProfile(const std::string & name, const std::string & profile);
   /**
    * @brief Cancels a creation still running for a room and deletes it.
    * @param value Room id.
@@ -678,17 +843,20 @@ class NRoomRouter {
    *
    * @param value Room id.
    * @param generation The generation the worker was started with.
+   * @param profile The profile this creation asks for, or "" to keep the room's own (and, for a room
+   *                that has none, the skeleton's default).
    * @param replay Whether the room's stored session is replayed once it is up.
    * @param payload Filled with the room's state and, once it is ready, its URL.
    * @param error Filled when the creation fails.
    * @param code Stable reason behind error ("" when it has none).
    * @return True when the room is ready.
    */
-  bool EnsureWorker(const std::string & value, int generation, Replay replay, json & payload, std::string & error,
-                    std::string & code);
+  bool EnsureWorker(const std::string & value, int generation, const std::string & profile, Replay replay,
+                    json & payload, std::string & error, std::string & code);
   /**
    * @brief Starts creating (or rolling) a room, and reports what the client can act on.
    * @param value Room id chosen by the client.
+   * @param profile The profile asked for, or "" (see {@link EnsureWorker}).
    * @param wait True keeps the blocking answer; false registers the room as preparing and returns at once.
    * @param replay Whether the room's stored session is replayed once it is up.
    * @param payload Receives the room's state and, once it is ready, its URL.
@@ -696,8 +864,8 @@ class NRoomRouter {
    * @param code Stable reason behind error ("" when it has none).
    * @return True when the call itself was started (the room may still be preparing).
    */
-  bool EnsureStart(const std::string & value, bool wait, Replay replay, json & payload, std::string & error,
-                   std::string & code);
+  bool EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay, json & payload,
+                   std::string & error, std::string & code);
 
   /// @brief A background thread, and how to tell whether it has finished.
   struct Worker {

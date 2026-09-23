@@ -9,6 +9,7 @@ variables:
   STORAGE_DRIVER: vfs
   BUILDAH_FORMAT: docker
   DOCKER_DRIVER: overlay2
+  PODMAN_BUILD_OPTS: "--memory 2g --cpus 2 --squash"
 
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
@@ -39,7 +40,7 @@ base-image-test:
     - images
   script:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - podman build -f ci/Dockerfile.base .
+    - podman build $PODMAN_BUILD_OPTS -f ci/Dockerfile.base .
   allow_failure: true
   when: manual
   except:
@@ -72,7 +73,7 @@ base-image:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - export MY_PROJECT_VER=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f1)
     - export MY_PROJECT_VER_RELEASE=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f2)
-    - podman build --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" -f ci/Dockerfile.base --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE/base:latest --tag $CI_REGISTRY_IMAGE/base:next .
+    - podman build $PODMAN_BUILD_OPTS --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" -f ci/Dockerfile.base --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE/base:latest --tag $CI_REGISTRY_IMAGE/base:next .
     - podman push $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
     - if [ -z "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE/base:latest; fi
@@ -108,6 +109,7 @@ slurm-worker-image:
     - |
       for target in $SLURM_TARGETS; do
         podman build \
+          $PODMAN_BUILD_OPTS \
           --build-arg NDMSPC_BASE="$CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME" \
           --build-arg SLURM_SERIES="$SLURM_SERIES" \
           --build-arg SLINKY_REF="$SLINKY_REF" \
@@ -136,7 +138,7 @@ prod-image:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - export MY_PROJECT_VER=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f1)
     - export MY_PROJECT_VER_RELEASE=$(echo ${CI_COMMIT_REF_NAME/v/} | cut -sd '-' -f2)
-    - podman build --build-arg MY_PROJECT_VER="${CI_COMMIT_REF_NAME/v/}" -f ci/Dockerfile --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
+    - podman build $PODMAN_BUILD_OPTS --build-arg MY_PROJECT_VER="${CI_COMMIT_REF_NAME/v/}" -f ci/Dockerfile --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
     - podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
     - if [ -z "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:latest; fi

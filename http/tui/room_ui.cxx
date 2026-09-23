@@ -22,6 +22,7 @@
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
+
 #include "ndmspc/http/NRoomAccess.h"
 #include "ndmspc/http/NRoomClient.h"
 
@@ -502,16 +503,73 @@ Element RenderHeader(const Snapshot & state, const NRoomUiOptions & options, int
   });
 }
 
+/// @brief A resource as the range it may reach (`500m -> 2`), or the side it declares alone.
+std::string FormatRange(const std::string & request, const std::string & limit)
+{
+  if (request.empty() && limit.empty()) return "-";
+  if (request.empty()) return "up to " + limit;
+  if (limit.empty()) return request;
+  return request + " -> " + limit;
+}
+
+/// @brief How long a room has before the router sweeps it, worded as the rooms view words it.
+/// @param lastSeen Epoch seconds the router was last asked about the room.
+/// @param ttl The idle TTL in seconds (0 when this deployment keeps rooms until they are closed).
+std::string FormatExpiry(long lastSeen, int ttl)
+{
+  if (ttl <= 0) return "not swept";
+  if (lastSeen <= 0) return "unknown";
+  const long remaining = lastSeen + ttl - static_cast<long>(std::time(nullptr));
+  if (remaining <= 0) return "now";
+  if (remaining < 60) return "in " + std::to_string(remaining) + "s";
+  if (remaining < 3600) return "in " + std::to_string(remaining / 60) + "m";
+  if (remaining < 86400) {
+    return "in " + std::to_string(remaining / 3600) + "h " + std::to_string((remaining % 3600) / 60) + "m";
+  }
+  return "in " + std::to_string(remaining / 86400) + "d " + std::to_string((remaining % 86400) / 3600) + "h";
+}
+
+/// @brief A room's ceiling (`1 · 1Gi`), as the rooms view's "resources max" column words it.
+/// @param room One room from room/list.
+/// @return The limits it declares, or what it requests when it declares none, or "-".
+std::string FormatCeiling(const NRoomInfo & room)
+{
+  const std::string cpu    = room.cpuLimit.empty() ? room.cpuRequest : room.cpuLimit;
+  const std::string memory = room.memoryLimit.empty() ? room.memoryRequest : room.memoryLimit;
+  if (cpu.empty() && memory.empty()) return "-";
+  if (cpu.empty()) return memory;
+  if (memory.empty()) return cpu;
+  return cpu + " · " + memory;
+}
+
 /// @brief The room table.
 Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int frame)
 {
+  // The columns share the width the table is actually given rather than each carrying a fixed one:
+  // seven columns cannot have hard-coded widths and also fit a narrow terminal, and it is the header
+  // that gets clipped first ("PODSPROFRESOURCEEXP" at 80 columns). The shares are the widths these
+  // columns used to have, as proportions, with a floor so a very narrow terminal still shows
+  // something. EXPIRES takes what is left, so the cells always add up to the table's own width.
+  // The same share the pane is given below (`width * 6 / 10`, over the same 80-column floor), so the
+  // two cannot drift: a floor here larger than that share is what made the columns overflow.
+  const int  tableWidth = std::max(80, Terminal::Size().dimx) * 6 / 10;
+  const auto share      = [tableWidth](int percent, int floor) { return std::max(floor, tableWidth * percent / 100); };
+  const int  wRoom = share(22, 6), wOwner = share(19, 5), wState = share(12, 6), wPods = share(6, 3),
+            wProfile = share(9, 5), wCeiling = share(15, 8);
+
   std::vector<Element> lines;
   lines.push_back(hbox({
-      text("ROOM") | bold | size(WIDTH, EQUAL, 22),
-      text("OWNER") | bold | size(WIDTH, EQUAL, 20),
-      text("STATE") | bold | size(WIDTH, EQUAL, 11),
-      text("PODS") | bold | size(WIDTH, EQUAL, 6),
-      text("SEEN") | bold,
+      text("ROOM") | bold | size(WIDTH, EQUAL, wRoom),
+      text("OWNER") | bold | size(WIDTH, EQUAL, wOwner),
+      text("STATE") | bold | size(WIDTH, EQUAL, wState),
+      text("PODS") | bold | size(WIDTH, EQUAL, wPods),
+      text("PROFILE") | bold | size(WIDTH, EQUAL, wProfile),
+      // The most a room may reach, as the rooms view shows it: the requests are what it reserves,
+      // and both are in the detail pane.
+      text("RESOURCES MAX") | bold | size(WIDTH, EQUAL, wCeiling),
+      // When the idle sweep takes a room is what a user acts on; how long ago the router was last
+      // asked about it is in the detail pane. This last cell takes the remaining width.
+      text("EXPIRES") | bold,
   }));
   lines.push_back(separatorLight());
 
@@ -540,9 +598,12 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
       pods      = text("-") | dim;
     }
     else if (!room.error.empty() || room.state == "failed") {
-      // The scheduler refusing the pod is worth naming: "failed" hides the one cause a user can
-      // actually do something about.
-      roomState = text(room.code == "no_capacity" ? "no capacity" : "failed") | color(Color::Red);
+      // Both causes are worth naming: "failed" hides the scheduler refusing the pod as well as a
+      // container that keeps dying, and the second one is a room that needs a bigger profile.
+      roomState = text(room.code == "no_capacity"   ? "no capacity"
+                       : room.code == "container_error" ? "killed"
+                                                        : "failed") |
+                  color(Color::Red);
     }
     else if (room.ready) {
       roomState = room.active ? text("active") | color(Color::Green) : text("idle") | dim;
@@ -553,13 +614,17 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
     const long seenAt = (room.preparing && room.startedAt > 0) ? room.startedAt : room.lastSeen;
 
     Element row = hbox({
-        text(room.room) | size(WIDTH, EQUAL, 22),
+        text(room.room) | size(WIDTH, EQUAL, wRoom),
         // A room created before ownership existed, or by a caller that identified itself to nobody,
         // has no owner - and that is worth showing as such rather than as an empty cell.
-        text(room.owner.empty() ? "-" : room.owner) | size(WIDTH, EQUAL, 20),
-        roomState | size(WIDTH, EQUAL, 11),
-        pods | size(WIDTH, EQUAL, 6),
-        text(FormatAge(seenAt)),
+        text(room.owner.empty() ? "-" : room.owner) | size(WIDTH, EQUAL, wOwner),
+        roomState | size(WIDTH, EQUAL, wState),
+        pods | size(WIDTH, EQUAL, wPods),
+        text(room.profile.empty() ? "-" : room.profile) | size(WIDTH, EQUAL, wProfile),
+        text(FormatCeiling(room)) | size(WIDTH, EQUAL, wCeiling),
+        // A room being created is never swept, so that cell keeps saying how long its creation has
+        // been running.
+        room.preparing ? text(FormatAge(seenAt)) : text(FormatExpiry(room.lastSeen, state.ttl)),
     });
     if (i == selected) row = row | inverted;
     lines.push_back(row);
@@ -591,7 +656,21 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
   lines.push_back(Field("state", stateText));
   if (room.preparing) lines.push_back(Field("phase", room.phase.empty() ? "service" : room.phase));
   lines.push_back(Field("pods", pods));
+  // The size it runs at and what that allows, as the rooms view shows them.
+  if (!room.profile.empty()) lines.push_back(Field("profile", room.profile));
+  lines.push_back(Field("cpu", FormatRange(room.cpuRequest, room.cpuLimit)));
+  lines.push_back(Field("memory", FormatRange(room.memoryRequest, room.memoryLimit)));
   lines.push_back(Field("last seen", FormatAge(room.lastSeen)));
+  // What "last seen" is for: the router sweeps a room whose lastSeen is older than the idle TTL.
+  lines.push_back(Field("expires", FormatExpiry(room.lastSeen, state.ttl)));
+  // Why it died last, when it did: a room the kernel killed never says so itself.
+  if (!room.lastErrorReason.empty()) {
+    lines.push_back(Field("last error",
+                          room.lastErrorReason + " (exit " + std::to_string(room.lastErrorExit) + ")"));
+    if (!room.lastErrorMessage.empty()) {
+      lines.push_back(text(room.lastErrorMessage) | color(Color::Red));
+    }
+  }
   if (!room.error.empty()) lines.push_back(Field("error", room.error));
   if (room.code == "no_capacity") {
     lines.push_back(text("free capacity on the cluster, or lower the room's requests") | dim);
@@ -802,10 +881,16 @@ int RunRoomUi(const NRoomUiOptions & options)
     const int height = Terminal::Size().dimy;
     const int rows   = std::max(3, height - kChromeRows);
 
+    // The split the rooms view reads at: the table takes 60% of the terminal, the detail pane the
+    // rest. FTXUI splits leftover space evenly between `flex` children and this version exposes no
+    // weighted flex, so the table names its own share of the width the terminal reports.
+    const int width = std::max(80, Terminal::Size().dimx);
+
     auto main = vbox({
         RenderHeader(snapshot, options, frame),
         separator(),
-        hbox({RenderRoomTable(snapshot, selected, rows, frame) | size(WIDTH, EQUAL, 48), separator(),
+        hbox({RenderRoomTable(snapshot, selected, rows, frame) | size(WIDTH, EQUAL, width * 6 / 10),
+              separator(),
               RenderDetail(snapshot, options, selected, accessLevel)}) |
             flex,
         separator(),
