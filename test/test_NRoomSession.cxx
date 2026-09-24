@@ -171,6 +171,35 @@ TEST(NRoomSessionProbeTest, ReportsUnreachableOnAnErrorStatus)
   EXPECT_NE(error.find("HTTP 500"), std::string::npos);
 }
 
+TEST(NRoomSessionProbeTest, ReportsRefusedWhenTheRoomWantsACredentialItDidNotGet)
+{
+  // A room that authenticates /api answers the router - which is an internal component and has no
+  // user token - with a refusal, HTTP 200 and the reason in the envelope (ROOT cannot set an error
+  // status). That is not a room with nothing open, and saying so is what keeps a capture that
+  // cannot happen from looking like an empty room.
+  FakeHttpRequest fake;
+  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open",
+               R"({"error":{"code":"authentication_required","message":"Missing Authorization header","retryable":false}})");
+
+  std::string file;
+  std::string error;
+  EXPECT_EQ(Ndmspc::NRoomSession::Probe(fake, kBase, file, error), Ndmspc::NRoomSession::State::Refused);
+  EXPECT_NE(error.find("authentication_required"), std::string::npos);
+}
+
+TEST(NRoomSessionProbeTest, ReportsRefusedWhenTheRoomsOwnGateTurnsTheTokenAway)
+{
+  // The room's own access gate uses the other envelope: a failure result with the code beside it.
+  FakeHttpRequest fake;
+  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open",
+               R"({"result":"failure","error":"this room does not accept that access token","code":"invalid_access_token"})");
+
+  std::string file;
+  std::string error;
+  EXPECT_EQ(Ndmspc::NRoomSession::Probe(fake, kBase, file, error), Ndmspc::NRoomSession::State::Refused);
+  EXPECT_NE(error.find("invalid_access_token"), std::string::npos);
+}
+
 // --- capturing -------------------------------------------------------------------
 
 TEST(NRoomSessionCaptureTest, CapturesNothingFromAnEmptyRoom)
@@ -185,6 +214,23 @@ TEST(NRoomSessionCaptureTest, CapturesNothingFromAnEmptyRoom)
   // The safety rule: a room with nothing open must never produce a snapshot, or it would
   // overwrite a good one on every wake.
   EXPECT_TRUE(snapshot.is_null()) << snapshot.dump();
+  // ... and a room that is merely empty is not a refusal: nothing to report.
+  EXPECT_TRUE(error.empty()) << error;
+}
+
+TEST(NRoomSessionCaptureTest, ReportsARefusedRoomRatherThanAnEmptyOne)
+{
+  FakeHttpRequest fake;
+  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open",
+               R"({"error":{"code":"authentication_required","message":"Missing Authorization header","retryable":false}})");
+
+  std::string                 error;
+  Ndmspc::NRoomSession::State reported = Ndmspc::NRoomSession::State::Empty;
+  const json snapshot = Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error, "", &reported);
+
+  EXPECT_TRUE(snapshot.is_null());
+  EXPECT_EQ(reported, Ndmspc::NRoomSession::State::Refused);
+  EXPECT_FALSE(error.empty()) << "a refused capture must carry the reason";
 }
 
 TEST(NRoomSessionCaptureTest, CapturesTheFileTheReplayableActionsAndThePoint)

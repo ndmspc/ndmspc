@@ -228,14 +228,18 @@ The embedded ROOT HTTP server (`THttpServer`) cannot attach a custom body to an 
 
 ### Exempt endpoints
 
-The following requests remain anonymous so clients can bootstrap and render the inspector UI without a token:
+The following requests do not need a user token, so clients can bootstrap and render the inspector
+UI, and a room can talk to the router:
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/` | Root info. Reports `state.authentication.enabled` so the UI can detect that authentication is required. |
 | `/api/openapi/inspector` and `/api/inspector/openapi` | JSON-schema for the inspector. |
+| `POST /api/room/state` | Internal: a room reports its session here and fetches it back when it wakes. Not anonymous, though - a room has no user token to present, so it sends the access token it was created with in `?token=`, and the room router checks it against the room the request names (see [Room session restore](#room-session-restore)). |
 
 WebSocket endpoints and static assets are unaffected: WebSocket connections use the `authenticate` first-frame protocol, and files under the configured asset locations are served as before.
+
+A request the server dispatches **itself** is not checked again either. A tool call (`POST /api/mcp`) runs as the caller whose own request already passed this gate, and a room replaying its stored session has no client behind it at all; both go back through the same dispatch path (`ProcessRequestAs`), which is what tells the server they are its own. Without that, every tool call and every restore would be refused for want of a token the server had just verified - the room's own gate is skipped for the same reason, since the caller's request already carried the room's token.
 
 ### Verified identity on responses
 
@@ -1082,6 +1086,23 @@ Both ways a room can come back are covered:
 The room side needs `NDMSPC_ROOM_STATE_URL` on the room (the router injects it, derived from
 Knative's `K_SERVICE`), and the snapshot endpoints `POST`/`GET /api/room/state` on the router,
 which are internal and hidden from the MCP tool list.
+
+That channel authenticates the room rather than a user: the room sends its own read-write token
+(`NDMSPC_ROOM_ACCESS`, injected beside the URL) in the `?token=` parameter, and the router checks
+it against the room the request names. It is the same credential the room enforces on its own API,
+and the same one the router presents when it captures a room's session. A room that was given no
+tokens - an older image, or one created before access existed - reports without one, and so does a
+report that arrives before the router has re-adopted the room after a restart: there is nothing to
+check those against. A report the router refuses is logged with the router's own reason and sent
+again at the next change to the session, so a rejection is never mistaken for a stored session.
+
+The router's own capture - during `room/list`, for a room that is running - reads the room over
+HTTP, so a room that authenticates `/api` refuses it: the router is an internal component and has
+no user token to present. That refusal is reported once and the room is not probed again at that
+revision, rather than being taken for a room with nothing open (the ROOT server answers 200 with
+the reason in the JSON envelope, which is why the probe reads the body and not the status). Nothing
+is lost by it: the room reports its own session, and a rollout brings a new revision, which is
+probed again.
 
 `room/open` reports what happened in its payload: `"restored": true` with
 `"session": "restored"`, or `"session": "live"` when the room was already in use, or

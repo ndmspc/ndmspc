@@ -110,6 +110,20 @@ std::string NHttpServer::RoomAccessLevel(const std::string & token) const
   return NRoomAccess::LevelOf(fRoomAccess, token);
 }
 
+std::string NHttpServer::RoomAccessToken() const
+{
+  std::lock_guard<std::mutex> lock(fRoomMutex);
+  if (!fRoomAccess.is_object()) return {};
+  return fRoomAccess.value(NRoomAccess::kReadWrite, std::string());
+}
+
+std::string NHttpServer::RoomStateUrl(const std::string & base, const std::string & token)
+{
+  std::string url = base + "/api/room/state";
+  if (!token.empty()) url += "?" + std::string(NRoomAccess::kParam) + "=" + token;
+  return url;
+}
+
 std::string NHttpServer::RequestHeader(THttpCallArg * arg, const std::string & name)
 {
   if (arg == nullptr || name.empty()) return {};
@@ -234,9 +248,16 @@ std::string NHttpServer::RequestAccessToken(THttpCallArg * arg) const
   return NRoomAccess::TokenFromCookie(RequestHeader(arg, "Cookie"));
 }
 
-bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage)
+bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage,
+                                 bool alreadyAdmitted)
 {
   if (arg == nullptr || !RoomAccessRequired()) return true;
+
+  // A request the server dispatched itself is not a new request from a client: a tool call runs
+  // for a caller whose own request already carried the room's token (and whose WebSocket
+  // connection was admitted with one), and a replay has no client at all. The gate above says the
+  // same about the bearer check.
+  if (alreadyAdmitted) return true;
 
   // A request bridged from a WebSocket carries no token of its own: that connection was admitted
   // with one at its upgrade, and the read-only rule is applied there (see NWsHandler).
@@ -508,10 +529,10 @@ void NHttpServer::RoomSessionPush()
   message["room"]     = fRoomId;
   message["snapshot"] = snapshot;
 
-  const std::string file = snapshot.value("file", std::string());
-  const std::string url  = fRoomStateUrl + "/api/room/state";
-  const std::string body = message.dump();
-  const std::string room = fRoomId;
+  const std::string file  = snapshot.value("file", std::string());
+  const std::string url   = RoomStateUrl(fRoomStateUrl, RoomAccessToken());
+  const std::string body  = message.dump();
+  const std::string room  = fRoomId;
 
   // Report from a worker thread. The router is a single-concurrency Knative service that can
   // be cold or busy, and the client's own request must not wait on this side channel - with
@@ -524,16 +545,38 @@ void NHttpServer::RoomSessionPush()
 
     NHttpRequest http;
     http.SetTimeout(kRoomRouterConnectMs, kRoomRouterReadMs);
+    std::string reply;
     try {
       const NHttpResponse response = http.request("POST", url, body, headers);
       if (response.status < 200 || response.status >= 300) {
         NLogWarning("Cannot report the session of room '%s' (HTTP %d)", room.c_str(), response.status);
         return;
       }
+      reply = response.body;
     }
     catch (const std::exception & e) {
       NLogWarning("Cannot report the session of room '%s': %s", room.c_str(), e.what());
       return;
+    }
+
+    // Whether the router took the report is in the body, not in the status: the embedded ROOT
+    // server cannot attach a body to an error status, so a refusal arrives as HTTP 200 with a
+    // JSON error body. Reading only the status would record a refused report as a success and
+    // never report that session again.
+    json parsed;
+    try {
+      parsed = json::parse(reply);
+    }
+    catch (const json::parse_error &) {
+      NLogWarning("Cannot report the session of room '%s': the router answered something that is not JSON",
+                  room.c_str());
+      return;
+    }
+    if (!parsed.is_object() || NUtils::GetJsonString(JsonMember(parsed, "result")) != "success") {
+      const std::string detail = NUtils::GetJsonString(JsonMember(parsed, "error"));
+      NLogWarning("The router refused the session of room '%s': %s", room.c_str(),
+                  detail.empty() ? "it did not report success" : detail.c_str());
+      return; // fRoomPushed is left as it was, so the next change reports again
     }
 
     {
@@ -579,6 +622,8 @@ void NHttpServer::RoomSessionRestoreOnce()
   std::map<std::string, std::string> headers;
   headers["Content-Type"] = "application/json";
 
+  const std::string url = RoomStateUrl(fRoomStateUrl, RoomAccessToken());
+
   NHttpResponse response;
   bool          fetched    = false;
   std::string   fetchError;
@@ -586,7 +631,7 @@ void NHttpServer::RoomSessionRestoreOnce()
     NHttpRequest http;
     http.SetTimeout(kRoomRouterConnectMs, kRoomRouterReadMs);
     try {
-      response = http.request("POST", fRoomStateUrl + "/api/room/state", request.dump(), headers);
+      response = http.request("POST", url, request.dump(), headers);
       fetched  = true;
     }
     catch (const std::exception & e) {
@@ -637,7 +682,10 @@ void NHttpServer::RoomSessionRestoreOnce()
   const json snapshot = JsonMember(payload, "snapshot");
 
   // Replay through our own request path, so the history, workspace and broadcasts behave
-  // exactly as they do for a client - the route NMcpServer::CallTool already takes.
+  // exactly as they do for a client - the route NMcpServer::CallTool already takes. Dispatched as
+  // the server itself (a stated identity, empty because no client is behind a replay): that is
+  // what keeps the gates from asking a request the server made of itself for a token - the
+  // snapshot being replayed was stored from requests that already carried one.
   const NRoomSession::Dispatch dispatch = [this](const std::string & method, const std::string & route,
                                                  const json & body, std::string & dispatchError) -> json {
     auto arg = std::make_shared<THttpCallArg>();
@@ -646,7 +694,7 @@ void NHttpServer::RoomSessionRestoreOnce()
     arg->SetFileName(route.c_str());
     arg->SetPostData(body.dump().c_str());
 
-    ProcessRequest(arg);
+    ProcessRequestAs(arg, NRequestIdentity());
 
     std::string text;
     if (arg->GetContent() != nullptr && arg->GetContentLength() > 0) {
@@ -774,9 +822,21 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   // Requests bridged from an authenticated WebSocket connection (nonzero WS id)
   // carry their identity already and are not re-checked here. The root info and
   // inspector-schema endpoints stay anonymous so UIs can bootstrap.
+  //
+  // room/state is the internal room-to-router channel and stays out of this check too: a room
+  // has no user token to present - it reports its session on its own behalf. It authenticates
+  // with the access token it was created with, which the router checks against the room the
+  // request names (see NRoomRouter::HandleState).
+  //
+  // A request the server dispatches itself is not a request from the network at all, so there is
+  // nothing to authenticate here: a tool call runs as the caller whose request already passed this
+  // gate (see NMcpServer::CallTool), and a room replaying its stored session (ProcessRequestAs
+  // from RoomSessionRestoreOnce) has no client behind it. Re-checking those rejected the very
+  // requests the server had just admitted.
   const bool isWsBridged = arg->GetWSId() != 0;
-  if (fOidcVerifier && !isWsBridged && !fullpath.IsNull() && fullpath != "openapi/inspector" &&
-      fullpath != "inspector/openapi") {
+  const bool isRoomState = fullpath == "room/state";
+  if (fOidcVerifier && !isWsBridged && !identityStated && !isRoomState && !fullpath.IsNull() &&
+      fullpath != "openapi/inspector" && fullpath != "inspector/openapi") {
     NOidcSession session;
     if (!NOidcHttpAuthenticator::ApplyToRequest(fOidcVerifier, arg.get(), &session)) {
       NLogDebug("OIDC authentication failed for %s request to /api/%s", method.Data(), fullpath.Data());
@@ -798,7 +858,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
 
   // The room's own gate, on every /api request including the bridged, MCP and replay ones - which
   // already carry their identity, so it passes them through.
-  if (!ApplyRoomAccess(arg.get(), method.Data(), /*isPage=*/false)) return;
+  if (!ApplyRoomAccess(arg.get(), method.Data(), /*isPage=*/false, /*alreadyAdmitted=*/identityStated)) return;
 
   json out;
   json wsOut;
