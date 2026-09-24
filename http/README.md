@@ -243,13 +243,13 @@ Successful requests carry the verified identity in response headers:
 
 | Header | Value |
 |---|---|
-| `X-NDMSPC-User` | `preferred_username` (falls back to `sub`) |
-| `X-NDMSPC-Subject` | JWT `sub` claim |
-| `X-NDMSPC-Token-Expires` | Token expiry as Unix seconds |
-| `X-NDMSPC-Authenticated` | JWT `sub` claim |
-| `X-NDMSPC-Email` | JWT `email` claim (the header is absent when the token carries none) |
+| `X-Ndmspc-User` | `preferred_username` (falls back to `sub`) |
+| `X-Ndmspc-Subject` | JWT `sub` claim |
+| `X-Ndmspc-Token-Expires` | Token expiry as Unix seconds |
+| `X-Ndmspc-Authenticated` | JWT `sub` claim |
+| `X-Ndmspc-Email` | JWT `email` claim (the header is absent when the token carries none) |
 
-Client-supplied `X-NDMSPC-*` headers are never trusted: they are stripped from API-over-WebSocket messages and ignored by the bearer check.
+Client-supplied `X-Ndmspc-*` headers are never trusted: they are stripped from API-over-WebSocket messages and ignored by the bearer check.
 
 The identity also travels *to* the handler, which otherwise only ever receives its method and its input: the server writes it into that input as the `_identity` key (`{user, email, subject, verified}`) — the same seam the request's query already uses as `_query`. A client-supplied `_identity` is replaced by what the server itself established, so an action can trust `verified`. What acts on it today is the [room router](#ownership-and-admins).
 
@@ -288,7 +288,7 @@ The server is fronted by an `httplib`-based TLS listener that:
    connections that present no certificate or one signed by an untrusted CA.
 2. Extracts the Common Name (or full DN) of the verified certificate as the caller identity.
 3. Forwards HTTP `/api/*` requests to the internal ROOT HTTP engine, injecting the identity via
-   the `X-NDMSPC-User` and `X-NDMSPC-Subject` headers.
+   the `X-Ndmspc-User` and `X-Ndmspc-Subject` headers.
 4. For WebSocket connections, terminates `wss://` at the front door, bridges the connection to
    the internal ROOT WebSocket engine, and rewrites `username` in the server messages to the
    certificate identity. Clients **must not** send the OIDC-style first-frame `authenticate`
@@ -386,8 +386,8 @@ Successful requests carry the certificate identity:
 
 | Header | Value |
 |---|---|
-| `X-NDMSPC-User` | Certificate Common Name (or full DN with `--x509-identity dn`) |
-| `X-NDMSPC-Subject` | Same value |
+| `X-Ndmspc-User` | Certificate Common Name (or full DN with `--x509-identity dn`) |
+| `X-Ndmspc-Subject` | Same value |
 
 Requesting without `--cert` (or with a certificate not signed by `ca.pem`) fails at the TLS
 handshake and returns no HTTP response.
@@ -698,7 +698,7 @@ A client presents its token in one of three ways, depending on what it is:
 | Client | Carries the token as | Why |
 | ------ | -------------------- | --- |
 | A browser following a link | `?token=<hex>` in the URL | the link is what was handed out |
-| A script | `X-NDMSPC-Room-Token: <hex>` | no query string to build, nothing in the URL bar |
+| A script | `X-Ndmspc-Room-Token: <hex>` | no query string to build, nothing in the URL bar |
 | The page's own scripts | the cookie the page sets | a page cannot add a header to its API or websocket calls, so a page request that carried a valid token answers with `Set-Cookie: ndmspc-room-access=<token>; Path=/; HttpOnly; SameSite=Lax` and the browser sends it from then on |
 
 Refusals keep the shapes this server already uses: an `/api` request answers HTTP 200 with

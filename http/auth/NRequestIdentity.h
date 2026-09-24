@@ -97,7 +97,7 @@ struct NRequestIdentity {
    * @brief The identity an authenticating front door forwarded in the request headers.
    *
    * The X509 front door verifies the client certificate itself and passes the result on as
-   * X-NDMSPC-User / -Subject / -Email, so the ROOT engine behind it can serve per-user requests
+   * X-Ndmspc-User / -Subject / -Email, so the ROOT engine behind it can serve per-user requests
    * without authenticating anything itself. Meaningful only for an engine that was told it sits
    * behind that door (where it is loopback-only); anywhere else a client could write those headers.
    *

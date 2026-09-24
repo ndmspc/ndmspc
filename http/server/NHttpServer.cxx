@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <set>
@@ -25,6 +26,10 @@
 #include "ndmspc/http/NRoomSession.h"
 #include "ndmspc/ndmspc.h"
 #include "NHttpServer.h"
+
+// The process environment, as the C library exposes it. Declared here rather than pulling in
+// <unistd.h> for the one symbol.
+extern char **environ;
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NHttpServer);
@@ -105,6 +110,114 @@ std::string NHttpServer::RoomAccessLevel(const std::string & token) const
   return NRoomAccess::LevelOf(fRoomAccess, token);
 }
 
+std::string NHttpServer::RequestHeader(THttpCallArg * arg, const std::string & name)
+{
+  if (arg == nullptr || name.empty()) return {};
+
+  const Int_t count = arg->NumRequestHeader();
+  for (Int_t i = 0; i < count; ++i) {
+    // CountHeader() hands back the name up to the ':', so a name written "X :" keeps its space.
+    std::string header = arg->GetRequestHeaderName(i).Data();
+    const auto  last   = header.find_last_not_of(" \t");
+    header.erase(last == std::string::npos ? 0 : last + 1);
+    if (header.size() != name.size()) continue;
+
+    bool same = true;
+    for (std::size_t c = 0; c < header.size() && same; ++c) {
+      same = std::tolower(static_cast<unsigned char>(header[c])) ==
+             std::tolower(static_cast<unsigned char>(name[c]));
+    }
+    if (!same) continue;
+
+    const TString value = arg->GetRequestHeader(header.c_str());
+    return value.IsNull() ? std::string() : std::string(value.Data());
+  }
+  return {};
+}
+
+json NHttpServer::RuntimeEnv()
+{
+  json env = json::object();
+
+  // Only the VITE_ prefix: Vite hands exactly these to the client, so a runtime setting cannot
+  // disclose more than the build already does. Everything else the process was started with
+  // (NDMSPC_SLURM_*, NDMSPC_ROOM_*, ...) is internal and stays out.
+  for (char ** item = environ; item != nullptr && *item != nullptr; ++item) {
+    const std::string entry(*item);
+    const auto        equals = entry.find('=');
+    if (equals == std::string::npos) continue;
+    const std::string name = entry.substr(0, equals);
+    if (name.rfind("VITE_", 0) != 0) continue;
+    env[name] = entry.substr(equals + 1);
+  }
+  return env;
+}
+
+std::string NHttpServer::JsonForHtml(const json & value)
+{
+  std::string text = value.dump();
+
+  // Each character is replaced by JSON's own \uXXXX escape, which is legal inside a JSON string:
+  // the text stays the same JSON value while it can no longer close the <script> element.
+  static const std::pair<const char *, const char *> escapes[] = {
+      {"<", "\\u003c"}, {">", "\\u003e"}, {"&", "\\u0026"}, {"\xE2\x80\xA8", "\\u2028"}, {"\xE2\x80\xA9", "\\u2029"}};
+
+  for (const auto & escape : escapes) {
+    const std::size_t from = std::strlen(escape.first);
+    const std::size_t to   = std::strlen(escape.second);
+    for (std::size_t pos = 0; (pos = text.find(escape.first, pos)) != std::string::npos; pos += to)
+      text.replace(pos, from, escape.second);
+  }
+  return text;
+}
+
+std::string NHttpServer::InjectRuntimeEnv(const std::string & html, const json & env)
+{
+  if (env.empty() || html.empty()) return {};
+
+  const std::string script = "<script>window.__NDMSPC_ENV__ = " + JsonForHtml(env) + ";</script>\n";
+
+  // Ahead of the page's own scripts, so a module that reads a setting while it loads already sees
+  // it. The app's scripts live in <head>; a page without one gets the script at the front, which
+  // the parser still runs before anything later.
+  const std::string open = "<head>";
+  const auto        head = html.find(open);
+  if (head != std::string::npos) return html.substr(0, head + open.size()) + "\n" + script + html.substr(head + open.size());
+
+  const std::string close = "</head>";
+  const auto        end   = html.find(close);
+  if (end != std::string::npos) return html.substr(0, end) + script + html.substr(end);
+
+  return script + html;
+}
+
+void NHttpServer::PrepareRuntimeEnvPage()
+{
+  fRuntimeEnvPage.clear();
+
+  const json env = RuntimeEnv();
+  if (env.empty()) return; // Nothing to hand over: the page is served as it was built.
+  if (fDefaultPage.empty()) return;
+
+  const std::string html = ReadFileContent(fDefaultPage);
+  if (html.empty()) {
+    NLogWarning("Cannot read the default page '%s' to inject the VITE_* settings", fDefaultPage.c_str());
+    return;
+  }
+
+  // A page that asks THttpServer to finish it (the JSROOT pages carry these placeholders) is left
+  // to THttpServer: answering it here would leave them unresolved.
+  if (html.find("<!--jsroot_importmap-->") != std::string::npos || html.find("$$$h.json$$$") != std::string::npos) {
+    NLogWarning("The default page '%s' is served without the VITE_* settings: it needs THttpServer's own substitutions",
+                fDefaultPage.c_str());
+    return;
+  }
+
+  fRuntimeEnvPage = InjectRuntimeEnv(html, env);
+  if (!fRuntimeEnvPage.empty())
+    NLogInfo("Serving the page with %zu VITE_* setting(s) from the environment", env.size());
+}
+
 std::string NHttpServer::RequestAccessToken(THttpCallArg * arg) const
 {
   if (arg == nullptr) return {};
@@ -115,10 +228,10 @@ std::string NHttpServer::RequestAccessToken(THttpCallArg * arg) const
   std::string  token = NRoomAccess::TokenFromQuery(query != nullptr ? query : "");
   if (!token.empty()) return token;
 
-  token = arg->GetRequestHeader(NRoomAccess::kHeader).Data();
+  token = RequestHeader(arg, NRoomAccess::kHeader);
   if (!token.empty()) return token;
 
-  return NRoomAccess::TokenFromCookie(arg->GetRequestHeader("Cookie").Data());
+  return NRoomAccess::TokenFromCookie(RequestHeader(arg, "Cookie"));
 }
 
 bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage)
@@ -184,6 +297,10 @@ bool NHttpServer::StartEngine(const char * engine)
     return IsAnyEngine();
   }
   if (!engine || !*engine) return false;
+
+  // The page has been set by now (SetDefaultPage runs before the engine is started), so this is
+  // the last moment before anything can be served to put the deployment's VITE_* settings into it.
+  PrepareRuntimeEnvPage();
 
   // Create the engine (starts civetweb listening). When the engine fails to
   // bind (e.g. port in use) no engine is added and IsAnyEngine() is false.
@@ -572,6 +689,24 @@ void NHttpServer::ProcessRequestAs(std::shared_ptr<THttpCallArg> arg, const NReq
   Dispatch(std::move(arg), &identity);
 }
 
+namespace {
+
+/// @brief Whether a request is for the server's default page - the page the app is loaded from.
+///
+/// THttpServer answers its default page for any request without a file name; only the app's own
+/// page is ours to answer here, so a path that merely has no file name ("/ws/...", "/assets/...")
+/// is left to THttpServer, which knows what to do with it.
+bool IsDefaultPageRequest(THttpCallArg * arg)
+{
+  if (arg == nullptr) return false;
+  const TString name = arg->GetFileName();
+  if (name == "index.htm" || name == "default.htm") return true;
+  const char * path = arg->GetPathName();
+  return name.IsNull() && path != nullptr && *path == 0;
+}
+
+} // namespace
+
 void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity * statedIdentity)
 {
 
@@ -613,6 +748,16 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     const std::string page    = fullpath.Data();
     const bool        isAsset = page.rfind("/assets/", 0) == 0 || page.rfind("/ws", 0) == 0;
     if (!isAsset && !ApplyRoomAccess(arg.get(), method.Data(), /*isPage=*/true)) return;
+
+    // The page carries this deployment's VITE_* settings (see PrepareRuntimeEnvPage). It is
+    // answered here rather than by THttpServer so it can be marked no-store: the values are the
+    // deployment's, and a page cached from an earlier rollout must not keep serving them.
+    if (!fRuntimeEnvPage.empty() && IsDefaultPageRequest(arg.get())) {
+      arg->SetContent(std::string(fRuntimeEnvPage));
+      arg->SetContentType("text/html");
+      arg->AddNoCacheHeader();
+      return;
+    }
 
     NLogTrace("Using base http server for path: %s", fullpath.Data());
     THttpServer::ProcessRequest(arg);
@@ -860,7 +1005,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     // not support suppressing the entire workspace (boolean values are ignored).
     std::set<std::string> suppressedWorkspaceKeys;
     try {
-      TString hdr = arg->GetRequestHeader("X-NDMSPC-Suppress-Workspace-Publish");
+      TString hdr = arg->GetRequestHeader("X-Ndmspc-Suppress-Workspace-Publish");
       if (!hdr.IsNull()) {
         std::string v = hdr.Data();
         // normalize to lowercase
@@ -888,7 +1033,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     }
 
     if (!suppressedWorkspaceKeys.empty()) {
-      NLogDebug("Suppressing workspace keys from broadcast due to X-NDMSPC-Suppress-Workspace-Publish header");
+      NLogDebug("Suppressing workspace keys from broadcast due to X-Ndmspc-Suppress-Workspace-Publish header");
     }
 
     if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null() || !wsOut["state"].is_null()) {

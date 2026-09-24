@@ -202,7 +202,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       // argument. The connection already passed the WS authentication gate, so
       // NHttpServer skips the bearer check for requests with a nonzero WS id.
       // The username is set from the server-side client record only, never from
-      // the client-supplied headers (Authorization and X-NDMSPC-* are stripped).
+      // the client-supplied headers (Authorization and X-Ndmspc-* are stripped).
       {
         std::lock_guard lock(fMutex);
         const auto client = fClients.find(wsId);

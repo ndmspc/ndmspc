@@ -2,6 +2,8 @@
 
 #include "ndmspc/http/NRoomRouter.h"
 
+#include <THttpCallArg.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -626,6 +628,48 @@ TEST(NRoomAccessTest, TheTokenTravelsInTheLinkInAHeaderOrInTheRoomsCookie)
   EXPECT_EQ(NRoomAccess::TokenFromCookie("other=1"), "");
   EXPECT_EQ(NRoomAccess::TokenFromCookie("ndmspc-room-access-extra=abc"), "");
   EXPECT_EQ(NRoomAccess::TokenFromCookie(""), "");
+}
+
+TEST(NRoomAccessTest, AHeaderIsReadWhateverCaseAProxyLeavesItIn)
+{
+  // The header is spelled in its canonical camel case, but a proxy in front of a room may re-case
+  // it (Knative's queue-proxy is a Go process speaking HTTP/2 that rewrites every name), so the
+  // room reads it without regard to case and both spellings open it.
+  const std::string tokens = NRoomRouter::AccessJson("rw-token", "ro-token").dump();
+  EnvGuard          access("NDMSPC_ROOM_ACCESS", tokens.c_str());
+  NHttpServer       server("", /*ws=*/false, 10000, {}, /*startEngine=*/false);
+
+  {
+    THttpCallArg arg;
+    arg.SetQuery("room=alpha");
+    arg.SetRequestHeader("X-Ndmspc-Room-Token: rw-token\r\n"); // the documented spelling
+    EXPECT_EQ(server.RequestAccessToken(&arg), "rw-token");
+  }
+  {
+    THttpCallArg arg;
+    arg.SetQuery("room=alpha");
+    arg.SetRequestHeader("X-NDMSPC-Room-Token: ro-token\r\n"); // the older all-caps spelling
+    EXPECT_EQ(server.RequestAccessToken(&arg), "ro-token");
+  }
+  {
+    THttpCallArg arg;
+    arg.SetQuery("room=alpha");
+    arg.SetRequestHeader("cookie: ndmspc-room-access=rw-token\r\n"); // a re-cased cookie too
+    EXPECT_EQ(server.RequestAccessToken(&arg), "rw-token");
+  }
+  {
+    // The link still wins over the header, and a header that is not the room's grants nothing.
+    THttpCallArg arg;
+    arg.SetQuery("room=alpha&token=ro-token");
+    arg.SetRequestHeader("X-Ndmspc-Room-Token: rw-token\r\n");
+    EXPECT_EQ(server.RequestAccessToken(&arg), "ro-token");
+  }
+  {
+    THttpCallArg arg;
+    arg.SetQuery("room=alpha");
+    arg.SetRequestHeader("X-Other-Header: rw-token\r\n");
+    EXPECT_EQ(server.RequestAccessToken(&arg), "");
+  }
 }
 
 TEST(NRoomRouterTest, QueryParsingDecodesAndKeepsEmptyValues)

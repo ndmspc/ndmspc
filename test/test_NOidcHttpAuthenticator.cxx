@@ -132,7 +132,7 @@ TEST(NOidcHttpAuthenticatorTest, ApplyToRequestReportsTheEmailAndTheSession)
   EXPECT_EQ(session.subject, "subject-1");
   EXPECT_EQ(session.username, "alice");
   EXPECT_EQ(session.email, "alice@example.com");
-  EXPECT_STREQ(arg->GetHeader("X-NDMSPC-Email").Data(), "alice@example.com");
+  EXPECT_STREQ(arg->GetHeader("X-Ndmspc-Email").Data(), "alice@example.com");
 }
 
 TEST(NOidcHttpAuthenticatorTest, EmailHeaderIsAbsentWhenTheTokenHasNoEmail)
@@ -145,7 +145,7 @@ TEST(NOidcHttpAuthenticatorTest, EmailHeaderIsAbsentWhenTheTokenHasNoEmail)
   Ndmspc::NOidcSession session;
   ASSERT_TRUE(Ndmspc::NOidcHttpAuthenticator::ApplyToRequest(verifier, arg.get(), &session));
   EXPECT_EQ(session.email, "");
-  EXPECT_EQ(arg->GetHeader("X-NDMSPC-Email").Length(), 0);
+  EXPECT_EQ(arg->GetHeader("X-Ndmspc-Email").Length(), 0);
 }
 
 TEST(NOidcHttpAuthenticatorTest, ApplyToRequestRejectsAndWritesErrorBody)

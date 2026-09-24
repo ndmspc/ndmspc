@@ -100,8 +100,8 @@ TEST(NRequestIdentityTest, AnAssertionIsNeverVerified)
 TEST(NRequestIdentityTest, ForwardedHeadersCarryTheFrontDoorsVerification)
 {
   auto arg = std::make_shared<THttpCallArg>();
-  arg->SetRequestHeader("X-NDMSPC-User: alice\r\nX-NDMSPC-Subject: CN=alice\r\n"
-                        "X-NDMSPC-Email: alice@example.com\r\n");
+  arg->SetRequestHeader("X-Ndmspc-User: alice\r\nX-Ndmspc-Subject: CN=alice\r\n"
+                        "X-Ndmspc-Email: alice@example.com\r\n");
 
   const auto identity = NRequestIdentity::FromForwardedHeaders(arg.get());
   EXPECT_EQ(identity.username, "alice");
