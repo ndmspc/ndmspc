@@ -1,3 +1,16 @@
+# One pipeline per push. A branch with an open merge request would otherwise get
+# two: a branch pipeline (push event) and a merge-request pipeline, because the
+# catch-all `- when: on_success` in build-al9/build-al10 also matches
+# merge_request_event. The branch pipeline is the merge gate here (see the note
+# above build-al9), so merge-request pipelines are switched off entirely. Tags
+# must stay allowed: they publish the base/slurmd/prod images.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH
+
 stages:
   - build
   - deploy
@@ -12,6 +25,10 @@ variables:
   PODMAN_BUILD_OPTS: "--memory 2g --cpu-period 100000 --cpu-quota 200000 --squash"
   MY_MAKE_JOBS: "2"
 
+# These builds are the merge gate on feature branches. On the protected branches
+# (main/develop) a merge only lands once the branch pipeline has already passed,
+# so they would only repeat that work: they are left manual there. Tags only
+# publish artifacts, so they never run.
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
   stage: build
@@ -19,9 +36,12 @@ build-al9:
     - ndmspc-hosted
   script:
     - WITH_AI=false scripts/make.sh release test numcal
-  except:
-    - main
-    - tags
+  rules:
+    - if: "$CI_COMMIT_TAG"
+      when: never
+    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == 'develop'"
+      when: manual
+    - when: on_success
 
 build-al10:
   image: $CI_REGISTRY/ndmspc/user/al10:dep
@@ -31,9 +51,12 @@ build-al10:
   script:
     - scripts/make.sh release test
   allow_failure: true
-  except:
-    - main
-    - tags
+  rules:
+    - if: "$CI_COMMIT_TAG"
+      when: never
+    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == 'develop'"
+      when: manual
+    - when: on_success
 
 base-image-test:
   stage: build

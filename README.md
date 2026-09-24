@@ -130,7 +130,7 @@ ndmspc-room-tui --url "$BASE" --list   # scripted
 
 Opening a room (`room/open`) also replays the session it had before it scaled to zero — the
 same file, navigator and drill-down — so an idle room comes back as it was left rather than
-empty. See [the session restore notes](http/README.md) for the details and the one case it
+empty. See <a href="http/README.md">the session restore notes</a> for the details and the one case it
 does not cover.
 
 The router needs read/write access to Knative `services` and Gateway API

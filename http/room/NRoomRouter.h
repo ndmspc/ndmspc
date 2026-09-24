@@ -524,6 +524,14 @@ class NRoomRouter {
   /**
    * @brief The per-room Knative Service object (skeleton spec + the room's own environment).
    *
+   * @param cfg Router configuration (the namespace the Service is created in).
+   * @param name Kubernetes name of the Service.
+   * @param value The room id, kept as an annotation beside the label's slug of it.
+   * @param stateUrl The URL the room reports its session to (NDMSPC_ROOM_STATE_URL).
+   * @param access The room's access tokens, kept as an annotation and NDMSPC_ROOM_ACCESS; empty for a
+   *               room that has none.
+   * @param owner The room's owner, kept as an annotation; "" when it has none.
+   * @param skeleton The skeleton ConfigMap JSON the Service is built from (its serviceSpec).
    * @param profile The profile the room is created with; "" when the skeleton offers none. Stored as
    *                an annotation so the room keeps it across a restart.
    * @param resources What that profile allows, welded onto the room's container - which is what gives
@@ -673,9 +681,14 @@ class NRoomRouter {
   bool Apply(const std::string & collection, const std::string & item, const json & object, std::string & error,
              std::string & code);
   /**
-   * @brief Stores a room's session snapshot on its own Knative Service (as an annotation).
+   * @brief Sets one annotation on a room's own Knative Service.
+   *
+   * The session snapshot and the reason a room's container last died are kept this way, so both
+   * survive a router restart and an idle room that has scaled to zero.
+   *
    * @param name Kubernetes name of the room.
-   * @param snapshot The encoded snapshot.
+   * @param key The annotation key to set.
+   * @param value The annotation value.
    * @param error Filled when the annotation cannot be written.
    * @return True on success.
    */
