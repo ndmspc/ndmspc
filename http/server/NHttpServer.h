@@ -326,6 +326,21 @@ class NHttpServer : public THttpServer {
   std::string RoomAccessLevel(const std::string & token) const;
   /// @brief The access token a request carries: `?token=`, the header, or the room's cookie.
   std::string RequestAccessToken(THttpCallArg * arg) const;
+  /// @brief This room's own read-write access token ("" when it was given none).
+  std::string RoomAccessToken() const;
+  /**
+   * @brief The router endpoint a room reports its session to.
+   *
+   * The room presents its own access token there, because the router checks it: the channel is
+   * internal, so a room authenticates as itself rather than as a user (see
+   * NRoomRouter::HandleState). A room that was given no tokens carries none, exactly as it
+   * enforces nothing on its own API.
+   *
+   * @param base The router's base URL (NDMSPC_ROOM_STATE_URL).
+   * @param token The room's read-write token, or "" when it has none.
+   * @return The full URL, with the token in the query when there is one.
+   */
+  static std::string RoomStateUrl(const std::string & base, const std::string & token);
   /**
    * @brief A request header's value, matched without regard to letter case.
    *
@@ -388,9 +403,13 @@ class NHttpServer : public THttpServer {
    * @param arg The request.
    * @param method The request's HTTP method.
    * @param isPage True for the page/static path, false for an `/api` one.
+   * @param alreadyAdmitted True for a request the server dispatched itself (see ProcessRequestAs),
+   *        which the caller's own request already carried this room's token for - or which has no
+   *        client behind it at all, as a replay does.
    * @return True when the request may be served; otherwise the refusal is already written.
    */
-  bool ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage);
+  bool ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage,
+                       bool alreadyAdmitted = false);
 
   /**
    * @brief One request, dispatched to its handler with the caller it runs as.

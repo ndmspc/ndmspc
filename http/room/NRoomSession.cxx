@@ -113,6 +113,20 @@ NRoomSession::State NRoomSession::Probe(NHttpRequest & http, const std::string &
     file = name;
     return State::Active;
   }
+
+  // A refusal is not an empty room: the room answered that it will not serve this caller, because
+  // it wants a credential the caller did not present - a user bearer token when the deployment
+  // authenticates /api, or its own token when the one presented is stale. The embedded ROOT
+  // server cannot set an error status, so this arrives as HTTP 200 with the reason in the JSON
+  // envelope; saying so keeps a capture that cannot happen from looking like a room with nothing
+  // open. Both envelope shapes the server uses are read: {"error":{"code":...}} from the bearer
+  // gate and {"result":"failure","code":...} from a room's own access gate.
+  std::string code = StringMember(Member(response, "error"), "code");
+  if (code.empty()) code = StringMember(response, "code");
+  if (!code.empty()) {
+    error = "the room refused the request (" + code + "); the router cannot read its session";
+    return State::Refused;
+  }
   return State::Empty;
 }
 
@@ -161,13 +175,17 @@ json NRoomSession::Build(const std::string & roomId, const std::string & file, c
 }
 
 json NRoomSession::Capture(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & roomId,
-                           std::string & error, const std::string & token)
+                           std::string & error, const std::string & token, State * reportedState)
 {
   const std::string base = TrimBase(roomBaseUrl);
 
   std::string file;
   const State state = Probe(http, base, file, error, token);
+  if (reportedState != nullptr) *reportedState = state;
   if (state == State::Unreachable) return json();
+  // A room that refused the request said why in `error`. There is nothing to capture, and the
+  // caller decides whether asking again is worth it (the router does not, until a new revision).
+  if (state == State::Refused) return json();
   // Never let a room that has nothing open overwrite a good snapshot: a fresh pod is empty
   // for the first seconds of its life, which is exactly when a wake happens.
   if (state == State::Empty) return json();

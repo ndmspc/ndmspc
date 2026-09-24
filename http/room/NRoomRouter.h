@@ -76,6 +76,11 @@ struct NRoomState {
   std::string profile;  ///< The room skeleton profile it was created with ("" when the skeleton has none)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
   std::string snapshot;    ///< Last captured session, replayed when the room wakes
+  /// The revision at which the room refused the router's capture probe ("" when it never did).
+  /// Kept so one refusal is reported once instead of on every room/list: the room reports its own
+  /// session meanwhile, and a new revision - a rollout that changes what it authenticates - is
+  /// probed again.
+  std::string captureRefusedAt;
 
   /// Why the room's container last died, and when. Kept here because the pod that carries the reason
   /// goes away with the room when it scales to zero (see kLastErrorAnnotation and NoteTermination).
@@ -616,6 +621,12 @@ class NRoomRouter {
 
   /// @brief A room's owner, from the registry ("" when it has none).
   std::string RoomOwner(const std::string & name) const;
+
+  /// @brief Whether this room already refused the router's capture probe at this revision.
+  bool CaptureRefused(const std::string & name, const std::string & revision) const;
+
+  /// @brief Remember that this room refused the router's capture probe at this revision.
+  void NoteCaptureRefused(const std::string & name, const std::string & revision);
 
   /// @brief Whether a caller is one of NDMSPC_ROOM_ADMINS (by email or user name, case-insensitively).
   bool IsAdmin(const NRequestIdentity & identity) const;

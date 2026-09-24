@@ -645,6 +645,23 @@ json NRoomRouter::RoomAccess(const std::string & name) const
   return NRoomRouter::AccessJson(it->second.tokenRw, it->second.tokenRo);
 }
 
+// Whether the router's capture probe was already refused for this room at this revision, read
+// under the registry lock.
+bool NRoomRouter::CaptureRefused(const std::string & name, const std::string & revision) const
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  return it != fRooms.end() && !revision.empty() && it->second.captureRefusedAt == revision;
+}
+
+// Remember a refused capture probe, under the registry lock.
+void NRoomRouter::NoteCaptureRefused(const std::string & name, const std::string & revision)
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  if (it != fRooms.end()) it->second.captureRefusedAt = revision;
+}
+
 // A room's owner, read under the registry lock.
 std::string NRoomRouter::RoomOwner(const std::string & name) const
 {
@@ -1452,16 +1469,27 @@ void NRoomRouter::CaptureNow(const std::string & name, const std::string & value
   const std::string baseUrl = RoomBaseUrl(revision);
   if (baseUrl.empty()) return;
 
-  Ndmspc::NHttpRequest http;
-  std::string         error;
-  const json          access = RoomAccess(name);
-  const json          snapshot =
-      Ndmspc::NRoomSession::Capture(http, baseUrl, value, error, access.value(NRoomAccess::kReadWrite, ""));
+  Ndmspc::NHttpRequest        http;
+  std::string                 error;
+  Ndmspc::NRoomSession::State state    = Ndmspc::NRoomSession::State::Unreachable;
+  const json                  access   = RoomAccess(name);
+  const json                  snapshot = Ndmspc::NRoomSession::Capture(
+      http, baseUrl, value, error, access.value(NRoomAccess::kReadWrite, ""), &state);
   if (snapshot.is_null()) {
     // NRoomSession reports nothing for a room that has no file open, so a freshly
     // started pod can never overwrite a good snapshot with emptiness.
     if (!error.empty()) {
-      NLogWarning("[room] cannot capture the session of %s: %s", name.c_str(), error.c_str());
+      // A refusal is the expected answer from a room that authenticates /api - this component is
+      // internal and has no user token to present - so it is said once at information level, and
+      // then the room is not asked again at this revision. Anything else (a room that cannot be
+      // reached, an answer that cannot be read) is a real failure and stays a warning.
+      if (state == Ndmspc::NRoomSession::State::Refused) {
+        NLogInfo("[room] cannot capture the session of %s: %s", name.c_str(), error.c_str());
+        NoteCaptureRefused(name, revision);
+      }
+      else {
+        NLogWarning("[room] cannot capture the session of %s: %s", name.c_str(), error.c_str());
+      }
     }
     return;
   }
@@ -1491,6 +1519,9 @@ void NRoomRouter::CaptureNow(const std::string & name, const std::string & value
 void NRoomRouter::Capture(const std::string & name, const std::string & value, const std::string & revision)
 {
   if (RoomBaseUrl(revision).empty()) return;
+  // Already refused at this revision (see CaptureNow): asking again would repeat the same refusal
+  // on every room/list. A new revision is a room that may now accept the probe.
+  if (CaptureRefused(name, revision)) return;
   auto done = std::make_shared<std::atomic<bool>>(false);
   SpawnWorker(name,
               std::thread([this, name, value, revision, done]() {
@@ -2996,6 +3027,24 @@ void NRoomRouter::HandleState(const std::string & method, json & in, json & out)
     return;
   }
   const std::string name = NRoomRouter::RoomName(fConfig, id);
+
+  // The room's own credential, not a user's. This channel is internal - the room reports its
+  // session and fetches it back - so the caller is the room itself, and the read-write token it
+  // was created with is what says so. A room the router does not know (a report that arrives
+  // before the router has adopted it after a restart) and one created without tokens are let
+  // through as they always were: there is nothing to check those against.
+  const json        query     = NdmspcRoomMember(in, "_query");
+  const std::string presented = query.is_string() ? NRoomAccess::TokenFromQuery(query.get<std::string>()) : std::string();
+  const json        access    = RoomAccess(name);
+  const std::string expected  = access.is_object() ? access.value(NRoomAccess::kReadWrite, std::string()) : std::string();
+  if (!expected.empty() && presented != expected) {
+    out["result"] = "failure";
+    out["error"]  = presented.empty() ? "The room's access token is required to report or fetch its session"
+                                      : "The room's access token does not match this room";
+    NLogWarning("[room] refused a session request for %s: the room's access token %s", name.c_str(),
+                presented.empty() ? "is missing" : "does not match");
+    return;
+  }
 
   const bool isPost   = method.find("POST") != std::string::npos;
   const bool isGet    = method.find("GET") != std::string::npos;

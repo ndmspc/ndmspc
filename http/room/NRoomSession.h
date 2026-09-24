@@ -54,6 +54,8 @@ class NRoomSession {
     Empty,       ///< The room answered and has no file open (safe to restore into)
     Active,      ///< The room has a file open; leave the live session alone
     Unreachable, ///< The room did not answer, or answered with something unreadable
+    Refused,     ///< The room answered that it will not serve the caller: it demands a credential
+                 ///< it did not get (a user bearer token, when the deployment authenticates /api)
   };
 
   /**
@@ -61,7 +63,7 @@ class NRoomSession {
    * @param http Transport to use.
    * @param roomBaseUrl Room base URL, e.g. http://ndmspc-room-x-00001.default.svc.cluster.local:80.
    * @param file Filled with the opened file name when the room is Active.
-   * @param error Filled when the room is Unreachable.
+   * @param error Filled when the room is Unreachable or Refused.
    * @param token The room's read-write access token, when it has one.
    * @return The room's state.
    */
@@ -94,10 +96,13 @@ class NRoomSession {
    * @param roomId Room id, recorded in the snapshot.
    * @param error Filled when the room cannot be read.
    * @param token The room's read-write access token, when it has one.
+   * @param reportedState Filled with what the probe found, when the caller needs to tell a room
+   *        that refused the request from one that simply has nothing open.
    * @return The snapshot, or a null json when the room has nothing open.
    */
   static json Capture(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & roomId,
-                      std::string & error, const std::string & token = std::string());
+                      std::string & error, const std::string & token = std::string(),
+                      State * reportedState = nullptr);
 
   /**
    * @brief Runs one replayed action.

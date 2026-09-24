@@ -373,6 +373,7 @@ struct Router {
     else if (action == "list") router->HandleList(method, in, out);
     else if (action == "capacity") router->HandleCapacity(method, in, out);
     else if (action == "close") router->HandleClose(method, in, out);
+    else if (action == "state") router->HandleState(method, in, out);
     else if (action == "backup") router->HandleBackup(method, in, out);
     else if (action == "restore") router->HandleRestore(method, in, out);
     return out;
@@ -670,6 +671,39 @@ TEST(NRoomAccessTest, AHeaderIsReadWhateverCaseAProxyLeavesItIn)
     arg.SetRequestHeader("X-Other-Header: rw-token\r\n");
     EXPECT_EQ(server.RequestAccessToken(&arg), "");
   }
+}
+
+TEST(NRoomAccessTest, TheSessionChannelUrlCarriesTheRoomsOwnToken)
+{
+  // The room-to-router session channel is internal, so a room authenticates as itself there
+  // rather than as a user: the router checks this token against the room the request names.
+  EXPECT_EQ(NHttpServer::RoomStateUrl("http://router.test", ""), "http://router.test/api/room/state");
+  EXPECT_EQ(NHttpServer::RoomStateUrl("http://router.test", "abc"), "http://router.test/api/room/state?token=abc");
+}
+
+TEST(NRoomAccessTest, AServerDispatchedRequestIsNotAskedForATokenAgain)
+{
+  // A tool call runs as the caller whose own request already carried the room's token, and a
+  // replay has no client behind it at all. Neither is a new request from the network, so neither
+  // is refused by the room's gate - only the client request is.
+  const std::string tokens = NRoomRouter::AccessJson("rw-token", "ro-token").dump();
+  EnvGuard          access("NDMSPC_ROOM_ACCESS", tokens.c_str());
+  NHttpServer       server("", /*ws=*/false, 10000, {}, /*startEngine=*/false);
+
+  const auto dispatch = [&server](bool asServer) {
+    auto arg = std::make_shared<THttpCallArg>();
+    arg->SetMethod("POST");
+    arg->SetPathName("api");
+    arg->SetFileName("ngnt/open");
+    arg->SetPostData("{}");
+    if (asServer) server.ProcessRequestAs(arg, Ndmspc::NRequestIdentity());
+    else server.ProcessRequest(arg);
+    return std::string(static_cast<const char *>(arg->GetContent()),
+                       arg->GetContent() == nullptr ? 0 : arg->GetContentLength());
+  };
+
+  EXPECT_NE(dispatch(/*asServer=*/false).find("access_denied"), std::string::npos);
+  EXPECT_EQ(dispatch(/*asServer=*/true).find("access_denied"), std::string::npos);
 }
 
 TEST(NRoomRouterTest, QueryParsingDecodesAndKeepsEmptyValues)
@@ -1045,6 +1079,66 @@ TEST(NRoomRouterActionsTest, AdoptsTheRoomsTheClusterAlreadyHas)
   for (const auto & room : list["payload"]["rooms"]) rooms.push_back(room["room"]);
   EXPECT_NE(std::find(rooms.begin(), rooms.end(), "old"), rooms.end());
   EXPECT_NE(std::find(rooms.begin(), rooms.end(), "alpha"), rooms.end());
+}
+
+TEST(NRoomRouterActionsTest, SessionStateRequiresTheRoomsOwnToken)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  const json opened = test.Open("alpha", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  const std::string tokenRw = opened["payload"]["access"]["rw"].get<std::string>();
+  ASSERT_FALSE(tokenRw.empty());
+
+  const json snapshot{{"v", 1}, {"file", "x.root"}};
+
+  // A caller that is not the room - no token at all, or somebody else's - is refused and stores
+  // nothing, so a stranger can neither write over nor read back a room's session.
+  for (const std::string & query : {std::string(), std::string("token=someone-elses")}) {
+    json in{{"room", "alpha"}, {"snapshot", snapshot}};
+    if (!query.empty()) in["_query"] = query;
+    const json refused = test.Call("state", "POST", in);
+    EXPECT_EQ(refused["result"], "failure");
+    EXPECT_FALSE(refused.value("error", std::string()).empty());
+  }
+  EXPECT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["hasSnapshot"], false);
+
+  // The room's own read-write token is what the room reports its session with.
+  json report{{"room", "alpha"}, {"snapshot", snapshot}, {"_query", "room=alpha&token=" + tokenRw}};
+  const json stored = test.Call("state", "POST", report);
+  EXPECT_EQ(stored["result"], "success");
+  EXPECT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["hasSnapshot"], true);
+
+  // ... and what fetches it back when the room wakes.
+  json fetch{{"room", "alpha"}, {"_query", "room=alpha&token=" + tokenRw}};
+  const json fetched = test.Call("state", "POST", fetch);
+  ASSERT_EQ(fetched["result"], "success");
+  EXPECT_EQ(fetched["payload"]["hasSnapshot"], true);
+  EXPECT_EQ(fetched["payload"]["snapshot"]["file"], "x.root");
+}
+
+TEST(NRoomRouterActionsTest, SessionStateStillWorksForARoomWithoutTokens)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // A room the cluster already had and this router adopted: it carries no access tokens (one
+  // created before they existed), so there is nothing to check its reports against and it keeps
+  // working exactly as it did.
+  json service;
+  service["metadata"]["name"]                     = "ndmspc-room-old";
+  service["metadata"]["namespace"]                = "default";
+  service["metadata"]["labels"]["ndmspc.io/room"] = "old";
+  test.cluster->objects["/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-old"] = service;
+
+  test.Open("alpha", /*wait=*/true);
+  ASSERT_TRUE(test.router->Tracked("old"));
+
+  const json stored =
+      test.Call("state", "POST", json::object({{"room", "old"}, {"snapshot", {{"v", 1}, {"file", "old.root"}}}}));
+  EXPECT_EQ(stored["result"], "success");
+  EXPECT_EQ(test.Call("status", "GET", json({{"room", "old"}}))["payload"]["hasSnapshot"], true);
 }
 
 TEST(NRoomRouterActionsTest, ListingAdoptsTheRoomsTheClusterAlreadyHas)

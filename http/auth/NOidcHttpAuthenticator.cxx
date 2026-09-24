@@ -115,8 +115,19 @@ bool NOidcHttpAuthenticator::ApplyToRequest(const std::shared_ptr<IOidcTokenVeri
                                     {"retryable", result.retryable}}}}.dump());
     arg->AddHeader("WWW-Authenticate", "Bearer");
     arg->AddNoCacheHeader();
-    NLogWarning("HTTP request rejected by OIDC authentication: code=%s diagnostic=%s", result.errorCode.c_str(),
+    // A request that never offered a token is the ordinary case, not a fault: a page before its
+    // user has signed in, or an internal caller that has no user token to offer - the router's
+    // own capture probe, for one. It is reported at debug level so it cannot fill the log, while a
+    // token that *was* offered and refused stays a warning: that client believes it is
+    // authenticated and is not, which is worth knowing.
+    if (result.errorCode == kAuthenticationRequiredCode) {
+      NLogDebug("HTTP request rejected by OIDC authentication: code=%s diagnostic=%s", result.errorCode.c_str(),
                 result.diagnostic.c_str());
+    }
+    else {
+      NLogWarning("HTTP request rejected by OIDC authentication: code=%s diagnostic=%s", result.errorCode.c_str(),
+                  result.diagnostic.c_str());
+    }
     return false;
   }
 
