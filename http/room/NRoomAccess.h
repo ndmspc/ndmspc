@@ -24,6 +24,12 @@ class NRoomAccess {
   public:
   /// @brief The query parameter a client presents its token in - what a page link carries.
   static constexpr const char * kParam = "token";
+  /// @brief The query parameter a page link states the level it was handed out at in ("rw" / "ro").
+  ///
+  /// A link carries one token and nothing in the token says which level it grants, so the level is
+  /// stated beside it: a viewer opens the room read-only without probing. The room checks the two
+  /// agree before it serves the page, so a link whose level was edited does not open.
+  static constexpr const char * kLevelParam = "access";
   /// @brief The header a programmatic client presents its token in.
   static constexpr const char * kHeader = "X-Ndmspc-Room-Token";
   /// @brief The cookie a browser is given once it has presented a valid token.
@@ -62,6 +68,13 @@ class NRoomAccess {
    * @return The token, or "" when the query carries none.
    */
   static std::string TokenFromQuery(const std::string & query);
+
+  /**
+   * @brief The access level carried by a query string (`?room=x&token=<hex>&access=ro`).
+   * @param query Raw query string, with or without a leading '?'.
+   * @return The level as stated, or "" when the query states none.
+   */
+  static std::string LevelFromQuery(const std::string & query);
 
   /**
    * @brief The access token carried by a Cookie header.

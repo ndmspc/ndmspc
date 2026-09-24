@@ -158,9 +158,11 @@ Ndmspc::NRoomResult WaitForRoom(Ndmspc::NRoomClient & client, const std::string 
 /// @param force Allow --backup to overwrite an existing file.
 /// @param noWait With --open: return as soon as the router accepts the room.
 /// @param waitTimeoutSeconds How long --open follows a room the router is still preparing.
+/// @param replace With --restore: delete a room the document names that already exists, so the
+///        document's session is what it comes back holding.
 /// @return The process exit code: 0 on success, 1 on failure.
 int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool force, bool noWait,
-                int waitTimeoutSeconds)
+                int waitTimeoutSeconds, bool replace)
 {
   if (action.name == "list") {
     const Ndmspc::NRoomListResult list = client.List();
@@ -233,7 +235,9 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
       return 1;
     }
 
-    const Ndmspc::NRoomResult result = client.Restore(document);
+    if (replace) NLogInfo("Replacing the rooms the document names that already exist");
+
+    const Ndmspc::NRoomResult result = client.Restore(document, replace);
     if (!result.ok) {
       NLogError("%s", result.error.c_str());
       return 1;
@@ -311,6 +315,7 @@ int main(int argc, char ** argv)
   std::string closeRoom;
   std::string backupFile;
   std::string restoreFile;
+  bool        replace          = false;
   bool        force            = false;
   bool        noWait           = false;
   int         waitTimeoutSeconds = 600;
@@ -363,6 +368,10 @@ int main(int argc, char ** argv)
   app.add_option("--restore", restoreFile,
                  "Ensure and replay every room in a file written by --backup, then exit (no terminal needed)");
   app.add_flag("--force", force, "Allow --backup to overwrite an existing file");
+  app.add_flag("--replace", replace,
+               "With --restore: delete a room the document names that already exists before restoring "
+               "it, so the document's session is what it comes back holding (a room already in use is "
+               "left alone otherwise)");
 
   app.add_option("--cert", certFile, "Client certificate (PEM) for mutual TLS (X509)");
   app.add_option("--key", keyFile, "Client private key (PEM) for mutual TLS (X509)");
@@ -500,7 +509,7 @@ int main(int argc, char ** argv)
     return 2;
   }
 
-  if (pending.size() == 1) return RunHeadless(client, pending.front(), force, noWait, waitTimeoutSeconds);
+  if (pending.size() == 1) return RunHeadless(client, pending.front(), force, noWait, waitTimeoutSeconds, replace);
 
   // The room actions above cover scripted use; the interactive screen needs a terminal.
   if (::isatty(STDIN_FILENO) == 0) {

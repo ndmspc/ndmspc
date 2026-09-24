@@ -349,10 +349,13 @@ NRoomResult NRoomClient::Close(const std::string & roomId) { return Call("room_c
 
 NRoomResult NRoomClient::Backup() { return Call("room_backup", "GET", ""); }
 
-NRoomResult NRoomClient::Restore(const json & document)
+NRoomResult NRoomClient::Restore(const json & document, bool replace)
 {
   json extra;
   extra["document"] = document;
+  // Sent only when asked for: a restore is additive otherwise, and a room that is already in use keeps
+  // its own session. `replace` is what makes the document's session win (the room is deleted first).
+  if (replace) extra["replace"] = true;
   return Call("room_restore", "POST", "", extra);
 }
 

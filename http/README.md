@@ -705,6 +705,14 @@ A client presents its token in one of three ways, depending on what it is:
 | A script | `X-Ndmspc-Room-Token: <hex>` | no query string to build, nothing in the URL bar |
 | The page's own scripts | the cookie the page sets | a page cannot add a header to its API or websocket calls, so a page request that carried a valid token answers with `Set-Cookie: ndmspc-room-access=<token>; Path=/; HttpOnly; SameSite=Lax` and the browser sends it from then on |
 
+A page link also states the level it was handed out at, as `?access=rw|ro` beside the token: a viewer
+reads it to open the room at that level - a read-only link lists nothing rather than asking for what
+the room would refuse - without having to probe the token. The room checks the two agree and refuses
+the page (`404`, the same as an unknown token) when they do not, so a link whose level was edited does
+not open: the token is what opens the room, and the level is only what the page acts on. A link that
+states no level (one handed out before this existed) is admitted as it always was. `room/open`'s URL
+and the links `ndmspc-room-tui` shows carry the level of the link being handed out.
+
 Refusals keep the shapes this server already uses: an `/api` request answers HTTP 200 with
 `{"result": "failure", "code": ..., "error": ...}`, where the code is `access_denied` (no token),
 `invalid_access_token` (a token that grants nothing) or `read_only` (a non-GET with a read-only
@@ -1031,12 +1039,14 @@ ndmspc-room-tui --url "$BASE" --status myroom
 ndmspc-room-tui --url "$BASE" --close myroom
 ndmspc-room-tui --url "$BASE" --backup rooms.json    # export the rooms and their sessions
 ndmspc-room-tui --url "$BASE" --restore rooms.json   # re-create and replay them
+ndmspc-room-tui --url "$BASE" --restore rooms.json --replace   # as they were exported, over what is there
 ```
 
 `--backup` writes the router's rooms and their sessions to a file and `--restore` brings
 them back, creating any room that is missing — see [Room backup and
 restore](#room-backup-and-restore) below. `--backup` refuses to overwrite an existing file
-unless you add `--force`.
+unless you add `--force`, and `--restore` leaves a room that is already there alone unless you
+add `--replace` (which deletes it first, so the document's session is what it comes back with).
 
 ### Options
 
@@ -1044,6 +1054,7 @@ unless you add `--force`.
 |---|---|---|---|
 | `--url,-u` | `NDMSPC_ROOM_URL` | `http://localhost:8080` | Router base URL, or a full `.../api/mcp` endpoint |
 | `--refresh,-r` | | `5` | Seconds between automatic refreshes (`0` = manual only) |
+| `--replace` | | `false` | With `--restore`: delete a room the document names that already exists before restoring it, so the document's session wins over what the room holds |
 | `--owner` | `NDMSPC_ROOM_OWNER` | | Act as this owner (an email address or user name): the router then shows only its rooms. Empty says nothing about the caller, which keeps the operator's view of every room |
 | `--cert` / `--key` | | | Client certificate and key for mutual TLS |
 | `--key-pass` / `--key-pass-file` | `NDMSPC_KEY_PASS` / `NDMSPC_KEY_PASS_FILE` | | Private-key passphrase, or a base64 file holding it; an encrypted key with no source prompts on a terminal |
@@ -1171,6 +1182,13 @@ minutes; a client timeout must not be read as a failure. Per-room failures come 
 `failed[]` with their error, the CLI exits non-zero when any room failed, and each restored
 room is annotated with its session again so the annotation store is repopulated rather than
 left to depend on the file.
+
+`replace` (body/query on `room/restore`, `--replace` in the TUI) asks for something else: a room
+the document names that is already there is **deleted first**, so the document's session is what
+it comes back holding instead of the room keeping what it was left holding. It is off by default
+because it is the destructive half of a restore — a live room is replaced, not spared — and only
+rooms the caller may see are touched: a document naming someone else's room neither deletes it
+nor restores it.
 
 A document can be refused outright rather than acted on half-way: an unknown `version`, or a
 `router.param`/`router.prefix` that disagrees with this router, means it came from a

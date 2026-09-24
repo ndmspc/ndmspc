@@ -287,6 +287,22 @@ bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method
     return false;
   }
 
+  // A page link states the level it was handed out at (`?access=rw|ro`), so a viewer knows a
+  // read-only link without asking for what the room would refuse. `access` is a hint, and the token
+  // is what opens the room - so a link whose level does not agree with its token is not admitted, and
+  // the value the page then acts on is one this room agreed with (editing the link changes nothing).
+  // A link that states no level (one handed out before this existed) is admitted as it always was.
+  if (isPage) {
+    const char *      query  = arg->GetQuery();
+    const std::string stated = NRoomAccess::LevelFromQuery(query != nullptr ? query : "");
+    if (!stated.empty() && stated != level) {
+      NLogWarning("Refusing the page of room '%s': the link states access '%s' but its token grants '%s'",
+                  fRoomId.c_str(), stated.c_str(), level.c_str());
+      arg->Set404();
+      return false;
+    }
+  }
+
   if (level == NRoomAccess::kReadOnly && method.find("GET") == std::string::npos) {
     NLogWarning("Refusing a %s request to /api of room '%s': that token is read-only", method.c_str(),
                 fRoomId.c_str());

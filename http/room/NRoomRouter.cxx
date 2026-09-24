@@ -1917,6 +1917,29 @@ bool NRoomRouter::WaitFlag(const NRoomConfig & cfg, const json & in)
   return cfg.waitDefault;
 }
 
+// Whether a restore should replace the rooms it names: body "replace", or the query's.
+//
+// Off by default, and deliberately so: a restore is additive, and a room that already has a file open
+// keeps it. Saying `replace` is what asks for the document's session to win instead - the room is
+// deleted and created again, so it comes back holding what the document says rather than what it was
+// left holding.
+bool NRoomRouter::ReplaceFlag(const json & in)
+{
+  if (in.is_object()) {
+    if (in.contains("replace")) {
+      if (in["replace"].is_boolean()) return in["replace"].get<bool>();
+      if (in["replace"].is_number_integer()) return in["replace"].get<int>() != 0;
+      if (in["replace"].is_string()) return NRoomConfig::ParseBool(in["replace"].get<std::string>(), false);
+    }
+    if (in.contains("_query") && in["_query"].is_string()) {
+      const auto params = NRoomRouter::ParseQuery(in["_query"].get<std::string>());
+      const auto it     = params.find("replace");
+      if (it != params.end()) return NRoomConfig::ParseBool(it->second, false);
+    }
+  }
+  return false;
+}
+
 // Whether the router knows this room: it is in the registry - ensured, being prepared, or adopted.
 //
 // Deliberately cheap and registry-only: this is asked on every websocket upgrade, and the answer
@@ -2231,13 +2254,20 @@ bool NRoomRouter::Register(NHttpServer * server)
   });
   Ndmspc::RegisterMcpTool("room/restore", {
       .description = "Ensure every room named in a document from room/backup and replay its session. "
-                     "Additive: rooms already present are left alone, nothing is deleted, and a "
-                     "live session is never overwritten.",
+                     "Additive by default: rooms already present are left alone and a live session is "
+                     "never overwritten. With replace=true a room the document names that is already "
+                     "there is deleted first, so the document's session is what comes back.",
       .methods     = {"POST"},
       .inputSchema = {{"properties",
                        {{"document",
                          {{"type", "object"},
-                          {"description", "A document produced by room/backup."}}}}}},
+                          {"description", "A document produced by room/backup."}}},
+                        {"replace",
+                         {{"type", "boolean"},
+                          {"description",
+                           "Delete a room the document names that is already there before restoring "
+                           "it, so the document's session wins over whatever the room holds. "
+                           "Defaults to false (a room already in use is left alone)."}}}}}},
   });
 
   // -------------------------------------------------------------------------
@@ -2310,10 +2340,12 @@ bool NRoomRouter::Register(NHttpServer * server)
   //  /api/room/restore — ensure every room in a document and replay its session
   // -------------------------------------------------------------------------
   //
-  // Additive and convergent: rooms are created (or rolled) from the current skeleton and their
-  // sessions replayed, rooms not named in the document are untouched, nothing is deleted, and a
-  // room that already has a file open is left alone. Per-room failures are reported rather than
-  // aborting the whole restore.
+  // Additive and convergent by default: rooms are created (or rolled) from the current skeleton and
+  // their sessions replayed, rooms not named in the document are untouched, nothing is deleted, and a
+  // room that already has a file open is left alone. `replace` asks for the document's sessions to
+  // win instead: a room the document names that is already there is deleted first, so it is created
+  // again holding what the document says. Per-room failures are reported rather than aborting the
+  // whole restore.
   handlers["room/restore"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleRestore(method, in, out);
@@ -3200,6 +3232,29 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
   Adopt();
 
   const NRequestIdentity identity = RequestIdentity(in);
+
+  // `replace` deletes the rooms the document names that this router already tracks, so the document's
+  // session is what comes back: a restore is additive otherwise, and a room that already has a file
+  // open keeps it (`session: "live"`), which leaves a restore over a room in use changing nothing.
+  // Only rooms this caller may see are touched - the same rule the loop below answers a restore with
+  // - so a document naming someone else's room neither deletes it nor restores it.
+  if (NRoomRouter::ReplaceFlag(in)) {
+    for (const auto & entry : rooms) {
+      if (!entry.is_object()) continue;
+      const std::string id = entry.value("room", "");
+      if (id.empty()) continue;
+
+      const std::string name = NRoomRouter::RoomName(cfg, id);
+      {
+        std::lock_guard<std::mutex> lock(fMutex);
+        const auto                  it = fRooms.find(name);
+        if (it == fRooms.end()) continue;              // not tracked: the restore creates it
+        if (!MaySee(it->second, identity)) continue;   // not this caller's to delete
+      }
+      NLogInfo("[room] replacing '%s': deleting it before restoring", id.c_str());
+      CloseRoom(id); // cancels a creation still running for it, then deletes the Service
+    }
+  }
 
   for (const auto & entry : rooms) {
     if (!entry.is_object()) continue;

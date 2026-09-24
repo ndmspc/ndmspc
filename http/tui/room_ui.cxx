@@ -168,9 +168,14 @@ std::string ServingUrl(const std::string & url, const std::string & roomId)
 
 /// @brief The page to open the room in a browser: the router's own UI carrying the same
 /// ?room=<id> parameter, which the viewer uses to join the room.
-std::string PageUrl(const std::string & url, const std::string & roomId)
+///
+/// @param level The access level the link is handed out at ("rw" / "ro"), stated beside the token so
+///              the viewer opens the room at it without probing; "" for a room with no tokens.
+std::string PageUrl(const std::string & url, const std::string & roomId, const std::string & level = {})
 {
-  return BaseUrl(url) + "?room=" + roomId;
+  std::string page = BaseUrl(url) + "?room=" + roomId;
+  if (!level.empty()) page += "&" + std::string(NRoomAccess::kLevelParam) + "=" + level;
+  return page;
 }
 
 /// @brief The WebSocket URL a client uses to reach a room served by the router.
@@ -689,7 +694,7 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
   }
   const std::string suffix = token.empty() ? std::string() : " (" + level + ")";
   lines.push_back(text("page URL" + suffix) | dim);
-  lines.push_back(text(WithToken(PageUrl(options.serverUrl, room.room), token)) | color(Color::Cyan) | flex);
+  lines.push_back(text(WithToken(PageUrl(options.serverUrl, room.room, level), token)) | color(Color::Cyan) | flex);
   lines.push_back(text("api URL" + suffix) | dim);
   lines.push_back(text(WithToken(ServingUrl(options.serverUrl, room.room), token)) | color(Color::Cyan) | flex);
   lines.push_back(text("websocket URL" + suffix) | dim);

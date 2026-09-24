@@ -631,6 +631,49 @@ TEST(NRoomAccessTest, TheTokenTravelsInTheLinkInAHeaderOrInTheRoomsCookie)
   EXPECT_EQ(NRoomAccess::TokenFromCookie(""), "");
 }
 
+TEST(NRoomAccessTest, ThePageLinkStatesItsLevelAndTheRoomChecksItAgrees)
+{
+  // The level travels beside the token, because nothing in the token says which one it is: a viewer
+  // reads it and opens the room at it without asking for what the room would refuse.
+  EXPECT_EQ(NRoomAccess::LevelFromQuery("room=alpha&token=abc&access=ro"), "ro");
+  EXPECT_EQ(NRoomAccess::LevelFromQuery("?access=rw&room=alpha&token=abc"), "rw");
+  EXPECT_EQ(NRoomAccess::LevelFromQuery("room=alpha&token=abc"), "");    // an older link states none
+  EXPECT_EQ(NRoomAccess::LevelFromQuery("room=alpha&accessish=ro"), ""); // only the exact name counts
+  EXPECT_EQ(NRoomAccess::LevelFromQuery(""), "");
+
+  const std::string tokens = NRoomRouter::AccessJson("rw-token", "ro-token").dump();
+  EnvGuard          access("NDMSPC_ROOM_ACCESS", tokens.c_str());
+  NHttpServer       server("", /*ws=*/false, 10000, {}, /*startEngine=*/false);
+
+  const auto pageAdmitted = [&server](const std::string & query) {
+    THttpCallArg arg;
+    arg.SetMethod("GET");
+    arg.SetQuery(query.c_str());
+    return server.ApplyRoomAccess(&arg, "GET", /*isPage=*/true);
+  };
+
+  // A page whose level agrees with its token is served, and so is one that states none.
+  EXPECT_TRUE(pageAdmitted("room=alpha&token=rw-token&access=rw"));
+  EXPECT_TRUE(pageAdmitted("room=alpha&token=ro-token&access=ro"));
+  EXPECT_TRUE(pageAdmitted("room=alpha&token=rw-token"));
+
+  // A link whose level was edited does not open at all, so the level the page acts on is one the
+  // room itself agreed with - the token is what opens the room, the level is only a hint.
+  EXPECT_FALSE(pageAdmitted("room=alpha&token=ro-token&access=rw"));
+  EXPECT_FALSE(pageAdmitted("room=alpha&token=rw-token&access=ro"));
+
+  // A level with no valid token behind it is refused anyway, as it always was.
+  EXPECT_FALSE(pageAdmitted("room=alpha&access=rw"));
+
+  // `/api` does not carry the level, so its requests are unaffected by the check.
+  {
+    THttpCallArg arg;
+    arg.SetMethod("GET");
+    arg.SetQuery("room=alpha&token=ro-token&access=rw");
+    EXPECT_TRUE(server.ApplyRoomAccess(&arg, "GET", /*isPage=*/false));
+  }
+}
+
 TEST(NRoomAccessTest, AHeaderIsReadWhateverCaseAProxyLeavesItIn)
 {
   // The header is spelled in its canonical camel case, but a proxy in front of a room may re-case
@@ -1053,6 +1096,36 @@ TEST(NRoomRouterActionsTest, RestoreEnsuresTheRoomsOfADocumentAdditively)
   EXPECT_TRUE(test.router->Tracked("alpha"));
 
   // The session came with it, and room/state can be asked for it.
+  const json state = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(state["payload"]["hasSnapshot"], true);
+}
+
+TEST(NRoomRouterActionsTest, ARestoreOnlyDeletesTheRoomsItIsAskedToReplace)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  json document;
+  document["version"] = 1;
+  document["rooms"]   = json::array({json::object({{"room", "alpha"}, {"snapshot", {{"v", 1}, {"file", "x.root"}}}})});
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+
+  // Additive by default: the room is ensured and whatever is already there is left alone.
+  const json additive = test.Call("restore", "POST", document);
+  EXPECT_EQ(additive["result"], "success");
+  EXPECT_TRUE(test.router->Tracked("alpha"));
+  EXPECT_EQ(test.cluster->Count("DELETE", service), 0u);
+
+  // `replace` deletes the room before restoring it, so it is created again and comes back holding the
+  // document's session - otherwise a room that is already in use keeps its own (a live session wins)
+  // and restoring over it changes nothing.
+  const json replaced =
+      test.Call("restore", "POST", json({{"document", document}, {"replace", true}}));
+  EXPECT_EQ(replaced["result"], "success");
+  EXPECT_GE(test.cluster->Count("DELETE", service), 1u);
+  EXPECT_TRUE(test.router->Tracked("alpha"));
+  // And it is a restore again, not a room that kept what it had.
   const json state = test.Call("status", "GET", json({{"room", "alpha"}}));
   EXPECT_EQ(state["payload"]["hasSnapshot"], true);
 }

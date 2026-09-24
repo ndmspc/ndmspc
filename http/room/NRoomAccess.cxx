@@ -22,6 +22,27 @@ bool Matches(const std::string & expected, const std::string & given)
   return difference == 0;
 }
 
+/// @brief The value a query string carries for one parameter, or "" when it carries none.
+///
+/// The first occurrence wins, so a repeated parameter cannot shadow the one the client meant.
+std::string ValueFromQuery(const std::string & query, const char * key)
+{
+  if (query.empty()) return {};
+
+  const std::string text = query.front() == '?' ? query.substr(1) : query;
+  const std::string want = std::string(key) + "=";
+
+  std::size_t start = 0;
+  while (start <= text.size()) {
+    const std::size_t end  = text.find('&', start);
+    const std::string pair = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    if (pair.compare(0, want.size(), want) == 0) return pair.substr(want.size());
+    if (end == std::string::npos) break;
+    start = end + 1;
+  }
+  return {};
+}
+
 } // namespace
 
 json NRoomAccess::Parse(const std::string & text)
@@ -49,20 +70,12 @@ std::string NRoomAccess::LevelOf(const json & access, const std::string & token)
 
 std::string NRoomAccess::TokenFromQuery(const std::string & query)
 {
-  if (query.empty()) return {};
+  return ValueFromQuery(query, kParam);
+}
 
-  const std::string text = query.front() == '?' ? query.substr(1) : query;
-  const std::string want = std::string(kParam) + "=";
-
-  std::size_t start = 0;
-  while (start <= text.size()) {
-    const std::size_t end   = text.find('&', start);
-    const std::string pair  = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
-    if (pair.compare(0, want.size(), want) == 0) return pair.substr(want.size());
-    if (end == std::string::npos) break;
-    start = end + 1;
-  }
-  return {};
+std::string NRoomAccess::LevelFromQuery(const std::string & query)
+{
+  return ValueFromQuery(query, kLevelParam);
 }
 
 std::string NRoomAccess::TokenFromCookie(const std::string & cookieHeader)
