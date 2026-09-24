@@ -308,7 +308,8 @@ class NRoomRouter {
   void HandleState(const std::string & method, json & in, json & out);
   /// @brief room/backup: export the tracked rooms the caller may see and their sessions.
   void HandleBackup(const std::string & method, json & in, json & out);
-  /// @brief room/restore: ensure every room in a document and replay its session.
+  /// @brief room/restore: ensure every room in a document and replay its session; `replace` deletes
+  ///        the rooms it names first, so the document's session wins over a room that is in use.
   void HandleRestore(const std::string & method, json & in, json & out);
 
   // ---------------------------------------------------------------- the router's own vocabulary
@@ -550,6 +551,8 @@ class NRoomRouter {
                           const std::string & revision, const json & skeleton);
   /// @brief Whether a request wants to wait for the room: body "wait", query "wait", or the default.
   static bool WaitFlag(const NRoomConfig & cfg, const json & in);
+  /// @brief Whether a restore should replace the rooms it names: body "replace", or the query's.
+  static bool ReplaceFlag(const json & in);
   /// @brief The error a pod the scheduler cannot place produces ("0/1 nodes are available: ...").
   static std::string UnschedulableError(const std::string & reason);
 

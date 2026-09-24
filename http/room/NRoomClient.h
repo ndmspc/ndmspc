@@ -269,15 +269,17 @@ class NRoomClient {
   /**
    * @brief Ensure every room in a document and replay its session.
    *
-   * Additive and convergent: rooms are created (or rolled) from the current skeleton and their
-   * sessions replayed, rooms not named in the document are untouched, and a room that already has
-   * a file open is left alone. The payload holds `restored` and `failed` lists, so a partial
-   * restore is visible rather than fatal.
+   * Additive and convergent by default: rooms are created (or rolled) from the current skeleton and
+   * their sessions replayed, rooms not named in the document are untouched, and a room that already
+   * has a file open is left alone. With `replace`, a room the document names that is already there is
+   * deleted first, so the document's session is what it comes back holding. The payload holds
+   * `restored` and `failed` lists, so a partial restore is visible rather than fatal.
    *
    * @param document A document produced by Backup().
+   * @param replace Delete the rooms the document names that already exist before restoring them.
    * @return The action result.
    */
-  NRoomResult Restore(const json & document);
+  NRoomResult Restore(const json & document, bool replace = false);
 
   private:
   /**

@@ -47,9 +47,11 @@ lives in [`core/tui`](../../core/tui/README.md), which compiles the amalgamated
   diagnostics are surfaced in the UI instead.
 - A room's access tokens (`NRoomAccess`, reported by the router as `access`) are shown in the
   detail pane: the three URLs carry the token of the level being looked at, and `t` switches
-  between the read-write and the read-only one. `NRoomInfo` carries them (`tokenRw`/`tokenRo`), so
-  `--list` reports them too; a room the router reports no tokens for keeps the plain URLs, which is
-  also how an older room is told apart from one that enforces access.
+  between the read-write and the read-only one. The page URL also states that level
+  (`?access=rw|ro`) beside the token, so whoever opens it gets the room at it - and the room
+  refuses the page when the two disagree. `NRoomInfo` carries the tokens
+  (`tokenRw`/`tokenRo`), so `--list` reports them too; a room the router reports no tokens for keeps
+  the plain URLs, which is also how an older room is told apart from one that enforces access.
 - A room's owner (`owner`, kept on the room's Service as `ndmspc.io/room-owner`) is part of the
   room's *id*: a room an identified caller creates is named after them (`alice@example.com-mine`), so
   two people can both have a room called "mine". It is shown as an `OWNER` column and, for the
