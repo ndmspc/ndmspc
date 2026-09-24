@@ -9,7 +9,8 @@ variables:
   STORAGE_DRIVER: vfs
   BUILDAH_FORMAT: docker
   DOCKER_DRIVER: overlay2
-  PODMAN_BUILD_OPTS: "--memory 2g --cpus 2 --squash"
+  PODMAN_BUILD_OPTS: "--memory 2g --cpu-period 100000 --cpu-quota 200000 --squash"
+  MY_MAKE_JOBS: "2"
 
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep

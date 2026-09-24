@@ -8,6 +8,7 @@ MY_PROJECT_VER=${MY_PROJECT_VER-""}
 MY_PROJECT_VER_RELEASE=${MY_PROJECT_VER_RELEASE-""}
 MY_CMAKE_OPTS=""
 MY_MAKE_OPTS=""
+MY_MAKE_JOBS=${MY_MAKE_JOBS-$(nproc)}
 MY_BUILDSYS="make"
 MY_CMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE-"Debug"}
 USING_CLANG=false
@@ -84,6 +85,10 @@ for ARG in "$@"; do
     "install")
       echo "Will install after compilation"
       MY_MAKE_OPTS="${MY_MAKE_OPTS} install"
+      ;;
+    jobs=*)
+      echo "Building with ${ARG#jobs=} parallel jobs"
+      MY_MAKE_JOBS="${ARG#jobs=}"
       ;;
     "http")
       echo "Forcing build with HTTP support"
@@ -267,6 +272,7 @@ if [[ $PRINT_DEBUG == true ]]; then
   echo "MY_CMAKE_OPTS=\"${MY_CMAKE_OPTS}\""
   echo "MY_BUILDSYS=\"${MY_BUILDSYS}\""
   echo "MY_MAKE_OPTS=\"${MY_MAKE_OPTS}\""
+  echo "MY_MAKE_JOBS=\"${MY_MAKE_JOBS}\""
 fi
 
 echo "----------------------------------------------------------------------"
@@ -274,7 +280,11 @@ echo "----------------------------------------------------------------------"
 export CC CXX
 cmake -DCMAKE_INSTALL_PREFIX=${PROJECT_DIR} ${MY_CMAKE_OPTS} ../
 
-${MY_BUILDSYS} -j$(nproc) ${MY_MAKE_OPTS}
+# rpmbuild parallelises the spec's inner make via %{_smp_mflags}
+# (-j${RPM_BUILD_NCPUS}); propagate our job count so `jobs=N` reaches it too.
+export RPM_BUILD_NCPUS=${MY_MAKE_JOBS}
+
+${MY_BUILDSYS} -j${MY_MAKE_JOBS} ${MY_MAKE_OPTS}
 
 if [[ $LIST_TESTS == true ]]; then
   echo "Listing tests (ctest -N) ..."
