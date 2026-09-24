@@ -1047,6 +1047,35 @@ TEST(NRoomRouterActionsTest, AdoptsTheRoomsTheClusterAlreadyHas)
   EXPECT_NE(std::find(rooms.begin(), rooms.end(), "alpha"), rooms.end());
 }
 
+TEST(NRoomRouterActionsTest, ListingAdoptsTheRoomsTheClusterAlreadyHas)
+{
+  Router first;
+  first.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // A room only the cluster has: it was left by a router that is gone. A view polls room/list as its
+  // first call and never opens anything, so this is what a restart looks like to it.
+  json service;
+  service["metadata"]["name"]                     = "ndmspc-room-old";
+  service["metadata"]["namespace"]                = "default";
+  service["metadata"]["labels"]["ndmspc.io/room"] = "old";
+  first.cluster->objects["/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-old"] = service;
+
+  Router restarted(first.cluster);
+
+  // The first answer a restarted router gives is the list, and the room is in it - no room has to be
+  // opened first for the rooms that still exist to show up.
+  const json list = restarted.Call("list", "GET");
+  ASSERT_EQ(list["result"], "success");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["room"], "old");
+
+  // And it is the router's own room from then on: a status names it instead of reporting a room it
+  // does not track (which is what used to leave the room's page empty too).
+  const json status = restarted.Call("status", "GET", json({{"room", "old"}}));
+  ASSERT_EQ(status["result"], "success");
+  EXPECT_EQ(status["payload"]["tracked"], true);
+}
+
 TEST(NRoomRouterActionsTest, TheWebsocketPolicyNeedsATrackedRoom)
 {
   Router test;
