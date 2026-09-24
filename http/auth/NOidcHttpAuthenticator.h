@@ -42,7 +42,7 @@ class NOidcHttpAuthenticator {
    * @brief Apply bearer authentication to a ROOT HTTP request argument.
    *
    * On success returns true and records the verified identity via
-   * SetUserName() and X-NDMSPC-* headers. On failure returns false and writes a
+   * SetUserName() and X-Ndmspc-* headers. On failure returns false and writes a
    * JSON error response (with WWW-Authenticate) into the argument.
    *
    * @param verifier Shared token verifier (may be null in anonymous mode).
@@ -69,11 +69,11 @@ class NOidcHttpAuthenticator {
   /**
    * @brief Headers set on the response argument after successful authentication.
    */
-  static constexpr const char * kUserHeader = "X-NDMSPC-User";
-  static constexpr const char * kSubjectHeader = "X-NDMSPC-Subject";               ///< Verified token subject
-  static constexpr const char * kExpiresHeader = "X-NDMSPC-Token-Expires";         ///< Token expiry
-  static constexpr const char * kAuthenticatedHeader = "X-NDMSPC-Authenticated";   ///< Authentication flag
-  static constexpr const char * kEmailHeader = "X-NDMSPC-Email";                   ///< Verified email claim
+  static constexpr const char * kUserHeader = "X-Ndmspc-User";
+  static constexpr const char * kSubjectHeader = "X-Ndmspc-Subject";               ///< Verified token subject
+  static constexpr const char * kExpiresHeader = "X-Ndmspc-Token-Expires";         ///< Token expiry
+  static constexpr const char * kAuthenticatedHeader = "X-Ndmspc-Authenticated";   ///< Authentication flag
+  static constexpr const char * kEmailHeader = "X-Ndmspc-Email";                   ///< Verified email claim
 
   /**
    * @brief Read the verified identity recorded on a request argument.

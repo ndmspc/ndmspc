@@ -184,7 +184,7 @@ class NHttpServer : public THttpServer {
    * @brief Whether the server believes the identity an authenticating front door forwards.
    *
    * The X509 (mutual TLS) front door terminates TLS and verifies the client certificate itself, then
-   * forwards the result to this engine as X-NDMSPC-User / -Subject / -Email request headers, because
+   * forwards the result to this engine as X-Ndmspc-User / -Subject / -Email request headers, because
    * the engine behind it serves anonymously. Enable this only where that door is the only way in (it
    * forwards to a loopback address): anywhere else such a header is something any client can write,
    * and believing it would let a caller name itself.
@@ -327,6 +327,58 @@ class NHttpServer : public THttpServer {
   /// @brief The access token a request carries: `?token=`, the header, or the room's cookie.
   std::string RequestAccessToken(THttpCallArg * arg) const;
   /**
+   * @brief A request header's value, matched without regard to letter case.
+   *
+   * A proxy in front of this server may re-case a header name: Knative's queue-proxy is a Go
+   * process that speaks HTTP/2 and rewrites every name into its canonical form, so a name this
+   * server sent as one spelling can arrive as another. ROOT's own THttpCallArg::GetRequestHeader
+   * compares the name case-sensitively, so the request's header list is walked here and each name
+   * is compared without regard to case instead.
+   *
+   * @param arg The request (a null pointer yields "").
+   * @param name The header name to look for, in any letter case.
+   * @return The header's value, or "" when the request does not carry it.
+   */
+  static std::string RequestHeader(THttpCallArg * arg, const std::string & name);
+  /**
+   * @brief The deployment's `VITE_*` settings, as a JSON object.
+   *
+   * A page's settings are normally inlined by Vite at build time, which is why a deployment
+   * cannot change them from its environment. This is what lets it: the names the process was
+   * started with that begin with `VITE_` - the same prefix Vite itself exposes to the client,
+   * and so public by construction - are collected here and handed to the page (see
+   * {@link InjectRuntimeEnv}). The rest of the environment (NDMSPC_*, and anything else) is
+   * internal and is never emitted.
+   *
+   * @return The settings, or an empty object when the process has none.
+   */
+  static json RuntimeEnv();
+
+  /**
+   * @brief JSON encoded so it is safe inside an inline `<script>`.
+   *
+   * The values are deployment settings rather than user input, but they are written into the
+   * page: a value carrying `</script>` (or `<`, `>`, `&`, or the U+2028/U+2029 line terminators)
+   * must not be able to close the element or break the script. JSON's `\uXXXX` escapes are legal
+   * inside a JSON string, so the characters are replaced by them.
+   *
+   * @param value The value to encode.
+   * @return The JSON text, safe to place inside `<script>...</script>`.
+   */
+  static std::string JsonForHtml(const json & value);
+
+  /**
+   * @brief The page with the deployment's settings injected, or "" when there are none.
+   *
+   * The settings are written as `window.__NDMSPC_ENV__` ahead of the page's own scripts, so a
+   * module that reads a setting while it loads already sees it.
+   *
+   * @param html The page as it was built.
+   * @param env The settings to inject (see {@link RuntimeEnv}).
+   * @return The page to serve.
+   */
+  static std::string InjectRuntimeEnv(const std::string & html, const json & env);
+  /**
    * @brief Enforce a room's access tokens on one request.
    *
    * A room that was given tokens serves nothing without one: a missing or unknown token is
@@ -371,6 +423,17 @@ class NHttpServer : public THttpServer {
    */
   void SetupWebSocketAndHeartbeat();
 
+  /**
+   * @brief Reads the default page and prepares the copy that carries this deployment's settings.
+   *
+   * Called as the engine is about to serve (StartEngine), which is after the page was set and
+   * before any request: the page is read, the settings are injected (see
+   * {@link InjectRuntimeEnv}) and the result is what a page request is answered with. Nothing is
+   * prepared - and THttpServer serves the page exactly as before - when the process carries no
+   * `VITE_*` setting, or the page is not one to touch.
+   */
+  void PrepareRuntimeEnvPage();
+
   protected:
   NWsHandler *      fNWsHandler{nullptr}; ///<! WebSocket handler instance
   std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Shared OIDC token verifier (HTTP + WS)
@@ -393,6 +456,7 @@ class NHttpServer : public THttpServer {
   bool fUseHistory{true};  ///<! Flag to indicate whether to use history in processing requests
   bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled
   std::string fGroup;      ///<! Group prefix for workspace routes
+  std::string fRuntimeEnvPage; ///<! The page with this deployment's VITE_* injected ("" = serve the built page)
 
   mutable std::mutex fRoomMutex;              ///<! Guards the room-session fields below
   std::string        fRoomId;                 ///<! NDMSPC_ROOM: set when this server is a room

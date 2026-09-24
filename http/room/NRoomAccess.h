@@ -25,7 +25,7 @@ class NRoomAccess {
   /// @brief The query parameter a client presents its token in - what a page link carries.
   static constexpr const char * kParam = "token";
   /// @brief The header a programmatic client presents its token in.
-  static constexpr const char * kHeader = "X-NDMSPC-Room-Token";
+  static constexpr const char * kHeader = "X-Ndmspc-Room-Token";
   /// @brief The cookie a browser is given once it has presented a valid token.
   ///
   /// A page carries the token in its link, and the page's own scripts have no way to add a header

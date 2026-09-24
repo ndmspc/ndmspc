@@ -8,7 +8,7 @@ trust anchors in `/cvmfs/alice.cern.ch/etc/grid-security/certificates`.
 The authenticated identity is taken from the certificate's subject DN (Common Name by
 default), so a `CN=mvala, ...` certificate is presented to the server as user `mvala`
 (visible in the WebSocket `welcome`/`clients`/`heartbeat` messages and in the
-`X-NDMSPC-User` HTTP response header).
+`X-Ndmspc-User` HTTP response header).
 
 ## Files
 
@@ -99,11 +99,11 @@ CA_PATH=/path/to/cern-ca ./run-browser.sh
 3. In `ndmspc-ui`, set `VITE_X509_PROBE_URL="https://localhost:8444/api/state"` in
    `.env.local` and restart `npm run dev`.
 4. Click **Sign in with X.509 certificate**: Firefox prompts for the certificate and the
-   profile shown comes from the `X-NDMSPC-User` response header.
+   profile shown comes from the `X-Ndmspc-User` response header.
 
 Cross-origin calls from the UI need CORS on the front door — `run-browser.sh` passes
 `--x509-cors http://localhost:5173`, which echoes the request origin and exposes
-`X-NDMSPC-User` / `X-NDMSPC-Subject` to the page.
+`X-Ndmspc-User` / `X-Ndmspc-Subject` to the page.
 
 ## Configuration
 

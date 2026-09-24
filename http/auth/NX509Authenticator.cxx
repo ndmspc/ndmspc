@@ -115,7 +115,7 @@ void ApplyCors(const httplib::Request & req, httplib::Response & res, const std:
   if (!OriginAllowed(allowedOrigins, origin)) return;
   res.set_header("Access-Control-Allow-Origin", origin);
   res.set_header("Vary", "Origin");
-  res.set_header("Access-Control-Expose-Headers", "X-NDMSPC-User, X-NDMSPC-Subject");
+  res.set_header("Access-Control-Expose-Headers", "X-Ndmspc-User, X-Ndmspc-Subject");
 }
 
 } // namespace
@@ -216,8 +216,8 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
     client.set_read_timeout(60);
     httplib::Headers headers = req.headers;
     headers.erase("Authorization");
-    headers.emplace("X-NDMSPC-User", identity);
-    headers.emplace("X-NDMSPC-Subject", identity);
+    headers.emplace("X-Ndmspc-User", identity);
+    headers.emplace("X-Ndmspc-Subject", identity);
 
     httplib::Result result;
     if (req.method == "POST") result = client.Post(path, headers, req.body, "application/json");
@@ -236,8 +236,8 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
     res.status = result->status;
     const auto & ct = result->get_header_value("Content-Type");
     res.set_content(result->body, ct.empty() ? "application/json" : ct);
-    res.set_header("X-NDMSPC-User", identity);
-    res.set_header("X-NDMSPC-Subject", identity);
+    res.set_header("X-Ndmspc-User", identity);
+    res.set_header("X-Ndmspc-Subject", identity);
   };
   std::function<void(const httplib::Request &, httplib::Response &)> httpHandler = forwardHttp;
   server->Get(R"(/api.*)", httpHandler);
