@@ -27,9 +27,11 @@ struct NX509Config {
   bool verifyOptional{false};     ///< false (default) requires a client cert.
   std::string identity{"cn"};     ///< "cn" (default) or "dn" - which subject part becomes the username.
   int internalPort{8081};         ///< Loopback ROOT engine port.
-  /// Allowed CORS origins for browser clients: "*" or a comma-separated list.
-  /// Empty (default) sends no CORS headers; the request origin is echoed so the
-  /// identity headers stay readable by credentialed requests too.
+  /**
+   * Allowed CORS origins for browser clients: "*" or a comma-separated list.
+   * Empty (default) sends no CORS headers; the request origin is echoed so the
+   * identity headers stay readable by credentialed requests too.
+   */
   std::string cors;
 
   /**

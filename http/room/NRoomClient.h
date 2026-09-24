@@ -37,7 +37,10 @@ struct NRoomInfo {
   std::string profile;
   /// What its container requests and is limited to, as Kubernetes spells them ("" when undeclared).
   /// The requests are what the room reserves; the web rooms view shows them the same way.
-  std::string cpuRequest, cpuLimit, memoryRequest, memoryLimit;
+  std::string cpuRequest;    ///< CPU request
+  std::string cpuLimit;      ///< CPU limit
+  std::string memoryRequest; ///< Memory request
+  std::string memoryLimit;   ///< Memory limit
 
   /// Why the room's container last died ("" until it has). A room the kernel killed for using more
   /// memory than its limit never says so itself, so the router reads the pod and reports it here.
