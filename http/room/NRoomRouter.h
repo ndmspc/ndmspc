@@ -753,7 +753,14 @@ class NRoomRouter {
    * @param name Kubernetes name of the room.
    */
   void Touch(const std::string & name);
-  /// @brief Adopts the rooms that already exist in the cluster into the registry (once per process).
+  /**
+   * @brief Adopts the rooms that already exist in the cluster into the registry (once per process).
+   *
+   * The registry is process-local, so a router that has just started (a rollout, a restart) has none
+   * of the rooms the cluster still holds. Every action that reads the registry therefore adopts
+   * first, rather than only the creation path: otherwise {@link HandleList} answers with no rooms at
+   * all until someone happens to open one.
+   */
   void Adopt();
   /**
    * @brief Remembers why a room's container died: in the registry and on the room's Service.

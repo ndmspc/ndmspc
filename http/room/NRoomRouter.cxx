@@ -1286,6 +1286,11 @@ void NRoomRouter::Delete(const std::string & name)
 // unknown "last seen" is taken as now, giving each adopted room a full TTL from
 // this point. Runs once per process.
 //
+// Every action that reads the registry adopts first (list, status, close,
+// backup, restore, open): the registry is a cache of the cluster, and an action
+// answering from a cache that has not been filled reports the rooms that exist
+// as if they did not - an empty list, an untracked room, an empty backup.
+//
 // Note: keep this plain (no std::call_once/once_flag) - the ROOT interpreter
 // compiles this macro at load time and failed to materialize the JIT symbols
 // with those constructs in place.
@@ -2408,6 +2413,10 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
     return;
   }
 
+  // Which room this id names, and whose it is, are both read from the registry - so a router that has
+  // just started has to read the cluster back first, or it reports someone's room as untracked.
+  Adopt();
+
   const NRequestIdentity identity = RequestIdentity(in);
   const NRoomRef         ref      = Resolve(id, identity);
   Touch(ref.name);
@@ -2516,6 +2525,11 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
     out["error"]  = "Unsupported HTTP method for room/list";
     return;
   }
+
+  // The registry is process-local, so a router that has just started holds nothing while the cluster
+  // still has the rooms. Adopt before answering: otherwise the list comes back empty - a client sees
+  // no rooms at all - until something opens one, which is exactly when adoption used to happen.
+  Adopt();
 
   // Who is asking decides what the list holds: see "Ownership and visibility".
   const NRequestIdentity identity = RequestIdentity(in);
@@ -2947,7 +2961,10 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
     return;
   }
 
-  // Deleting someone else's room is not this caller's to do.
+  // Deleting someone else's room is not this caller's to do: adopt first, because a router that has
+  // just started has not read the cluster back yet and would take an unread room for nobody's.
+  Adopt();
+
   const NRequestIdentity identity = RequestIdentity(in);
   const NRoomRef         ref      = Resolve(id, identity);
   {
@@ -3029,6 +3046,10 @@ void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out
 
   const NRoomConfig &   cfg      = fConfig;
   const NRequestIdentity identity = RequestIdentity(in);
+
+  // What is exported is what the registry holds: adopt first, or a router that has just started
+  // exports an empty document - and the rooms it is supposed to back up look like they never existed.
+  Adopt();
 
   // Copy the registry under the lock, then read each session outside it. A caller exports the rooms
   // it may see: an admin exports all of them, and anyone else their own.
@@ -3123,6 +3144,11 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
 
   json restored = json::array();
   json failed   = json::array();
+
+  // Every room in the document is matched against the registry - to refuse one that belongs to
+  // someone else, and to carry the owner and tokens the room already has. Adopt first, so a router
+  // that has just started recognises the rooms that are already there instead of blanking them.
+  Adopt();
 
   const NRequestIdentity identity = RequestIdentity(in);
 
