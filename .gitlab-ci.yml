@@ -27,8 +27,9 @@ variables:
 
 # These builds are the merge gate on feature branches. On the protected branches
 # (main/develop) a merge only lands once the branch pipeline has already passed,
-# so they would only repeat that work: they are left manual there. Tags only
-# publish artifacts, so they never run.
+# so they would only repeat that work: they are left manual there, and optional,
+# so the pipeline still reaches the deploy stage and `pages` runs without anyone
+# having to click them. Tags only publish artifacts, so they never run.
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
   stage: build
@@ -41,6 +42,7 @@ build-al9:
       when: never
     - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == 'develop'"
       when: manual
+      allow_failure: true
     - when: on_success
 
 build-al10:
@@ -175,6 +177,10 @@ prod-image:
 pages:
   image: registry.gitlab.com/ndmspc/user/fc44:dep
   stage: deploy
+  # Publish the docs without waiting on the build stage: needs: [] starts this
+  # job as soon as the pipeline is created, so a manual or failed build job
+  # cannot leave it skipped.
+  needs: []
   tags:
     - ndmspc-hosted
   script:
