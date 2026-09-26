@@ -23,9 +23,10 @@ namespace Ndmspc {
  *   NDMSPC_ROOM_PARAM          query parameter that identifies a room(default: room)
  *   NDMSPC_ROOM_SKELETON       skeleton ConfigMap name               (default: ndmspc-room-skeleton)
  *   NDMSPC_ROOM_URL_BASE       external base URL for the room links  (default: empty -> "?param=id")
- *   NDMSPC_ROOM_IDLE_TTL       idle time before a room is deleted    (default: 1h)
+ *   NDMSPC_ROOM_IDLE_TTL       idle time before an unused room is swept (default: 24h)
  *   NDMSPC_ROOM_READY_TIMEOUT  how long to wait for a room to be Ready (default: 45s)
  *   NDMSPC_ROOM_MAX_PREPARING  rooms being created at the same time  (default: 4, 0 = no limit)
+ *   NDMSPC_ROOM_WATCH_INTERVAL how often the rooms list is pushed to a watcher (default: 2s, 0 = off)
  *   NDMSPC_ROOM_WAIT           default for room/open's wait flag     (default: true)
  *   NDMSPC_ROOM_ADMINS         users who may see and act on every room, by email or user name
  *                              (default: empty - then nobody is an admin)
@@ -41,9 +42,10 @@ struct NRoomConfig {
   std::string param{"room"};                    ///< Query parameter that identifies a room
   std::string skeleton{"ndmspc-room-skeleton"}; ///< Skeleton ConfigMap name
   std::string urlBase;                          ///< External base URL for the room links
-  long        idleTtlSec{3600};                 ///< Idle time before an idle room is deleted, in seconds
+  long        idleTtlSec{86400};                ///< Idle time before an unused room is swept, in seconds
   long        readyTimeoutSec{45};              ///< How long to wait for a room to become Ready, in seconds
   int         maxPreparing{4};                  ///< Rooms prepared at the same time (0 = no limit)
+  long        watchIntervalSec{2};              ///< How often the rooms list is pushed to a watcher, in seconds (0 = never)
   bool        waitDefault{true};                ///< Default for room/open's wait flag
   std::vector<std::string> admins;              ///< Users who may see and act on every room
   std::string apiServer;                        ///< In-cluster API server ("" = not in a cluster)
@@ -75,12 +77,10 @@ struct NRoomState {
   std::string owner;    ///< Who created the room ("" when nobody identified themselves, see Ownership)
   std::string profile;  ///< The room skeleton profile it was created with ("" when the skeleton has none)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
+  /// The same clock as it stands on the room's own Service (`ndmspc.io/room-seen`): what the router
+  /// reads back after a restart, and what it writes when the two drift apart far enough to matter.
+  long        seenStoredAt{0};
   std::string snapshot;    ///< Last captured session, replayed when the room wakes
-  /// The revision at which the room refused the router's capture probe ("" when it never did).
-  /// Kept so one refusal is reported once instead of on every room/list: the room reports its own
-  /// session meanwhile, and a new revision - a rollout that changes what it authenticates - is
-  /// probed again.
-  std::string captureRefusedAt;
 
   /// Why the room's container last died, and when. Kept here because the pod that carries the reason
   /// goes away with the room when it scales to zero (see kLastErrorAnnotation and NoteTermination).
@@ -90,8 +90,8 @@ struct NRoomState {
   int         lastRestarts{0}; ///< How many times its container had been restarted by then
 
   bool        preparing{false}; ///< An ensure is running for this room right now
-  std::string phase;            ///< Where it is: service, ready, route, restore, failed, cancelled
-  std::string error;            ///< Why the last creation failed ("" when it did not)
+  std::string phase;            ///< Where it is: service, ready, route, restore, pending, failed, cancelled
+  std::string error;            ///< Why the last creation failed ("" when it is only waiting for resources)
   std::string code;             ///< Stable reason behind `error`: no_capacity, "" (see below)
   long        startedAt{0};     ///< Epoch seconds the creation started (clients show elapsed)
   long        finishedAt{0};    ///< Epoch seconds it ended (0 while it runs)
@@ -217,18 +217,24 @@ class NRoomClusterClient : public IRoomCluster {
  * websocket endpoint at all and none of this applies; either way room clients are unaffected, since
  * a connection naming a room is routed to that room's pod.
  *
- * ### Why a creation failed
- * A room that could not be created is reported as `state=failed` with the reason in `error`, plus a
- * stable `code` whenever the router can name it:
+ * ### Why a room is not serving
+ * A room that is not up is reported with a `state`, the reason in `error`, and a stable `code`
+ * whenever the router can name one:
  *
- *   no_capacity   the cluster cannot place the room's pod. The message is the scheduler's own
- *                 ("0/1 nodes are available: 1 Insufficient cpu"), read from the pod itself - the
- *                 Knative Service only ever says "waiting for a Revision to become ready". It is
- *                 reported as soon as the verdict repeats, not after the whole ready timeout.
+ *   pending       the cluster has no room for the room's pod right now. The message is the
+ *                 scheduler's own ("0/1 nodes are available: 1 Insufficient cpu"), read from the pod
+ *                 itself - the Knative Service only ever says "waiting for a Revision to become
+ *                 ready" - and it is reported as soon as that verdict repeats. This is not a
+ *                 failure: the room's Service is kept, and the room is finished (its revision pinned
+ *                 to an HTTPRoute, the room marked ready) as soon as the cluster places the pod,
+ *                 which the router checks on every room/list and room/status. `code` is no_capacity.
  *   name_conflict the room's name is already taken by an object the router did not create (it
  *                 carries no `ndmspc.io/room` label), so that object is left untouched instead of
  *                 being overwritten or deleted. Pick another room id, or free the name.
- *   (empty)       anything else: a failed apply, a roll that never got there, a timeout.
+ *   failed        anything else: a failed apply, a container that keeps dying, a timeout. The
+ *                 half-created room is then deleted again - its Service and HTTPRoute - so a later
+ *                 room/open creates it from scratch instead of patching what failed; its reason and
+ *                 code stay in the registry for that attempt to report.
  *
  * Reading pods needs get/list on pods (core) in this namespace. Without that permission nothing
  * breaks - the router falls back to the timeout message - but the reason stays generic.
@@ -257,6 +263,25 @@ class NRoomRouter {
 
   /// @brief Whether a running creation may carry on, and why not when it may not.
   enum class Abort { None, Cancelled, Superseded, Gone };
+
+  /**
+   * @brief How a room's wait for its revision to become ready ended.
+   *
+   * Pending is its own outcome, not a failure: the pod the cluster cannot place is left exactly as
+   * the scheduler left it, so the room comes up by itself once there is room for it (see
+   * {@link ConvergePending}).
+   */
+  enum class Wait { Ready, Pending, Failed };
+
+  /**
+   * @brief How a creation - or a request to start one - ended.
+   *
+   * Preparing: the call was accepted and the work runs in the background. Ready: the room is up.
+   * Pending: the room exists and is waiting for the cluster to have room for its pod. Failed: the
+   * creation, or the call itself, failed (the half-created room is deleted again; see
+   * {@link CleanupFailed}).
+   */
+  enum class Outcome { Preparing, Ready, Pending, Failed };
 
   /// @brief The process's router: environment configuration and the real cluster.
   NRoomRouter();
@@ -299,6 +324,10 @@ class NRoomRouter {
   /// @brief room/status: whether a room is known and where its creation has reached.
   void HandleStatus(const std::string & method, json & in, json & out);
   /// @brief room/list: the rooms being tracked that the caller may see.
+  ///
+  /// Asked over a websocket, the call also subscribes that connection: the router then pushes the list
+  /// to it when it changes (see NDMSPC_ROOM_WATCH_INTERVAL), so a rooms view that watches does not have
+  /// to poll. Each watcher is answered as the caller it registered as, so it sees its own rooms.
   void HandleList(const std::string & method, json & in, json & out);
   /// @brief room/capacity: what the cluster has, what the rooms reserve, and what is left.
   void HandleCapacity(const std::string & method, json & in, json & out);
@@ -321,7 +350,18 @@ class NRoomRouter {
   bool Preparing(const std::string & value) const;
   /// @brief The number of rooms currently being prepared.
   int  PreparingCount() const;
-  /// @brief Adopts the rooms that already exist in the cluster, and expires idle ones.
+  /**
+   * @brief Adopts the rooms that already exist in the cluster, and expires the idle ones.
+   *
+   * A room is idle when nothing has wanted it for {@link NRoomConfig::idleTtlSec}: nobody asked the
+   * router about it, and its pod is not running. Traffic into a room goes gateway -> room and never
+   * reaches the router, so the pod is the router's only witness that somebody is in there - and a room
+   * somebody is in is not idle, however long ago it was opened.
+   *
+   * Runs on room/open, room/list and room/status, so the TTL is enforced while a view polls rather
+   * than only when a room is next opened. Never deletes a room that is being created, waiting for
+   * resources, or in use.
+   */
   void Sweep();
   /// @brief The rooms being tracked, as a snapshot (safe to read without holding anything).
   std::map<std::string, NRoomState> Rooms() const;
@@ -556,7 +596,8 @@ class NRoomRouter {
   /// @brief The error a pod the scheduler cannot place produces ("0/1 nodes are available: ...").
   static std::string UnschedulableError(const std::string & reason);
 
-  /// @brief The `code` reported for a room whose pod the cluster cannot schedule.
+  /// @brief The `code` reported for a room whose pod the cluster cannot schedule. The room is
+  ///        `pending` (waiting for resources), not failed: it comes up once the cluster has room.
   static constexpr const char * kNoCapacity = "no_capacity";
 
   /// @brief The `code` reported when a room's name is taken by something that is not a room.
@@ -624,12 +665,6 @@ class NRoomRouter {
 
   /// @brief A room's owner, from the registry ("" when it has none).
   std::string RoomOwner(const std::string & name) const;
-
-  /// @brief Whether this room already refused the router's capture probe at this revision.
-  bool CaptureRefused(const std::string & name, const std::string & revision) const;
-
-  /// @brief Remember that this room refused the router's capture probe at this revision.
-  void NoteCaptureRefused(const std::string & name, const std::string & revision);
 
   /// @brief Whether a caller is one of NDMSPC_ROOM_ADMINS (by email or user name, case-insensitively).
   bool IsAdmin(const NRequestIdentity & identity) const;
@@ -753,13 +788,18 @@ class NRoomRouter {
   static bool PodUnschedulable(const json & pods, std::string & reason);
   /**
    * @brief Waits for a room's newest revision to be the ready one.
+   *
+   * A pod the scheduler cannot place is not a failure: the wait answers Wait::Pending as soon as
+   * that verdict repeats, leaving the room's Service exactly as it is so the room can still come up
+   * once the cluster has room for it (see {@link ConvergePending}).
+   *
    * @param name Kubernetes name of the room.
    * @param revision Filled with the ready revision name.
-   * @param error Filled on failure.
+   * @param error Filled with why it is not ready - the scheduler's own message while it is pending.
    * @param code Set to kNoCapacity when the pod cannot be scheduled.
-   * @return True when the room is ready.
+   * @return Wait::Ready, Wait::Pending or Wait::Failed.
    */
-  bool WaitReady(const std::string & name, std::string & revision, std::string & error, std::string & code);
+  Wait WaitReady(const std::string & name, std::string & revision, std::string & error, std::string & code);
 
   // Registry.
   /**
@@ -767,6 +807,38 @@ class NRoomRouter {
    * @param name Kubernetes name of the room.
    */
   void Touch(const std::string & name);
+  /**
+   * @brief Whether a room is in use, which the router can only tell from its pod.
+   *
+   * Knative scales a room's pod to zero about a minute after the last request into it (an open
+   * websocket counts), so a pod that is still running means somebody is using the room right now -
+   * the only witness the router has, since traffic into a room never passes through it.
+   *
+   * @param room The room to judge.
+   * @return True when its latest revision is running at least one pod.
+   */
+  bool RoomInUse(const NRoomState & room);
+  /**
+   * @brief Registers a connection as a watcher of the rooms list, as the caller it just was.
+   *
+   * The identity is the one that request ran as - verified, or asserted where nothing verified it - so
+   * what the connection is later pushed is the same list room/list would answer it.
+   *
+   * @param wsId The connection (0 for a request that did not come over a websocket, which is not a
+   *             watcher).
+   * @param identity The caller.
+   */
+  void Watch(long wsId, const NRequestIdentity & identity);
+  /**
+   * @brief The rooms list as one caller sees it, or null when there is none to push.
+   * @param identity The caller the list is for.
+   * @return The `room/list` payload for that caller.
+   */
+  json RoomsPayload(const NRequestIdentity & identity);
+  /// @brief Pushes the rooms list to every watcher whose copy of it changed.
+  void PublishRooms();
+  /// @brief The watcher loop: PublishRooms() every NDMSPC_ROOM_WATCH_INTERVAL until the router ends.
+  void WatchRooms();
   /**
    * @brief Adopts the rooms that already exist in the cluster into the registry (once per process).
    *
@@ -818,20 +890,6 @@ class NRoomRouter {
    */
   std::string RequestId(json & in) const;
   /**
-   * @brief Captures a room's session and stores it; runs off the request path.
-   * @param name Kubernetes name of the room.
-   * @param value Room id.
-   * @param revision Knative revision name.
-   */
-  void CaptureNow(const std::string & name, const std::string & value, const std::string & revision);
-  /**
-   * @brief Captures a room's session on a background thread.
-   * @param name Kubernetes name of the room.
-   * @param value Room id.
-   * @param revision Knative revision name.
-   */
-  void Capture(const std::string & name, const std::string & value, const std::string & revision);
-  /**
    * @brief Replays a room's stored session into it once it is ready.
    * @param value Room id.
    * @param payload Filled with what the replay did (session, restored or restoreError).
@@ -863,12 +921,58 @@ class NRoomRouter {
   void EnsureFinish(const std::string & name, const std::string & revision, const std::string & session,
                     const std::string & error, const std::string & code);
   /**
+   * @brief Records that a creation ended waiting for cluster resources, taking the room out of the
+   *        preparing state but leaving its half-created Service in place.
+   *
+   * A room the scheduler cannot place is not a failure: its Service is what the cluster needs to
+   * finish placing the pod, so it is kept, and the room is reported as pending until it can come up.
+   *
+   * @param name Kubernetes name of the room.
+   * @param error The scheduler's own message (what it found insufficient).
+   * @param code Stable reason behind error (kNoCapacity).
+   */
+  void EnsurePending(const std::string & name, const std::string & error, const std::string & code);
+  /**
+   * @brief Removes a half-created room after a failure, so the next room/open recreates it.
+   *
+   * The router's own objects are its to take back, so a creation that failed leaves the cluster as
+   * it found it: no Service waiting to be patched into working, no HTTPRoute pointing at a revision
+   * that never became ready (a room whose route exists is what makes its `?room=<id>` link reach the
+   * room rather than the router, so a route for a room that is not up is worse than none).
+   *
+   * Never touches an object that is not the router's, which is what a name_conflict is: that name
+   * belongs to something else, and {@link Delete} refuses it anyway.
+   *
+   * @param name Kubernetes name of the room.
+   * @param code The stable reason the creation failed with (a name_conflict deletes nothing).
+   */
+  void CleanupFailed(const std::string & name, const std::string & code);
+  /**
+   * @brief Finishes a room that was waiting for cluster resources, once the cluster has placed it.
+   *
+   * The counterpart of {@link EnsurePending}: a pending room's Service is left with the cluster, and
+   * this is what notices that it can finally serve - pinning the revision's HTTPRoute and marking the
+   * room ready. Runs on the reading actions (room/list, room/status), so a view watching the room
+   * sees it come up without anyone having to ask for it again.
+   *
+   * @param name Kubernetes name of the room.
+   * @param value The room id (for the route's `?<param>=<id>` match).
+   * @return True when the room was pending and is now ready; false when it is not pending, or when
+   *         the cluster has still not placed it.
+   */
+  bool ConvergePending(const std::string & name, const std::string & value);
+  /**
    * @brief Handles a creation that has to stop, leaving nothing behind that it should not.
+   *
+   * A room closed while it was being created is deleted again; one a newer request superseded is left
+   * entirely to that request's worker. Either way the creation produced no room, so it answers
+   * Failed - which is what its caller then reports.
+   *
    * @param name Kubernetes name of the room.
    * @param generation The generation the worker was started with.
-   * @return Always false, so callers can `return Stopped(...)`.
+   * @return Always Outcome::Failed, so callers can `return Stopped(...)`.
    */
-  bool Stopped(const std::string & name, int generation);
+  Outcome Stopped(const std::string & name, int generation);
   /**
    * @brief Creates (or rolls) one room, publishing its progress as it goes.
    *
@@ -881,12 +985,14 @@ class NRoomRouter {
    *                that has none, the skeleton's default).
    * @param replay Whether the room's stored session is replayed once it is up.
    * @param payload Filled with the room's state and, once it is ready, its URL.
-   * @param error Filled when the creation fails.
+   * @param error Filled when the room is not ready - the reason it failed, or the scheduler's own
+   *              message while it is only waiting for resources.
    * @param code Stable reason behind error ("" when it has none).
-   * @return True when the room is ready.
+   * @return Ready, Pending (waiting for cluster resources; the Service is kept) or Failed (the
+   *         half-created room has been deleted again - see {@link CleanupFailed}).
    */
-  bool EnsureWorker(const std::string & value, int generation, const std::string & profile, Replay replay,
-                    json & payload, std::string & error, std::string & code);
+  Outcome EnsureWorker(const std::string & value, int generation, const std::string & profile, Replay replay,
+                       json & payload, std::string & error, std::string & code);
   /**
    * @brief Starts creating (or rolling) a room, and reports what the client can act on.
    * @param value Room id chosen by the client.
@@ -894,12 +1000,13 @@ class NRoomRouter {
    * @param wait True keeps the blocking answer; false registers the room as preparing and returns at once.
    * @param replay Whether the room's stored session is replayed once it is up.
    * @param payload Receives the room's state and, once it is ready, its URL.
-   * @param error Actionable reason when the call itself could not be started.
+   * @param error Actionable reason when the room failed, or the scheduler's message while it waits.
    * @param code Stable reason behind error ("" when it has none).
-   * @return True when the call itself was started (the room may still be preparing).
+   * @return Preparing (the call was accepted and the work runs in the background), Ready, Pending or
+   *         Failed. Only Failed is a failure of the call itself.
    */
-  bool EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay, json & payload,
-                   std::string & error, std::string & code);
+  Outcome EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay,
+                      json & payload, std::string & error, std::string & code);
 
   /// @brief A background thread, and how to tell whether it has finished.
   struct Worker {
@@ -931,6 +1038,11 @@ class NRoomRouter {
   std::mutex                        fAdoptMutex;     ///< Guards the one-time adoption of existing rooms
   std::vector<Worker>               fWorkers;        ///< The background threads still running
   mutable std::mutex                fWorkerMutex;    ///< Guards fWorkers
+  std::map<long, NRequestIdentity>  fWatchers;      ///< Connections that asked for the rooms list
+  std::map<long, std::string>       fPushed;        ///< The last list pushed to each, so only changes are sent
+  mutable std::mutex                fWatchMutex;    ///< Guards fWatchers and fPushed
+  std::thread                       fWatchThread;   ///< Pushes the rooms list to watchers (NDMSPC_ROOM_WATCH_INTERVAL)
+  std::atomic<bool>                 fWatchStop{false}; ///< Asks the watch thread to stop when the router ends
 };
 
 } // namespace Ndmspc

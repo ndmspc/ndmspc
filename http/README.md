@@ -508,7 +508,8 @@ available:
   shares the live session (opened `NGnTree`, navigator, workspace and state point) and
   honours the same authentication as every other `/api/*` route.
 - **stdio** — the `ndmspc-mcp` launcher, a self-contained process an MCP client spawns.
-  It embeds the server machinery (no network listener), loads the built-in macros and
+  It embeds the server machinery (no network listener), registers the base actions and
+  loads the macro named with `-m` (`toolNgnt.C` by default), and
   serves JSON-RPC 2.0 on stdin/stdout.
 
 Supported JSON-RPC methods: `initialize`, `notifications/initialized`, `tools/list`,
@@ -519,8 +520,10 @@ Supported JSON-RPC methods: `initialize`, `notifications/initialized`, `tools/li
 One tool is created per registered handler, named by replacing `/` with `_`
 (`ngnt/open` → `ngnt_open`). Each tool's `inputSchema` is taken from the workspace
 inspector schema and extended with a `method` property (`GET`/`POST`/`PATCH`/`DELETE`,
-default `POST`), because the ngnt actions are verb-sensitive. Internal routes (`debug`,
-`openapi/inspector`, `inspector/openapi`) are hidden; `health` and `state` are exposed.
+default `POST`), because the ngnt actions are verb-sensitive. Internal routes
+(`openapi/inspector`, `inspector/openapi`) are hidden; `health` and `state` are exposed — they come
+from the server itself (`Ndmspc::RegisterBaseActions`, built in) rather than from a macro, and
+`debug` is an example of a name the default filter hides for a macro that registers one.
 
 Every `tools/call` is routed through the normal request path (the same dispatch used by
 the HTTP API and the WebSocket bridge), so history entries, workspace updates and
@@ -596,10 +599,10 @@ call — the endpoint is not exempt from authentication.
 ### stdio transport
 
 ```bash
-ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/tools/toolBase.C,toolNgnt.C
-ndmspc-mcp --rooms                                         # additionally serve the room router (NRoomRouter)
-ndmspc-mcp -m /path/toolBase.C,/path/toolNgnt.C
-ndmspc-mcp --all-tools                                      # also expose debug/openapi actions
+ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/tools/toolNgnt.C
+ndmspc-mcp --rooms                                         # serve the room router instead (rooms only, no macro)
+ndmspc-mcp -m /path/toolNgnt.C
+ndmspc-mcp --all-tools                                      # also expose openapi actions
 ```
 
 Only JSON-RPC messages are written to stdout; the logger and any `Print()` output from the
@@ -617,6 +620,13 @@ See [`examples/mcp`](examples/mcp) for a runnable example covering both transpor
 NDMSPC deployment on Knative. `ndmspc-server --rooms true` (or `NDMSPC_ROOMS=1`)
 registers it; without that flag a server is an ordinary NDMSPC server and none of this runs.
 
+A router serves **rooms and nothing else**: it loads no macro, so the image CMD's `-m` list is
+ignored and the standalone tools view has nothing to talk to on the entry. The server's own base
+actions (`health`, `state`) are built in (`Ndmspc::RegisterBaseActions`) and are not registered
+either, so `/api/health` on a router answers "Unsupported action" — a room is where tools live, and
+the room view carries its own tool panel. The page itself is still served, and `/api/mcp` still
+answers the `room_*` tools.
+
 Rooms are Knative Services created through the in-cluster API (`KUBERNETES_SERVICE_HOST`/`PORT`),
 so asking for them without that environment is refused at startup: the server logs why and exits
 non-zero before it builds the server or loads any macro. Where it can serve rooms it says so, with
@@ -631,14 +641,31 @@ are served both as `/api/room/*` and as MCP tools):
 
 | Action | Methods | What it does |
 | ------ | ------- | ------------ |
-| `room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. `profile` (body or query) picks one of the skeleton's sizes — see [Room profiles](#room-profiles) — and resizes an existing room when it differs from the one it runs. |
-| `room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached. |
-| `room/list` | GET | Every room being tracked, including those still preparing and those whose creation failed. |
+| `room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. A room the cluster has no room for answers `state=pending` — the room exists and is kept (see [Room router](#room-router-nroomrouter)). `profile` (body or query) picks one of the skeleton's sizes — see [Room profiles](#room-profiles) — and resizes an existing room when it differs from the one it runs. |
+| `room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached; `state=pending` with `code=no_capacity` while it waits for cluster resources. Finishing a pending room that can now be placed happens here (and in `room/list`). |
+| `room/list` | GET | Every room being tracked, including those still preparing, those waiting for resources (`state=pending`) and those whose creation failed. |
 | `room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
 | `room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
 | `room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
 | `room/backup` | GET | Every tracked room and its session as one JSON document. |
 | `room/restore` | POST | Ensure every room in such a document and replay its session. Additive: rooms not named are untouched. |
+
+### Watching the rooms (instead of polling)
+
+`room/list` asked over a websocket subscribes that connection: the router then pushes the list to it
+whenever it changes, each watcher answered as the caller it registered as (see *Ownership and
+visibility*), so a rooms view does not have to poll. A view opens `/ws/root.websocket?rooms=1` — the
+router accepts a socket that asks for the rooms list, where one that names neither a room nor `rooms`
+is still refused — authenticates as it would for a room, and calls `room/list` over the socket: that
+call is both the first list and the subscription.
+
+The pushes are `{"event":"rooms","payload":<the room/list payload>}`, sent only when the list changed
+for that watcher, at most every `NDMSPC_ROOM_WATCH_INTERVAL` (default 2s; `0` serves no pushes). The
+router's own actions push at once rather than waiting for that interval, so a create, a close or a
+restore shows up as soon as it happened, and a cluster-side change (a room becoming ready, its pods
+going up or down) arrives within the interval. A view keeps its own interval as the fallback, so a
+socket that is down - or a deployment with watching off - still refreshes; `room/list` over HTTP is
+unchanged, and so is every script and MCP client that uses it.
 
 ### Creating a room in the background
 
@@ -650,21 +677,30 @@ for its whole duration; that is why `room/open` has the `wait` flag. `NDMSPC_ROO
 was closed or superseded, so a slow creation cannot outlive the room it belongs to, and a close that
 lands while a Service is being created takes that Service back out again.
 
-A room that could not be created is reported as `state=failed` with the reason in `error` and, when
-the router can name it, a stable `code`:
+A room that is not serving is reported with its `state`, the reason in `error` and, when the router
+can name it, a stable `code`. Waiting for resources and failing are two different things:
 
-- `no_capacity` — the cluster cannot place the room's pod. The message is the scheduler's own
-  (`0/1 nodes are available: 1 Insufficient cpu`), read from the pod: the Knative Service only ever
-  says "waiting for a Revision to become ready". The verdict has to repeat, so a race while another
-  room scales up cannot fail this one. This needs `get`/`list` on pods (core) in the namespace;
-  without it nothing breaks, the room simply reports the timeout instead.
+- `pending` — the cluster has no room for the room's pod right now. The message is the scheduler's
+  own (`0/1 nodes are available: 1 Insufficient cpu`), read from the pod: the Knative Service only
+  ever says "waiting for a Revision to become ready". The verdict has to repeat, so a race while
+  another room scales up cannot change this room's state. This needs `get`/`list` on pods (core) in
+  the namespace; without it nothing breaks, the room simply reports the timeout instead. The room's
+  Service is **kept** — it is what the cluster still has to place a pod for — and `code` is
+  `no_capacity`. The room comes up by itself once there is room for it: the next `room/list` or
+  `room/status` pins its revision's HTTPRoute and reports it ready, so nothing has to be opened
+  again.
 - `name_conflict` — the name the room needs is already taken by an object the router did not create
   (it carries no `ndmspc.io/room` label), so that object is left untouched rather than overwritten
   or deleted. Pick another room id, or free the name. This is why the router must not live inside
   the room prefix namespace: a router named `ndmspc-room-router` is exactly the name the room id
   `router` asks for. The devops role names the router `ndmspc-router` (rooms are `ndmspc-room-<id>`)
   so the two cannot meet.
-- *(empty)* — anything else: a failed apply, a roll that never got there, a timeout.
+- *(empty)* — anything else: a failed apply, a container that keeps dying, a timeout. A creation
+  that **failed** leaves nothing behind: the router deletes the half-created Service and HTTPRoute,
+  so the next `room/open` creates the room from scratch rather than patching what failed — and a
+  room whose route does not exist cannot take its `?room=<id>` link away from the router. The
+  reason is kept in the registry until then, so the next `room/open` reports what happened to its
+  predecessor.
 
 `room/close` and the idle sweep only delete objects carrying the room label, so a name taken by
 anything else survives both.
@@ -723,7 +759,7 @@ open: they are inert files, and the browser re-fetches them on reload with the c
 
 Nothing is enforced when `NDMSPC_ROOM_ACCESS` is absent, which is how a room created before this
 existed (or served by an older image) keeps working — the switch is that variable, not the code. The
-router's own calls into a room (capturing a session, replaying one) present the read-write token, so
+router's own call into a room (replaying a session) presents the read-write token, so
 they are admitted like any other client.
 
 The token travels in the URL, so it appears in the room pod's request log and in a browser's history;
@@ -906,7 +942,8 @@ class IRoomCluster {                          // what the router needs from Kube
 ```
 
 Everything above that seam — building the Service and HTTPRoute objects, the 404-then-POST apply,
-reading a status back, waiting for a revision, telling "no capacity" from a timeout, adopting the
+reading a status back, waiting for a revision, telling "no capacity" (a room waiting for resources)
+from a timeout, adopting the
 rooms that already exist, expiring idle ones, deciding whether a websocket may be served — is the
 router's own logic, and is what `test/test_NRoomRouter.cxx` exercises against an in-memory cluster
 and through the actions themselves: no Kubernetes, no server, no HTTP. The workers it starts are
@@ -941,8 +978,7 @@ no flag: the router believes the verified identity, and an asserted owner never 
 | `Enter` | Refresh the selected room's status |
 | `c` / `o` / `a` | Create a room (`o` / `a` are kept as aliases) |
 | `d` / `Del` | Delete a room, after confirmation |
-| `r` | Refresh the room list now |
-| `p` | Pause / resume the automatic refresh |
+| `r` | Read the room list now (the router pushes it while the socket is up) |
 | `t` | Switch the detail pane between the read-write and the read-only link |
 | `?` | Key help |
 | `q` / `Esc` | Quit |
@@ -952,6 +988,25 @@ resting state and is presented as such rather than as a problem; the detail pane
 `/api?room=<id>` URL to hand to a client and the `/ws/root.websocket?room=<id>` URL for a
 WebSocket client — the handshake carries the same `?room=` parameter, which is what keeps a
 room awake.
+
+The room itself lives for as long as something wants it. `NDMSPC_ROOM_IDLE_TTL` (default 24h) is how
+long a room may go unused before the router deletes it — route, then Service — and a room is unused
+when nothing wants it **and** its pod is not running. What wants a room is `room/open` (a client
+asking for it, or a handed-on link being followed); asking a room's *state* (`room/status`) does not,
+because that is what a view does when it selects a row — counting it would keep a room alive for as
+long as somebody had it selected. Traffic into a room goes
+gateway → room and never reaches the router, so a running pod is the router's only evidence that
+somebody is in there: anything using the room keeps that pod up (an open WebSocket counts), and every
+read that finds a room running moves its idle clock forward, so its countdown never runs out while it
+is in use. The sweep that enforces the TTL runs on `room/list`, `room/status` and `room/open` — a view
+that polls enforces it while it watches, and a room is deleted about the TTL after its pod has gone,
+not on the next create. A room still being created, or waiting for resources, is never swept either.
+
+That clock outlives the router: each room's Service carries when it was last wanted
+(`ndmspc.io/room-seen`, written whenever the stored copy has drifted a fraction of the TTL from the
+one in memory), and `Adopt` reads it back at startup. Without it a restart — a rollout, a re-apply —
+handed every room a full idle TTL, so a room that had been idle for a day read as just used and
+nothing ever expired. Annotating a Service creates no revision, so this cannot disturb a running room.
 
 For a room that was given access tokens (see [Access tokens](#access-tokens-rw--ro)) the pane also
 shows which level it is displaying and appends that token to all three URLs, so the link that gets
@@ -973,18 +1028,20 @@ to that room's own pod, which keeps serving its websocket.
 The table shows what the router reports: the room, whose it is (`OWNER`; `-` for a room created
 before ownership existed, or by nobody identifiable), `active` / `idle` for a room that is up, `preparing` with
 a spinner while its creation is still running — the `SEEN` column then reads as how long it has
-been creating — and `failed` when a creation did not get there. The detail pane adds the creation's
-`phase` (`service`, `ready`, `route`, `restore`) while it is still preparing, and its error when it
-failed.
+been creating — `waiting` for a room the cluster has no room for yet, and `failed` / `killed` when a
+creation did not get there. The detail pane says the same word for the room's state (the row and the
+pane are one vocabulary: the router's `pending` reads as `waiting`, and a room that is up reads by
+what it is doing), adds the creation's `phase` (`service`, `ready`, `route`, `restore`) while it is
+still being prepared, and its reason when it is not serving.
 
-A failure carries the router's `error` and, when it can name the cause, a stable `code`:
-`no_capacity` means the cluster could not place the room's pod — the row reads `no capacity`, the
-detail pane shows the scheduler's own message (`0/1 nodes are available: 1 Insufficient cpu`), and
-the status line announces it for the room you just created. `container_error` means the room's own
-container keeps dying: a room created at a profile too small for what it loads is killed by the kernel
-before it can serve, and the failure says so instead of waiting out the timeout. The router reads both
-reasons from the pod itself, so its service account needs `get` / `list` on `pods`; without that
-permission the failure is still reported, just without the cause.
+Waiting and failing are different: a `pending` room carries `code=no_capacity`, the scheduler's own
+message (`0/1 nodes are available: 1 Insufficient cpu`) and is left to come up on its own — the row
+reads `waiting`, and only `room/close` takes it back. A `failed` creation carries the router's
+`error` and, when it can name the cause, a stable `code`: `container_error` means the room's own
+container keeps dying — a room created at a profile too small for what it loads is killed by the
+kernel before it can serve, and the failure says so instead of waiting out the timeout. The router
+reads that reason from the pod itself, so its service account needs `get` / `list` on `pods`;
+without that permission the failure is still reported, just without the cause.
 
 ### What killed a room
 
@@ -1080,10 +1137,11 @@ the room is next opened, so `room/open` hands back a room holding what it held b
 - It is stored as the `ndmspc.io/room-state` annotation on the room's own Knative Service,
   so it survives a router restart (the router re-adopts it) and travels with the room.
   Annotating a Service does not create a revision.
-- It is captured while the room is running: the room reports it after any request that
-  changes the session, and the router also captures opportunistically during `room/list`
-  (which already knows whether the room has pods, since talking to a scaled-to-zero room
-  would wake it). It is replayed during `room/open`, and by the room itself when it wakes.
+- It is captured while the room is running: the room reports it itself after any request that
+  changes the session (see `NHttpServer::RoomSessionPush`), and nothing else asks the room for it.
+  The router deliberately never polls a room: a request of its own would keep the room's pod awake,
+  so a room that was merely being listed could never go idle. It is replayed during `room/open`, and
+  by the room itself when it wakes.
 
 Both ways a room can come back are covered:
 
@@ -1100,20 +1158,18 @@ which are internal and hidden from the MCP tool list.
 
 That channel authenticates the room rather than a user: the room sends its own read-write token
 (`NDMSPC_ROOM_ACCESS`, injected beside the URL) in the `?token=` parameter, and the router checks
-it against the room the request names. It is the same credential the room enforces on its own API,
-and the same one the router presents when it captures a room's session. A room that was given no
+it against the room the request names. It is the same credential the room enforces on its own API. A
+room that was given no
 tokens - an older image, or one created before access existed - reports without one, and so does a
 report that arrives before the router has re-adopted the room after a restart: there is nothing to
 check those against. A report the router refuses is logged with the router's own reason and sent
 again at the next change to the session, so a rejection is never mistaken for a stored session.
 
-The router's own capture - during `room/list`, for a room that is running - reads the room over
-HTTP, so a room that authenticates `/api` refuses it: the router is an internal component and has
-no user token to present. That refusal is reported once and the room is not probed again at that
-revision, rather than being taken for a room with nothing open (the ROOT server answers 200 with
-the reason in the JSON envelope, which is why the probe reads the body and not the status). Nothing
-is lost by it: the room reports its own session, and a rollout brings a new revision, which is
-probed again.
+The router never asks a room for its session: the room reports it over this channel whenever it
+changes, and that report is the whole story (a request from the router into the room would keep the
+room's pod awake, so a room being listed could never go idle and its idle TTL would never apply). A
+report the router refuses - an unknown token, a room it has not adopted yet - is logged with the
+router's own reason, and the room sends it again at the next change.
 
 `room/open` reports what happened in its payload: `"restored": true` with
 `"session": "restored"`, or `"session": "live"` when the room was already in use, or
@@ -1121,7 +1177,7 @@ probed again.
 
 Two rules make this safe:
 
-- a room with nothing open is never captured, so a freshly started pod cannot overwrite a
+- a room with nothing open never reports one, so a freshly started pod cannot overwrite a
   good snapshot with emptiness;
 - a room that already has a file open is never restored over - the live session wins.
 
@@ -1134,9 +1190,8 @@ Three more details keep it working in practice:
 - A room **bounds** how long it waits for the router: short timeouts and a few retries, so a
   cold or busy router cannot stall a client for a minute. If the fetch still fails, the room
   serves the request and tries again shortly after.
-- The router's opportunistic capture runs **off the request path**: the router serves one
-  request at a time, so a capture inside `room/list` would cycle with a room that is calling
-  the router back to restore itself, and starve that fetch.
+- The report runs **off the room's request path**: the room serves one request at a time too, so a
+  slow report cannot delay the next client.
 
 **What is deliberately not persisted.** This restores the session, not data. A room's
 filesystem is ephemeral, so anything written into a ROOT file is lost when the room scales to

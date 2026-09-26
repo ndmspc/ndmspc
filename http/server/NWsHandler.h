@@ -115,6 +115,32 @@ class NWsHandler : public THttpWSHandler {
   void Broadcast(const std::string & message);
 
   /**
+   * @brief The ids of the clients currently connected, a still-valid token each.
+   *
+   * An action that pushes to watchers (the room router's rooms list) walks these and answers each
+   * client in its own right, so what a client is sent is filtered for the caller it is.
+   *
+   * @return The connection ids, empty when nobody is connected.
+   */
+  std::vector<ULong_t> ConnectedIds() const;
+
+  /**
+   * @brief The identity a connection was admitted as.
+   * @param wsId WebSocket client id.
+   * @return The username the connection authenticated with, or "" when it was not identified (an
+   *         anonymous deployment, or a client that has not authenticated yet).
+   */
+  std::string UsernameOf(ULong_t wsId) const;
+
+  /**
+   * @brief Sends one message to one client.
+   * @param wsId WebSocket client id.
+   * @param message Message string to send.
+   * @return True when the message was handed to the connection.
+   */
+  bool SendTo(ULong_t wsId, const std::string & message);
+
+  /**
    * @brief Handles timer events for the handler.
    * @param timer Pointer to TTimer object.
    * @return True if handled successfully.

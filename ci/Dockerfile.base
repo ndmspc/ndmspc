@@ -62,4 +62,4 @@ RUN export NDMSPC_LOG_CONSOLE=0; export NDMSPC_LOG_RUN=1; root -b -q /usr/share/
 # Copy only the React build from Stage 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD [ "/bin/bash","-c","ndmspc-server -m /usr/share/ndmspc/macros/tools/toolBase.C,/usr/share/ndmspc/macros/tools/toolNgnt.C --html /usr/share/ndmspc/ndmspc-ui" ]
+CMD [ "/bin/bash","-c","ndmspc-server -m /usr/share/ndmspc/macros/tools/toolNgnt.C --html /usr/share/ndmspc/ndmspc-ui" ]

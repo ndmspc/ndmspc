@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <memory>
 #include <string>
 #include <thread>
@@ -307,16 +308,27 @@ class FakeCluster : public IRoomCluster {
 };
 
 /// @brief A configuration that never waits long, whatever the environment says.
-NRoomConfig Config(int readyTimeoutSec = 2, std::vector<std::string> admins = {})
+NRoomConfig Config(int readyTimeoutSec = 2, std::vector<std::string> admins = {}, long idleTtlSec = 3600)
 {
   NRoomConfig cfg;
   cfg.ns              = "default";
   cfg.param           = "room";
   cfg.prefix          = "ndmspc-room-";
   cfg.readyTimeoutSec = readyTimeoutSec;
+  cfg.idleTtlSec      = idleTtlSec;
   cfg.admins          = std::move(admins);
   cfg.apiServer       = "https://api.test"; // the fake cluster answers whatever the router asks
   return cfg;
+}
+
+/// @brief Waits until a one-second idle TTL has certainly passed.
+///
+/// The router's timestamps are whole seconds, so `lastSeen < now - ttl` needs more than `ttl` seconds
+/// of real time: a second of slack at each end covers the truncation (a room stamped at x.99 and read
+/// at x+1.01 is one second old, not two).
+void SleepPastTtl(long ttlSeconds = 1)
+{
+  std::this_thread::sleep_for(std::chrono::milliseconds(ttlSeconds * 1000 + 1500));
 }
 
 /// @brief The input of a request whose caller the server verified (what `_identity` carries).
@@ -337,17 +349,17 @@ struct Router {
   std::shared_ptr<FakeCluster> cluster = std::make_shared<FakeCluster>();
   std::unique_ptr<NRoomRouter> router;
 
-  explicit Router(int readyTimeoutSec = 2, std::vector<std::string> admins = {})
-      : router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins)), cluster))
+  explicit Router(int readyTimeoutSec = 2, std::vector<std::string> admins = {}, long idleTtlSec = 3600)
+      : router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins), idleTtlSec), cluster))
   {
   }
 
   /// @brief A second router over a cluster another one already used: a restart, which is what tells
   ///        what the router keeps in the cluster from what it only kept in its own memory.
   Router(std::shared_ptr<FakeCluster> existing, int readyTimeoutSec = 2,
-         std::vector<std::string> admins = {})
+         std::vector<std::string> admins = {}, long idleTtlSec = 3600)
       : cluster(std::move(existing)),
-        router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins)), cluster))
+        router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins), idleTtlSec), cluster))
   {
   }
 
@@ -981,8 +993,10 @@ TEST(NRoomRouterActionsTest, OpenWithWaitFalseAnswersPreparingAndFinishesInTheBa
 
 TEST(NRoomRouterActionsTest, ASecondOpenWhilePreparingIsReportedNotRestarted)
 {
-  Router test;
-  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  // Longer than this test needs: a creation that times out is cleaned up, and this is about a
+  // creation that is still in flight.
+  Router test(/*readyTimeoutSec=*/30);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
   test.cluster->readyAfterGets = 0; // never ready: the creation stays in flight
 
   const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
@@ -1000,7 +1014,7 @@ TEST(NRoomRouterActionsTest, ASecondOpenWhilePreparingIsReportedNotRestarted)
   EXPECT_TRUE(test.router->Preparing("alpha"));
 }
 
-TEST(NRoomRouterActionsTest, APodTheSchedulerCannotPlaceFailsFastWithTheReason)
+TEST(NRoomRouterActionsTest, APodTheSchedulerCannotPlaceIsReportedAsPending)
 {
   // Long enough for the verdict to repeat, which is what makes it a verdict.
   Router test(/*readyTimeoutSec=*/5);
@@ -1015,19 +1029,58 @@ TEST(NRoomRouterActionsTest, APodTheSchedulerCannotPlaceFailsFastWithTheReason)
   for (const auto & call : test.cluster->calls) {
     if (call.second.rfind("/api/v1/namespaces/default/pods", 0) == 0) ++podQueries;
   }
-  EXPECT_GE(podQueries, 2u); // the verdict has to repeat before the room fails
+  EXPECT_GE(podQueries, 2u); // the verdict has to repeat before the room is reported pending
 
+  // Waiting for cluster resources, not a failure: the reason is the scheduler's own, the code names
+  // it, and the room is still there - it comes up once the cluster has room for its pod.
   const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
   EXPECT_EQ(status["result"], "success");
-  EXPECT_EQ(status["payload"]["state"], "failed");
-  EXPECT_EQ(status["payload"]["phase"], "failed");
+  EXPECT_EQ(status["payload"]["state"], "pending");
+  EXPECT_EQ(status["payload"]["phase"], "pending");
   EXPECT_EQ(status["payload"].value("code", std::string()), NRoomRouter::kNoCapacity);
   EXPECT_NE(status["payload"]["error"].get<std::string>().find("Insufficient cpu"), std::string::npos);
 
   const json list = test.Call("list", "GET");
   ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
-  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "failed");
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "pending");
   EXPECT_EQ(list["payload"]["rooms"][0]["code"], NRoomRouter::kNoCapacity);
+
+  // The Service is kept, and no route is pinned: the Service is what the cluster still has to place
+  // a pod for, and a route is only created once there is a revision to point it at.
+  const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
+  const std::string routes   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes";
+  EXPECT_EQ(test.cluster->Count("DELETE", services + "/ndmspc-room-alpha"), 0u);
+  EXPECT_EQ(test.cluster->objects.count(services + "/ndmspc-room-alpha"), 1u);
+  EXPECT_EQ(test.cluster->Count("POST", routes), 0u);
+}
+
+TEST(NRoomRouterActionsTest, APendingRoomIsFinishedOnceTheClusterPlacesIt)
+{
+  Router test(/*readyTimeoutSec=*/5);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->readyAfterGets = 0;
+  test.cluster->unschedulable  = true;
+
+  test.Open("alpha", false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["state"], "pending");
+
+  const std::string routes = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes";
+  ASSERT_EQ(test.cluster->Count("POST", routes), 0u);
+
+  // The cluster finds room for the pod, and the room's first revision becomes ready. The next read
+  // is what notices: nobody has to open the room again for it to be pinned to its route and
+  // reported as ready.
+  test.cluster->unschedulable  = false;
+  test.cluster->readyAfterGets = 1;
+
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "ready");
+  EXPECT_EQ(list["payload"]["rooms"][0].value("code", std::string()), "");
+  EXPECT_TRUE(list["payload"]["rooms"][0]["ready"].get<bool>());
+  EXPECT_EQ(test.cluster->Count("POST", routes), 1u);
+  EXPECT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["state"], "ready");
 }
 
 TEST(NRoomRouterActionsTest, AClusterThatRefusesToShowPodsStillReportsATimeout)
@@ -1045,6 +1098,232 @@ TEST(NRoomRouterActionsTest, AClusterThatRefusesToShowPodsStillReportsATimeout)
   // No reason given: the permission is missing, not the capacity, so there is no code at all.
   EXPECT_EQ(status["payload"].value("code", std::string()), "");
   EXPECT_NE(status["payload"]["error"].get<std::string>().find("timed out"), std::string::npos);
+  // A creation that failed left nothing behind: the half-created Service is gone again.
+  EXPECT_FALSE(status["payload"]["exists"].get<bool>());
+}
+
+TEST(NRoomRouterActionsTest, AFailedCreationLeavesNothingBehindAndAReopenRecreatesIt)
+{
+  Router test(/*readyTimeoutSec=*/1);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->readyAfterGets = 0;
+  test.cluster->podsForbidden  = true; // a failure with no scheduler verdict: the plain timeout
+
+  const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
+  const std::string entry    = services + "/ndmspc-room-alpha";
+  const std::string routes   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes";
+
+  test.Open("alpha", false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.cluster->Count("POST", services), 1u);
+  // The failed room is taken back, so it cannot be patched into failing again - and its `?room=`
+  // link cannot reach a room that is not there.
+  EXPECT_EQ(test.cluster->Count("DELETE", entry), 1u);
+  EXPECT_EQ(test.cluster->objects.count(entry), 0u);
+
+  // The next open creates it from scratch: a POST, not a merge-patch of what failed.
+  test.cluster->readyAfterGets = 1;
+  test.Open("alpha", false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  EXPECT_EQ(test.cluster->Count("POST", services), 2u);
+  EXPECT_EQ(test.cluster->Count("PATCH", entry), 0u);
+  EXPECT_EQ(test.cluster->Count("POST", routes), 1u);
+  EXPECT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["state"], "ready");
+}
+
+TEST(NRoomRouterActionsTest, AFailedRoomWhoseObjectsAreGoneIsDroppedFromTheList)
+{
+  Router test(/*readyTimeoutSec=*/1);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->readyAfterGets = 0;
+  test.cluster->podsForbidden  = true; // a failure with no scheduler verdict: the plain timeout
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.router->Rooms().size(), 1u);
+
+  // The failure took its objects back, so there is nothing left to report: reading the room drops it
+  // rather than leaving a room that no longer exists reading as failed for ever - which is what a
+  // view that kept polling would show after a room somebody had cleaned up and created again.
+  const json list = test.Call("list", "GET");
+  EXPECT_TRUE(list["payload"]["rooms"].empty());
+  EXPECT_EQ(test.router->Rooms().size(), 0u);
+}
+
+TEST(NRoomRouterActionsTest, AnIdleClockSurvivesARestartAndTheRoomStillExpires)
+{
+  // A TTL a test can wait out; the stored clock follows it, so it is written within the test's reach.
+  Router test(/*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  // Somebody is in it, so a read moves its clock - and stores it on the room's Service.
+  test.cluster->replicas = 1;
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.Call("list", "GET")["payload"]["rooms"].size(), 1u);
+
+  // The store runs on a worker (the read it came from cannot wait on the cluster). The annotation is
+  // the contract a restarted router relies on, so the test names it.
+  while (test.router->Workers() > 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  EXPECT_FALSE(test.cluster->objects.at(service)
+                   .value("metadata", json::object())
+                   .value("annotations", json::object())
+                   .value("ndmspc.io/room-seen", "")
+                   .empty());
+
+  // They leave, and it goes unused for longer than its TTL - then the router is replaced, which is
+  // what used to hand every room a full idle TTL again.
+  test.cluster->replicas = 0;
+  SleepPastTtl();
+
+  Router restarted(test.cluster, /*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+  EXPECT_TRUE(restarted.Call("list", "GET")["payload"]["rooms"].empty());
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomsClockIsStoredWhenItsRoomIsAdopted)
+{
+  Router test(/*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // Nobody is in it, so its clock never moves on a read: it is written when the room is adopted.
+  // Without that, an idle room would be handed a full TTL by every restart and could never expire.
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+
+  {
+    Router restarted(test.cluster, /*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+    ASSERT_EQ(restarted.Call("list", "GET")["payload"]["rooms"].size(), 1u);
+    while (restarted.router->Workers() > 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    SleepPastTtl();
+
+    // The clock it wrote is the one this one reads: the room had expired while the routers changed.
+    Router again(test.cluster, /*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+    EXPECT_TRUE(again.Call("list", "GET")["payload"]["rooms"].empty());
+  }
+}
+
+TEST(NRoomRouterActionsTest, AStatusReadDoesNotKeepARoomAlive)
+{
+  Router test(/*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+
+  // Somebody selects the room and reads its state: that is a view looking, not a use, so it must not
+  // push the room's clock forward - a room with a row selected used to stay alive for ever.
+  SleepPastTtl();
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["result"], "success");
+  // The read both enforces the TTL and leaves the clock where it was: the room is gone.
+  EXPECT_TRUE(test.Call("list", "GET")["payload"]["rooms"].empty());
+  EXPECT_EQ(test.router->Rooms().size(), 0u);
+}
+
+TEST(NRoomRouterActionsTest, AReadSweepsARoomNothingHasWantedForTheTtl)
+{
+  // A TTL a test can wait out: one second.
+  Router test(/*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
+  const std::string entry    = services + "/ndmspc-room-alpha";
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.router->Rooms().size(), 1u);
+
+  // Past the TTL, and its pod is not running: the next read is what takes it - no create needed.
+  SleepPastTtl();
+  const json list = test.Call("list", "GET");
+  EXPECT_EQ(list["result"], "success");
+  EXPECT_TRUE(list["payload"]["rooms"].empty());
+  EXPECT_EQ(test.router->Rooms().size(), 0u);
+  // And it is gone from the cluster, not only from the answer.
+  EXPECT_EQ(test.cluster->Count("DELETE", entry), 1u);
+  EXPECT_EQ(test.cluster->objects.count(entry), 0u);
+}
+
+TEST(NRoomRouterActionsTest, ARoomSomebodyIsInIsNotSweptUntilItsPodIsGone)
+{
+  Router test(/*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  // Somebody is in the room: its pod is running (Knative keeps it up while anything is using it).
+  test.cluster->replicas = 1;
+
+  const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
+  const std::string entry    = services + "/ndmspc-room-alpha";
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+
+  SleepPastTtl();
+  json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "ready");
+  EXPECT_TRUE(list["payload"]["rooms"][0]["active"].get<bool>());
+  // Its clock was pushed forward by the read that found it in use, so its expiry is honest.
+  EXPECT_GE(list["payload"]["rooms"][0]["lastSeen"].get<long>(), static_cast<long>(std::time(nullptr)) - 1);
+  EXPECT_EQ(test.cluster->Count("DELETE", entry), 0u);
+
+  // The pod goes (nothing is using it any more): now the TTL applies, from the touch above.
+  test.cluster->replicas = 0;
+  SleepPastTtl();
+  list = test.Call("list", "GET");
+  EXPECT_TRUE(list["payload"]["rooms"].empty());
+  EXPECT_EQ(test.cluster->Count("DELETE", entry), 1u);
+}
+
+TEST(NRoomRouterActionsTest, AReadOfARunningRoomRefreshesItsIdleClock)
+{
+  // Nothing expires here (the TTL is an hour): this is about the clock itself. A room somebody is in
+  // has to keep its clock moving, or its countdown runs to zero and jumps back and a room in use looks
+  // like one about to be deleted.
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->replicas = 1; // somebody is in the room
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+
+  // The clock as the router holds it: what a read of the room does to it is the point, and the list's
+  // own answer is built before the read that finds the room running touches it.
+  const auto clock = [&test]() -> long {
+    const auto rooms = test.router->Rooms();
+    const auto it    = rooms.find(NRoomRouter::RoomName(Config(), "alpha"));
+    return it == rooms.end() ? 0 : it->second.lastSeen;
+  };
+
+  ASSERT_TRUE(test.Call("list", "GET")["payload"]["rooms"][0]["active"].get<bool>());
+  const long first = clock();
+  ASSERT_GT(first, 0L);
+
+  SleepPastTtl(2);
+  test.Call("list", "GET");
+
+  EXPECT_GT(clock(), first);
+}
+
+TEST(NRoomRouterActionsTest, ARoomWaitingForResourcesIsNeverSwept)
+{
+  Router test(/*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/1);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->readyAfterGets = 0;
+  test.cluster->unschedulable  = true;
+
+  const std::string entry = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["state"], "pending");
+
+  // Well past the TTL, and still waiting: it is not idle, it is waiting on the cluster.
+  SleepPastTtl();
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "pending");
+  EXPECT_EQ(test.cluster->Count("DELETE", entry), 0u);
 }
 
 TEST(NRoomRouterActionsTest, CloseCancelsACreationAndDeletesWhatItMadeSoFar)
@@ -1255,6 +1534,22 @@ TEST(NRoomRouterActionsTest, TheWebsocketPolicyNeedsATrackedRoom)
   test.Open("alpha", true);
   EXPECT_TRUE(test.router->WsConnect("room=alpha"));
   EXPECT_FALSE(test.router->WsConnect("room=nosuch"));
+}
+
+TEST(NRoomRouterActionsTest, TheWebsocketPolicyAcceptsARoomsWatcher)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // A socket that asks for the rooms list is a watcher: the router pushes room/list's own answer to it
+  // (see PublishRooms), so a rooms view does not have to poll. It names no room, and it needs none.
+  EXPECT_TRUE(test.router->WsConnect("rooms=1"));
+  EXPECT_TRUE(test.router->WsConnect("rooms=true"));
+  EXPECT_TRUE(test.router->WsConnect("rooms=1&owner=alice"));
+
+  // ... and asking for the opposite is not asking: that socket is refused as any room-less one is.
+  EXPECT_FALSE(test.router->WsConnect("rooms=0"));
+  EXPECT_FALSE(test.router->WsConnect(""));
 }
 
 TEST(NRoomRouterActionsTest, TheMethodsEachActionAcceptsAreChecked)

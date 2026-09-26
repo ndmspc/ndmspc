@@ -259,20 +259,24 @@ bool NRoomClient::Initialize(std::string & error)
 
 NRoomListResult NRoomClient::List()
 {
-  NRoomListResult list;
-
   const NRoomResult result = Call("room_list", "GET", "");
   if (!result.ok) {
+    NRoomListResult list;
     list.error = result.error;
     return list;
   }
+  return ParseList(result.payload);
+}
 
-  if (!result.payload.is_object()) {
-    list.error = "the room router returned a room list that could not be read: " + Elide(result.payload.dump());
+NRoomListResult NRoomClient::ParseList(const json & payload)
+{
+  NRoomListResult list;
+
+  if (!payload.is_object()) {
+    list.error = "the room router returned a room list that could not be read: " + Elide(payload.dump());
     return list;
   }
 
-  const json & payload = result.payload;
   if (payload.contains("rooms") && payload["rooms"].is_array()) {
     for (const auto & entry : payload["rooms"]) {
       if (!entry.is_object()) continue;

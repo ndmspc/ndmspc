@@ -124,9 +124,10 @@ NRoomConfig NRoomConfig::FromEnv()
   c.param           = NRoomEnv("NDMSPC_ROOM_PARAM", "room");
   c.skeleton        = NRoomEnv("NDMSPC_ROOM_SKELETON", "ndmspc-room-skeleton");
   c.urlBase         = NRoomEnv("NDMSPC_ROOM_URL_BASE", "");
-  c.idleTtlSec      = ParseDuration(NRoomEnv("NDMSPC_ROOM_IDLE_TTL", "1h"), 3600);
+  c.idleTtlSec      = ParseDuration(NRoomEnv("NDMSPC_ROOM_IDLE_TTL", "24h"), 86400);
   c.readyTimeoutSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_READY_TIMEOUT", "45s"), 45);
   c.maxPreparing    = static_cast<int>(std::strtol(NRoomEnv("NDMSPC_ROOM_MAX_PREPARING", "4").c_str(), nullptr, 10));
+  c.watchIntervalSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_WATCH_INTERVAL", "2s"), 2);
   c.waitDefault     = ParseBool(NRoomEnv("NDMSPC_ROOM_WAIT", "true"), true);
   c.admins          = NRoomList(NRoomEnv("NDMSPC_ROOM_ADMINS", ""));
   const std::string host = NRoomEnv("KUBERNETES_SERVICE_HOST", "");
@@ -645,23 +646,6 @@ json NRoomRouter::RoomAccess(const std::string & name) const
   return NRoomRouter::AccessJson(it->second.tokenRw, it->second.tokenRo);
 }
 
-// Whether the router's capture probe was already refused for this room at this revision, read
-// under the registry lock.
-bool NRoomRouter::CaptureRefused(const std::string & name, const std::string & revision) const
-{
-  std::lock_guard<std::mutex> lock(fMutex);
-  const auto                  it = fRooms.find(name);
-  return it != fRooms.end() && !revision.empty() && it->second.captureRefusedAt == revision;
-}
-
-// Remember a refused capture probe, under the registry lock.
-void NRoomRouter::NoteCaptureRefused(const std::string & name, const std::string & revision)
-{
-  std::lock_guard<std::mutex> lock(fMutex);
-  const auto                  it = fRooms.find(name);
-  if (it != fRooms.end()) it->second.captureRefusedAt = revision;
-}
-
 // A room's owner, read under the registry lock.
 std::string NRoomRouter::RoomOwner(const std::string & name) const
 {
@@ -820,6 +804,29 @@ std::string NRoomRouter::SkeletonPath() const
  * restart because Adopt reads it back.
  */
 static const char kNRoomStateAnnotation[] = "ndmspc.io/room-state";
+
+// When a room was last wanted, as a room's own Service remembers it.
+//
+// The idle clock a room expires by lives in this process, and a restart would otherwise hand every
+// room a full idle TTL: a room that had been idle for a day would read as just used, and nothing
+// would ever expire. It is stored here (an annotation on the Service, which does not create a
+// revision) and read back by Adopt, so a router that comes back knows how long each room had left.
+//
+// Written rarely - see SeenStoreSeconds - because it is written from the read path.
+static const char kNRoomSeenAnnotation[] = "ndmspc.io/room-seen";
+
+/**
+ * How often a room's stored idle clock follows the clock in memory, in seconds.
+ *
+ * A fraction of the TTL, so a short one (a test deployment) stays usable, and never more often than
+ * once a minute: the write is an API call on the room's Service, and every read of a room in use
+ * moves the clock. With a day-long TTL, that is one call a minute per room at most.
+ */
+long SeenStoreSeconds(long idleTtlSec)
+{
+  if (idleTtlSec <= 0) return 0; // no sweep: there is no clock worth preserving
+  return std::max<long>(1, std::min<long>(60, idleTtlSec / 10));
+}
 
 // The address that serves a room directly, in-cluster. Knative creates one Service per
 // revision, named after it - which is exactly what the room's HTTPRoute targets - so this
@@ -1150,8 +1157,8 @@ bool NRoomRouter::PodUnschedulable(const json & pods, std::string & reason)
   return false;
 }
 
-bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, std::string & error,
-                                std::string & code)
+NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string & revision, std::string & error,
+                                         std::string & code)
 {
   const long  deadline = NdmspcRoomNow() + fConfig.readyTimeoutSec;
   std::string lastMessage;
@@ -1180,7 +1187,7 @@ bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, st
         // own: both still describe the previous spec until the status catches up.
         if (generation > 0 && observed >= generation && !created.empty() && created == ready) {
           revision = ready;
-          return true;
+          return Wait::Ready;
         }
 
         // A pod that is not becoming ready says why in its own two ways, and both are worth more than
@@ -1198,9 +1205,11 @@ bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, st
             unschedulableSeen = 1;
           }
           if (unschedulableSeen >= 2) {
+            // Waiting for resources, not a failure: the room is left as the scheduler left it, and
+            // comes up by itself once the cluster has room for its pod (see ConvergePending).
             error = NRoomRouter::UnschedulableError(unschedulable);
             code  = NRoomRouter::kNoCapacity;
-            return false;
+            return Wait::Pending;
           }
         }
         else {
@@ -1234,7 +1243,7 @@ bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, st
           if (failureSeen >= 2) {
             error = NRoomRouter::TerminationMessage(reason, failure.value("exitCode", 0));
             code  = NRoomRouter::kContainerError;
-            return false;
+            return Wait::Failed;
           }
         }
         else {
@@ -1260,7 +1269,7 @@ bool NRoomRouter::WaitReady(const std::string & name, std::string & revision, st
   else if (!lastMessage.empty()) {
     error += ": " + lastMessage;
   }
-  return false;
+  return Wait::Failed;
 }
 
 // Deletes a room's Service and HTTPRoute - but only objects that are actually rooms. The router
@@ -1332,6 +1341,8 @@ void NRoomRouter::Adopt()
   try {
     const json items   = json::parse(response.body).value("items", json::array());
     size_t     adopted = 0;
+    // Rooms whose clock was never written down: written after the lock, off this request's path.
+    std::vector<std::pair<std::string, long>> toStore;
     {
       std::lock_guard<std::mutex> lock(fMutex);
       for (const auto & item : items) {
@@ -1353,7 +1364,31 @@ void NRoomRouter::Adopt()
         if (state.revision.empty()) {
           state.revision = item.value("status", json::object()).value("latestReadyRevisionName", "");
         }
-        if (state.lastSeen == 0) state.lastSeen = NdmspcRoomNow();
+        // How long this room had left, as its own Service remembers it (see kNRoomSeenAnnotation).
+        // A room with nothing stored is one this router is seeing for the first time: it is taken as
+        // wanted now, which is what a room created before this existed deserves rather than expiring
+        // the moment the router comes up.
+        long seen = 0;
+        try {
+          seen = std::stol(metadata.value("annotations", json::object()).value(kNRoomSeenAnnotation, "0"));
+        }
+        catch (const std::exception &) {
+          seen = 0;
+        }
+        if (state.lastSeen == 0) state.lastSeen = seen > 0 ? seen : NdmspcRoomNow();
+        if (seen > 0) {
+          state.seenStoredAt = seen;
+        }
+        else if (metadata.value("labels", json::object()).contains(kNRoomLabel)) {
+          // Nothing was stored, so this room has never had its clock written down - and an idle room
+          // never would, since only a read of a room in use moves it (see Touch). Writing the clock
+          // it is being adopted with is what gives it one to come back to; the next restart reads
+          // this instead of handing the room a full TTL again.
+          //
+          // Only for a Service that carries the room label: that is what says the router wrote it.
+          // A name that resolves to something else is not a room to annotate, whatever it holds.
+          toStore.emplace_back(name, state.lastSeen);
+        }
         if (state.snapshot.empty()) {
           state.snapshot = metadata.value("annotations", json::object()).value(kNRoomStateAnnotation, "");
         }
@@ -1398,8 +1433,35 @@ void NRoomRouter::Adopt()
           catch (const std::exception &) {
           }
         }
+        if (state.phase.empty()) {
+          // A Service that is not serving, and that this process is not creating, is one whose wait
+          // for resources outlived the router (or another router's creation in flight). Mark it
+          // pending, so room/list and room/status report the wait - and so the next read finishes it
+          // once the cluster has placed its pod.
+          bool       ready      = false;
+          const json conditions = item.value("status", json::object()).value("conditions", json::array());
+          for (const auto & condition : conditions) {
+            if (condition.value("type", "") == "Ready") ready = (condition.value("status", "") == "True");
+          }
+          if (!ready) state.phase = "pending";
+        }
         ++adopted;
       }
+    }
+    // Off the request path, like every other write this router makes to a room's Service: the clock
+    // each of these rooms was adopted with is what a later restart has to find.
+    for (const auto & entry : toStore) {
+      const std::string name = entry.first;
+      const long        seen = entry.second;
+      auto              done = std::make_shared<std::atomic<bool>>(false);
+      SpawnWorker(name, std::thread([this, name, seen, done]() {
+                    std::string error;
+                    if (!Annotate(name, kNRoomSeenAnnotation, std::to_string(seen), error)) {
+                      NLogInfo("[room] cannot store when %s was last wanted: %s", name.c_str(), error.c_str());
+                    }
+                    done->store(true);
+                  }),
+                  done);
     }
     if (adopted > 0) NLogInfo("[room] adopted %zu existing room(s)", adopted);
   }
@@ -1408,29 +1470,78 @@ void NRoomRouter::Adopt()
   }
 }
 
-// Deletes rooms that have not been touched within NDMSPC_ROOM_IDLE_TTL.
+// Whether a room is in use, which the router can only tell from its pod.
+//
+// Traffic into a room goes gateway -> room and never reaches the router, so a websocket or an API call
+// into a room cannot refresh its lastSeen, and the router has no other way to hear about one. What it
+// can see is the pod: Knative keeps a room's pod running for as long as anything is using the room
+// (an open websocket counts), and scales it to zero about a minute after the last request. So a
+// running pod is the witness that somebody is in there - and a room nobody is in, whose pod has gone,
+// is what the idle TTL is for.
+bool NRoomRouter::RoomInUse(const NRoomState & room)
+{
+  if (room.revision.empty()) return false;
+
+  const auto response = Request("GET", RevisionPath(room.revision));
+  if (response.status != 200) return false;
+
+  try {
+    // The same number room/list reports as `replicas`: what the room's latest revision is actually
+    // running, not what it would like to run.
+    return json::parse(response.body).value("status", json::object()).value("actualReplicas", 0) > 0;
+  }
+  catch (const std::exception &) {
+    // Unreadable is not evidence of use; the room may still be expired.
+    return false;
+  }
+}
+
+// Deletes rooms that have not been touched within NDMSPC_ROOM_IDLE_TTL, and are not in use.
+//
+// A room is idle when nothing has wanted it for the TTL: nobody asked the router about it, and its pod
+// is not running. Asking (room/open, room/status) refreshes it, and so does finding its pod up - so a
+// room somebody is working in survives as long as they are in it, and then for the TTL.
+//
+// Runs on every reading action as well as on room/open, so the TTL is enforced while a view polls
+// rather than only when a room is next opened.
 void NRoomRouter::Sweep()
 {
   const NRoomConfig & cfg = fConfig;
   if (cfg.idleTtlSec <= 0) return;
 
-  const long                   cutoff = NdmspcRoomNow() - cfg.idleTtlSec;
-  std::vector<NRoomState> expired;
+  const long               cutoff = NdmspcRoomNow() - cfg.idleTtlSec;
+  std::vector<NRoomState>  candidates;
   {
     std::lock_guard<std::mutex> lock(fMutex);
-    for (auto it = fRooms.begin(); it != fRooms.end();) {
+    for (const auto & entry : fRooms) {
       // A room being created is never expired: it has no session yet, and its creation would be
-      // deleted out from under the worker.
-      if (it->second.lastSeen < cutoff && !it->second.preparing) {
-        expired.push_back(it->second);
-        it = fRooms.erase(it);
-      }
-      else {
-        ++it;
+      // deleted out from under the worker. Neither is a room waiting for resources: it is not idle,
+      // it is waiting on the cluster, and expiring it would make it disappear out of a view that is
+      // watching it - room/close is how a user takes one back.
+      if (entry.second.lastSeen < cutoff && !entry.second.preparing && entry.second.phase != "pending") {
+        candidates.push_back(entry.second);
       }
     }
   }
-  for (const auto & room : expired) {
+
+  for (const auto & room : candidates) {
+    if (RoomInUse(room)) {
+      // Somebody is in it (its pod would have gone by now if not): that is a use, so the clock starts
+      // from here - which is also what the room's reported expiry counts down from.
+      Touch(room.name);
+      continue;
+    }
+
+    {
+      // Re-checked under the lock: a room opened again while this ran is no longer the door's to close.
+      std::lock_guard<std::mutex> lock(fMutex);
+      const auto                  it = fRooms.find(room.name);
+      if (it == fRooms.end() || it->second.lastSeen >= cutoff || it->second.preparing ||
+          it->second.phase == "pending") {
+        continue;
+      }
+      fRooms.erase(it);
+    }
     NLogInfo("[room] expiring idle room %s (idle > %lds)", room.name.c_str(), cfg.idleTtlSec);
     Delete(room.name);
   }
@@ -1453,82 +1564,6 @@ void NRoomRouter::CloseRoom(const std::string & value)
     std::lock_guard<std::mutex> lock(fMutex);
     fRooms.erase(name);
   }
-}
-
-// Captures a room's session and remembers it, so it can be replayed when the room is next
-// opened. Only ever called for a room that is running: a request to a scaled-to-zero room
-// would wake it, which is exactly what min-scale 0 exists to avoid.
-//
-// This runs on a detached thread. The capture calls the room, and a room that has just woken
-// calls the router back (to restore its own session), so doing this inside room/list would put
-// the router - which serves one request at a time - in a cycle with the room and starve that
-// fetch. Off the request path the router is free to answer.
-void NRoomRouter::CaptureNow(const std::string & name, const std::string & value,
-                                 const std::string & revision)
-{
-  const std::string baseUrl = RoomBaseUrl(revision);
-  if (baseUrl.empty()) return;
-
-  Ndmspc::NHttpRequest        http;
-  std::string                 error;
-  Ndmspc::NRoomSession::State state    = Ndmspc::NRoomSession::State::Unreachable;
-  const json                  access   = RoomAccess(name);
-  const json                  snapshot = Ndmspc::NRoomSession::Capture(
-      http, baseUrl, value, error, access.value(NRoomAccess::kReadWrite, ""), &state);
-  if (snapshot.is_null()) {
-    // NRoomSession reports nothing for a room that has no file open, so a freshly
-    // started pod can never overwrite a good snapshot with emptiness.
-    if (!error.empty()) {
-      // A refusal is the expected answer from a room that authenticates /api - this component is
-      // internal and has no user token to present - so it is said once at information level, and
-      // then the room is not asked again at this revision. Anything else (a room that cannot be
-      // reached, an answer that cannot be read) is a real failure and stays a warning.
-      if (state == Ndmspc::NRoomSession::State::Refused) {
-        NLogInfo("[room] cannot capture the session of %s: %s", name.c_str(), error.c_str());
-        NoteCaptureRefused(name, revision);
-      }
-      else {
-        NLogWarning("[room] cannot capture the session of %s: %s", name.c_str(), error.c_str());
-      }
-    }
-    return;
-  }
-
-  const std::string text = Ndmspc::NRoomSession::Encode(snapshot);
-  if (text.empty()) return;
-
-  {
-    std::lock_guard<std::mutex> lock(fMutex);
-    const auto                  it = fRooms.find(name);
-    if (it == fRooms.end()) return;
-    if (it->second.snapshot == text) return; // unchanged since the last poll
-    it->second.snapshot = text;
-  }
-
-  std::string file;
-  if (snapshot.contains("file") && snapshot["file"].is_string()) file = snapshot["file"].get<std::string>();
-  NLogInfo("[room] captured the session of %s (file '%s')", name.c_str(), file.c_str());
-
-  std::string patchError;
-  if (!Annotate(name, kNRoomStateAnnotation, text, patchError)) {
-    NLogWarning("[room] cannot store the session of %s: %s", name.c_str(), patchError.c_str());
-  }
-}
-
-// Captures a room's session off the request path (see CaptureNow).
-void NRoomRouter::Capture(const std::string & name, const std::string & value, const std::string & revision)
-{
-  if (RoomBaseUrl(revision).empty()) return;
-  // Already refused at this revision (see CaptureNow): asking again would repeat the same refusal
-  // on every room/list. A new revision is a room that may now accept the probe.
-  if (CaptureRefused(name, revision)) return;
-  auto done = std::make_shared<std::atomic<bool>>(false);
-  SpawnWorker(name,
-              std::thread([this, name, value, revision, done]() {
-                CaptureNow(name, value, revision);
-                done->store(true);
-              }),
-              done);
 }
 
 // Replays a room's stored session into it once it is ready - this is what brings an idle
@@ -1651,11 +1686,48 @@ void NRoomRouter::EnsureFinish(const std::string & name, const std::string & rev
   }
 }
 
+// Records that a creation ended waiting for cluster resources (the scheduler cannot place the pod).
+//
+// Not a failure: the room's Service is kept, because it is the object the cluster is still trying to
+// place the pod for - deleting it would throw away the only thing that can still come up. The room
+// leaves the preparing state, so it holds no NDMSPC_ROOM_MAX_PREPARING slot and is no longer treated
+// as a creation in flight, and is reported as pending until ConvergePending sees it come up.
+void NRoomRouter::EnsurePending(const std::string & name, const std::string & error, const std::string & code)
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  if (it == fRooms.end()) return;
+
+  it->second.preparing  = false;
+  it->second.finishedAt = NdmspcRoomNow();
+  it->second.phase      = "pending";
+  it->second.error      = error;
+  it->second.code       = code;
+}
+
+// Removes a half-created room after a failure, so the next room/open recreates it from scratch.
+//
+// A creation that failed leaves nothing worth keeping behind: a Service that would only be patched
+// into failing again, and - when the failure came after the Service was created - a room whose
+// `?<param>=<id>` link would reach it rather than the router, so the link has to go with it. Taking
+// both back keeps the room id free to be created cleanly.
+//
+// The one thing the router must not touch is a name that is not its own, which is exactly what a
+// name_conflict reports: Delete reads each object back and refuses anything without the room label.
+void NRoomRouter::CleanupFailed(const std::string & name, const std::string & code)
+{
+  if (code == kNameConflict) return;
+
+  Delete(name);
+  NLogInfo("[room] %s could not be created; what it had made was deleted so a later open can create it",
+           name.c_str());
+}
+
 // Handles a creation that has to stop, leaving nothing behind that it should not.
 //
 // A room that was closed while it was being created is deleted again (it may be half-created);
 // one that a newer request superseded is left entirely to that request's worker.
-bool NRoomRouter::Stopped(const std::string & name, int generation)
+NRoomRouter::Outcome NRoomRouter::Stopped(const std::string & name, int generation)
 {
   if (CheckRunning(name, generation) == Abort::Cancelled) {
     NLogInfo("[room] %s was closed while it was being created", name.c_str());
@@ -1669,26 +1741,88 @@ bool NRoomRouter::Stopped(const std::string & name, int generation)
     it->second.phase      = "cancelled";
     it->second.finishedAt = NdmspcRoomNow();
   }
-  return false;
+  return Outcome::Failed;
+}
+
+// Finishes a room that was waiting for cluster resources, once the cluster has placed it.
+//
+// A pending room keeps its Service and nothing else: no HTTPRoute is pinned until a revision is
+// ready, because a route pointing at a revision that is not serving would take the room's
+// `?<param>=<id>` traffic away from the router and hand it to a room that cannot answer. This is what
+// notices the wait is over - room/list and room/status already read the room's Service, so they ask
+// here rather than leaving the room pending until someone happens to open it again.
+bool NRoomRouter::ConvergePending(const std::string & name, const std::string & value)
+{
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it == fRooms.end() || it->second.phase != "pending") return false;
+  }
+
+  std::string revision;
+  const auto  response = Request("GET", SvcPath(name));
+  if (response.status != 200) return false;
+
+  try {
+    const json svc    = json::parse(response.body);
+    const json status = svc.value("status", json::object());
+    // The same test WaitReady waits on: the controller has observed the spec the router applied and
+    // the newest revision is the ready one.
+    const int         generation = NdmspcRoomInt(svc.value("metadata", json::object()), "generation");
+    const int         observed   = NdmspcRoomInt(status, "observedGeneration");
+    const std::string created    = status.value("latestCreatedRevisionName", "");
+    const std::string ready      = status.value("latestReadyRevisionName", "");
+    if (!(generation > 0 && observed >= generation && !created.empty() && created == ready)) return false;
+    revision = ready;
+  }
+  catch (const std::exception &) {
+    return false;
+  }
+
+  json        skeleton;
+  std::string skeletonError;
+  if (!Skeleton(skeleton, skeletonError)) {
+    NLogWarning("[room] cannot finish the pending room %s: %s", name.c_str(), skeletonError.c_str());
+    return false;
+  }
+
+  SetPhase(name, "route");
+  std::string routeError;
+  std::string routeCode;
+  if (!Apply(RouteCollection(), RoutePath(name),
+             NRoomRouter::RouteObject(fConfig, name, value, revision, skeleton), routeError, routeCode)) {
+    // Still pending: the route is what makes the room reachable, so let the next read try again.
+    NLogError("[room] cannot finish the pending room %s: %s", name.c_str(), routeError.c_str());
+    SetPhase(name, "pending");
+    return false;
+  }
+
+  EnsureFinish(name, revision, "", "", "");
+  NLogInfo("[room] %s waited for resources and is ready now (%s)", value.c_str(), revision.c_str());
+  return true;
 }
 
 // Creates (or rolls) one room, publishing its progress as it goes.
 //
 // Holds no lock across the Kubernetes waits, and stops as soon as the room is closed or a newer
 // request for it supersedes this one.
-bool NRoomRouter::EnsureWorker(const std::string & value, int generation, const std::string & requestedProfile,
-                                   Replay replay, json & payload, std::string & error, std::string & code)
+NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int generation,
+                                               const std::string & requestedProfile, Replay replay, json & payload,
+                                               std::string & error, std::string & code)
 {
   const NRoomConfig & cfg  = fConfig;
   const std::string        name = NRoomRouter::RoomName(cfg, value);
 
-  // Fails the creation, recording why so that a client can read it back later. `why` carries the
-  // stable code when the failure has one (name_conflict), and stays empty otherwise.
+  // Fails the creation, recording why so that a client can read it back later, and taking back what
+  // the attempt had already created (see CleanupFailed - a name_conflict leaves the object alone).
+  // `why` carries the stable code when the failure has one (name_conflict, container_error), and
+  // stays empty otherwise.
   const auto fail = [&](const std::string & message, const std::string & why = std::string()) {
     error = message;
     code  = why;
     EnsureFinish(name, "", "", message, why);
-    return false;
+    CleanupFailed(name, why);
+    return Outcome::Failed;
   };
 
   if (cfg.apiServer.empty()) return fail("not running inside a cluster (KUBERNETES_SERVICE_HOST is unset)");
@@ -1725,11 +1859,32 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, const 
 
   SetPhase(name, "ready");
   std::string revision;
-  // The wait fills in the code as well: it is the one step that can tell "no capacity" from a
-  // plain timeout, and the reason has to reach the client either way.
-  if (!WaitReady(name, revision, error, code)) {
+  // The wait fills in the code as well: it is the one step that can tell "waiting for resources" from
+  // a plain timeout, and the reason has to reach the client either way.
+  const Wait wait = WaitReady(name, revision, error, code);
+  if (wait == Wait::Pending) {
+    // The cluster has no room for the pod right now. Not a failure: the Service stays, and the room
+    // is reported as pending until the cluster places it (see ConvergePending).
+    EnsurePending(name, error, code);
+    payload["room"]     = value;
+    payload["name"]     = name;
+    payload["revision"] = revision;
+    payload["param"]    = cfg.param;
+    payload["url"]      = NRoomRouter::ClientUrl(cfg, value, access.value("rw", ""));
+    payload["access"]   = access;
+    if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
+    if (!profile.empty()) payload["profile"] = profile;
+    payload["ttl"]      = cfg.idleTtlSec;
+    payload["state"]    = "pending";
+    payload["phase"]    = "pending";
+    payload["code"]     = code;
+    payload["error"]    = error;
+    return Outcome::Pending;
+  }
+  if (wait == Wait::Failed) {
     EnsureFinish(name, "", "", error, code);
-    return false;
+    CleanupFailed(name, code);
+    return Outcome::Failed;
   }
 
   if (CheckRunning(name, generation) != Abort::None) return Stopped(name, generation);
@@ -1772,7 +1927,7 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, const 
   payload["ttl"]      = cfg.idleTtlSec;
   payload["state"]    = "ready";
   if (session.contains("session")) payload["session"] = session["session"];
-  return true;
+  return Outcome::Ready;
 }
 
 // Starts creating (or rolling) a room, and reports what the client can act on.
@@ -1783,15 +1938,15 @@ bool NRoomRouter::EnsureWorker(const std::string & value, int generation, const 
 //        router keeps serving every other request meanwhile.
 // replay Whether the room's stored session is replayed once it is up.
 // payload Receives the room's state and, once it is ready, its URL.
-// error  Actionable reason when the call itself could not be started.
-bool NRoomRouter::EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay,
-                                  json & payload, std::string & error, std::string & code)
+// error  Actionable reason when the room failed, or the scheduler's message while it waits for room.
+NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const std::string & profile, bool wait,
+                                              Replay replay, json & payload, std::string & error, std::string & code)
 {
   const NRoomConfig & cfg  = fConfig;
   const std::string        name = NRoomRouter::RoomName(cfg, value);
   if (cfg.apiServer.empty()) {
     error = "not running inside a cluster (KUBERNETES_SERVICE_HOST is unset)";
-    return false;
+    return Outcome::Failed;
   }
 
   int         generation = 0;
@@ -1829,7 +1984,7 @@ bool NRoomRouter::EnsureStart(const std::string & value, const std::string & pro
       payload["startedAt"] = state.startedAt;
       if (!state.error.empty()) payload["error"] = state.error;
       if (!state.code.empty()) payload["code"] = state.code;
-      return true;
+      return Outcome::Preparing;
     }
 
     if (cfg.maxPreparing > 0) {
@@ -1841,7 +1996,7 @@ bool NRoomRouter::EnsureStart(const std::string & value, const std::string & pro
         // Bounded on purpose: every creation polls the cluster API, and the point of running them
         // off the request path is to keep the router responsive, not to accept unbounded work.
         error = std::to_string(preparing) + " rooms are already being prepared - try again when one is ready";
-        return false;
+        return Outcome::Failed;
       }
     }
 
@@ -1881,8 +2036,8 @@ bool NRoomRouter::EnsureStart(const std::string & value, const std::string & pro
                 std::string failure;
                 std::string code;
                 try {
-                  if (!EnsureWorker(value, generation, profile, replay, result, failure, code) &&
-                      !failure.empty()) {
+                  const Outcome outcome = EnsureWorker(value, generation, profile, replay, result, failure, code);
+                  if (outcome == Outcome::Failed && !failure.empty()) {
                     NLogError("[room] '%s' could not be created: %s", value.c_str(), failure.c_str());
                   }
                 }
@@ -1890,12 +2045,14 @@ bool NRoomRouter::EnsureStart(const std::string & value, const std::string & pro
                   // An exception escaping this thread would terminate the router, and there is no
                   // caller left to hand it to: report it on the room instead.
                   NLogError("[room] '%s' failed while it was being created: %s", value.c_str(), e.what());
-                  EnsureFinish(NRoomRouter::RoomName(fConfig, value), "", "", e.what(), std::string());
+                  const std::string name = NRoomRouter::RoomName(fConfig, value);
+                  EnsureFinish(name, "", "", e.what(), std::string());
+                  CleanupFailed(name, std::string());
                 }
                 done->store(true);
               }),
               done);
-  return true;
+  return Outcome::Preparing;
 }
 
 // Whether this request wants to wait for the room: body "wait", query "wait", or the NDMSPC_ROOM_WAIT
@@ -1972,8 +2129,116 @@ std::string NRoomRouter::UnschedulableError(const std::string & reason)
          " - free capacity, or lower the room's requests in its skeleton";
 }
 
+// Registers a connection as a watcher of the rooms list, as the caller it just was.
+//
+// The identity is the one its room/list ran as (see HandleList): verified where something verified it,
+// asserted where nothing did - which is exactly what that call answered it, so what it is later pushed
+// is the list it already has, kept up to date.
+void NRoomRouter::Watch(long wsId, const NRequestIdentity & identity)
+{
+  if (wsId == 0 || fConfig.watchIntervalSec <= 0) return;
+
+  std::lock_guard<std::mutex> lock(fWatchMutex);
+  fWatchers[wsId] = identity;
+}
+
+// The rooms list as one caller sees it.
+//
+// The handler room/list is what runs, with the caller stated in its input as the server states it, so a
+// pushed list and an asked-for one cannot drift - filtering, live state, profiles and all.
+json NRoomRouter::RoomsPayload(const NRequestIdentity & identity)
+{
+  if (gNHttpServer == nullptr) return json();
+
+  const auto handlers = gNHttpServer->GetHttpHandlers();
+  const auto it       = handlers.find("room/list");
+  if (it == handlers.end() || it->second == nullptr) return json();
+
+  json in = json::object();
+  if (!identity.Empty()) in["_identity"] = identity.ToJson();
+
+  json                             out = json::object();
+  json                             wsOut = json::object();
+  std::map<std::string, TObject *> objects;
+  it->second("GET", in, out, wsOut, objects);
+  if (out.value("result", std::string()) != "success") return json();
+  return out.value("payload", json::object());
+}
+
+// Pushes the rooms list to every watcher, and only when it changed since that watcher was last sent it:
+// an idle cluster costs one comparison per watcher, not a message.
+//
+// A connection that is no longer there is forgotten, so a reused id starts fresh rather than being
+// treated as somebody who already has the list.
+void NRoomRouter::PublishRooms()
+{
+  if (fConfig.watchIntervalSec <= 0 || gNHttpServer == nullptr) return;
+
+  NWsHandler * sockets = gNHttpServer->GetWebSocketHandler();
+  if (sockets == nullptr) return;
+
+  std::map<long, NRequestIdentity> watchers;
+  {
+    std::lock_guard<std::mutex> lock(fWatchMutex);
+    watchers = fWatchers;
+  }
+
+  std::map<long, std::string> pushed;
+  for (const auto & watcher : watchers) {
+    const long  wsId = watcher.first;
+    const auto  ids  = sockets->ConnectedIds();
+    if (std::find(ids.begin(), ids.end(), static_cast<ULong_t>(wsId)) == ids.end()) continue;
+
+    const json payload = RoomsPayload(watcher.second);
+    if (payload.is_null()) continue;
+
+    const std::string text = payload.dump();
+    std::string       last;
+    {
+      std::lock_guard<std::mutex> lock(fWatchMutex);
+      const auto                  seen = fPushed.find(wsId);
+      if (seen != fPushed.end()) last = seen->second;
+    }
+    if (last == text) {
+      pushed[wsId] = text;
+      continue;
+    }
+
+    sockets->SendTo(wsId, json{{"event", "rooms"}, {"payload", payload}}.dump());
+    pushed[wsId] = text;
+  }
+
+  std::lock_guard<std::mutex> lock(fWatchMutex);
+  fPushed.swap(pushed);
+  for (auto it = fWatchers.begin(); it != fWatchers.end();) {
+    it = fPushed.count(it->first) == 0 ? fWatchers.erase(it) : std::next(it);
+  }
+}
+
+// The watcher loop: the rooms list is pushed on its own interval, so a view that watches does not poll.
+//
+// Runs on a thread of its own (ROOT's server serves one request at a time, and this is work no request
+// asked for), sleeps in short steps so the router waiting for it on the way out is not held up, and
+// does nothing at all when nobody is watching.
+void NRoomRouter::WatchRooms()
+{
+  while (!fWatchStop.load()) {
+    PublishRooms();
+    for (int i = 0; i < fConfig.watchIntervalSec * 10 && !fWatchStop.load(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  }
+}
+
 bool NRoomRouter::WsConnect(const std::string & query) const
 {
+  // A socket that asks for the rooms list is a watcher, not a room: the router pushes room/list's own
+  // answer to it (see PublishRooms), which is what lets a rooms view stop polling. It carries no room,
+  // and is served nothing but those pushes - the router has no session of its own to hand it.
+  const auto params = NRoomRouter::ParseQuery(query);
+  const auto rooms  = params.find("rooms");
+  if (rooms != params.end() && NRoomConfig::ParseBool(rooms->second, false)) return kTRUE;
+
   const std::string room = NRoomRouter::RoomParameter(query, fConfig.param);
 
   if (room.empty()) {
@@ -2004,10 +2269,38 @@ std::string NRoomRouter::RequestId(json & in) const
 
 void NRoomRouter::Touch(const std::string & name)
 {
-  std::lock_guard<std::mutex> lock(fMutex);
-  const auto                  it = fRooms.find(name);
-  if (it == fRooms.end()) return;
-  it->second.lastSeen = NdmspcRoomNow();
+  const long now = NdmspcRoomNow();
+  long       store = 0;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it == fRooms.end()) return;
+    it->second.lastSeen = now;
+
+    // A failed room has no Service of ours to write to: the name is either somebody else's (see
+    // kNameConflict) or one this router took back (see CleanupFailed). Either way there is no clock
+    // worth keeping, and annotating would touch an object the router does not own.
+    if (it->second.phase == "failed") return;
+
+    // What is stored is what a restart has to find (see kNRoomSeenAnnotation). Written when the two
+    // have drifted far enough to matter rather than on every read: this runs on the read path.
+    const long interval = SeenStoreSeconds(fConfig.idleTtlSec);
+    if (interval <= 0 || now - it->second.seenStoredAt < interval) return;
+    it->second.seenStoredAt = now;
+    store                   = now;
+  }
+
+  // Off the request path: the caller is answering a room list and must not wait on the cluster.
+  auto done = std::make_shared<std::atomic<bool>>(false);
+  SpawnWorker(name,
+              std::thread([this, name, store, done]() {
+                std::string error;
+                if (!Annotate(name, kNRoomSeenAnnotation, std::to_string(store), error)) {
+                  NLogInfo("[room] cannot store when %s was last wanted: %s", name.c_str(), error.c_str());
+                }
+                done->store(true);
+              }),
+              done);
 }
 
 // ===========================================================================
@@ -2074,6 +2367,9 @@ NRoomRouter::NRoomRouter(NRoomConfig config, std::shared_ptr<IRoomCluster> clust
 
 NRoomRouter::~NRoomRouter()
 {
+  // The watch thread is asked to stop first: it talks to the server, which is going away too.
+  fWatchStop.store(true);
+  if (fWatchThread.joinable()) fWatchThread.join();
   StopWorkers();
 }
 
@@ -2184,9 +2480,16 @@ bool NRoomRouter::Register(NHttpServer * server)
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
   // This server is the router, and it is not a client endpoint: a websocket must name a room the
-  // router knows (see NdmspcRoomWsConnectFilter). A server without rooms leaves this unset and
-  // keeps accepting every websocket.
+  // router knows, or ask for the rooms list (see NdmspcRoomWsConnectFilter). A server without rooms
+  // leaves this unset and keeps accepting every websocket.
   Ndmspc::gNdmspcWsConnectFilter = NdmspcRoomWsFilter;
+
+  // The rooms list is pushed to its watchers on a thread of its own (NDMSPC_ROOM_WATCH_INTERVAL): a
+  // view that watches does not have to poll, and none of that work is on the request path.
+  if (fConfig.watchIntervalSec > 0 && !fWatchThread.joinable()) {
+    fWatchStop.store(false);
+    fWatchThread = std::thread([this]() { WatchRooms(); });
+  }
 
   Ndmspc::RegisterMcpTool("room/open", {
       .description = "Ensure a room exists (one Knative Service per room) and return the URL that "
@@ -2415,17 +2718,19 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   json        payload;
   std::string error;
   std::string code;
-  bool        started = false;
+  Outcome     outcome = Outcome::Failed;
   try {
-    started = EnsureStart(ref.value, profile, wait, Replay::Stored, payload, error, code);
+    outcome = EnsureStart(ref.value, profile, wait, Replay::Stored, payload, error, code);
   }
   catch (const std::exception & e) {
     // A failure here must not take the router down with it: report it like any other.
     error   = std::string("cannot create the room: ") + e.what();
     code.clear();
-    started = false;
+    outcome = Outcome::Failed;
   }
-  if (!started) {
+  // A room waiting for cluster resources is not a failure of this call: the room exists, and the
+  // answer carries its link and the reason it is not serving yet.
+  if (outcome == Outcome::Failed) {
     NLogError("[room] open failed for '%s': %s", ref.value.c_str(), error.c_str());
     out["result"] = "failure";
     out["error"]  = error;
@@ -2434,10 +2739,16 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
     // reason is what tells a user to give the room a bigger profile.
     const json lastError = RoomLastError(ref.name);
     if (!lastError.empty()) out["payload"]["lastError"] = lastError;
+    // A watcher sees the failure now rather than on its next push.
+    PublishRooms();
     return;
   }
-  if (payload.value("state", std::string()) == "preparing") {
+  const std::string state = payload.value("state", std::string());
+  if (state == "preparing") {
     NLogInfo("[room] room '%s' is being prepared (%s)", ref.value.c_str(), payload.value("phase", "").c_str());
+  }
+  else if (state == "pending") {
+    NLogInfo("[room] room '%s' is waiting for cluster resources: %s", ref.value.c_str(), error.c_str());
   }
   else {
     NLogInfo("[room] room '%s' %s (%s)", ref.value.c_str(), created ? "created" : "already there",
@@ -2453,6 +2764,9 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   // is exactly the client that wants to know its predecessor ran out of memory.
   const json lastError = RoomLastError(ref.name);
   if (!lastError.empty()) payload["lastError"] = lastError;
+
+  // A watcher sees the room the moment it is opened rather than on its next push.
+  PublishRooms();
 
   out["result"]  = "success";
   out["payload"] = payload;
@@ -2482,7 +2796,12 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
 
   const NRequestIdentity identity = RequestIdentity(in);
   const NRoomRef         ref      = Resolve(id, identity);
-  Touch(ref.name);
+
+  // Deliberately not touched: reading a room's state is what a view does when it selects a row, and
+  // that is nobody being in the room. Counting it as a use kept a room alive for as long as somebody
+  // had it selected - its expiry jumped back to the TTL every time the list was refreshed - which is
+  // the opposite of what the TTL is for. `room/open` is the call that says somebody wants a room, and
+  // that is where the clock moves; a room in use is spared by its pod (see HandleList).
 
   // Somebody else's room is not this caller's to look at: its answer carries the room's links and
   // the session it is in.
@@ -2496,6 +2815,15 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
       return;
     }
   }
+
+  // The idle TTL is enforced here too, not only on a create: a view polls room/status (and room/list),
+  // and an expired room should go while it is being watched. This runs after the Touch above, so the
+  // room the caller asked about is never the one that goes.
+  Sweep();
+
+  // A room that was waiting for cluster resources and can be placed now is finished here, before the
+  // registry is read, so this answer reports what the room has become rather than what it waited for.
+  ConvergePending(ref.name, ref.value);
 
   // Why its container last died, while the cluster still remembers: a room that is not serving has
   // no other witness, and this is the call a client makes when it wants to know what happened.
@@ -2547,6 +2875,14 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
         if (!it->second.code.empty()) out["payload"]["code"] = it->second.code;
         state = "failed";
       }
+      else if (it->second.phase == "pending") {
+        // Waiting for cluster resources: the room exists (its Service is what the cluster has to
+        // place a pod for) and is not a failure - the reason is reported beside the state.
+        out["payload"]["phase"] = it->second.phase;
+        if (!it->second.error.empty()) out["payload"]["error"] = it->second.error;
+        if (!it->second.code.empty()) out["payload"]["code"] = it->second.code;
+        state = "pending";
+      }
     }
   }
 
@@ -2594,8 +2930,18 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // no rooms at all - until something opens one, which is exactly when adoption used to happen.
   Adopt();
 
+  // The list is what a view polls, so the idle TTL is enforced here as well as on a create: a room
+  // nothing has wanted for the TTL (and whose pod has gone) is gone from this answer, rather than from
+  // the next one that happens to open a room. A room somebody is in is not idle - see Sweep, and the
+  // touch below for a room this read finds running.
+  Sweep();
+
   // Who is asking decides what the list holds: see "Ownership and visibility".
   const NRequestIdentity identity = RequestIdentity(in);
+
+  // Asked over a websocket, this call also subscribes the connection: the router then keeps this list
+  // up to date for it (see PublishRooms), as the caller it just was.
+  if (in.is_object() && in.contains("_ws") && in["_ws"].is_number()) Watch(in["_ws"].get<long>(), identity);
 
   // Why the rooms' containers last died: one pods list for the whole namespace, matched to rooms by
   // the Knative label that carries their Service name. This happens before the registry is read, so
@@ -2664,6 +3010,14 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
         if (!entry.second.code.empty()) room["code"] = entry.second.code;
         room["state"] = "failed";
       }
+      else if (entry.second.phase == "pending") {
+        // Waiting for cluster resources: the room is there, its pod is not - which is a state to
+        // show, not a failure. The reason the scheduler gave travels beside it.
+        room["phase"] = entry.second.phase;
+        if (!entry.second.error.empty()) room["error"] = entry.second.error;
+        if (!entry.second.code.empty()) room["code"] = entry.second.code;
+        room["state"] = "pending";
+      }
       rooms.push_back(room);
     }
   }
@@ -2675,17 +3029,25 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   for (auto & room : rooms) {
     const std::string name = room.value("name", "");
 
-    // A room that is being prepared, or whose creation failed, has no live view yet: asking for
-    // its Service would report a 404 for one that was never created, and a room is only expiring
-    // through the idle TTL. Its state is what was reported above.
+    // A room that is being prepared has no live view yet: its Service is only being created, so
+    // asking for it would report a 404 for one that is not there yet. Its state is what was
+    // reported above.
     const std::string state = room.value("state", std::string());
-    if (state == "preparing" || state == "failed") continue;
+    if (state == "preparing") continue;
 
     const auto response = Request("GET", SvcPath(name));
     if (response.status == 404) {
+      // Nothing is there. For a room being prepared that is the state itself; for a room whose
+      // creation failed, it means the failure was cleaned up (see CleanupFailed) - the room no
+      // longer exists, so it is dropped here rather than reported as failed for ever, which is what
+      // made a room that had already been deleted and re-created elsewhere keep reading as failed.
       stale.push_back(name);
       continue;
     }
+    // A failed room that still has its Service is one the router deliberately left alone (a name
+    // that is not its own, see kNameConflict): it stays reported as failed, with the reason, and is
+    // not given a live view.
+    if (state == "failed") continue;
     if (response.status != 200) continue;
     try {
       const json svc    = json::parse(response.body);
@@ -2697,7 +3059,20 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       }
       room["ready"]    = ready;
       room["revision"] = status.value("latestReadyRevisionName", room.value("revision", ""));
-      room["state"]    = ready ? "ready" : "not ready";
+      if (room.value("state", std::string()) == "pending") {
+        // Waiting for resources: the Service is there but not serving. Finish the room if the
+        // cluster has placed its pod since the last look; leave it reported as pending while it
+        // has not - the scheduler's message is what explains the wait.
+        if (ready && ConvergePending(name, room.value("room", ""))) {
+          // The snapshot was taken while it was pending: drop what only described the wait.
+          room["state"] = "ready";
+          room.erase("code");
+          room.erase("error");
+        }
+      }
+      else {
+        room["state"] = ready ? "ready" : "not ready";
+      }
 
       // What the room may use, from the Service the router itself stamped: known while the room is
       // scaled to zero, and absent for a room whose skeleton declares nothing.
@@ -2713,11 +3088,19 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
                                    .value("actualReplicas", 0);
           room["replicas"] = replicas;
           room["active"]   = replicas > 0;
-          // Capture the session while the room is running. This loop already knows
-          // whether the room has pods, which is what makes it safe to talk to it: a
-          // request to a scaled-to-zero room would wake it.
           if (replicas > 0) {
-            Capture(room.value("name", ""), room.value("room", ""), revision);
+            // Somebody is in it (this loop already knows whether the room has pods, which is the
+            // router's only way to tell - traffic into a room never reaches it). That is a use, so the
+            // room's clock is pushed forward here, on every read, rather than only when the sweep
+            // happens to look: otherwise its countdown would run to zero and jump back, and a room
+            // somebody is in would look like one about to be deleted.
+            //
+            // Nothing is asked of the room itself. The router used to fetch its session from here,
+            // and that request of its own kept the pod awake - so a listed room could never go idle,
+            // because being listed was itself a use, and its state was never what the view was shown.
+            // The room reports its own session when it changes (NHttpServer::RoomSessionPush), which
+            // is where the stored snapshot comes from.
+            Touch(name);
           }
         }
       }
@@ -3042,6 +3425,8 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
   }
 
   CloseRoom(ref.value); // a room that is being created is cancelled on the way out
+  // A watcher sees it gone now rather than on its next push.
+  PublishRooms();
   out["result"]  = "success";
   out["payload"]["room"] = ref.value;
   out["payload"]["name"] = ref.name;
@@ -3293,7 +3678,7 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
     std::string error;
     // Blocking, and without a session replay: a restore has to be finished before it answers,
     // and the document's session is stored below and replayed by the call after that.
-    bool        ensured = false;
+    Outcome     ensured = Outcome::Failed;
     std::string code;
     try {
       // No profile: a restored room is re-created from today's skeleton, so it takes the skeleton's
@@ -3303,9 +3688,17 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
     catch (const std::exception & e) {
       error   = std::string("cannot create the room: ") + e.what();
       code.clear();
-      ensured = false;
+      ensured = Outcome::Failed;
     }
-    if (!ensured) {
+    if (ensured != Outcome::Ready) {
+      // A room the cluster cannot place is reported as not restored, with the scheduler's own reason:
+      // nothing was replayed into it. Its snapshot is still kept, so the room comes back holding its
+      // session when the convergence path finishes it (a room fetches its session as it wakes).
+      const json snapshot = NdmspcRoomMember(entry, "snapshot");
+      if (ensured == Outcome::Pending && snapshot.is_object() && !snapshot.empty()) {
+        const std::string text = Ndmspc::NRoomSession::Encode(snapshot);
+        if (!text.empty()) StoreSnapshot(NRoomRouter::RoomName(cfg, id), id, text);
+      }
       NLogError("[room] restore of '%s' failed: %s", id.c_str(), error.c_str());
       json failure;
       failure["room"]  = id;
@@ -3341,6 +3734,8 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
   }
 
   NLogInfo("[room] restored %zu room(s), %zu failed", restored.size(), failed.size());
+  // A watcher sees the restored rooms now rather than on its next push.
+  PublishRooms();
   out["result"]              = "success";
   out["payload"]["restored"] = restored;
   out["payload"]["failed"]   = failed;

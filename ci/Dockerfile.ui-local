@@ -1,0 +1,29 @@
+# A test overlay: the page of a local ndmspc-ui build, on top of a released image.
+#
+# The image carries the published ndmspc-ui page (see ui/README.md); when the page being
+# tested is not published yet - a working tree - this puts that build's page in the same
+# place and changes nothing else. The server serves it from the same directory, so the
+# entry and every room pick it up:
+#
+#   (cd ndmspc-ui && npm run build:page)
+#   podman build -f ci/Dockerfile.ui-local \
+#     --build-arg BASE_IMAGE=localhost:5001/ndmspc/base:latest \
+#     -t localhost:5001/ndmspc/base:local ndmspc-ui/page-dist
+#   ... ansible-playbook ... -e ndmspc_image=localhost:5001/ndmspc/base:local
+#
+# The build context is the page directory `npm run build:page` writes (index.html + assets/).
+
+ARG BASE_IMAGE=localhost:5001/ndmspc/base:latest
+FROM ${BASE_IMAGE}
+
+# The image runs as the unprivileged user; the page it installs is owned by root, which is
+# what the server reads, so this does the same.
+USER root
+
+# Replaced rather than merged: an asset of the published page that the new index.html does
+# not name would otherwise stay in the image and be served for ever.
+RUN rm -rf /usr/share/ndmspc/ndmspc-ui
+
+COPY . /usr/share/ndmspc/ndmspc-ui/
+
+USER 1000

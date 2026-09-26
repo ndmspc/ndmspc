@@ -8,8 +8,8 @@
 #   6. a router that fails is reported and the client exits non-zero;
 #   7. --open --no-wait answers while the room is still being created, and the room reaches
 #      ready on its own while --status and --list show the step it is on;
-#   8. a room the cluster cannot schedule is reported with the scheduler's message and the
-#      no_capacity code.
+#   8. a room the cluster cannot schedule yet is reported as waiting (pending), with the
+#      scheduler's message and the no_capacity code.
 #
 # Steps 1-5 need no cluster: the room router cannot register outside Kubernetes, so the mock
 # in this directory stands in for it.
@@ -280,26 +280,31 @@ assert_json "$async_status" "and becomes ready without anyone waiting on room/op
 run --close "$ASYNC_ROOM" >/dev/null 2>&1
 
 echo
-echo "== 10/11 a room the cluster cannot schedule says so =="
-# A router whose cluster has no room for another pod: the reason is the scheduler's own, and the
-# room carries the stable no_capacity code next to it.
+echo "== 10/11 a room the cluster cannot schedule waits for resources =="
+# A router whose cluster has no room for another pod: the room is reported as pending - waiting for
+# resources, which is a state rather than a failure - with the scheduler's own message and the stable
+# no_capacity code beside it.
 HOST="$HOST" PORT="$CAP_PORT" NO_ROOM_CAPACITY=1 SEED=demo "$SCRIPT_DIR/run-mock-server.sh" >"$CAP_LOG" 2>&1 &
 cap_pid=$!
 if ! wait_for_mock "$CAP_LOG" "$cap_pid"; then
   problem "the no-capacity mock did not start"
   cat "$CAP_LOG"
 else
-  cap_out="$(run_cap --open fullroom 2>&1)"; rc=$?
+  cap_out="$(run_cap --open fullroom)"; rc=$?
   echo "$cap_out"
-  if [ "$rc" -eq 0 ]; then
-    problem "a room that cannot be scheduled still exited 0"
-  elif ! grep -q "Insufficient cpu" <<<"$cap_out"; then
-    problem "the scheduler's message was not reported"
+  if [ "$rc" -ne 0 ]; then
+    problem "a room waiting for resources exited $rc (it is pending, not a failure)"
   else
-    pass "--open reports why the room cannot be created"
+    assert_json "$cap_out" "--open reports the room as waiting for resources" \
+      "d['state'] == 'pending' and d['code'] == 'no_capacity'"
+    if grep -q "Insufficient cpu" <<<"$cap_out"; then
+      pass "the scheduler's message was reported"
+    else
+      problem "the scheduler's message was not reported"
+    fi
   fi
-  assert_json "$(run_cap --list)" "and the listed room carries the no_capacity code" \
-    "[r for r in d['rooms'] if r['room'] == 'fullroom' and r['state'] == 'failed' and r['code'] == 'no_capacity']"
+  assert_json "$(run_cap --list)" "and the listed room is pending with the no_capacity code" \
+    "[r for r in d['rooms'] if r['room'] == 'fullroom' and r['state'] == 'pending' and r['code'] == 'no_capacity']"
 fi
 
 echo

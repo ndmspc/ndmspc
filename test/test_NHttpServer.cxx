@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
+#include "ndmspc/http/NBaseActions.h"
 #include "ndmspc/http/NHttpServer.h"
 
 #include <cstdlib>
+#include <map>
 #include <string>
 
 namespace {
@@ -87,4 +89,39 @@ TEST(NHttpServerRuntimeEnvTest, APageWithoutAHeadStillGetsTheSettingsFirst)
 {
   const std::string page = NHttpServer::InjectRuntimeEnv("<p>hi</p>", json{{"VITE_X", "1"}});
   EXPECT_EQ(page.rfind("<script>window.__NDMSPC_ENV__", 0), 0u);
+}
+
+TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
+{
+  // The map a CLI wires up, so the actions registered here are the ones it serves.
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  Ndmspc::NMcpToolMap                         tools;
+  Ndmspc::NHttpHandlerMap *                   previousHandlers = Ndmspc::gNdmspcHttpHandlers;
+  Ndmspc::NMcpToolMap *                       previousTools    = Ndmspc::gNdmspcMcpTools;
+  Ndmspc::gNdmspcHttpHandlers = &handlers;
+  Ndmspc::gNdmspcMcpTools      = &tools;
+
+  EXPECT_TRUE(Ndmspc::RegisterBaseActions());
+
+  // What the server describes itself with, as handlers and as MCP tools.
+  EXPECT_NE(handlers.find("health"), handlers.end());
+  EXPECT_NE(handlers.find("state"), handlers.end());
+  EXPECT_NE(tools.find("health"), tools.end());
+  EXPECT_NE(tools.find("state"), tools.end());
+
+  // The debug echo helper is gone with the macro it used to live in: a macro that wants one
+  // registers its own.
+  EXPECT_EQ(handlers.find("debug"), handlers.end());
+  EXPECT_EQ(tools.find("debug"), tools.end());
+
+  // Registering twice is what a deployment that also loads the deprecated toolBase.C shim does.
+  EXPECT_TRUE(Ndmspc::RegisterBaseActions());
+  EXPECT_EQ(handlers.size(), 2u);
+
+  // A process that never wired a handler map is told so rather than crashing.
+  Ndmspc::gNdmspcHttpHandlers = nullptr;
+  EXPECT_FALSE(Ndmspc::RegisterBaseActions());
+
+  Ndmspc::gNdmspcHttpHandlers = previousHandlers;
+  Ndmspc::gNdmspcMcpTools      = previousTools;
 }

@@ -30,10 +30,19 @@ lives in [`core/tui`](../../core/tui/README.md), which compiles the amalgamated
   only reads a locked snapshot of the shared state. They are quick now - `room_open` is called with
   `wait=false`, so the router does the creation off its request path and answers at once - but the
   worker and the snapshot are what make that answer meet the screen safely.
+- The list is pushed, not polled: the worker opens the router's websocket (`?rooms=1`), asks for the
+  list over it - which is what subscribes the connection - and the router sends the list whenever it
+  changes. The interval is the fallback under that and is also what notices the socket going away, so
+  it re-opens one (a router that is rolled drops every socket). What is on screen is read by the same
+  parser either way (`NRoomClient::ParseList`), so a watched list and an answered one cannot differ.
 - There is no local "creating" state: a room being created is the router's own `preparing` entry
   (`state`, `phase`, `startedAt` in `room/list`), so the row appears as soon as the worker refreshes
   the list after `room_open` and keeps the elapsed time itself. The screen therefore has nothing to
   invent and nothing to clear if a call fails, and several rooms can be created in a row.
+- The same holds for a room that is waiting rather than being created: the row's `waiting` state and
+  the detail pane's scheduler message are the router's own `state=pending` / `code=no_capacity`, so
+  the screen shows the wait instead of a failure. A room like that is not up yet, so its links are
+  worth handing out only once the cluster has placed its pod and the row turns `idle`/`active`.
 - Anything drawn while an action is in flight - and every `preparing` row - has to be animated by
   `RunRoomUi`'s ticker, not by the worker: the worker's loop *is* the action until it answers, so
   its `fWake()` cannot run then, and the screen would otherwise not be redrawn until the action

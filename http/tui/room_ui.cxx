@@ -23,8 +23,10 @@
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
 
+#include "ndmspc/http/NKeyPassphrase.h"
 #include "ndmspc/http/NRoomAccess.h"
 #include "ndmspc/http/NRoomClient.h"
+#include "ndmspc/http/NWsClient.h"
 
 namespace Ndmspc {
 
@@ -60,7 +62,7 @@ struct State {
   bool                   connected{false};
   bool                   busy{false};
   std::string            busyLabel;
-  bool                   paused{false};
+  bool                   watching{false};
   std::string            lastUpdated;
   /// Rooms this session asked to create, and whether a failure has been announced for them: a
   /// creation can fail long after the call answered, and the row alone is easy to miss.
@@ -79,7 +81,7 @@ struct Snapshot {
   bool                   connected{false};
   bool                   busy{false};
   std::string            busyLabel;
-  bool                   paused{false};
+  bool                   watching{false};
   std::string            lastUpdated;
 };
 
@@ -98,7 +100,7 @@ Snapshot TakeSnapshot(State & state)
   copy.connected     = state.connected;
   copy.busy          = state.busy;
   copy.busyLabel     = state.busyLabel;
-  copy.paused        = state.paused;
+  copy.watching      = state.watching;
   copy.lastUpdated   = state.lastUpdated;
   return copy;
 }
@@ -164,6 +166,28 @@ std::string BaseUrl(const std::string & url)
 std::string ServingUrl(const std::string & url, const std::string & roomId)
 {
   return BaseUrl(url) + "/api?room=" + roomId;
+}
+
+/**
+ * @brief The router's rooms socket, or "" when the router's address cannot be turned into one.
+ *
+ * A socket that asks for the room list over itself is what the router pushes the list to (see
+ * PublishRooms), so this is the same path with the flag the watcher is recognised by. Derived from
+ * the router's own URL the way the page's client derives it: same host, same path, ws scheme.
+ */
+std::string RoomsWatchUrl(const std::string & serverUrl)
+{
+  std::string base = BaseUrl(serverUrl);
+  if (base.rfind("https://", 0) == 0) {
+    base.replace(0, 8, "wss://");
+  }
+  else if (base.rfind("http://", 0) == 0) {
+    base.replace(0, 7, "ws://");
+  }
+  else {
+    return {};
+  }
+  return base + "/ws/root.websocket?rooms=1";
 }
 
 /// @brief The page to open the room in a browser: the router's own UI carrying the same
@@ -259,10 +283,16 @@ class Worker {
   {
   }
 
-  void Start() { fThread = std::thread([this] { Loop(); }); }
+  void Start()
+  {
+    fThread = std::thread([this] { Loop(); });
+    StartWatch();
+  }
 
   void Stop()
   {
+    // The socket first: its callbacks touch the state the loop is about to stop reading.
+    StopWatch();
     fQuit = true;
     if (fThread.joinable()) fThread.join();
   }
@@ -279,6 +309,15 @@ class Worker {
   private:
   void         Loop();
   void         RefreshList();
+  /// @brief Fills the state from a list, whether it was answered or pushed (see ParseList).
+  void         ApplyList(const NRoomListResult & list);
+  /// @brief Opens the rooms socket and asks it for the list, which is what subscribes it.
+  void         StartWatch();
+  void         StopWatch();
+  /// @brief Re-opens the socket when it is not connected, and says whether it is.
+  bool         EnsureWatch();
+  /// @brief Handles one frame from the rooms socket.
+  void         OnWatchFrame(const std::string & message);
   void         Run(const Action & action);
   NRoomClient & Client();
   void         SetError(const std::string & message);
@@ -295,6 +334,9 @@ class Worker {
   std::unique_ptr<NRoomClient>          fClient;
   std::string                           fTokenInUse;
   std::chrono::steady_clock::time_point fLastRefresh{};
+  /// The router's rooms socket, when one is up: what pushes the list (see StartWatch).
+  std::unique_ptr<NWsClient>            fWatch;
+  std::chrono::steady_clock::time_point fLastWatchAttempt{};
 };
 
 void Worker::SetError(const std::string & message)
@@ -324,10 +366,10 @@ NRoomClient & Worker::Client()
   return *fClient;
 }
 
-void Worker::RefreshList()
-{
-  const NRoomListResult list = Client().List();
+void Worker::RefreshList() { ApplyList(Client().List()); }
 
+void Worker::ApplyList(const NRoomListResult & list)
+{
   std::lock_guard<std::mutex> lock(fState.mutex);
   if (!list.ok) {
     // Keep the last known list on screen: a briefly unreachable router should not wipe
@@ -359,6 +401,84 @@ void Worker::RefreshList()
   }
   fState.lastUpdated = ClockNow();
   fLastRefresh       = std::chrono::steady_clock::now();
+}
+
+void Worker::StartWatch()
+{
+  const std::string url = RoomsWatchUrl(fOptions.serverUrl);
+  if (url.empty() || fQuit) return;
+
+  auto watch = std::make_unique<NWsClient>(/*maxRetries=*/1, /*retryDelayMs=*/0);
+  if (!fOptions.clientCert.empty() || !fOptions.clientKey.empty()) {
+    std::string passphrase;
+    const bool  havePassphrase = NKeyPassphrase::Resolve(fOptions.clientKey, "", fOptions.keyPasswordFile, passphrase);
+    watch->SetClientCertificate(fOptions.clientCert, fOptions.clientKey, havePassphrase ? passphrase : "");
+  }
+  if (!fOptions.caFile.empty()) watch->SetCaFile(fOptions.caFile);
+  if (!fOptions.caPath.empty()) watch->SetCaPath(fOptions.caPath);
+  // The TUI has one flag for "do not verify" (see NRoomUiOptions), so the other two stay off.
+  watch->SetServerVerification(!fOptions.insecure, false, false);
+  const std::string token = fTokens.Get();
+  if (!token.empty()) watch->SetAuthenticationToken(token);
+  watch->SetOnMessageCallback([this](const std::string & message) { OnWatchFrame(message); });
+
+  if (!watch->Connect(url)) {
+    // Nothing said here: the interval carries the list, and the header says it is polling. The next
+    // attempt is a few seconds away (see EnsureWatch).
+    NLogInfo("[tui] cannot watch the room list over %s; polling instead", url.c_str());
+    return;
+  }
+  // Asking for the list over the socket is what subscribes it (see PublishRooms in the router):
+  // from here the router pushes the list whenever it changes, and the interval stops asking.
+  watch->Send(R"({"requestId":"tui","method":"GET","path":"room/list"})");
+  fWatch = std::move(watch);
+  NLogInfo("[tui] watching the room list over %s", url.c_str());
+}
+
+void Worker::StopWatch()
+{
+  if (fWatch != nullptr) fWatch->Disconnect();
+  fWatch.reset();
+  std::lock_guard<std::mutex> lock(fState.mutex);
+  fState.watching = false;
+}
+
+/// Re-opens a socket that is not there, and answers whether one is carrying the list.
+///
+/// The client does not reconnect on its own, and a router that is rolled (a new revision, an apply)
+/// drops every socket when it goes: without this the TUI would fall back to polling for the rest of
+/// the session. A failed attempt is retried every few seconds, which is what the router's own
+/// rollout takes.
+bool Worker::EnsureWatch()
+{
+  if (fWatch != nullptr && fWatch->IsConnected()) return true;
+
+  const auto now = std::chrono::steady_clock::now();
+  if (fWatch != nullptr && now - fLastWatchAttempt < std::chrono::seconds(5)) return false;
+
+  fLastWatchAttempt = now;
+  fWatch.reset(); // a socket that is no longer connected is replaced, not kept
+  StartWatch();
+  return fWatch != nullptr && fWatch->IsConnected();
+}
+
+void Worker::OnWatchFrame(const std::string & message)
+{
+  json frame;
+  try {
+    frame = json::parse(message);
+  }
+  catch (const std::exception &) {
+    return; // not a frame this view reads
+  }
+  // Everything else on this socket is the connection's own (welcome, heartbeat, clients) or a reply
+  // to a request; the list arrives as a `rooms` event, and is read exactly as a poll's answer is.
+  if (frame.value("event", std::string()) != "rooms") return;
+
+  const NRoomListResult list = NRoomClient::ParseList(frame.value("payload", json::object()));
+  if (!list.ok) return;
+  ApplyList(list);
+  fWake();
 }
 
 void Worker::Run(const Action & action)
@@ -448,18 +568,26 @@ void Worker::Loop()
       continue; // drain the queue before considering a periodic refresh
     }
 
-    bool idle   = false;
-    bool paused = false;
+    // The socket is what keeps the list current (the router pushes it); this interval is the
+    // fallback under that, for when there is no socket - and it is also what notices that a socket
+    // was lost, so it is what re-opens one (see EnsureWatch). It never reads the list while the
+    // socket is carrying it: that would be asking for something already being sent.
+    const bool watching = EnsureWatch();
     {
       std::lock_guard<std::mutex> lock(fState.mutex);
-      idle   = !fState.busy;
-      paused = fState.paused;
+      fState.watching = watching;
+    }
+
+    bool idle = false;
+    {
+      std::lock_guard<std::mutex> lock(fState.mutex);
+      idle = !fState.busy;
     }
 
     // An action in flight keeps fState.busy set for its whole duration, and this loop is inside
     // that action while it runs - so it cannot wake the screen then. RunRoomUi keeps its own
     // ticker for that; this wake only covers what changed here, between actions.
-    if (fOptions.refreshSeconds > 0 && idle && !paused &&
+    if (fOptions.refreshSeconds > 0 && idle && !watching &&
         std::chrono::steady_clock::now() - fLastRefresh >= std::chrono::seconds(fOptions.refreshSeconds)) {
       RefreshList();
       fWake();
@@ -493,8 +621,14 @@ Element RenderHeader(const Snapshot & state, const NRoomUiOptions & options, int
                      text(state.busyLabel) | color(Color::Yellow)});
   }
 
-  Element freshness = text(state.lastUpdated.empty() ? "loading..." : "updated " + state.lastUpdated) | dim;
-  if (state.paused) freshness = text("paused") | color(Color::Yellow);
+  // How the list is kept current: the router pushing it over the websocket, or this client reading it
+  // on its interval because the socket is not there (see Worker::RefreshList and StartWatch).
+  Element freshness = state.watching
+                          ? text("live") | color(Color::Green)
+                          : text(state.lastUpdated.empty() ? "loading..." : "updated " + state.lastUpdated) | dim;
+  if (!state.watching && !state.connected && !state.lastUpdated.empty()) {
+    freshness = text("polling (no websocket)") | color(Color::Yellow);
+  }
 
   const std::string ttl = state.ttl > 0 ? "   idle TTL " + std::to_string(state.ttl) + "s" : "";
   // The router said it answered as an admin: say so, since the list then holds other people's rooms.
@@ -518,20 +652,29 @@ std::string FormatRange(const std::string & request, const std::string & limit)
 }
 
 /// @brief How long a room has before the router sweeps it, worded as the rooms view words it.
-/// @param lastSeen Epoch seconds the router was last asked about the room.
+///
+/// A room with a running pod is one somebody is in - the router cannot see traffic into a room, so the
+/// pod is what it goes by, and Knative keeps it up while anything (a websocket included) is using it -
+/// and such a room is never swept, so it says "in use" rather than counting down to a deadline it does
+/// not have. Neither is a room still being created, or waiting for resources. Otherwise this counts
+/// down to when the room goes.
+/// @param room One room from room/list.
 /// @param ttl The idle TTL in seconds (0 when this deployment keeps rooms until they are closed).
-std::string FormatExpiry(long lastSeen, int ttl)
+std::string FormatExpiry(const NRoomInfo & room, int ttl)
 {
+  if (room.active) return "in use";
   if (ttl <= 0) return "not swept";
-  if (lastSeen <= 0) return "unknown";
-  const long remaining = lastSeen + ttl - static_cast<long>(std::time(nullptr));
-  if (remaining <= 0) return "now";
-  if (remaining < 60) return "in " + std::to_string(remaining) + "s";
-  if (remaining < 3600) return "in " + std::to_string(remaining / 60) + "m";
+  if (room.lastSeen <= 0) return "unknown";
+  const long remaining = room.lastSeen + ttl - static_cast<long>(std::time(nullptr));
+  // "deleted", not only "expires": this is what happens to an idle room, and the countdown is what
+  // says when - the two belong together or the number looks like it belongs to nothing.
+  if (remaining <= 0) return "deleted now";
+  if (remaining < 60) return "deleted in " + std::to_string(remaining) + "s";
+  if (remaining < 3600) return "deleted in " + std::to_string(remaining / 60) + "m";
   if (remaining < 86400) {
-    return "in " + std::to_string(remaining / 3600) + "h " + std::to_string((remaining % 3600) / 60) + "m";
+    return "deleted in " + std::to_string(remaining / 3600) + "h " + std::to_string((remaining % 3600) / 60) + "m";
   }
-  return "in " + std::to_string(remaining / 86400) + "d " + std::to_string((remaining % 86400) / 3600) + "h";
+  return "deleted in " + std::to_string(remaining / 86400) + "d " + std::to_string((remaining % 86400) / 3600) + "h";
 }
 
 /// @brief A room's ceiling (`1 · 1Gi`), as the rooms view's "resources max" column words it.
@@ -545,6 +688,63 @@ std::string FormatCeiling(const NRoomInfo & room)
   if (cpu.empty()) return memory;
   if (memory.empty()) return cpu;
   return cpu + " · " + memory;
+}
+
+/**
+ * @brief What a room's state looks like: the word, and how it is drawn.
+ */
+enum class RoomTone { Busy, Waiting, Failed, Active, Idle, Unknown };
+
+/// @brief One room's state in the words this screen uses.
+struct RoomWords {
+  std::string label; ///< The one word for it
+  RoomTone    tone;  ///< How to draw it
+};
+
+/**
+ * @brief The one word this screen uses for a room's state.
+ *
+ * The router's vocabulary is the wire's - `preparing`, `pending`, `failed`, `ready`, `not ready` - and
+ * only `pending` is renamed on the way to the screen: "pending" next to "waiting" for the same
+ * situation is one word too many, and waiting is what the room is doing (the scheduler has no room for
+ * its pod, and it comes up by itself once there is). A room that is up reads by what it is doing
+ * (`active` with pods, `idle` without).
+ *
+ * Defined once so the row and the detail pane cannot disagree about what a room is - the rooms view's
+ * `roomState` is its counterpart.
+ *
+ * @param room One room from room/list.
+ * @return The word and the tone, the same ones the detail pane shows.
+ */
+RoomWords RoomStateWord(const NRoomInfo & room)
+{
+  if (room.preparing) return {"preparing", RoomTone::Busy};
+  if (room.state == "pending" || room.code == "no_capacity") return {"waiting", RoomTone::Waiting};
+  if (!room.error.empty() || room.state == "failed") {
+    return {room.code == "container_error" ? "killed" : "failed", RoomTone::Failed};
+  }
+  if (room.ready) return {room.active ? "active" : "idle", room.active ? RoomTone::Active : RoomTone::Idle};
+  return {"not ready", RoomTone::Unknown};
+}
+
+/// @brief A room's state word, drawn: the row's cell, one colour per tone.
+Element RoomStateCell(const NRoomInfo & room, int frame)
+{
+  const RoomWords words = RoomStateWord(room);
+  switch (words.tone) {
+  case RoomTone::Busy:
+    return hbox({text(SpinnerFrame(frame) + " "), text(words.label)}) | color(Color::Yellow);
+  case RoomTone::Failed:
+    return text(words.label) | color(Color::Red);
+  case RoomTone::Active:
+    return text(words.label) | color(Color::Green);
+  case RoomTone::Idle:
+    return text(words.label) | dim;
+  case RoomTone::Waiting:
+  case RoomTone::Unknown:
+    return text(words.label) | color(Color::Yellow);
+  }
+  return text(words.label);
 }
 
 /// @brief The room table.
@@ -595,25 +795,14 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
   for (size_t i = first; i < last; ++i) {
     const NRoomInfo & room = state.rooms[i];
 
-    Element roomState = text("pending") | color(Color::Yellow);
-    Element pods      = text("0") | dim;
-    if (room.preparing) {
-      // The router is still creating it, and reports which step it has reached.
-      roomState = hbox({text(SpinnerFrame(frame) + " "), text("preparing")}) | color(Color::Yellow);
-      pods      = text("-") | dim;
-    }
-    else if (!room.error.empty() || room.state == "failed") {
-      // Both causes are worth naming: "failed" hides the scheduler refusing the pod as well as a
-      // container that keeps dying, and the second one is a room that needs a bigger profile.
-      roomState = text(room.code == "no_capacity"   ? "no capacity"
-                       : room.code == "container_error" ? "killed"
-                                                        : "failed") |
-                  color(Color::Red);
-    }
-    else if (room.ready) {
-      roomState = room.active ? text("active") | color(Color::Green) : text("idle") | dim;
-      pods      = room.active ? text(std::to_string(room.replicas)) : text("0") | dim;
-    }
+    const RoomWords words = RoomStateWord(room);
+    // A room with no pod yet - still being created, or waiting for one the cluster can place - has no
+    // count to show.
+    const bool noPods = words.tone == RoomTone::Busy || words.tone == RoomTone::Waiting;
+
+    Element roomState = RoomStateCell(room, frame);
+    Element pods      = text(noPods ? "-" : std::to_string(room.replicas));
+    if (!room.active) pods = pods | dim;
 
     // For a room that is still being created, "seen" is how long its creation has been running.
     const long seenAt = (room.preparing && room.startedAt > 0) ? room.startedAt : room.lastSeen;
@@ -628,8 +817,9 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
         text(room.profile.empty() ? "-" : room.profile) | size(WIDTH, EQUAL, wProfile),
         text(FormatCeiling(room)) | size(WIDTH, EQUAL, wCeiling),
         // A room being created is never swept, so that cell keeps saying how long its creation has
-        // been running.
-        room.preparing ? text(FormatAge(seenAt)) : text(FormatExpiry(room.lastSeen, state.ttl)),
+        // been running; one that is running says it is in use rather than counting down to a deadline
+        // it does not have.
+        room.preparing ? text(FormatAge(seenAt)) : text(FormatExpiry(room, state.ttl)),
     });
     if (i == selected) row = row | inverted;
     lines.push_back(row);
@@ -651,9 +841,12 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
   std::vector<Element> lines;
   lines.push_back(text(room.room) | bold);
   lines.push_back(separatorLight());
-  const std::string stateText = room.state.empty() ? (room.ready ? "ready" : "not ready") : room.state;
+  // The same word the row shows, so the two cannot drift. What a room that is up is doing with its
+  // pods is the word itself (active / idle), so the pods row below is only the count.
+  const RoomWords   words = RoomStateWord(room);
+  const std::string stateText = words.label;
   const std::string pods =
-      room.preparing ? "-" : (std::to_string(room.replicas) + (room.active ? " (active)" : " (idle)"));
+      words.tone == RoomTone::Busy || words.tone == RoomTone::Waiting ? "-" : std::to_string(room.replicas);
 
   lines.push_back(Field("resource", room.name));
   lines.push_back(Field("owner", room.owner.empty() ? "-" : room.owner));
@@ -665,9 +858,13 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
   if (!room.profile.empty()) lines.push_back(Field("profile", room.profile));
   lines.push_back(Field("cpu", FormatRange(room.cpuRequest, room.cpuLimit)));
   lines.push_back(Field("memory", FormatRange(room.memoryRequest, room.memoryLimit)));
-  lines.push_back(Field("last seen", FormatAge(room.lastSeen)));
-  // What "last seen" is for: the router sweeps a room whose lastSeen is older than the idle TTL.
-  lines.push_back(Field("expires", FormatExpiry(room.lastSeen, state.ttl)));
+  // While a room's pod is running the router moves its idle clock forward on every read - that is how
+  // a room in use keeps a full TTL for when it is left - so an age here could only ever read "0s ago"
+  // and would tick for no reason. "in use" is the same fact the expires row states.
+  lines.push_back(Field("last seen", room.active ? "in use" : FormatAge(room.lastSeen)));
+  // What "last seen" is for: the router sweeps a room that has gone the idle TTL without being asked
+  // about and without a pod running, so a room in use never expires.
+  lines.push_back(Field("expires", FormatExpiry(room, state.ttl)));
   // Why it died last, when it did: a room the kernel killed never says so itself.
   if (!room.lastErrorReason.empty()) {
     lines.push_back(Field("last error",
@@ -678,11 +875,15 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
   }
   if (!room.error.empty()) lines.push_back(Field("error", room.error));
   if (room.code == "no_capacity") {
-    lines.push_back(text("free capacity on the cluster, or lower the room's requests") | dim);
+    // Waiting for resources, not broken: the same hint the rooms view gives.
+    lines.push_back(text("waiting for cluster resources - free capacity, or lower the room's requests") | dim);
   }
 
   lines.push_back(separatorLight());
   if (room.preparing) lines.push_back(text("still being created - the URLs work once it is ready") | dim);
+  else if (room.state == "pending") {
+    lines.push_back(text("waiting for resources - the URLs work once it is up") | dim);
+  }
 
   // The links carry the token that opens the room, at the level being looked at: one room hands out
   // a read-write link and a read-only one, and which one is copied is the choice made here.
@@ -729,7 +930,6 @@ Element RenderKeyBar()
       text(" enter ") | inverted, text(" status  "),
       text(" t ") | inverted, text(" rw/ro  "),
       text(" r ") | inverted, text(" refresh  "),
-      text(" p ") | inverted, text(" pause  "),
       text(" ? ") | inverted, text(" help"),
   });
 }
@@ -807,8 +1007,7 @@ Element RenderHelpDialog(const NRoomUiOptions & options)
                              Field("c / o / a", "create a room"),
                              Field("d / Del", "delete a room"),
                              Field("t", "hand out the read-write or the read-only link"),
-                             Field("r", "refresh the room list now"),
-                             Field("p", "pause / resume the automatic refresh"),
+                             Field("r", "read the room list now (the router pushes it while live)"),
                              Field("?", "toggle this help"),
                              Field("q / Esc", "quit"),
                              text(""),
@@ -822,6 +1021,9 @@ Element RenderHelpDialog(const NRoomUiOptions & options)
                              text("A room left untouched for the idle TTL is deleted by the router.") | dim,
                              text("A room is created in the background: it appears as 'preparing', with the") | dim,
                              text("step the router is on, until it is ready to use.") | dim,
+                             text("A room the cluster cannot place yet shows as 'waiting': it comes up on its") | dim,
+                             text("own once there is room for its pod. A room whose creation failed is gone,") | dim,
+                             text("and creating it again starts it from scratch.") | dim,
                          });
 }
 
@@ -988,12 +1190,6 @@ int RunRoomUi(const NRoomUiOptions & options)
     }
     if (event == Event::Character('?')) {
       dialog = Dialog::Help;
-      return true;
-    }
-    if (event == Event::Character('p')) {
-      std::lock_guard<std::mutex> lock(state.mutex);
-      state.paused = !state.paused;
-      state.status = state.paused ? "automatic refresh paused" : "automatic refresh resumed";
       return true;
     }
     if (event == Event::Character('t')) {

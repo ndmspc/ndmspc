@@ -45,6 +45,25 @@ or, for the packaged build:
 cmake ../ -DWITH_UI=ON ...
 ```
 
+## A page built locally
+
+When the page being served is not published yet — a working tree in
+[ndmspc-ui](https://gitlab.com/ndmspc/ndmspc-ui) — that build's page can be put in
+the same place on top of a released image, without rebuilding ndmspc at all. The
+page directory is what `npm run build:page` writes (`page-dist/`: `index.html` +
+`assets/`), and [`ci/Dockerfile.ui-local`](../ci/Dockerfile.ui-local) is the
+overlay that copies it to `/usr/share/ndmspc/ndmspc-ui`:
+
+```bash
+(cd ../ndmspc-ui && npm run build:page)
+podman build -f ci/Dockerfile.ui-local \
+  --build-arg BASE_IMAGE=localhost:5001/ndmspc/base:latest \
+  -t localhost:5001/ndmspc/base:local ../ndmspc-ui/page-dist
+```
+
+The tag it produces is what `-e ndmspc_image=…` points a deployment at, and the
+entry and every room serve that page from then on.
+
 ## Refresh
 
 The page is re-downloaded on every cmake configure, so re-configuring (for

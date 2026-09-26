@@ -102,7 +102,7 @@ unreachable router, or no terminal for the UI).
 | `HOST` | `127.0.0.1` | Address the mock binds to. |
 | `PORT` | `8090` | Mock port (`run-demo.sh` also uses `PORT + 1` for its failure case). |
 | `SEED` | `demo` | Comma-separated room ids the mock pre-registers. |
-| `TTL` | `3600` | Idle TTL the mock reports from `room/list`. |
+| `TTL` | `60` | Idle TTL the mock reports from `room/list` (the router's own default). |
 | `FAIL` | `0` | `1` makes every room action fail, to exercise the error path. |
 | `URL` | `http://$HOST:$PORT` | Router URL used by `run-client.sh` (`--url` is also accepted directly). |
 | `CLIENT_BIN` | `$PROJECT_DIR/bin/ndmspc-room-tui` | Client binary to run. |

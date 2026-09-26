@@ -82,7 +82,7 @@ cmd mcp add --scope project \
   --env LD_LIBRARY_PATH="$REPO/lib" \
   --env ROOT_INCLUDE_PATH="$REPO/include" \
   ndmspc-ngnt -- "$REPO/bin/ndmspc-mcp" \
-  -m "$REPO/macros/tools/toolBase.C,$REPO/macros/tools/toolNgnt.C"
+  -m "$REPO/macros/tools/toolNgnt.C"
 ```
 
 Or the same from JSON (default `local` scope):
@@ -91,7 +91,7 @@ Or the same from JSON (default `local` scope):
 cmd mcp add-json ndmspc-ngnt '{
   "type": "stdio",
   "command": "/path/to/ndmspc/bin/ndmspc-mcp",
-  "args": ["-m", "/path/to/ndmspc/macros/tools/toolBase.C,/path/to/ndmspc/macros/tools/toolNgnt.C"],
+  "args": ["-m", "/path/to/ndmspc/macros/tools/toolNgnt.C"],
   "env": {"LD_LIBRARY_PATH": "/path/to/ndmspc/lib", "ROOT_INCLUDE_PATH": "/path/to/ndmspc/include"}
 }'
 ```
@@ -123,8 +123,10 @@ enabled on the server, add `--header "Authorization: Bearer <token>"`. Remove wi
 One tool is created per registered handler, named by replacing `/` with `_`
 (`ngnt/open` → `ngnt_open`). Each tool's `inputSchema` is taken from the workspace
 inspector schema and extended with a `method` property (`GET`/`POST`/`PATCH`/`DELETE`,
-default `POST`), since the ngnt actions are verb-sensitive. Internal routes (`debug`,
-`openapi/inspector`, `inspector/openapi`) are hidden; `health` and `state` are exposed.
+default `POST`), since the ngnt actions are verb-sensitive. Internal routes
+(`openapi/inspector`, `inspector/openapi`) are hidden; `health` and `state` are exposed. They come
+from the server itself (built in), not from a macro; `debug` is an example of a name the default
+filter hides, for a macro that registers one.
 
 Descriptions and other MCP metadata come from the **handler macro** (e.g. `toolNgnt.C`),
 registered with `Ndmspc::RegisterMcpTool(...)` next to the handler — see the
@@ -143,4 +145,4 @@ workspace updates and WebSocket broadcasts are identical to those produced by a 
 | `FILE` | *(unset)* | Optional ROOT file to open with `ngnt_open` in `run-curl.sh`. |
 | `MCP_BIN` | `$PROJECT_DIR/bin/ndmspc-mcp` | stdio launcher binary. |
 | `SERVER_BIN` | `$PROJECT_DIR/bin/ndmspc-server` | HTTP server binary. |
-| `MACROS` | `$PROJECT_DIR/macros/tools/toolBase.C,toolNgnt.C` | Macro list to load. |
+| `MACROS` | `$PROJECT_DIR/macros/tools/toolNgnt.C` | Macro list to load. |

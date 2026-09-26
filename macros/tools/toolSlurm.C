@@ -21,7 +21,7 @@
 /// Job output stays on the compute node a job ran on, so a room does not see it; a
 /// log push through a Slurm epilog was removed and will be redone later.
 ///
-/// Usage: ndmspc-server -m "<dir>/toolBase.C,<dir>/toolNgnt.C,<dir>/toolSlurm.C"
+/// Usage: ndmspc-server -m "<dir>/toolNgnt.C,<dir>/toolSlurm.C"
 ///
 /// Overridables:
 ///   NDMSPC_SLURM_REST_URL         (default http://slurm-restapi.slurm:6820)

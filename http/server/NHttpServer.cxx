@@ -989,6 +989,12 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     if (!identity.Empty() && in.is_null()) in = json::object();
     if (in.is_object()) in["_identity"] = identity.ToJson();
 
+    // The connection a request came over, when it came over a websocket: the room router pushes to a
+    // watcher by connection, so an action that registers one has to know which connection asked.
+    // Zero (an ordinary HTTP request) is not stated at all.
+    if (arg->GetWSId() != 0 && in.is_null()) in = json::object();
+    if (in.is_object() && arg->GetWSId() != 0) in["_ws"] = static_cast<long>(arg->GetWSId());
+
     NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
     // Special-case: provide an OpenAPI-compatible inspector schema endpoint

@@ -6,7 +6,7 @@
       "command": "/path/to/ndmspc/bin/ndmspc-mcp",
       "args": [
         "-m",
-        "/path/to/ndmspc/macros/tools/toolBase.C,/path/to/ndmspc/macros/tools/toolNgnt.C"
+        "/path/to/ndmspc/macros/tools/toolNgnt.C"
       ],
       "env": {
         "LD_LIBRARY_PATH": "/path/to/ndmspc/lib",

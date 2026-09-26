@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """A stand-in for the ndmspc room router's MCP endpoint.
 
-``macros/builtin/httpRoom.C`` refuses to start outside Kubernetes (it exits unless
+``Ndmspc::NRoomRouter`` (and the server that registers it) refuses to start outside
+Kubernetes (it exits unless
 KUBERNETES_SERVICE_HOST is set), because a room is a Knative Service. That makes the
 real router untestable on a workstation, so this mock answers ``POST /api/mcp`` with
 the same JSON-RPC and handler envelopes the router produces, for the room actions, and keeps
 its rooms in memory. Alongside list/open/status/close it answers `room_backup` and
 `room_restore`, so exporting and restoring a room set can be exercised without a cluster.
 
-It mirrors httpRoom.C / NMcpServer.cxx:
+It mirrors NRoomRouter.cxx / NMcpServer.cxx:
 
 * the handler envelope is ``{"result": "success", "payload": {...}}`` or
   ``{"result": "failure", "error": "..."}`` - the HTTP status stays 200 either way,
@@ -41,12 +42,13 @@ Environment:
   PORT     port to listen on (default 8090)
   HOST     address to bind (default 127.0.0.1)
   SEED     comma-separated room ids to pre-register (default "demo")
-  TTL      idle TTL in seconds reported by room/list (default 3600)
+  TTL      idle TTL in seconds reported by room/list (default 86400, the router's own default)
   PREPARE  seconds a room opened with wait=false stays preparing (default 2, 0 = ready at once)
   FAIL     1 makes every room action fail, to exercise the client's error path
   ADMINS   comma-separated owners who may see every room (default "": then nobody is an admin)
-  NO_ROOM_CAPACITY  1 makes every *new* room fail the way the real router reports a pod the
-           cluster cannot schedule: state=failed, code=no_capacity, with the scheduler's message
+  NO_ROOM_CAPACITY  1 makes every *new* room wait the way the real router reports a pod the
+           cluster cannot schedule: state=pending, code=no_capacity, with the scheduler's message.
+           The room is kept (it comes up once there is room for it), so room_open succeeds.
 """
 
 import hashlib
@@ -61,8 +63,9 @@ PREFIX = "ndmspc-room-"
 PARAM = "room"
 PROTOCOL_VERSION = "2025-06-18"
 
-# What the router reports when the scheduler refuses the room's pod (see "Why a creation failed"
-# in httpRoom.C): the pod's own message, with a stable code beside it.
+# What the router reports when the scheduler refuses the room's pod (see "Why a room is not
+# serving" in NRoomRouter.h): the pod's own message, with a stable code beside it. The room is
+# pending rather than failed - it is kept, and it comes up once there is room for its pod.
 CAPACITY_ERROR = (
     "the cluster cannot schedule the room's pod: 0/1 nodes are available: 1 Insufficient cpu - "
     "free capacity, or lower the room's requests in its skeleton"
@@ -95,7 +98,9 @@ TOOLS = [
         "name": "room_status",
         "description": "Report whether a room is known to the router, its current revision, and - while "
         "it is being created - where that creation is (state=preparing with "
-        "phase=service|ready|route|restore), or state=failed with the reason.",
+        "phase=service|ready|route|restore), or state=failed with the reason. A room the "
+        "cluster cannot place yet is state=pending with code=no_capacity and the "
+        "scheduler's own message.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -109,8 +114,9 @@ TOOLS = [
         "name": "room_list",
         "description": "List the rooms the router is currently tracking (with their last-seen time). A "
         "room whose creation is still running is listed as well, with state=preparing and "
-        "the phase it has reached; one whose creation failed is listed with state=failed "
-        "and the error.",
+        "the phase it has reached; one waiting for cluster resources is listed with "
+        "state=pending and code=no_capacity; one whose creation failed is listed with "
+        "state=failed and the error.",
         "inputSchema": {
             "type": "object",
             "properties": {"method": {"type": "string", "enum": ["GET"], "default": "GET"}},
@@ -242,8 +248,12 @@ class Rooms:
         # rows or the client's wait for the room.
         self.prepare_seconds = prepare_seconds
 
-    def _failed(self, room_id, existing):
-        """The entry a room gets when the scheduler refused its pod."""
+    def _pending(self, room_id, existing):
+        """The entry a room gets while the scheduler cannot place its pod.
+
+        Pending, not failed: the room keeps the tokens and the links it was opened with, and would
+        come up once the cluster had room (this mock never does - its capacity is a constant).
+        """
         return {
             "name": self.name(room_id),
             "room": room_id,
@@ -253,11 +263,11 @@ class Rooms:
             "ready": False,
             "replicas": 0,
             "active": False,
-            "state": "failed",
-            "phase": "failed",
+            "state": "pending",
+            "phase": "pending",
             "error": CAPACITY_ERROR,
             "code": "no_capacity",
-            # A failed room keeps the tokens it was opened with: they are what a client was handed.
+            # A pending room keeps the tokens it was opened with: they are what a client was handed.
             "access": (existing or {}).get("access", access_for(room_id)),
         }
 
@@ -271,7 +281,7 @@ class Rooms:
                 continue
             elapsed = now - entry.get("startedAt", now)
             if elapsed >= self.prepare_seconds and entry.pop("no_capacity", False):
-                entry.update(self._failed(entry["room"], entry))
+                entry.update(self._pending(entry["room"], entry))
                 continue
             if elapsed >= self.prepare_seconds:
                 entry["preparing"] = False
@@ -307,16 +317,16 @@ class Rooms:
         # created by a caller that identified itself to nobody has none.
         room_owner = (existing.get("owner") or "") if existing else owner
 
-        # No capacity for another pod: the router registers the room and fails it a moment later,
-        # with the scheduler's own message, so the mock does the same (immediately when there is no
-        # PREPARE window to run in).
+        # No room for another pod: the router registers the room and reports it pending a moment
+        # later, with the scheduler's own message, so the mock does the same (immediately when there
+        # is no PREPARE window to run in).
         if not self.capacity and self.prepare_seconds <= 0:
-            self.rooms[name] = self._failed(room_id, existing)
+            self.rooms[name] = self._pending(room_id, existing)
             return self.rooms[name]
 
         # wait=false: register the room and leave it preparing, exactly as the router does when it
         # runs the creation off the request path. With no capacity left, `no_capacity` makes the
-        # next _advance turn it into the failure the router reports.
+        # next _advance turn it into the pending room the router reports.
         if (not wait or not self.capacity) and self.prepare_seconds > 0:
             entry = {
                 "name": name,
@@ -391,6 +401,8 @@ class Rooms:
                 payload["startedAt"] = entry.get("startedAt", entry["lastSeen"])
             if entry.get("error"):
                 payload["error"] = entry["error"]
+            if entry.get("code"):
+                payload["code"] = entry["code"]
         return payload
 
     def close(self, room_id):
@@ -557,6 +569,11 @@ def call_tool(server, tool, arguments):
         if entry.get("preparing"):
             payload["phase"] = entry.get("phase", "service")
             payload["startedAt"] = entry.get("startedAt", 0)
+        if entry.get("state") == "pending":
+            # Waiting for cluster resources: the room exists, and the reason travels with it.
+            payload["phase"] = entry.get("phase", "pending")
+            payload["error"] = entry.get("error", "")
+            payload["code"] = entry.get("code", "")
         return {"result": "success", "payload": payload}
 
     if tool == "room_status":
@@ -689,7 +706,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8090"))
-    ttl = int(os.environ.get("TTL", "3600"))
+    ttl = int(os.environ.get("TTL", "60"))
     prepare = int(os.environ.get("PREPARE", "2"))
     fail = os.environ.get("FAIL", "").strip().lower() not in ("", "0", "false", "no", "off")
     capacity = os.environ.get("NO_ROOM_CAPACITY", "").strip().lower() in ("", "0", "false", "no", "off")
