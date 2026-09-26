@@ -63,6 +63,7 @@ int main(int argc, char ** argv)
   int         maxRetries    = 5;
   int         retryDelayMs  = 1000;
   int         timeoutSec    = 0;
+  std::vector<std::string> sendFrames;
 
   // OAuth2/Keycloak options for WebSocket authentication.
   std::string oidcIssuer;
@@ -95,6 +96,11 @@ int main(int argc, char ** argv)
   app.add_option("-r,--retries", maxRetries, "Maximum connection retries (default: 5)");
   app.add_option("--retry-delay", retryDelayMs, "Delay between retries in ms (default: 1000)");
   app.add_option("-t,--timeout", timeoutSec, "Exit after this many seconds (0 = run until interrupted)");
+  app.add_option("--send", sendFrames,
+                 "Frame to send once connected and authenticated (repeatable), e.g. a WS_DATA request "
+                 "'{\"requestId\":\"1\",\"method\":\"GET\",\"path\":\"room/list\"}': connecting to "
+                 "'<url>/ws/root.websocket?rooms=1' and sending that one subscribes the connection to "
+                 "the room router's pushed room list, which then arrives on its own");
 
   // OAuth2/Keycloak options to obtain an access token for WS authentication.
   app.add_option("--oidc-issuer", oidcIssuer, "OIDC issuer URL, e.g. http://localhost:8081/realms/ndmspc");
@@ -174,6 +180,17 @@ int main(int argc, char ** argv)
   NLogInfo("Connected to %s", url.c_str());
   if (client.IsAuthenticated()) {
     NLogInfo("WebSocket authenticated via OAuth2/OIDC");
+  }
+
+  // The frames the caller asked to send, once the connection is up (and authenticated): with
+  // --send the client drives the same WS_DATA request/reply protocol a page does, and with a
+  // `?rooms=1` URL a `room/list` call is what subscribes the connection to the router's pushes.
+  for (const auto & frame : sendFrames) {
+    if (!client.Send(frame)) {
+      NLogError("Failed to send frame: %s", frame.c_str());
+      return 1;
+    }
+    NLogInfo("SENT: %s", frame.c_str());
   }
 
   // Run until a timeout expires or the process is interrupted.

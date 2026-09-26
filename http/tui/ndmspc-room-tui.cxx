@@ -126,6 +126,14 @@ Ndmspc::NRoomResult WaitForRoom(Ndmspc::NRoomClient & client, const std::string 
     if (!status.ok) return status;
 
     const std::string state = status.payload.value("state", std::string());
+    if (state == "pending") {
+      // Waiting for cluster resources: the creation has finished and the room is not up, but it is
+      // not a failure either - it comes up once the cluster has room for its pod. Report the wait
+      // with the scheduler's own reason instead of following it until the wait runs out.
+      std::cerr << "room '" << room << "' is waiting for cluster resources: "
+                << status.payload.value("error", std::string("no reason reported")) << std::endl;
+      return status;
+    }
     if (state != "preparing") {
       if (state != "failed") return status;
       Ndmspc::NRoomResult failure;
@@ -278,11 +286,14 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
         }
         else {
           // Keep the payload room/open returned - it carries the URL, which a status does not - and
-          // take the outcome the router reported once the room was up.
+          // take the outcome the router reported once the room was up (or, for a room waiting for
+          // resources, what it is waiting for).
           result.payload["state"]    = waited.payload.value("state", std::string("ready"));
           const std::string revision = result.payload.value("revision", std::string());
           result.payload["revision"] = waited.payload.value("revision", revision);
           if (waited.payload.contains("session")) result.payload["session"] = waited.payload["session"];
+          if (waited.payload.contains("code")) result.payload["code"] = waited.payload["code"];
+          if (waited.payload.contains("error")) result.payload["error"] = waited.payload["error"];
         }
       }
     }
@@ -356,7 +367,8 @@ int main(int argc, char ** argv)
   app.add_flag("--list", listRooms, "List the rooms the router is tracking, then exit (no terminal needed)");
   app.add_option("--open", openRoom,
                  "Ensure a room exists, print its URL, then exit (no terminal needed). Waits for the room "
-                 "to be ready unless --no-wait is given");
+                 "to be ready unless --no-wait is given; a room the cluster has no room for yet is "
+                 "reported as state=pending and not waited out");
   app.add_flag("--no-wait", noWait,
                "With --open: return as soon as the router accepts the room, without waiting for it to be ready");
   app.add_option("--wait-timeout", waitTimeoutSeconds,

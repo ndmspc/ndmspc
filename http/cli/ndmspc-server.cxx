@@ -9,6 +9,7 @@
 #include <CLI/CLI.hpp>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
+#include "ndmspc/http/NBaseActions.h"
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NRoomRouter.h"
 #include "ndmspc/http/NX509Authenticator.h"
@@ -178,7 +179,8 @@ int main(int argc, char ** argv)
   std::string macroFilename;
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: auto-load "
-                 "$NDMSPC_DIR/macros/tools/toolBase.C,$NDMSPC_DIR/macros/tools/toolNgnt.C)");
+                 "$NDMSPC_DIR/macros/tools/toolNgnt.C; the base actions are built in). Ignored with "
+                 "--rooms, which serves rooms only");
   app.add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
   app.add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
@@ -213,8 +215,8 @@ int main(int argc, char ** argv)
   app.add_option("--rooms", withRooms,
                  "Also serve the room router (NRoomRouter): /api/room/*, one Knative Service "
                  "per room, and the room websocket policy; disabled by default (--rooms true "
-                 "or NDMSPC_ROOMS=1). Kubernetes only: the server exits at startup when "
-                 "KUBERNETES_SERVICE_HOST is unset")
+                 "or NDMSPC_ROOMS=1). A router serves rooms only, so no macro is loaded. "
+                 "Kubernetes only: the server exits at startup when KUBERNETES_SERVICE_HOST is unset")
       ->default_val(withRooms ? "true" : "false");
   AddOidcOptions(&app, oidcConfig);
   AddX509Options(&app, x509Config);
@@ -263,8 +265,9 @@ int main(int argc, char ** argv)
       serv->SetDefaultPage(TString::Format("%s/index.html", htmlDir.c_str()).Data());
     }
 
-    // The directory holding the installed macros. Needed for --rooms even when
-    // -m was given, so it is resolved up front.
+    // The directory holding the installed macros, for the default -m list below. A server started
+    // with rooms loads no macro at all (the room router serves /api/room/* only), so it is resolved
+    // - and the defaults applied - only when this is not a router.
     const char * envMacros = gSystem->Getenv("NDMSPC_DIR");
     std::string  ndmspcMacrosDir = (envMacros && *envMacros) ? envMacros : "";
     if (ndmspcMacrosDir.empty()) {
@@ -272,12 +275,12 @@ int main(int argc, char ** argv)
       ndmspcMacrosDir      = (envHome && *envHome) ? envHome : "/usr/share/ndmspc";
     }
 
-    if (macroFilename.empty()) {
+    if (!withRooms && macroFilename.empty()) {
       // check if ndmspcMacrosDir is exists
       if (gSystem->AccessPathName(ndmspcMacrosDir.c_str()) == 0) {
-        macroFilename = TString::Format("%s/macros/tools/toolBase.C,%s/macros/tools/toolNgnt.C",
-                                        ndmspcMacrosDir.c_str(), ndmspcMacrosDir.c_str())
-                            .Data();
+        // The base actions (health, state) are built into the server, so only the tools a
+        // deployment actually wants (ngnt above all) have to be named here.
+        macroFilename = TString::Format("%s/macros/tools/toolNgnt.C", ndmspcMacrosDir.c_str()).Data();
         NLogInfo("No macro file given, using default macros ...");
       } else {
         // just warn and continue, user may provide macro file later
@@ -296,26 +299,43 @@ int main(int argc, char ** argv)
     Ndmspc::NMcpToolMap mcpTools;
     Ndmspc::gNdmspcMcpTools = &mcpTools;
 
-    std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroFilename, ',');
+    // The server's own base actions (health, state) are framework code, not a macro: register them
+    // here so they exist whatever -m says. A room router serves /api/room/* only, so it gets none.
+    if (!withRooms) Ndmspc::RegisterBaseActions();
 
-    NLogInfo("Going to load %d macro(s). Waiting ...", static_cast<int>(macros.size()));
-    for (const auto & macro : macros) {
-      // NLogInfo("Executing macro: %s", macro.c_str());
-      TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
-      // OpenMacro logs why it could not read the file and answers nullptr; dereferencing that is a
-      // startup segfault, which says nothing about what was wrong with the path.
-      if (m == nullptr) {
-        NLogError("Cannot load macro '%s'. Check the path, or give the macro to load with -m.", macro.c_str());
-        exit(1);
+    // A router serves rooms, not tools, so it loads no macro at all - not even one named on the
+    // command line (a deployment's image CMD passes -m .../toolNgnt.C, which must not reach the
+    // entry: the room router is rooms and nothing else).
+    std::vector<std::string> macros;
+    if (withRooms) {
+      if (!macroFilename.empty()) {
+        NLogWarning("--rooms: ignoring the macro list '%s'; the room router serves only /api/room/*",
+                    macroFilename.c_str());
       }
-      m->Exec();
+      NLogInfo("Rooms enabled: serving the room actions only (no tool macro is loaded)");
+    }
+    else {
+      macros = Ndmspc::NUtils::Tokenize(macroFilename, ',');
+
+      NLogInfo("Going to load %d macro(s). Waiting ...", static_cast<int>(macros.size()));
+      for (const auto & macro : macros) {
+        // NLogInfo("Executing macro: %s", macro.c_str());
+        TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
+        // OpenMacro logs why it could not read the file and answers nullptr; dereferencing that is a
+        // startup segfault, which says nothing about what was wrong with the path.
+        if (m == nullptr) {
+          NLogError("Cannot load macro '%s'. Check the path, or give the macro to load with -m.", macro.c_str());
+          exit(1);
+        }
+        m->Exec();
+      }
+
+      NLogInfo("%zu macro(s) executed.", macros.size());
     }
 
     if (!Ndmspc::gNdmspcHttpHandlers) {
       return;
     }
-
-    NLogInfo("%zu macro(s) executed.", macros.size());
 
     if (withRooms) {
       // The room router is framework code (NRoomRouter), not a macro: register its actions before

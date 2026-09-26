@@ -22,8 +22,9 @@ or straight from the container:
 podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:next
 ```
 
-Without `-m`, the server loads the built-in tool macros (`toolBase.C`,
-`toolNgnt.C`). Point a browser at <http://localhost:8080/> for the
+Without `-m`, the server loads the ngnt tool macro (`toolNgnt.C`); its own base
+actions (`health`, `state`) are built in and need no macro. Point a browser at
+<http://localhost:8080/> for the
 web UI, or use the API at <http://localhost:8080/api/>.
 
 ## Run on a local kind cluster
@@ -113,7 +114,17 @@ The room id goes in the JSON body, not the query string — a `?room=` call is
 routed to that room (once it exists) instead of the router. Rooms are created with
 `min-scale 0`, so an idle room keeps its Service but runs no pods (`"replicas": 0`
 in `room/list`); the next `?room=` request starts it again. A room left untouched
-for `NDMSPC_ROOM_IDLE_TTL` (default `1h`) is deleted automatically.
+for `NDMSPC_ROOM_IDLE_TTL` (default `24h`, and never while its pod is
+running) is deleted automatically — the clock for that counts from when the room's
+pod stops reporting, and it is kept on the room's own Service, so a router that is
+restarted (a rollout) resumes each room's remaining time instead of handing every
+room a fresh TTL.
+
+A view does not have to poll for that list. A client opens
+`/ws/root.websocket?rooms=1`, asks `room/list` over the socket — which is what
+subscribes it — and the router pushes the list whenever it changes; HTTP
+`room/list` stays as it is for scripts, and for a view whose socket is down. Both
+the page and `ndmspc-room-tui` work this way.
 
 The same actions are exposed as MCP tools (`room_open`, `room_list`,
 `room_status`, `room_close`, `room_backup`, `room_restore`) through `ndmspc-mcp` or

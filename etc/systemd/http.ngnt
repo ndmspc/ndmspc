@@ -1,2 +1,2 @@
 PORT=8080
-NDMSPC_HTTP_OPTS="-m /usr/share/ndmspc/macros/tools/toolBase.C,/usr/share/ndmspc/macros/tools/toolNgnt.C --html /usr/share/ndmspc/ndmspc-ui"
+NDMSPC_HTTP_OPTS="-m /usr/share/ndmspc/macros/tools/toolNgnt.C --html /usr/share/ndmspc/ndmspc-ui"

@@ -1,0 +1,124 @@
+// The server's own base actions (health, state), as framework code.
+//
+// NBaseActions.h says what they are and why they are not a macro; this file is their
+// implementation. The two handlers are lifted from the toolBase.C macro they replace, and their
+// lambdas stay non-capturing so they convert to the NHttpFuncPtr the handler map holds.
+
+#include "NBaseActions.h"
+
+#include <map>
+#include <string>
+
+#include "ndmspc/core/NLogger.h"
+#include "ndmspc/http/NHttpServer.h"
+
+namespace Ndmspc {
+
+bool RegisterBaseActions()
+{
+  if (gNdmspcHttpHandlers == nullptr) return false;
+
+  auto & handlers = *(gNdmspcHttpHandlers);
+
+  // MCP tool metadata (see toolNgnt.C for the convention)
+  Ndmspc::RegisterMcpTool("health", {
+      .description = "Server health and workspace snapshot (GET prints the server, POST/PATCH return the workspace).",
+      .methods     = {"GET", "POST", "PATCH", "DELETE"},
+  });
+  Ndmspc::RegisterMcpTool("state", {
+      .description = "Inspect or reset server state: GET returns the workspace inspector schema, PATCH updates "
+                     "the heartbeat, DELETE resets the server.",
+      .methods     = {"GET", "PATCH", "DELETE"},
+  });
+
+  handlers["health"] = [](std::string method, json & /*httpIn*/, json & httpOut, json & wsOut,
+                          std::map<std::string, TObject *> &) {
+    auto server = Ndmspc::gNHttpServer;
+
+    if (method.find("GET") != std::string::npos) {
+      server->Print();
+      httpOut["result"] = "success";
+    }
+    else if (method.find("POST") != std::string::npos) {
+      // wsOut["workspace"] = server->GetWorkspace();
+      wsOut["payload"]["workspace"] = server->GetWorkspace();
+      // wsOut["health"] = "ok";
+      // server->WebSocketBroadcast(wsOut);
+      httpOut["result"] = "success";
+    }
+    else if (method.find("PATCH") != std::string::npos) {
+      wsOut["payload"]["workspace"] = server->GetWorkspace();
+      httpOut["result"] = "success";
+    }
+
+    else if (method.find("DELETE") != std::string::npos) {
+      httpOut["result"] = "success";
+    }
+    else {
+      httpOut["error"] = "Unsupported HTTP method for test action";
+    }
+  };
+
+  handlers["state"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
+                         std::map<std::string, TObject *> & /*inputs*/) {
+    auto server = Ndmspc::gNHttpServer;
+
+    if (method.find("GET") != std::string::npos) {
+      // Return current server workspaces and state, and inspector entries
+      try {
+        auto schema = server->GetInspectorSchema();
+
+        httpOut["result"] = "success";
+        httpOut["payload"]["title"] = schema["title"];
+        httpOut["payload"]["inspector"] = schema["inspector"];
+        httpOut["payload"]["metadata"] = schema["metadata"];
+        httpOut["payload"]["state"]["heartbeat"] = server->GetHeartbeatMs();
+        NLogInfo("State GET inspector: %s", schema["inspector"].dump().c_str());
+      }
+      catch (const std::exception & e) {
+        NLogError("Error during state GET: %s", e.what());
+        httpOut = json::object();
+        httpOut["result"] = "failure";
+        httpOut["error"] = std::string("Error during state GET: ") + e.what();
+      }
+    }
+    else if (method.find("PATCH") != std::string::npos) {
+      // Allow runtime changes to server state, e.g. heartbeat timeout
+      try {
+        if (httpIn.contains("heartbeat") && httpIn["heartbeat"].is_number()) {
+          int hb = httpIn["heartbeat"].get<int>();
+          server->SetHeartbeatMs(hb);
+          httpOut["result"] = "success";
+          httpOut["heartbeat"] = hb;
+        } else {
+          httpOut["result"] = "failure";
+          httpOut["error"] = "Missing or invalid 'heartbeat' field";
+        }
+      } catch (const std::exception & e) {
+        NLogError("Error during state PATCH: %s", e.what());
+        httpOut["result"] = "failure";
+        httpOut["error"] = std::string("Error during state PATCH: ") + e.what();
+      }
+    }
+    else if (method.find("DELETE") != std::string::npos) {
+      NLogInfo("Resetting API history and clearing all objects");
+      try {
+        server->ResetServer();
+        httpOut["result"] = "success";
+        httpOut["message"] = "API history and objects reset successfully";
+      } catch (const std::exception & e) {
+        NLogError("Error during state reset: %s", e.what());
+        httpOut["result"] = "failure";
+        httpOut["error"] = std::string("Error during state reset: ") + e.what();
+      }
+    }
+    else {
+      httpOut["error"] = "Unsupported HTTP method for state action";
+      httpOut["result"] = "failure";
+    }
+  };
+
+  return true;
+}
+
+} // namespace Ndmspc

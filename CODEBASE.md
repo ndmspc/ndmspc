@@ -89,17 +89,29 @@ macro or out-of-tree consumer has to change. See `http/README.md` for the mechan
 
 `ndmspc-server --rooms true` (or `NDMSPC_ROOMS=1`) turns a server into the always-on
 entry Service of an NDMSPC deployment on Knative, serving `/api/room/*` (and the same actions as MCP
-tools). It creates one Knative Service per room on demand plus an HTTPRoute matching `?room=<id>`
+tools) — and nothing else: a router loads no macro, so no tool is served from the entry. It creates
+one Knative Service per room on demand plus an HTTPRoute matching `?room=<id>`
 aimed at that room's revision, so steady-state traffic goes gateway → room and never touches the
 router again. Creating a room is slow (a revision has to become ready), so `room/open` can answer at
 once with `state=preparing` and leave the work to a background thread that reports its progress on
-the room's registry entry; a server without the flag never touches any of this.
+the room's registry entry; a room the cluster has no room for is reported as `state=pending`
+(waiting for resources, `code=no_capacity`) and kept, so it comes up by itself once its pod can be
+placed; a creation that failed deletes the half-created room again, so the next `room/open` recreates
+it. A server without the flag never touches any of this.
 
 Each room is also given access tokens (`access`: a read-write and a read-only one, reported by the
 actions, kept on the room's own Service as the annotation `ndmspc.io/room-access`, and handed to the
 room as `NDMSPC_ROOM_ACCESS`). What refuses a stranger is the **room's own process** — its page, its
 `/api` and its websocket — with a read-only token held to GETs, while the router's calls into a room
 present the read-write one and `NHttpServer` can be told to enforce nothing at all.
+
+The list a view shows is pushed rather than polled: a socket that opens
+`/ws/root.websocket?rooms=1` and asks `room/list` over it is a watcher, and `NRoomRouter`'s sampler
+runs the same handler for it (so a pushed list and an answered one cannot differ) and sends it
+whenever it changed. HTTP `room/list` is unchanged. A room's idle clock — what `room/list` reports
+as `lastSeen`, and what the sweep deletes rooms by — is kept on the room's Service too, as
+`ndmspc.io/room-seen`, so a router that is restarted resumes each room's remaining time instead of
+handing every room a fresh idle TTL.
 
 And each room belongs to whoever creates it: the router records the caller's identity — the email or
 user name of a token it verified, the certificate a mutual-TLS front door verified, or, when nothing

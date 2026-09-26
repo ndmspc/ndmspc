@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
 export HOST="${HOST:-127.0.0.1}"
 export PORT="${PORT:-8090}"
 export SEED="${SEED:-demo}"
-export TTL="${TTL:-3600}"
+export TTL="${TTL:-60}"
 export FAIL="${FAIL:-0}"
 
 command -v python3 >/dev/null 2>&1 || { echo "error: python3 is required" >&2; exit 1; }

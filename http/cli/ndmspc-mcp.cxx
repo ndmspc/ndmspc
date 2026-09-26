@@ -2,17 +2,21 @@
 /// ndmspc-mcp — standalone Model Context Protocol (MCP) server for the NGnTree
 /// HTTP handlers, speaking JSON-RPC 2.0 over stdio.
 ///
-/// It embeds an NHttpServer (without starting the network engine), loads the
-/// same built-in macros as `ndmspc-server`, and exposes every
+/// It embeds an NHttpServer (without starting the network engine), registers
+/// the server's own base actions (`health`, `state`), loads the macro given with
+/// -m (the ngnt tools by default), and exposes every
 /// registered handler as an MCP tool through Ndmspc::NMcpServer. This lets an
 /// MCP client (launched as a subprocess) drive ngnt with no separately running
 /// HTTP server.
+///
+/// With --rooms it serves the room router instead: the room_* actions only, and
+/// no macro is loaded.
 ///
 /// The real stdout carries ONLY JSON-RPC messages; every other write (logger,
 /// ROOT, printf from macros) is redirected to stderr.
 ///
 /// Usage:
-///   ndmspc-mcp [-m <macros>] [--all-tools] [-v]
+///   ndmspc-mcp [-m <macros>] [--all-tools] [--rooms] [-v]
 ///
 
 #include <cstdio>
@@ -31,6 +35,7 @@
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
+#include "ndmspc/http/NBaseActions.h"
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NMcpServer.h"
 #include "ndmspc/http/NRoomRouter.h"
@@ -106,13 +111,15 @@ int main(int argc, char ** argv)
   app.set_version_flag("--version", AppVersion(), "Print version information and exit");
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: "
-                 "$NDMSPC_DIR/macros/tools/toolBase.C,$NDMSPC_DIR/macros/tools/toolNgnt.C)");
+                 "$NDMSPC_DIR/macros/tools/toolNgnt.C; the base actions are built in). Ignored with "
+                 "--rooms, which serves rooms only");
   app.add_option("--transport", transport, "Transport to serve (default: stdio)")
       ->check(CLI::IsMember({"stdio"}));
-  app.add_flag("--all-tools", allTools, "Also expose internal actions (debug, openapi) as tools");
+  app.add_flag("--all-tools", allTools, "Also expose the internal actions (openapi/inspector) as tools");
   app.add_flag("--rooms", withRooms,
                "Also serve the room router (NRoomRouter) and expose the room_* tools; disabled by "
-               "default (--rooms or NDMSPC_ROOMS=1). Kubernetes only: the process exits at startup "
+               "default (--rooms or NDMSPC_ROOMS=1). A router serves rooms only, so no macro is "
+               "loaded. Kubernetes only: the process exits at startup "
                "when KUBERNETES_SERVICE_HOST is unset");
   app.add_flag("-v,--verbose", verbose, "Enable verbose logging on stderr");
   CLI11_PARSE(app, argc, argv);
@@ -131,13 +138,17 @@ int main(int argc, char ** argv)
 
   TApplication rootApp("ndmspc-mcp", 0, nullptr);
 
-  if (macroFilename.empty()) {
+  // A server serving rooms loads no macro at all (the room router is /api/room/* only), so the
+  // default macro list is neither resolved nor applied for it.
+  if (!withRooms && macroFilename.empty()) {
     const std::string dir = NdmspcDir();
     if (gSystem->AccessPathName(dir.c_str()) != 0) {
       NLogError("No macro file given and default directory '%s' not found. Provide one with -m.", dir.c_str());
       return 1;
     }
-    macroFilename = dir + "/macros/tools/toolBase.C," + dir + "/macros/tools/toolNgnt.C";
+    // The base actions (health, state) are built into the server: only the tools a deployment
+    // actually wants (ngnt above all) have to be named here.
+    macroFilename = dir + "/macros/tools/toolNgnt.C";
   }
 
   auto server = std::make_unique<Ndmspc::NHttpServer>(/*engine=*/"", /*ws=*/true, /*heartbeat_ms=*/10000,
@@ -160,20 +171,31 @@ int main(int argc, char ** argv)
   Ndmspc::NMcpToolMap mcpTools;
   Ndmspc::gNdmspcMcpTools = &mcpTools;
 
-  for (const auto & macro : Ndmspc::NUtils::Tokenize(macroFilename, ',')) {
-    NLogInfo("ndmspc-mcp: loading macro '%s'", macro.c_str());
-    TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
-    if (m == nullptr) {
-      NLogError("ndmspc-mcp: failed to open macro '%s'", macro.c_str());
-      return 1;
-    }
-    m->Exec();
-  }
+  // The server's own base actions (health, state) are framework code, not a macro: register them
+  // here so they exist whatever -m says. A room router serves room/* only, so it gets none.
+  if (!withRooms) Ndmspc::RegisterBaseActions();
+
+  // A router serves rooms, not tools, so it loads no macro - not even one named on the command line.
   if (withRooms) {
+    if (!macroFilename.empty()) {
+      NLogWarning("ndmspc-mcp: --rooms ignores the macro list '%s'; the room router serves only room/*",
+                  macroFilename.c_str());
+    }
     // The room router is framework code (NRoomRouter): register its actions (and their MCP tools)
     // before the handler map is handed to the server.
     if (!Ndmspc::NRoomRouter::Instance().Register(server.get())) return 1; // it logged why
-    NLogInfo("ndmspc-mcp: rooms enabled, serving the room_* actions");
+    NLogInfo("ndmspc-mcp: rooms enabled, serving the room_* actions only (no tool macro is loaded)");
+  }
+  else {
+    for (const auto & macro : Ndmspc::NUtils::Tokenize(macroFilename, ',')) {
+      NLogInfo("ndmspc-mcp: loading macro '%s'", macro.c_str());
+      TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
+      if (m == nullptr) {
+        NLogError("ndmspc-mcp: failed to open macro '%s'", macro.c_str());
+        return 1;
+      }
+      m->Exec();
+    }
   }
 
   server->SetHttpHandlers(handlers);

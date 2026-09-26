@@ -452,6 +452,25 @@ void NWsHandler::BroadcastUnsafe(const std::string & message)
   Broadcast(message);
 }
 
+std::vector<ULong_t> NWsHandler::ConnectedIds() const
+{
+  return ClientIds();
+}
+
+std::string NWsHandler::UsernameOf(ULong_t wsId) const
+{
+  std::lock_guard lock(fMutex);
+  const auto      it = fClients.find(wsId);
+  return it == fClients.end() ? std::string() : it->second.GetUsername();
+}
+
+bool NWsHandler::SendTo(ULong_t wsId, const std::string & message)
+{
+  if (wsId == 0 || message.empty()) return false;
+  SendCharStarWS(wsId, message.c_str());
+  return true;
+}
+
 Bool_t NWsHandler::HandleTimer(TTimer *)
 {
   ExpireConnections();

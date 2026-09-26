@@ -12,7 +12,7 @@ PROJECT_DIR="$(readlink -m "$SCRIPT_DIR/../../..")"
 
 MCP_BIN="${MCP_BIN:-$PROJECT_DIR/bin/ndmspc-mcp}"
 SERVER_BIN="${SERVER_BIN:-$PROJECT_DIR/bin/ndmspc-server}"
-MACROS="${MACROS:-$PROJECT_DIR/macros/tools/toolBase.C,$PROJECT_DIR/macros/tools/toolNgnt.C}"
+MACROS="${MACROS:-$PROJECT_DIR/macros/tools/toolNgnt.C}"
 PORT="${PORT:-18080}"
 LOG="${LOG:-$(mktemp "${TMPDIR:-/tmp}/ndmspc-mcp-demo.XXXXXX.log")}"
 

@@ -25,11 +25,11 @@ struct NRoomInfo {
   int         replicas{0};     ///< Running pods of the latest revision (0 when the room is idle)
   bool        active{false};   ///< replicas > 0
 
-  /// The router's own view of the room: "preparing", "ready", "not ready" or "failed".
+  /// The router's own view of the room: "preparing", "pending", "ready", "not ready" or "failed".
   std::string state;
   bool        preparing{false}; ///< Its creation is still running (state is "preparing")
-  std::string phase;            ///< Where that creation is: service, ready, route, restore
-  std::string error;            ///< Why its creation failed ("" when it did not)
+  std::string phase;            ///< Where that creation is: service, ready, route, restore, pending
+  std::string error;            ///< Why it is not serving ("" while it is only preparing)
   std::string code;             ///< Stable reason behind `error`, e.g. "no_capacity" ("" when unknown)
   long        startedAt{0};     ///< Epoch seconds its creation started, for the elapsed time
 
@@ -220,6 +220,20 @@ class NRoomClient {
   NRoomListResult List();
 
   /**
+   * @brief A `room_list` payload in the shape {@link List} returns.
+   *
+   * The router pushes the same payload down the websocket (a watcher asks for the list over the
+   * socket and is sent it whenever it changes), and a pushed list has to be read exactly as an
+   * answered one: a field the router leaves out when it is empty must mean the same thing either
+   * way, or a view that watched and a view that polled would disagree about the same room.
+   *
+   * @param payload The payload of a `room_list` answer, or of a pushed `rooms` event.
+   * @return The rooms, the idle TTL and whether the caller is an admin; `ok` is false when the
+   *         payload is not a room list.
+   */
+  static NRoomListResult ParseList(const json & payload);
+
+  /**
    * @brief Ensure a room exists, creating its Knative Service when it does not.
    *
    * With `wait` the router returns only once the room is ready, which can take tens of seconds
@@ -231,7 +245,9 @@ class NRoomClient {
    * @param roomId Room id (any client-chosen string).
    * @param wait Whether to wait for the room to be ready before answering.
    * @return The action result; payload holds room, name, revision, param, url, ttl and state
-   *         (plus phase when it is still preparing, or error when it failed).
+   *         (plus phase while it is still preparing, `state=pending` with `code=no_capacity` - and
+   *         the scheduler's message in `error` - when the cluster has no room for the room's pod
+   *         yet, or `error` when it failed).
    */
   NRoomResult Open(const std::string & roomId, bool wait = true);
 
@@ -240,6 +256,7 @@ class NRoomClient {
    *
    * This is also how a client follows a room that is being prepared: while `state` is
    * "preparing" the payload carries `phase` and `startedAt`, and it ends as "ready",
+   * "pending" (waiting for cluster resources, with `code=no_capacity` and the scheduler's message),
    * "not ready" or "failed" (with `error`).
    *
    * @param roomId Room id.
