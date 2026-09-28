@@ -6,6 +6,17 @@
 ///
 /// URLs:  /api/ngnt/open, /api/ngnt/reshape, /api/ngnt/map, /api/ngnt/spectra, /api/ngnt/point
 ///
+/// The five actions form one pipeline, and say so through the MCP metadata: each action
+/// declares what has to have run before it (NMcpToolInfo::dependsOn), so `tools/list`
+/// reads in the order the tools are used and a call out of turn is refused naming the
+/// action to run first. `spectra` and `point` both branch off `map`; their NMcpToolInfo::order
+/// sequences them (spectra before point). Each action also names a node in the combination tree
+/// through NMcpToolInfo::label, a template filled from its own arguments (`{{ file }}`,
+/// `{{ binningName }} ({{ levels }})`), so the tree reads as the analysis rather than as the action.
+///
+///   open ──▶ reshape ──▶ map ──┬─▶ spectra
+///                              └─▶ point
+///
 /// Usage:
 ///   ndmspc-server -m "toolNgnt.C"
 ///
@@ -304,7 +315,10 @@ void toolNgnt()
       .inputSchema = {{"properties",
                        {{"file",
                          {{"type", "string"},
-                          {"description", "Path to the NGnTree ROOT file to open (POST only)."}}}}}},
+                          {"description", "Path to the NGnTree ROOT file to open (POST only)."},
+                          {"default", "NBinnings01Gaus.root"}}}}}},
+      .order       = 1,
+      .label       = "{{ file }}",
   });
   Ndmspc::RegisterMcpTool(group + "/reshape", {
       .description = "Reshape the opened tree into a navigator. POST with 'binningName' and 'levels' "
@@ -317,6 +331,9 @@ void toolNgnt()
                          {{"type", "array"},
                           {"description", "Nested levels array, e.g. [[0,1,2],[3,4]]."},
                           {"items", {{"type", "array"}, {"items", {{"type", "integer"}}}}}}}}}},
+      .dependsOn   = {group + "/open"},
+      .order       = 2,
+      .label       = "{{ binningName }} ({{ levels }})",
   });
   Ndmspc::RegisterMcpTool(group + "/map", {
       .description = "Project the current navigator level onto pads. POST renders the projection "
@@ -335,6 +352,9 @@ void toolNgnt()
                          {{"type", "integer"},
                           {"description", "Target navigator level; used with the stored state point when 'point' "
                                           "is omitted."}}}}}},
+      .dependsOn   = {group + "/reshape"},
+      .order       = 3,
+      .label       = "{{ mappingPad }}",
   });
   Ndmspc::RegisterMcpTool(group + "/spectra", {
       .description = "Render spectra histograms for selected parameters (POST/PATCH) with 'parameters', "
@@ -353,6 +373,9 @@ void toolNgnt()
                          {{"type", "integer"},
                           {"description", "Target navigator level; used with the stored state point when 'point' "
                                           "is omitted."}}}}}},
+      .dependsOn   = {group + "/map"},
+      .order       = 4,
+      .label       = "{{ parameters }}",
   });
   Ndmspc::RegisterMcpTool(group + "/point", {
       .description = "Fetch entry-level data points. GET returns the projection, POST with 'entry' and "
@@ -361,6 +384,8 @@ void toolNgnt()
       .inputSchema = {{"properties",
                        {{"entry", {{"type", "integer"}, {"description", "Entry index to fetch (POST)."}}},
                         {"contentPad", {{"type", "string"}}}}}},
+      .dependsOn   = {group + "/map"},
+      .order       = 5,
   });
 
   // ===========================================================================

@@ -565,10 +565,92 @@ void toolMyCustom()
 | `methods` | Allowed HTTP verbs; narrows the tool's `method` enum. Empty = all four. |
 | `hidden` | Exclude the action from MCP entirely (neither listed nor callable). |
 | `inputSchema` | Extra JSON-Schema properties merged on top of the auto-derived schema. |
+| `dependsOn` | Actions that must have run before this one (e.g. `{"ngnt/open"}`). Enforced, and used to order `tools/list`. |
+| `order` | Tie-break among tools whose prerequisites are all met (`spectra` before `point`). Lower first; `0` = default. |
+| `label` | Template for a node's name in the combination tree, filled from the node's arguments (e.g. `{{ binningName }} ({{ levels }})`). |
 
 Changing a description requires only editing the macro and reloading — no recompilation of
 the server. Actions with no registered metadata keep the generic description, and
 `debug`/`openapi/inspector`/`inspector/openapi` stay excluded by default.
+
+### Tool dependencies
+
+A group of tools is usually a pipeline (`ngnt/open` → `ngnt/reshape` → `ngnt/map` → …), so a
+tool declares what has to have run before it with `dependsOn`:
+
+```cpp
+Ndmspc::RegisterMcpTool("ngnt/reshape", {
+    .description = "Reshape the opened tree into a navigator.",
+    .dependsOn   = {"ngnt/open"},
+    .order       = 2,
+});
+```
+
+That has three effects:
+
+- **Order** — `tools/list` returns the tools in dependency order (a tool follows the tools it
+  depends on), so a client reads the group in the order it is used. Two tools sharing a
+  prerequisite are sequenced by `order`; tools that declare neither keep the alphabetical
+  order they always had. A dependency cycle is logged and the unordered tools are appended
+  rather than dropped.
+- **Expose** — each tool carries its prerequisites as `_meta["ndmspc.io/dependsOn"]` (MCP
+  reserves `_meta` for extensions, and the domain prefix is the shape the spec asks for), so a
+  client can see the dependency without waiting for the order.
+- **Enforce** — a call whose prerequisite has not run is refused before the handler runs:
+
+  ```json
+  { "result": "failure", "code": "prerequisite_required",
+    "required": "ngnt/open", "error": "Requires ngnt/open to be run first" }
+  ```
+
+  "Has run" is the server's own workspace history — the record of the actions that ran
+  successfully — so no separate state is kept: `ngnt/open` `DELETE` (which closes the file)
+  removes the entries that followed it, and the tools that depended on it are refused again.
+  A prerequisite that is not registered here (a tool another macro would provide) is ignored,
+  so a macro stays loadable on its own.
+
+This enforcement is the framework's own: it applies to `/api/*`, the WebSocket bridge and
+`tools/call` alike, because a tool call is dispatched through the same path.
+
+### Combinations
+
+A group whose tools declare `dependsOn` is a **pipeline**, and a session is a **tree of instances**
+of it: several opens, several reshapes under one open, several maps under one reshape, and so on.
+Each instance is a **node**; a **combination** is a path of nodes from a root down to a node
+(`i1/i4`); the **active** combination is the one whose objects are live.
+
+- **Creating** — a `POST` adds a child node under the active node whose action is this action's
+  dependency. `POST ngnt/open {file}` creates a root (open declares no dependency); a later
+  `POST ngnt/reshape {binningName, levels}` attaches to the open that is active. A second reshape
+  is a **second node**, not a replacement.
+- **Addressing** — every action takes an optional `path` (array of node ids): the parent to attach
+  to (a `POST`) or the node to act on (`PATCH`/`DELETE`/`GET`). Omitted, a `POST` extends the active
+  path and a `PATCH`/`DELETE` targets the active node of its own action, which is what keeps a
+  client that sends no `path` behaving as it always did. A `path` whose parent is the wrong action
+  is refused with `code: invalid_combination`; a `path` naming a prerequisite that does not exist
+  yet is refused with `code: prerequisite_required` and the action to run.
+- **Materializing** — only the active combination is live (one `NGnTree`, one navigator). Acting on
+  a node makes its combination active by truncating the live chain at the point it diverges and
+  replaying the remaining nodes' `POST` handlers, so the objects, the workspace schema and the
+  history all describe that combination. The nodes carry only their arguments, so many combinations
+  cost no open files.
+- **Reading** — the tree is sent as `payload.combinations` on every change
+  (`{active:[ids], roots:[{id, action, label, params, children}]}`), and reported by `GET /api/` and
+  `state` under `combinations`; a client that has just connected over the websocket is sent the same
+  frame (with the workspace schema) as it joins, so a view opens on the room's current state rather
+  than on an empty one. A node's `label` is rendered from its action's `label` template when
+  it declares one (`{{ arg }}` filled from the node's arguments, arrays as compact JSON), else guessed
+  from its first string argument; a node with neither falls back to the action's short name.
+- **Per-node state** — the drill-down point belongs to the node it was set on, so it comes back when
+  that combination is materialized again; it is still mirrored into `metadata.spectra.point` while a
+  combination is live.
+- **Persisting** — a room's stored session carries the tree (`snapshot.combinations`), and a room
+  that wakes restores the tree and materializes the active path. A `room/restore` from a backup
+  replays the recorded `actions`, which restores the live combination.
+
+A group that declares no dependency (`health`, `state`, `room/*`, and every macro without
+`dependsOn`) is untouched: it keeps the plain, single-session behaviour, with no nodes and no
+`path`.
 
 ### HTTP transport
 

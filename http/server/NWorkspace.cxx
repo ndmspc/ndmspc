@@ -115,6 +115,14 @@ bool NWorkspace::RemoveEntry(const std::string & name)
   return found;
 }
 
+bool NWorkspace::HasEntry(const std::string & name) const
+{
+  for (const auto * entry : fEntries) {
+    if (entry && name == entry->GetName()) return true;
+  }
+  return false;
+}
+
 void NWorkspace::Clear(Option_t *)
 {
   for (int i = static_cast<int>(fEntries.size()) - 1; i >= 0; i--) {
@@ -122,6 +130,7 @@ void NWorkspace::Clear(Option_t *)
   }
   fWorkspace = nullptr;
   fState     = nullptr;
+  fCombinations = nullptr;
 }
 
 bool NWorkspace::LoadFromFile(const std::string & filename)

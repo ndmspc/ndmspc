@@ -68,6 +68,12 @@ public:
 
   /// @brief Get the workspace history entries.
   const std::vector<NHistoryEntry*>& GetEntries() const { return fEntries; }
+  /**
+   * @brief Whether the history holds a successfully-run action by this name.
+   * @param name The action's full route name (e.g. "ngnt/open").
+   * @return True when such an entry is present.
+   */
+  bool HasEntry(const std::string& name) const;
   /// @brief Get the mutable workspace schema JSON.
   json& GetWorkspace() { return fWorkspace; }
   /// @brief Get the read-only workspace schema JSON.
@@ -76,6 +82,11 @@ public:
   json& GetState() { return fState; }
   /// @brief Get the read-only workspace state JSON.
   const json& GetState() const { return fState; }
+
+  /// @brief Get the mutable combinations tree JSON (see Ndmspc::NInstanceTree).
+  json& GetCombinations() { return fCombinations; }
+  /// @brief Get the read-only combinations tree JSON.
+  const json& GetCombinations() const { return fCombinations; }
 
   /// @brief Get an array of {key, schema} objects in fEntries order for the inspector.
   json GetInspectorEntries() const;
@@ -99,6 +110,7 @@ public:
 private:
   json fWorkspace{}; ///< Workspace schema JSON object
   json fState{};     ///< Additional state information for the workspace
+  json fCombinations{}; ///< The combination tree of created action instances (NInstanceTree)
   std::vector<NHistoryEntry*> fEntries; ///< Workspace entries
   NHttpServer * fServer{nullptr}; ///< Pointer to the HTTP server for invoking handlers
 

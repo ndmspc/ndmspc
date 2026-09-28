@@ -101,6 +101,19 @@ class NMcpServer {
    * @return Pointer to the tool info, or nullptr when none is registered.
    */
   const NMcpToolInfo * LookupToolInfo(const std::string & handlerKey) const;
+  /**
+   * @brief Order handler actions so a tool follows the tools it depends on.
+   *
+   * The declared NMcpToolInfo::dependsOn relations are honoured; among tools whose prerequisites
+   * are all met (and for tools that declare none) `order` then the handler key decide, so the
+   * result is the alphabetical order it always was unless a macro sequences its group. A
+   * dependency cycle - a mis-declaration - is not fatal: the actions it leaves unordered are
+   * appended rather than dropped.
+   *
+   * @param keys The actions to order (handler-key order in, dependency order out).
+   * @return The same actions, ordered.
+   */
+  std::vector<std::string> OrderByDependency(const std::vector<std::string> & keys) const;
 
   NHttpServer * fServer{nullptr}; ///< Server whose handlers are exposed
   Options         fOpts;            ///< MCP server options
