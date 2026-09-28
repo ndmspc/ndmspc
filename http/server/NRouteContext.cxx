@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdio>
 #include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NInstanceTree.h"
 #include "NRouteContext.h"
 
 namespace Ndmspc {
@@ -52,6 +53,14 @@ std::vector<int> NRouteContext::GetStatePoint(const std::string & key) const
 {
   auto * srv = gNHttpServer;
   if (!srv) return {};
+  // The point belongs to the combination node the request runs for; fall back to the live state
+  // (an action outside a combination tree, or a node that has none yet).
+  const std::string node = srv->GetCurrentInstance();
+  if (!node.empty()) {
+    NInstanceTree tree(srv->GetCombinations());
+    const json    state = tree.State(node);
+    if (state.is_object() && state.contains("point")) return state["point"].get<std::vector<int>>();
+  }
   json & state = srv->GetState();
   if (state.contains(key) && state[key].contains("point")) {
     return state[key]["point"].get<std::vector<int>>();
@@ -63,6 +72,14 @@ void NRouteContext::SetStatePoint(const std::vector<int> & point, const std::str
 {
   auto * srv = gNHttpServer;
   if (!srv) return;
+  // Store the point on the combination node it belongs to, so it comes back when that combination
+  // is materialized again.
+  const std::string node = srv->GetCurrentInstance();
+  if (!node.empty()) {
+    NInstanceTree tree(srv->GetCombinations());
+    tree.SetState(node, json{{"point", point}});
+  }
+  // Mirror into the live state so the inspector metadata and the room snapshot keep working.
   srv->GetState()[key]["point"] = point;
   // Also send updated state to websocket output
   fWsOut["state"] = srv->GetState();

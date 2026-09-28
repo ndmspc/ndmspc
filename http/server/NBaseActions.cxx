@@ -11,6 +11,7 @@
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NInstanceTree.h"
 
 namespace Ndmspc {
 
@@ -73,6 +74,7 @@ bool RegisterBaseActions()
         httpOut["payload"]["inspector"] = schema["inspector"];
         httpOut["payload"]["metadata"] = schema["metadata"];
         httpOut["payload"]["state"]["heartbeat"] = server->GetHeartbeatMs();
+        httpOut["payload"]["combinations"] = Ndmspc::NInstanceTree(server->GetCombinations()).ToTree();
         NLogInfo("State GET inspector: %s", schema["inspector"].dump().c_str());
       }
       catch (const std::exception & e) {

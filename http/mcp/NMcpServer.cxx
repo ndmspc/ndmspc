@@ -41,6 +41,19 @@ json ErrorResponse(const json & id, int code, const std::string & message)
   return response;
 }
 
+/// @brief The HTTP verb a tool call uses when the caller names none: the one the tool advertises.
+///
+/// The tool's `inputSchema` says which verb its `method` defaults to (GET for a read-only action
+/// such as `state`). Sending POST regardless would make a read-only action take a write path.
+std::string DefaultMethodFor(const NMcpToolInfo * info)
+{
+  if (info != nullptr && !info->methods.empty()) {
+    const bool hasPost = std::find(info->methods.begin(), info->methods.end(), "POST") != info->methods.end();
+    return hasPost ? "POST" : info->methods.front();
+  }
+  return "POST";
+}
+
 } // namespace
 
 NMcpServer::NMcpServer(NHttpServer * server) : NMcpServer(server, Options{}) {}
@@ -132,15 +145,23 @@ json NMcpServer::BuildTools() const
   }
 
   std::set<std::string> usedNames;
-  const auto            handlers = fServer->GetHttpHandlers();
-  for (const auto & [key, fn] : handlers) {
-    (void)fn;
-    if (IsExcluded(key)) continue;
+  std::vector<std::string> keys;
+  {
+    const auto handlers = fServer->GetHttpHandlers();
+    for (const auto & [key, fn] : handlers) {
+      (void)fn;
+      if (IsExcluded(key)) continue;
 
+      const std::string toolName = ToolName(key);
+      if (toolName.empty()) continue;
+      if (!usedNames.insert(toolName).second) continue; // skip name collisions
+
+      keys.push_back(key);
+    }
+  }
+
+  for (const auto & key : OrderByDependency(keys)) {
     const std::string toolName = ToolName(key);
-    if (toolName.empty()) continue;
-    if (!usedNames.insert(toolName).second) continue; // skip name collisions
-
     const std::string shortKey = ShortKey(key);
 
     const NMcpToolInfo * info = LookupToolInfo(key);
@@ -196,10 +217,84 @@ json NMcpServer::BuildTools() const
     if (info != nullptr && !info->title.empty()) tool["title"] = info->title;
     tool["description"] = Describe(key);
     tool["inputSchema"] = inputSchema;
+    // Publish the tool's prerequisites: MCP reserves `_meta` for extensions, and a
+    // domain-prefixed key is the shape the spec asks for. The position in `tools` already
+    // carries the order; this says what has to have run first.
+    if (info != nullptr && !info->dependsOn.empty()) {
+      tool["_meta"]["ndmspc.io/dependsOn"] = info->dependsOn;
+    }
     tools.push_back(tool);
   }
 
   return json{{"tools", tools}};
+}
+
+std::vector<std::string> NMcpServer::OrderByDependency(const std::vector<std::string> & keys) const
+{
+  const std::set<std::string> present(keys.begin(), keys.end());
+
+  // Tie-break: lower `order` first, then the handler key, so tools that declare neither keep the
+  // alphabetical order they had before dependencies existed.
+  std::map<std::string, int> orderOf;
+  for (const auto & key : keys) {
+    const NMcpToolInfo * info = LookupToolInfo(key);
+    orderOf[key]              = info != nullptr ? info->order : 0;
+  }
+  const auto rank = [&orderOf](const std::string & key) { return std::make_pair(orderOf.at(key), key); };
+
+  std::map<std::string, std::vector<std::string>> dependents;
+  std::map<std::string, int>                      indegree;
+  for (const auto & key : keys) {
+    indegree[key] = 0;
+  }
+  for (const auto & key : keys) {
+    const NMcpToolInfo * info = LookupToolInfo(key);
+    if (info == nullptr) continue;
+    for (const auto & dep : info->dependsOn) {
+      // Only a prerequisite that is actually listed here can gate this tool; one naming an
+      // unregistered action (another macro's) is ignored.
+      if (dep == key || present.find(dep) == present.end()) continue;
+      if (std::find(dependents[dep].begin(), dependents[dep].end(), key) != dependents[dep].end()) continue;
+      dependents[dep].push_back(key);
+      indegree[key]++;
+    }
+  }
+
+  // Kahn's algorithm, the ready set kept ordered by the tie-break above.
+  std::set<std::pair<int, std::string>> ready;
+  for (const auto & key : keys) {
+    if (indegree[key] == 0) ready.insert(rank(key));
+  }
+
+  std::vector<std::string> ordered;
+  ordered.reserve(keys.size());
+  while (!ready.empty()) {
+    const auto        it  = ready.begin();
+    const std::string key = it->second;
+    ready.erase(it);
+    ordered.push_back(key);
+    for (const auto & dependent : dependents[key]) {
+      if (--indegree[dependent] == 0) ready.insert(rank(dependent));
+    }
+  }
+
+  if (ordered.size() != keys.size()) {
+    // A cycle (a mis-declared dependency): keep every tool, appending the ones that could not be
+    // ordered, so a bad declaration never hides a tool.
+    NLogWarning("Tool dependency cycle: %zu of %zu actions could not be ordered by dependency",
+                keys.size() - ordered.size(), keys.size());
+    std::set<std::string> emitted(ordered.begin(), ordered.end());
+    std::vector<std::string> rest;
+    for (const auto & key : keys) {
+      if (emitted.find(key) == emitted.end()) rest.push_back(key);
+    }
+    std::sort(rest.begin(), rest.end(), [&rank](const std::string & a, const std::string & b) {
+      return rank(a) < rank(b);
+    });
+    ordered.insert(ordered.end(), rest.begin(), rest.end());
+  }
+
+  return ordered;
 }
 
 json NMcpServer::CallTool(const std::string & toolName, const json & arguments) const
@@ -213,7 +308,9 @@ json NMcpServer::CallTool(const std::string & toolName, const json & arguments) 
   }
 
   json in = arguments.is_object() ? arguments : json::object();
-  std::string method = "POST";
+  // Default to the verb the tool advertises (its schema default) rather than always POST, so a
+  // read-only tool such as `state` is not sent a write verb it would answer differently.
+  std::string method = DefaultMethodFor(LookupToolInfo(handlerKey));
   if (in.contains("method") && in["method"].is_string()) {
     method = in["method"].get<std::string>();
     in.erase("method");

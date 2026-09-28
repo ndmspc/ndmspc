@@ -342,6 +342,11 @@ void NWsHandler::SendWelcomeAndAnnounce(ULong_t wsId, const std::string & userna
     if (recipient != wsId) SendCharStarWS(recipient, (username + " has joined the chat!").c_str());
   }
   Broadcast(BuildClientsMessage().dump());
+
+  // A client that has just joined has to be told what the room already holds — the combination tree
+  // and the workspace schema (the forms' live defaults). Without it a view that shows them is empty
+  // until the next action, even though the room has combinations.
+  if (gNHttpServer != nullptr) SendTo(wsId, gNHttpServer->SessionState().dump());
 }
 
 void NWsHandler::SendAuthenticationError(ULong_t wsId, const std::string & code, const std::string & message, bool retryable)

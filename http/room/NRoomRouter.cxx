@@ -1845,8 +1845,23 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
   SetProfile(name, profile);
 
   const json access  = RoomAccess(name);
-  const json service = NRoomRouter::ServiceObject(cfg, name, value, RouterBaseUrl(), access, RoomOwner(name),
-                                                 skeleton, profile, resources);
+  json       service = NRoomRouter::ServiceObject(cfg, name, value, RouterBaseUrl(), access, RoomOwner(name),
+                                                  skeleton, profile, resources);
+
+  // A room created for a restore is born with its session already on it. A room asks the router for
+  // its session as it comes up, and gives up for good when it is told there is nothing stored — so an
+  // annotation written once it is ready is too late, and only the live combination would come back
+  // (the caller's replay replays actions, not the combination tree). Creating it with the annotation
+  // lets the room restore itself, its whole tree included.
+  {
+    std::string session;
+    {
+      std::lock_guard<std::mutex> lock(fMutex);
+      const auto                  it = fRooms.find(name);
+      if (it != fRooms.end()) session = it->second.snapshot;
+    }
+    if (!session.empty()) service["metadata"]["annotations"][kNRoomStateAnnotation] = session;
+  }
   std::string applyCode;
   if (!Apply(SvcCollection(), SvcPath(name), service, error, applyCode)) return fail(error, applyCode);
 
@@ -3671,6 +3686,19 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
       if (access.is_object() && !access.empty()) {
         if (state.tokenRw.empty()) state.tokenRw = access.value("rw", "");
         if (state.tokenRo.empty()) state.tokenRo = access.value("ro", "");
+      }
+    }
+
+    // The document's session goes on the room before the room exists: the created Service carries it
+    // (see EnsureWorker), so the room restores its whole combination tree as it comes up. Storing it
+    // only afterwards is too late for a room — it asks for its session as it starts and gives up for
+    // good when told there is none, which left only the live combination to be replayed.
+    const json stored = NdmspcRoomMember(entry, "snapshot");
+    if (stored.is_object() && !stored.empty()) {
+      const std::string text = Ndmspc::NRoomSession::Encode(stored);
+      if (!text.empty()) {
+        std::lock_guard<std::mutex> lock(fMutex);
+        fRooms[NRoomRouter::RoomName(cfg, id)].snapshot = text;
       }
     }
 

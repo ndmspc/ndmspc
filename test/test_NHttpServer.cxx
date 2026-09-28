@@ -3,8 +3,11 @@
 #include "ndmspc/http/NBaseActions.h"
 #include "ndmspc/http/NHttpServer.h"
 
+#include <THttpCallArg.h>
+
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <string>
 
 namespace {
@@ -124,4 +127,163 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
 
   Ndmspc::gNdmspcHttpHandlers = previousHandlers;
   Ndmspc::gNdmspcMcpTools      = previousTools;
+}
+
+namespace {
+
+// Non-capturing, so it converts to Ndmspc::NHttpFuncPtr. Reports success so the action lands in
+// the workspace history, which is what says whether a prerequisite has been met.
+void SuccessHandler(std::string /*method*/, json & /*in*/, json & out, json & /*wsOut*/,
+                    std::map<std::string, TObject *> & /*objects*/)
+{
+  out["result"] = "success";
+}
+
+// One request through the same dispatch /api/* uses, returning the response body.
+std::string Request(Ndmspc::NHttpServer * server, const char * method, const char * action)
+{
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod(method);
+  arg->SetPathName("api");
+  arg->SetFileName(action);
+  arg->SetPostData("{}");
+  server->ProcessRequest(arg);
+  return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+}
+
+// The same, with a body.
+std::string RequestJson(Ndmspc::NHttpServer * server, const char * method, const char * action, const json & body)
+{
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod(method);
+  arg->SetPathName("api");
+  arg->SetFileName(action);
+  arg->SetPostData(body.dump());
+  server->ProcessRequest(arg);
+  return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+}
+
+} // namespace
+
+TEST(NHttpServerToolDependencyTest, ADependentActionIsRefusedUntilItsPrerequisiteRuns)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ngnt/open"]    = SuccessHandler;
+  handlers["ngnt/reshape"] = SuccessHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
+  tools["ngnt/open"]             = {}; // a prerequisite must itself be a known tool to be enforced
+  tools["ngnt/reshape"]          = {.dependsOn = {"ngnt/open"}};
+  Ndmspc::gNdmspcMcpTools        = &tools;
+
+  // reshape before open: refused, naming the action to run first.
+  const std::string refused = Request(server, "POST", "ngnt/reshape");
+  EXPECT_NE(refused.find("\"code\":\"prerequisite_required\""), std::string::npos);
+  EXPECT_NE(refused.find("\"required\":\"ngnt/open\""), std::string::npos);
+
+  // open runs, and reshape is admitted once its prerequisite is met.
+  EXPECT_NE(Request(server, "POST", "ngnt/open").find("\"result\":\"success\""), std::string::npos);
+  EXPECT_EQ(Request(server, "POST", "ngnt/reshape").find("prerequisite_required"), std::string::npos);
+
+  Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
+}
+
+TEST(NHttpServerToolDependencyTest, ClosingThePrerequisiteRevokesItsDependents)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ngnt/open"]    = SuccessHandler;
+  handlers["ngnt/reshape"] = SuccessHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
+  tools["ngnt/open"]             = {};
+  tools["ngnt/reshape"]          = {.dependsOn = {"ngnt/open"}};
+  Ndmspc::gNdmspcMcpTools        = &tools;
+
+  EXPECT_NE(Request(server, "POST", "ngnt/open").find("success"), std::string::npos);
+  EXPECT_EQ(Request(server, "POST", "ngnt/reshape").find("prerequisite_required"), std::string::npos);
+
+  // Closing the file (DELETE open) drops the history entries that followed it, so the tools that
+  // depended on it are refused again. This is why no separate "satisfied" state is needed.
+  Request(server, "DELETE", "ngnt/open");
+  EXPECT_NE(Request(server, "POST", "ngnt/reshape").find("prerequisite_required"), std::string::npos);
+
+  Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
+}
+
+TEST(NHttpServerToolDependencyTest, AnActionWithNoDeclaredPrerequisiteIsNeverGated)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ngnt/reshape"] = SuccessHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
+  Ndmspc::gNdmspcMcpTools        = nullptr; // no tool metadata at all
+
+  EXPECT_NE(Request(server, "POST", "ngnt/reshape").find("\"result\":\"success\""), std::string::npos);
+
+  Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
+}
+
+// A group whose tools declare dependencies is a combination tree: POST creates a node under the
+// active (or named) parent, so several opens and several reshapes per open can coexist.
+TEST(NHttpServerCombinationTest, PostCreatesNodesAndBranchesUnderAParent)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ngnt/open"]    = SuccessHandler;
+  handlers["ngnt/reshape"] = SuccessHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
+  tools["ngnt/open"]             = {};
+  tools["ngnt/reshape"]          = {.dependsOn = {"ngnt/open"}};
+  Ndmspc::gNdmspcMcpTools        = &tools;
+
+  // An `open` is a root node (its action declares no parent).
+  const json open1 = json::parse(RequestJson(server, "POST", "ngnt/open", {{"file", "a.root"}}));
+  ASSERT_TRUE(open1.contains("combination")) << open1.dump();
+  const std::string i1 = open1["combination"]["id"];
+
+  // A reshape attaches to the open that is active.
+  const json reshape1 = json::parse(RequestJson(server, "POST", "ngnt/reshape", {{"binningName", "x"}}));
+  ASSERT_TRUE(reshape1.contains("combination")) << reshape1.dump();
+  const std::string i2 = reshape1["combination"]["id"];
+  EXPECT_EQ(reshape1["combination"]["path"], json::array({i1, i2}));
+
+  // A second reshape is a second node under the same open, not a replacement.
+  const json        reshape2 = json::parse(RequestJson(server, "POST", "ngnt/reshape", {{"binningName", "y"}}));
+  const std::string i3       = reshape2["combination"]["id"];
+  ASSERT_NE(i2, i3);
+
+  // Two opens coexist as two roots, each keeping its own children.
+  const json        open2 = json::parse(RequestJson(server, "POST", "ngnt/open", {{"file", "b.root"}}));
+  const std::string i4    = open2["combination"]["id"];
+
+  const json tree = server->GetCombinations();
+  EXPECT_EQ(tree["nodes"][i1]["children"], json::array({i2, i3}));
+  EXPECT_EQ(tree["nodes"][i4]["params"]["file"].get<std::string>(), "b.root");
+  EXPECT_EQ(tree["active"], json::array({i4}));
+
+  // A reshape under a reshape is refused: it has to sit under an open.
+  const json bad =
+      json::parse(RequestJson(server, "POST", "ngnt/reshape", {{"path", json::array({i2})}, {"binningName", "z"}}));
+  EXPECT_EQ(bad["code"].get<std::string>(), "invalid_combination");
+
+  Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
 }

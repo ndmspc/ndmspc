@@ -75,6 +75,25 @@ extern NdmspcWsConnectFilter gNdmspcWsConnectFilter;
  *       .methods     = {"GET", "POST", "DELETE"},
  *   });
  * \endcode
+ *
+ * A tool may also declare what has to have run before it: the actions named in
+ * dependsOn are enforced (a call whose prerequisite has not run is refused
+ * naming it) and are used to order `tools/list`, so a group reads in the order
+ * its tools have to be used. When two tools share a prerequisite, `order`
+ * sequences them (lower first):
+ *
+ * \code
+ *   Ndmspc::RegisterMcpTool("ngnt/reshape", {
+ *       .description = "Reshape the opened tree.",
+ *       .dependsOn   = {"ngnt/open"},
+ *       .order       = 2,
+ *       .label       = "{{ binningName }} ({{ levels }})",
+ *   });
+ * \endcode
+ *
+ * `label` names a node in the combination tree: the template is filled from the node's own
+ * arguments (`{{ arg }}`), so a macro says what its step reads as rather than the framework
+ * guessing at the first string argument.
  */
 struct NMcpToolInfo {
   std::string              description{};  ///< Human-readable tool description
@@ -82,6 +101,9 @@ struct NMcpToolInfo {
   std::vector<std::string> methods{};      ///< Allowed HTTP verbs; empty = all four
   bool                     hidden{false};  ///< Exclude this action from MCP entirely
   json                     inputSchema{};  ///< Optional extra input-schema properties merged in
+  std::vector<std::string> dependsOn{};    ///< Actions that must have run first (e.g. "ngnt/open")
+  int                      order{0};       ///< Tie-break among ready tools (lower first; 0 = default)
+  std::string              label{};        ///< Node name template, e.g. "{{ binningName }} ({{ levels }})"
 };
 
 /// @brief Map of handler action (e.g. "ngnt/open") to its MCP metadata.
@@ -306,6 +328,22 @@ class NHttpServer : public THttpServer {
   json &                                        GetWorkspace() { return fWorkspace.GetWorkspace(); }
   /// @brief Get the mutable workspace state JSON.
   json &                                        GetState() { return fWorkspace.GetState(); }
+  /// @brief Get the mutable combination tree JSON (see Ndmspc::NInstanceTree).
+  json &                                        GetCombinations() { return fWorkspace.GetCombinations(); }
+  /// @brief The combination node this request runs for ("" when it is not a node action).
+  const std::string &                           GetCurrentInstance() const { return fCurrentInstance; }
+
+  /**
+   * @brief The session state a client needs to render it, as one websocket frame.
+   *
+   * A client that has just connected has to be told what the room already holds — the combination
+   * tree and the workspace schema (whose `default`s the forms start from) — or its view would be
+   * empty until the next action, even though the room has combinations. The shape is the `ngnt`
+   * frame the dispatch broadcast uses, so a client reads it with the same handler.
+   *
+   * @return The frame, or a frame carrying an empty tree/schema when nothing has run yet.
+   */
+  json                                          SessionState();
   /// @brief Get the combined inspector schema for the workspace.
   json                                          GetInspectorSchema() const { return fWorkspace.GetInspectorSchema(); }
   /// @brief Set the group prefix used for workspace routes.
@@ -425,6 +463,35 @@ class NHttpServer : public THttpServer {
 
   protected:
   /**
+   * @brief The first declared prerequisite of an action that has not run.
+   *
+   * A tool declares its prerequisites in NMcpToolInfo::dependsOn; they are enforced before its
+   * handler runs, so a call whose prerequisite has not run is refused naming the action to run
+   * first instead of failing on a missing object. The workspace history - the record of the
+   * actions that ran successfully - is what says whether a prerequisite is met, so this needs no
+   * state of its own.
+   *
+   * @param action The handler action about to run (e.g. "ngnt/reshape").
+   * @return The unmet prerequisite's action, or "" when all are met (or none is declared).
+   */
+  std::string UnmetPrerequisite(const std::string & action) const;
+
+  /**
+   * @brief Make the live session exactly the given combination path.
+   *
+   * Only one combination is live at a time (one NGnTree, one navigator); this truncates the live
+   * chain at the point where the path diverges from it and replays the remaining nodes' POST
+   * handlers with their stored params, so the objects, the workspace schema and the history all
+   * describe that combination. A node that cannot be materialized is reported in @p out and returns
+   * false, leaving the request unserved.
+   *
+   * @param path The node ids from a root down to the node to make live.
+   * @param out The response, filled with the reason when materialization fails.
+   * @return True when the path is live.
+   */
+  bool MaterializeCombination(const std::vector<std::string> & path, json & out);
+
+  /**
    * @brief Start the background heartbeat thread (internal).
    */
   void StartHeartbeatThread();
@@ -471,6 +538,7 @@ class NHttpServer : public THttpServer {
   mutable std::mutex                            fHandlersMutex;    ///<! Guards fHttpHandlers
   std::map<std::string, Ndmspc::NHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
+  std::string                                   fCurrentInstance;    ///<! Combination node this request targets ("" = none)
   NWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
   bool fUseHistory{true};  ///<! Flag to indicate whether to use history in processing requests
   bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled

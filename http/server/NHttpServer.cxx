@@ -20,6 +20,7 @@
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NHistoryEntry.h"
 #include "ndmspc/http/NHttpRequest.h"
+#include "ndmspc/http/NInstanceTree.h"
 #include "ndmspc/http/NMcpServer.h"
 #include "ndmspc/http/NOidcHttpAuthenticator.h"
 #include "ndmspc/http/NRoomAccess.h"
@@ -499,6 +500,23 @@ json JsonMember(const json & object, const char * key)
 }
 } // namespace
 
+json NHttpServer::SessionState()
+{
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+  const json & workspace = fWorkspace.GetWorkspace();
+
+  json schema;
+  schema["properties"] = workspace.is_object() ? workspace : json::object();
+  if (!fGroup.empty()) schema["group"] = fGroup;
+
+  json payload;
+  payload["combinations"]        = tree.ToTree();
+  payload["workspace"]["schema"] = schema;
+
+  return json{{"event", "ngnt"}, {"payload", payload}};
+}
+
 json NHttpServer::RoomSessionSnapshot()
 {
   // A session is exactly what the ngnt/open and ngnt/reshape POSTs recorded plus the
@@ -523,7 +541,17 @@ json NHttpServer::RoomSessionSnapshot()
   json         point;
   if (state.is_object() && state.contains("spectra")) point = JsonMember(state["spectra"], "point");
 
-  return NRoomSession::Build(fRoomId, file, history, point);
+  json snapshot = NRoomSession::Build(fRoomId, file, history, point);
+  if (snapshot.is_null()) return snapshot;
+
+  // The whole combination tree rides along, so a room that wakes can rebuild every combination it
+  // held, not only the one that was live. A snapshot without it (an older room, or a session that
+  // declares no dependencies) restores the single combination the `actions` describe.
+  const json combinations = Ndmspc::NInstanceTree(fWorkspace.GetCombinations()).Snapshot();
+  if (JsonMember(combinations, "nodes").is_object() && !JsonMember(combinations, "nodes").empty()) {
+    snapshot["combinations"] = combinations;
+  }
+  return snapshot;
 }
 
 void NHttpServer::RoomSessionPush()
@@ -697,6 +725,27 @@ void NHttpServer::RoomSessionRestoreOnce()
 
   const json snapshot = JsonMember(payload, "snapshot");
 
+  // A snapshot that carries a combination tree restores it directly: the tree is a record the
+  // server adopts as-is, and the active combination is materialized (its nodes' POST handlers
+  // replayed) - neither of which has a client-facing verb, which is why this is done here rather
+  // than through the dispatcher below. Older snapshots, and sessions that declare no dependencies,
+  // fall through to the action replay.
+  const json combinations = JsonMember(snapshot, "combinations");
+  if (combinations.is_object() && JsonMember(combinations, "nodes").is_object() &&
+      !JsonMember(combinations, "nodes").empty()) {
+    Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+    tree.Restore(combinations);
+    json materializeOut;
+    if (MaterializeCombination(tree.Active(), materializeOut)) {
+      NLogInfo("Room '%s' restored its stored combinations", fRoomId.c_str());
+      release(true);
+      return;
+    }
+    NLogWarning("Room '%s' could not materialize its stored combination: %s", fRoomId.c_str(),
+                NUtils::GetJsonString(JsonMember(materializeOut, "error")).c_str());
+    // Fall through: the action replay below at least restores the single combination it describes.
+  }
+
   // Replay through our own request path, so the history, workspace and broadcasts behave
   // exactly as they do for a client - the route NMcpServer::CallTool already takes. Dispatched as
   // the server itself (a stated identity, empty because no client is behind a replay): that is
@@ -767,6 +816,104 @@ bool IsDefaultPageRequest(THttpCallArg * arg)
   if (name == "index.htm" || name == "default.htm") return true;
   const char * path = arg->GetPathName();
   return name.IsNull() && path != nullptr && *path == 0;
+}
+
+} // namespace
+
+namespace {
+
+/// @brief The request's own arguments, without the server-added keys (see Dispatch).
+json NodeParams(const json & in)
+{
+  json params = json::object();
+  if (!in.is_object()) return params;
+  for (auto it = in.begin(); it != in.end(); ++it) {
+    if (!it.key().empty() && it.key()[0] == '_') continue; // _query / _identity / _ws
+    if (it.key() == "path") continue;                      // the node's position, not its params
+    params[it.key()] = it.value();
+  }
+  return params;
+}
+
+/// @brief The node ids a request names, or {} when it names none.
+std::vector<std::string> RequestPath(const json & in)
+{
+  std::vector<std::string> path;
+  if (in.is_object() && in.contains("path") && in["path"].is_array()) {
+    for (const auto & id : in["path"]) {
+      if (id.is_string()) path.push_back(id.get<std::string>());
+    }
+  }
+  return path;
+}
+
+/// @brief The deepest active node whose action is `action`, as a path ({} when none).
+std::vector<std::string> ActivePathFor(Ndmspc::NInstanceTree & tree, const std::string & action)
+{
+  const auto active = tree.Active();
+  for (auto it = active.rbegin(); it != active.rend(); ++it) {
+    if (tree.Action(*it) == action) return tree.Path(*it);
+  }
+  return {};
+}
+
+/// @brief Resolve the parent node a POST attaches to, against the dependency template.
+bool ResolveParentInstance(Ndmspc::NInstanceTree & tree, const std::string & action, const json & in,
+                           std::string & parentId, std::string & required, std::string & error)
+{
+  const std::string need = Ndmspc::NInstanceTree::ParentActionFor(action);
+  std::vector<std::string> path = RequestPath(in);
+  if (path.empty() && !need.empty()) path = ActivePathFor(tree, need);
+
+  if (need.empty()) {
+    if (!path.empty()) {
+      error = action + " is a root action and cannot be nested";
+      return false;
+    }
+    parentId = "";
+    return true;
+  }
+  if (path.empty()) {
+    // The prerequisite simply has not been created: report it as a missing prerequisite so a client
+    // is told which action to run, exactly as the flat history case does.
+    required = need;
+    error    = "no " + need + " to attach to; create one first";
+    return false;
+  }
+  const std::string id = path.back();
+  if (!tree.Has(id)) {
+    error = "unknown combination node '" + id + "'";
+    return false;
+  }
+  if (tree.Action(id) != need) {
+    error = action + " must sit under a " + need + ", not a " + tree.Action(id);
+    return false;
+  }
+  parentId = id;
+  return true;
+}
+
+/// @brief Resolve the node a PATCH/DELETE/GET targets.
+bool ResolveTargetInstance(Ndmspc::NInstanceTree & tree, const std::string & action, const json & in,
+                           std::string & nodeId, std::string & error)
+{
+  std::vector<std::string> path = RequestPath(in);
+  if (path.empty()) path = ActivePathFor(tree, action);
+  if (path.empty()) {
+    error = "no " + action + " node; run it first";
+    return false;
+  }
+  const std::string id = path.back();
+  if (!tree.Has(id)) {
+    error = "unknown combination node '" + id + "'";
+    return false;
+  }
+  if (tree.Action(id) != action) {
+    error = "node '" + id + "' is a " + tree.Action(id) + ", not a " + action;
+    return false;
+  }
+  nodeId = id;
+  return true;
 }
 
 } // namespace
@@ -887,6 +1034,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     out["state"]["history"]   = GetJson();
     out["state"]["users"]     = fNWsHandler ? fNWsHandler->GetClientCount() : 0;
     out["state"]["workspace"] = GetWorkspace();
+    out["state"]["combinations"] = Ndmspc::NInstanceTree(GetCombinations()).ToTree();
 
     // Server identity (same string as the CLI --version banner).
     out["state"]["server"]["name"]    = NDMSPC_NAME;
@@ -1025,16 +1173,98 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
         arg->SetContent("{\"error\": \"Unsupported action\"}");
         return;
       }
-      // Roll back any existing entry for this route (and every newer entry)
-      // before running the handler. Their DELETE handlers delete the stale
-      // in-memory objects and close the underlying files. Doing this first
-      // prevents those DELETE handlers from tearing down the objects this
-      // request is about to create under the same keys.
-      if (fUseHistory && !method.CompareTo("POST")) {
-        fWorkspace.RemoveEntry(fullpath.Data());
+
+      const std::string action   = fullpath.Data();
+      const bool        isPost   = !method.CompareTo("POST");
+      const bool        isDelete = !method.CompareTo("DELETE");
+      // A group whose tools declare dependencies is a combination tree (NInstanceTree): each
+      // request names the node it belongs to, and only the selected combination is live at a time.
+      const bool            nodeAction = Ndmspc::NInstanceTree::IsNodeAction(action);
+      Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+      bool        runHandler = true;
+      std::string parentId; ///< POST: the parent to attach to ("" = a new root)
+      std::string nodeId;   ///< PATCH/DELETE/GET: the node the request targets
+      std::string required; ///< When the refusal is a missing prerequisite, the action to run first
+      fCurrentInstance = "";
+
+      if (nodeAction) {
+        std::string error;
+        if (isPost) {
+          if (!ResolveParentInstance(tree, action, in, parentId, required, error)) {
+            out["result"] = "failure";
+            if (!required.empty()) {
+              out["code"]     = "prerequisite_required";
+              out["required"] = required;
+              out["error"]    = "Requires " + required + " to be run first";
+            }
+            else {
+              out["code"]  = "invalid_combination";
+              out["error"] = error;
+            }
+            runHandler = false;
+          }
+        }
+        else if (!ResolveTargetInstance(tree, action, in, nodeId, error)) {
+          out["result"] = "failure";
+          out["code"]   = "invalid_combination";
+          out["error"]  = error;
+          runHandler    = false;
+        }
+
+        // Make the combination this request belongs to the live one.
+        if (runHandler && !MaterializeCombination(isPost ? tree.Path(parentId) : tree.Path(nodeId), out)) {
+          runHandler = false;
+        }
+        if (runHandler && !isPost) fCurrentInstance = nodeId;
       }
 
-      handlerFn(method.Data(), in, out, wsOut, fObjectsMap);
+      if (runHandler) {
+        // A tool may declare prerequisites (NMcpToolInfo::dependsOn). For a node action they were
+        // just materialized, so this passes; for anything else the flat history says whether the
+        // prerequisite has run. Either way the refusal names the action to run first.
+        const std::string missing = UnmetPrerequisite(action);
+        if (!missing.empty()) {
+          NLogWarning("Refusing %s: prerequisite %s has not run", action.c_str(), missing.c_str());
+          out["result"]   = "failure";
+          out["code"]     = "prerequisite_required";
+          out["required"] = missing;
+          out["error"]    = "Requires " + missing + " to be run first";
+        }
+        else {
+          // Roll back any existing entry for this route (and every newer entry)
+          // before running the handler. Their DELETE handlers delete the stale
+          // in-memory objects and close the underlying files. Doing this first
+          // prevents those DELETE handlers from tearing down the objects this
+          // request is about to create under the same keys.
+          if (fUseHistory && isPost) {
+            fWorkspace.RemoveEntry(fullpath.Data());
+          }
+
+          handlerFn(method.Data(), in, out, wsOut, fObjectsMap);
+        }
+      }
+
+      // Record the outcome in the combination tree, and tell clients about it.
+      if (nodeAction) {
+        const bool ok = out.contains("result") && out["result"].is_string() &&
+                        out["result"].get<std::string>() == "success";
+        if (runHandler && isPost && ok) {
+          const std::string              id   = tree.Create(action, NodeParams(in), parentId, "");
+          const std::vector<std::string> path = tree.Path(id);
+          tree.SetActive(path);
+          fCurrentInstance      = id;
+          out["combination"]["id"]   = id;
+          out["combination"]["path"] = path;
+        }
+        if (runHandler && isDelete && ok && !nodeId.empty()) {
+          tree.RemoveSubtree(nodeId, nullptr);
+        }
+        if (runHandler) {
+          wsOut["payload"]["combinations"] = tree.ToTree();
+          out["combinations"]              = tree.ToTree();
+        }
+      }
     }
 
     // fObjectsMap["_httpServer"] = this;
@@ -1206,6 +1436,91 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   arg->SetContent(out.dump());
   // arg->SetContent("ok");
   // arg->SetContentType("text/plain");
+}
+
+std::string NHttpServer::UnmetPrerequisite(const std::string & action) const
+{
+  if (gNdmspcMcpTools == nullptr) return {};
+
+  const auto info = gNdmspcMcpTools->find(action);
+  if (info == gNdmspcMcpTools->end()) return {};
+
+  for (const auto & dep : info->second.dependsOn) {
+    // A tool that names itself, or names nothing, declares no prerequisite: skip it rather than
+    // refusing the tool forever.
+    if (dep.empty() || dep == action) continue;
+    // A prerequisite that is not registered here (a tool another macro would provide) is not
+    // enforced, so a macro stays loadable on its own.
+    if (gNdmspcMcpTools->find(dep) == gNdmspcMcpTools->end()) continue;
+    if (!fWorkspace.HasEntry(dep)) return dep;
+  }
+  return {};
+}
+
+bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, json & out)
+{
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+  // The live chain is the previously active combination: keep the prefix that agrees with `path`
+  // and let the rest go (their DELETE handlers free the objects they own). `fEntries` holds one
+  // entry per live node, in order; if that ever disagrees with the active path, rebuild from
+  // scratch rather than truncate the wrong node.
+  const auto   active  = tree.Active();
+  const auto & entries = fWorkspace.GetEntries();
+  size_t       keep    = 0;
+  while (keep < active.size() && keep < path.size() && active[keep] == path[keep]) keep++;
+  if (entries.size() != active.size()) {
+    if (!entries.empty()) fWorkspace.RemoveEntry(entries.front()->GetName());
+    keep = 0;
+  }
+  else if (keep < entries.size()) {
+    fWorkspace.RemoveEntry(entries[keep]->GetName());
+  }
+
+  // Replay what is not live yet.
+  for (size_t i = keep; i < path.size(); ++i) {
+    const std::string id = path[i];
+    if (!tree.Has(id)) {
+      out["result"] = "failure";
+      out["code"]   = "invalid_combination";
+      out["error"]  = "unknown combination node '" + id + "'";
+      return false;
+    }
+    const std::string          action = tree.Action(id);
+    const Ndmspc::NHttpFuncPtr fn     = FindHttpHandler(action);
+    if (fn == nullptr) {
+      out["result"] = "failure";
+      out["code"]   = "invalid_combination";
+      out["error"]  = "no handler for '" + action + "'";
+      return false;
+    }
+
+    fCurrentInstance = id;
+    json params      = tree.Params(id);
+    json nodeOut, nodeWsOut;
+    fn("POST", params, nodeOut, nodeWsOut, fObjectsMap);
+    if (!(nodeOut.contains("result") && nodeOut["result"].is_string() &&
+          nodeOut["result"].get<std::string>() == "success")) {
+      out["result"] = "failure";
+      out["code"]   = "materialize_failed";
+      out["error"]  = action + " could not be restored: " + nodeOut.value("error", std::string("failed"));
+      fCurrentInstance = "";
+      return false;
+    }
+    auto * entry = new NHistoryEntry(action.c_str(), "POST");
+    entry->SetPayloadIn(params);
+    entry->SetPayloadOut(nodeOut);
+    entry->SetPayloadWsOut(nodeWsOut);
+    fWorkspace.AddEntry(entry);
+
+    // A node's stored point comes back with it, so the live state matches the combination.
+    const json state = tree.State(id);
+    if (state.is_object() && state.contains("point")) fWorkspace.GetState()["spectra"]["point"] = state["point"];
+  }
+
+  tree.SetActive(path);
+  fCurrentInstance = path.empty() ? "" : path.back();
+  return true;
 }
 
 TObject * NHttpServer::GetInputObject(const std::string & name)

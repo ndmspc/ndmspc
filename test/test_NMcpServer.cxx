@@ -411,3 +411,89 @@ TEST(NMcpServerTest, AToolCallRunsAsTheCallerThatReachedTheEndpoint)
 
   delete serv;
 }
+
+// A group of tools can declare the order it has to be used in: each tool names what must have run
+// before it (dependsOn), and `order` sequences tools that share a prerequisite (spectra before
+// point). The handler map is alphabetical, so the result is not simply the map's order.
+TEST(NMcpServerTest, ToolsListOrdersByDependency)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ngnt/map"]     = EchoHandler;
+  handlers["ngnt/open"]    = EchoHandler;
+  handlers["ngnt/point"]   = EchoHandler;
+  handlers["ngnt/reshape"] = EchoHandler;
+  handlers["ngnt/spectra"] = EchoHandler;
+
+  auto * serv = MakeServer(std::move(handlers));
+
+  Ndmspc::NMcpToolMap tools;
+  tools["ngnt/open"]    = {.order = 1};
+  tools["ngnt/reshape"] = {.dependsOn = {"ngnt/open"}, .order = 2};
+  tools["ngnt/map"]     = {.dependsOn = {"ngnt/reshape"}, .order = 3};
+  tools["ngnt/spectra"] = {.dependsOn = {"ngnt/map"}, .order = 4};
+  tools["ngnt/point"]   = {.dependsOn = {"ngnt/map"}, .order = 5};
+  Ndmspc::gNdmspcMcpTools = &tools;
+
+  Ndmspc::NMcpServer mcp(serv);
+  json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 30}, {"method", "tools/list"}, {"params", json::object()}});
+
+  EXPECT_EQ(ToolNames(response["result"]),
+            json::array({"ngnt_open", "ngnt_reshape", "ngnt_map", "ngnt_spectra", "ngnt_point"}));
+
+  Ndmspc::gNdmspcMcpTools = nullptr;
+  delete serv;
+}
+
+// The dependency is published to clients, so a tool can be shown in context without waiting for
+// the order to make it obvious.
+TEST(NMcpServerTest, ToolsListExposesDependsOnMeta)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ngnt/open"]    = EchoHandler;
+  handlers["ngnt/reshape"] = EchoHandler;
+
+  auto * serv = MakeServer(std::move(handlers));
+
+  Ndmspc::NMcpToolMap tools;
+  tools["ngnt/reshape"] = {.dependsOn = {"ngnt/open"}};
+  Ndmspc::gNdmspcMcpTools = &tools;
+
+  Ndmspc::NMcpServer mcp(serv);
+  json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 31}, {"method", "tools/list"}, {"params", json::object()}});
+
+  const json & listed = response["result"]["tools"];
+  ASSERT_EQ(listed.size(), 2u);
+  EXPECT_EQ(listed[0]["name"], "ngnt_open"); // no prerequisite, nothing to publish
+  EXPECT_FALSE(listed[0].contains("_meta"));
+  EXPECT_EQ(listed[1]["name"], "ngnt_reshape");
+  EXPECT_EQ(listed[1]["_meta"]["ndmspc.io/dependsOn"], json::array({"ngnt/open"}));
+
+  Ndmspc::gNdmspcMcpTools = nullptr;
+  delete serv;
+}
+
+// A mis-declared cycle must not hang the sort or hide a tool: both are still listed.
+TEST(NMcpServerTest, ToolsListWithDependencyCycleStillListsEveryTool)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["grp/x"] = EchoHandler;
+  handlers["grp/y"] = EchoHandler;
+
+  auto * serv = MakeServer(std::move(handlers));
+
+  Ndmspc::NMcpToolMap tools;
+  tools["grp/x"] = {.dependsOn = {"grp/y"}};
+  tools["grp/y"] = {.dependsOn = {"grp/x"}};
+  Ndmspc::gNdmspcMcpTools = &tools;
+
+  Ndmspc::NMcpServer mcp(serv);
+  json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 32}, {"method", "tools/list"}, {"params", json::object()}});
+
+  const json names = ToolNames(response["result"]);
+  EXPECT_EQ(names.size(), 2u);
+  EXPECT_NE(std::find(names.begin(), names.end(), "grp_x"), names.end());
+  EXPECT_NE(std::find(names.begin(), names.end(), "grp_y"), names.end());
+
+  Ndmspc::gNdmspcMcpTools = nullptr;
+  delete serv;
+}
