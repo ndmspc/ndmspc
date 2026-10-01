@@ -54,13 +54,50 @@ TEST(NInstanceTreeTest, RemoveSubtreeDropsChildrenAndCallsBackDeepestFirst)
   EXPECT_EQ(tree.Active(), (std::vector<std::string>{a}));
 }
 
+TEST(NInstanceTreeTest, CreateReusesAnIdenticalNode)
+{
+  json         store;
+  NInstanceTree tree(store);
+
+  const std::string a = tree.Create("ngnt/open", {{"file", "a.root"}}, "", "");
+  const std::string b = tree.Create("ngnt/reshape", {{"binningName", "x"}}, a, "");
+
+  // Running the same step again is the same instance: the tree keeps one path, and the caller is told
+  // which node it is, so a re-run refreshes that node rather than growing a twin beside it.
+  EXPECT_EQ(tree.Create("ngnt/open", {{"file", "a.root"}}, "", ""), a);
+  EXPECT_EQ(tree.Create("ngnt/reshape", {{"binningName", "x"}}, a, ""), b);
+  ASSERT_EQ(tree.Roots().size(), 1u);
+  EXPECT_EQ(tree.Children(a), (std::vector<std::string>{b}));
+
+  // The request's key order is not part of the identity.
+  const std::string ordered = tree.Create(
+      "ngnt/reshape", {{"levels", json::parse("[1,2]")}, {"binningName", "z"}}, a, "");
+  EXPECT_EQ(tree.Create("ngnt/reshape", {{"binningName", "z"}, {"levels", json::parse("[1,2]")}}, a, ""),
+            ordered);
+
+  // A different parameter is a different instance, and so is the same action under another parent.
+  const std::string other = tree.Create("ngnt/reshape", {{"binningName", "y"}}, a, "");
+  EXPECT_NE(other, b);
+  EXPECT_EQ(tree.Children(a), (std::vector<std::string>{b, ordered, other}));
+  const std::string deep = tree.Create("ngnt/reshape", {{"binningName", "x"}}, other, "");
+  EXPECT_NE(deep, b);
+  EXPECT_EQ(tree.Children(other), (std::vector<std::string>{deep}));
+
+  // An explicitly given label is part of the identity: the same step, named differently, is a second
+  // instance — but a call that passes no label does not constrain the match.
+  const std::string one = tree.Create("ngnt/map", {{"mappingPad", "pad1"}}, b, "one");
+  EXPECT_NE(tree.Create("ngnt/map", {{"mappingPad", "pad1"}}, b, "two"), one);
+  EXPECT_EQ(tree.Create("ngnt/map", {{"mappingPad", "pad1"}}, b, "one"), one);
+  EXPECT_EQ(tree.Create("ngnt/map", {{"mappingPad", "pad1"}}, b, ""), one);
+}
+
 TEST(NInstanceTreeTest, ToTreeIsNestedAndSnapshotRoundTrips)
 {
   json         store;
   NInstanceTree tree(store);
   const std::string a = tree.Create("ngnt/open", json::object(), "", "");
-  const std::string b = tree.Create("ngnt/reshape", json::object(), a, "");
-  const std::string c = tree.Create("ngnt/reshape", json::object(), a, "");
+  const std::string b = tree.Create("ngnt/reshape", {{"binningName", "x"}}, a, "");
+  const std::string c = tree.Create("ngnt/reshape", {{"binningName", "y"}}, a, "");
   tree.SetActive({a, c});
 
   const json t = tree.ToTree();
@@ -77,6 +114,119 @@ TEST(NInstanceTreeTest, ToTreeIsNestedAndSnapshotRoundTrips)
   EXPECT_EQ(other.Active(), (std::vector<std::string>{a, c}));
   EXPECT_EQ(other.Path(c), (std::vector<std::string>{a, c}));
   EXPECT_EQ(other.Children(a), (std::vector<std::string>{b, c}));
+}
+
+TEST(NInstanceTreeTest, SnapshotIsKeyedByGroup)
+{
+  json         store;
+  NInstanceTree tree(store);
+  const std::string a = tree.Create("ngnt/open", json::object(), "", "");
+  const std::string b = tree.Create("ngnt/reshape", {{"binningName", "x"}}, a, "");
+  // A chain that leaves its group: this one is stored under `schema`, its own group, but it hangs
+  // under an `ngnt` node.
+  const std::string s = tree.Create("schema/start", json::object(), b, "");
+  const std::string p = tree.Create("schema/probe", json::object(), s, "");
+  tree.SetActive({a, b, s, p});
+
+  const json snapshot = tree.Snapshot();
+  EXPECT_EQ(snapshot["v"], 3);
+  ASSERT_EQ(snapshot["groups"].size(), 2u);
+  // Each node sits under the group of its own action.
+  EXPECT_TRUE(snapshot["groups"]["ngnt"]["nodes"].contains(a));
+  EXPECT_TRUE(snapshot["groups"]["ngnt"]["nodes"].contains(b));
+  EXPECT_TRUE(snapshot["groups"]["schema"]["nodes"].contains(s));
+  EXPECT_TRUE(snapshot["groups"]["schema"]["nodes"].contains(p));
+  // A group's roots are its entry points: `b` is the ngnt root; `s` starts the schema group because
+  // its parent belongs to another group - which is what keeps the schema group whole on its own.
+  EXPECT_EQ(snapshot["groups"]["ngnt"]["roots"], json::array({a}));
+  EXPECT_EQ(snapshot["groups"]["schema"]["roots"], json::array({s}));
+  EXPECT_TRUE(NInstanceTree::HasNodes(snapshot));
+
+  // The whole snapshot still restores the whole tree, chains across groups included.
+  json          restored;
+  NInstanceTree other(restored);
+  other.Restore(snapshot);
+  EXPECT_EQ(other.Path(p), (std::vector<std::string>{a, b, s, p}));
+  EXPECT_EQ(other.Active(), (std::vector<std::string>{a, b, s, p}));
+  EXPECT_EQ(other.Children(b), (std::vector<std::string>{s}));
+}
+
+TEST(NInstanceTreeTest, VersionTwoSnapshotStillRestoresAndBecomesVersionThree)
+{
+  json store;
+  // A snapshot written before the tree was keyed by group: one flat map, no `groups`.
+  store["v"]      = 2;
+  store["next"]   = 3;
+  store["active"] = json::array({"i1", "i2"});
+  store["nodes"]  = json::object({{"i1", {{"action", "ngnt/open"}, {"params", json::object()}, {"label", "a.root"}, {"children", json::array()}}},
+                                  {"i2", {{"action", "ngnt/reshape"},
+                                          {"parent", "i1"},
+                                          {"params", json::object()},
+                                          {"label", "x"},
+                                          {"children", json::array()}}}});
+
+  json          restored;
+  NInstanceTree tree(restored);
+  tree.Restore(store);
+  EXPECT_EQ(tree.Path("i2"), (std::vector<std::string>{"i1", "i2"}));
+  EXPECT_EQ(tree.Active(), (std::vector<std::string>{"i1", "i2"}));
+
+  // Read into the new shape it regroups, and the next snapshot is v3 with the group as the key.
+  const json next = tree.Snapshot();
+  EXPECT_EQ(next["v"], 3);
+  ASSERT_EQ(next["groups"].size(), 1u);
+  EXPECT_EQ(next["groups"]["ngnt"]["roots"], json::array({"i1"}));
+}
+
+TEST(NInstanceTreeTest, OneGroupSnapshotsAndRestoresAlone)
+{
+  json         store;
+  NInstanceTree tree(store);
+  const std::string a = tree.Create("ngnt/open", json::object(), "", "");
+  const std::string b = tree.Create("ngnt/reshape", json::object(), a, "");
+  const std::string s = tree.Create("schema/start", json::object(), b, "");
+  tree.SetActive({a, b});
+
+  // The group's own nodes *and* what hangs below them, so the chain is not cut in half.
+  const json only = tree.Snapshot("ngnt");
+  EXPECT_EQ(only["v"], 3);
+  ASSERT_TRUE(only["groups"].contains("ngnt"));
+  ASSERT_TRUE(only["groups"].contains("schema"));
+  EXPECT_TRUE(only["groups"]["schema"]["nodes"].contains(s));
+
+  // Restoring it into a tree that holds other work leaves that work alone, and replaces the group.
+  // Node ids are per tree (`i1`, `i2`, ...), so the incoming nodes are re-keyed rather than a node
+  // that merely shares a number being overwritten.
+  json          targetStore;
+  NInstanceTree target(targetStore);
+  const std::string x = target.Create("schema/start", json::object(), "", "");
+  const std::string y = target.Create("ngnt/open", {{"file", "old.root"}}, "", "");
+  target.Restore(only, "ngnt");
+
+  EXPECT_TRUE(target.Has(x));  // the other group is untouched
+  EXPECT_FALSE(target.Has(y)); // the group's old nodes are gone
+
+  ASSERT_EQ(target.Roots().size(), 2u);
+  EXPECT_EQ(target.Action(target.Roots()[0]), "schema/start");
+  const std::string root = target.Roots()[1];
+  EXPECT_NE(root, a); // re-keyed rather than merged in by number
+  EXPECT_EQ(target.Action(root), "ngnt/open");
+  ASSERT_EQ(target.Children(root).size(), 1u);
+  const std::string reshaped = target.Children(root)[0];
+  EXPECT_EQ(target.Action(reshaped), "ngnt/reshape");
+  // The chain below the group came along, and still hangs below it.
+  ASSERT_EQ(target.Children(reshaped).size(), 1u);
+  EXPECT_EQ(target.Action(target.Children(reshaped)[0]), "schema/start");
+}
+
+TEST(NInstanceTreeTest, HasNodesReadsBothVersions)
+{
+  EXPECT_FALSE(NInstanceTree::HasNodes(json::object()));
+  EXPECT_FALSE(NInstanceTree::HasNodes(json{{"v", 3}, {"groups", json::object()}}));
+  EXPECT_FALSE(NInstanceTree::HasNodes(json{{"v", 2}, {"nodes", json::object()}}));
+  EXPECT_TRUE(NInstanceTree::HasNodes(json{{"v", 2}, {"nodes", json::object({{"i1", json::object()}})}}));
+  EXPECT_TRUE(NInstanceTree::HasNodes(
+      json{{"v", 3}, {"groups", json::object({{"ngnt", json{{"nodes", json::object({{"i1", json::object()}})}}}})}}));
 }
 
 TEST(NInstanceTreeTest, IsNodeActionFollowsTheDeclaredDependencies)

@@ -545,10 +545,11 @@ json NHttpServer::RoomSessionSnapshot()
   if (snapshot.is_null()) return snapshot;
 
   // The whole combination tree rides along, so a room that wakes can rebuild every combination it
-  // held, not only the one that was live. A snapshot without it (an older room, or a session that
-  // declares no dependencies) restores the single combination the `actions` describe.
+  // held, not only the one that was live. The snapshot is keyed by tool group (v3); a snapshot without
+  // it (an older room, or a session that declares no dependencies) restores the single combination
+  // the `actions` describe.
   const json combinations = Ndmspc::NInstanceTree(fWorkspace.GetCombinations()).Snapshot();
-  if (JsonMember(combinations, "nodes").is_object() && !JsonMember(combinations, "nodes").empty()) {
+  if (Ndmspc::NInstanceTree::HasNodes(combinations)) {
     snapshot["combinations"] = combinations;
   }
   return snapshot;
@@ -728,11 +729,11 @@ void NHttpServer::RoomSessionRestoreOnce()
   // A snapshot that carries a combination tree restores it directly: the tree is a record the
   // server adopts as-is, and the active combination is materialized (its nodes' POST handlers
   // replayed) - neither of which has a client-facing verb, which is why this is done here rather
-  // than through the dispatcher below. Older snapshots, and sessions that declare no dependencies,
-  // fall through to the action replay.
+  // than through the dispatcher below. The tree is keyed by tool group (v3; a v2 snapshot is
+  // regrouped on restore). Older snapshots, and sessions that declare no dependencies, fall through
+  // to the action replay.
   const json combinations = JsonMember(snapshot, "combinations");
-  if (combinations.is_object() && JsonMember(combinations, "nodes").is_object() &&
-      !JsonMember(combinations, "nodes").empty()) {
+  if (Ndmspc::NInstanceTree::HasNodes(combinations)) {
     Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
     tree.Restore(combinations);
     json materializeOut;
@@ -1350,7 +1351,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
 
     if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null() || !wsOut["state"].is_null()) {
       json wsMessage;
-      wsMessage["event"]   = "ngnt";
+      wsMessage["event"]   = "message";
       wsMessage["payload"] = wsOut["payload"].is_null() ? json::object() : wsOut["payload"];
       // If state is present, include it in the same payload
       if (!wsOut["state"].is_null()) {

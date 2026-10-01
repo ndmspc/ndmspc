@@ -1,6 +1,10 @@
 #include <cstdarg>
+#include <exception>
 #include <vector>
 #include <cstdio>
+#include <TBufferJSON.h>
+#include <TObject.h>
+#include <TString.h>
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NInstanceTree.h"
 #include "NRouteContext.h"
@@ -154,6 +158,73 @@ void NRouteContext::BroadcastWorkspace(const std::string & name)
   if (srv && srv->GetWorkspace().contains(name)) {
     fWsOut["workspace"][name] = srv->GetWorkspace()[name];
   }
+}
+
+// --- Showing something in a pad ---
+
+json NRouteContext::Action(const std::string & path, const std::string & method, const json & payload,
+                           const std::string & contentType)
+{
+  json action;
+  action["type"]        = "http";
+  action["method"]      = method;
+  action["path"]        = path;
+  action["contentType"] = contentType;
+  action["payload"]     = payload;
+  return action;
+}
+
+void NRouteContext::Show(const json & value, const std::string & kind, const std::string & pad,
+                         const std::string & label, const json & options, const json & handlers)
+{
+  json envelope;
+  envelope["pad"]   = pad;
+  envelope["kind"]  = kind;
+  envelope["value"] = value;
+  if (!label.empty()) envelope["label"] = label;
+  if (!options.empty()) envelope["options"] = options;
+  if (!handlers.empty()) envelope["handlers"] = handlers;
+
+  // A frame may carry several objects, so the slot is a list. An envelope a handler wrote by hand
+  // is kept as the first of them.
+  json & slot = fWsOut["payload"]["pad"];
+  if (slot.is_object() && !slot.empty()) {
+    slot = json::array({slot});
+  }
+  else if (!slot.is_array()) {
+    slot = json::array();
+  }
+  slot.push_back(std::move(envelope));
+}
+
+void NRouteContext::ShowRoot(TObject * object, const std::string & pad, const std::string & label,
+                             const std::string & drawOptions, const json & handlers)
+{
+  if (object == nullptr) {
+    Error("ShowRoot: no object to show");
+    return;
+  }
+
+  const TString text = TBufferJSON::ConvertToJSON(object);
+  if (text.IsNull() || text.Length() == 0) {
+    Error(std::string("ShowRoot: could not serialize ") + object->ClassName());
+    return;
+  }
+
+  json value;
+  try {
+    value = json::parse(text.Data());
+  } catch (const std::exception & e) {
+    Error(std::string("ShowRoot: ") + e.what());
+    return;
+  }
+
+  json options = json::object();
+  if (!drawOptions.empty()) options["drawOpts"] = drawOptions;
+
+  // The object's own name reads well as a tab name.
+  Show(value, "jsroot", pad, label.empty() ? std::string(object->GetName()) : label, options,
+       handlers);
 }
 
 } // namespace Ndmspc

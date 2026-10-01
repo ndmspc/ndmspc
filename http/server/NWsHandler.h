@@ -59,7 +59,7 @@ struct NWsPendingClient {
  * Reply (sent back only to the requesting client):
  * @code
  * {
- *   "event": "ngnt_reply",
+ *   "event": "message_reply",
  *   "requestId": "optional-client-id",     // echoed from the request, or null
  *   "contentType": "application/json",     // arg->GetContentType() from ProcessRequest
  *   "payload": { }                         // parsed JSON response body, or raw string

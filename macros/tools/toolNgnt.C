@@ -73,7 +73,6 @@
 #include <ndmspc/core/NParameters.h>
 #include <ndmspc/core/NUtils.h>
 
-
 // ============================================================================
 //  Helper functions (formerly NGnHandlerUtils)
 // ============================================================================
@@ -99,8 +98,7 @@ std::vector<int> ResolveDrillPoint(const Ndmspc::NRouteContext & ctx, const json
 {
   const bool       hasPoint = httpIn.contains("point") && httpIn["point"].is_array();
   std::vector<int> point    = hasPoint ? httpIn["point"].get<std::vector<int>>() : ctx.GetStatePoint();
-  const bool       hasBin =
-      httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("bin");
+  const bool       hasBin   = httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("bin");
 
   const int level = ctx.GetInt("level");
   if (level >= 0 && point.size() > static_cast<size_t>(level) && (!hasPoint || hasBin)) {
@@ -150,63 +148,99 @@ int ParsePadIndex(const std::string & padName, int defaultIndex = 3)
   return defaultIndex;
 }
 
-bool RenderSpectra(Ndmspc::NGnNavigator * navCurrent, const std::vector<std::string> & parameters, double axismargin,
-                   const std::string & minmaxMode, int startPadIndex, json & wsOut, bool addDebugAction = false)
+/// A layer's tab name: the projection's axes as they are drawn, joined the way the spectra canvases
+/// are (`phi-eta`). An axis with no title contributes nothing, and nothing at all falls back to the
+/// histogram's own name.
+std::string LayersLabel(TH1 * proj)
 {
-  int               padIndex = startPadIndex;
-  std::string       objsArrayJson = "[";  // Build array as raw JSON string
-  bool              first = true;
+  std::string label;
+  for (const auto * axis : {proj->GetXaxis(), proj->GetYaxis(), proj->GetZaxis()}) {
+    if (axis == nullptr || axis->GetTitle() == nullptr || *axis->GetTitle() == '\0') continue;
+    if (!label.empty()) label += '-';
+    label += axis->GetTitle();
+  }
+  if (!label.empty()) return label;
+  if (proj->GetName() != nullptr && *proj->GetName() != '\0') return proj->GetName();
+  return "map";
+}
+
+/**
+ * Draw every navigator layer from `nav` down, one envelope per layer, so the pad shows them as tabs.
+ *
+ * It is the walk `NGnNavigator::Draw` makes for its divided canvas — the node at its own level, then
+ * the first child at each level below — here as one object per tab, each carrying that layer's own
+ * click handlers.
+ *
+ * @param drill The path this drawing came from, so a click knows where it stands.
+ * @return How many layers were drawn; none at all is a failure the caller reports.
+ */
+size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, const std::string & pad,
+                       const json & drill)
+{
+  const size_t           nLevels = nav->GetNLevels();
+  Ndmspc::NGnNavigator * at      = nav;
+  size_t                 drew    = 0;
+  for (size_t level = nav->GetLevel(); at != nullptr && level < nLevels; level++) {
+    TH1 * proj = at->GetProjection();
+    if (proj == nullptr) {
+      NLogWarning("[Server] map: navigator level %zu has no projection, skipping that layer", level);
+    }
+    else {
+      proj->SetStats(false);
+      json clicks = json::array();
+      clicks.push_back(BuildMapClickAction(drill, level, "ngnt"));
+      // One level above the last is where drilling stops, so a spectra makes sense there.
+      if (level + 2 == nLevels) clicks.push_back(BuildSpectraClickAction(drill, level, "ngnt"));
+      ctx.ShowRoot(proj, pad, LayersLabel(proj), "", json{{"click", clicks}});
+      drew++;
+    }
+    if (at->GetChildren().empty()) break;
+    at = at->GetChild(0);
+  }
+  return drew;
+}
+
+/// Show every parameter's spectra: one envelope per spectrum, on that parameter's pad, tabbed under
+/// the object's own name (unique per spectrum, so asking again replaces its own tab).
+bool RenderSpectra(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * navCurrent,
+                   const std::vector<std::string> & parameters, double axismargin, const std::string & minmaxMode,
+                   int startPadIndex, bool addDebugAction = false)
+{
+  int  padIndex = startPadIndex;
+  bool drew     = false;
 
   for (const auto & param : parameters) {
     NLogTrace("[Server] Obtaining spectra for parameter '%s' at navigator level %d", param.c_str(),
               navCurrent->GetLevel());
-    std::string padName = "pad" + std::to_string(padIndex);
-    TList *     spectra = navCurrent->DrawSpectraAll(param, {axismargin}, minmaxMode, "");
+    const std::string padName = "pad" + std::to_string(padIndex);
+
+    std::unique_ptr<TList> spectra(navCurrent->DrawSpectraAll(param, {axismargin}, minmaxMode, ""));
     if (spectra) {
       NLogTrace("Spectra for parameter '%s' obtained:", param.c_str());
-      std::string rawJson = TBufferJSON::ConvertToJSON(spectra).Data();
-      spectra->SetOwner(kTRUE);
-      delete spectra;
 
-      // Build metadata to merge with raw JSON
-      json metadata;
-      metadata["targetPad"] = padName;
-      metadata["parameter"] = param;
-      
+      json handlers = json::object();
       if (addDebugAction) {
         json debugAction;
-        debugAction["type"]           = "debug";
-        debugAction["message"]        = "Debug click";
-        metadata["handlers"]["click"] = json::array({debugAction});
+        debugAction["type"]    = "debug";
+        debugAction["message"] = "Debug click";
+        handlers["click"]      = json::array({debugAction});
       }
 
-      // Merge raw JSON with metadata (returns string)
-      std::string merged = Ndmspc::NUtils::MergeRawJsonWithMetadata(rawJson, metadata);
-      
-      // Append to array string
-      if (!first) objsArrayJson += ",";
-      objsArrayJson += merged;
-      first = false;
+      for (TObject * object : *spectra) {
+        if (object == nullptr) continue;
+        ctx.ShowRoot(object, padName, object->GetName(), "", handlers);
+        drew = true;
+      }
+
+      spectra->SetOwner(kTRUE); // the list owns what it drew; going out of scope frees them
     }
     else {
       NLogWarning("No spectra found for parameter '%s'", param.c_str());
     }
     padIndex++;
   }
-  
-  objsArrayJson += "]";
 
-  if (!objsArrayJson.empty() && objsArrayJson != "[]") {
-    // Inject the entire array as raw JSON
-    Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "spectra", "objs"}, objsArrayJson);
-    wsOut["payload"]["spectra"]["parameters"] = parameters;
-    wsOut["payload"]["spectra"]["multipad"]   = true;
-  }
-  wsOut["payload"]["spectra"]["axismargin"] = axismargin;
-  if (!minmaxMode.empty()) {
-    wsOut["payload"]["spectra"]["minmaxMode"] = minmaxMode;
-  }
-  return !objsArrayJson.empty() && objsArrayJson != "[]";
+  return drew;
 }
 
 json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
@@ -243,11 +277,13 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
   return Ndmspc::NSchemaBuilder()
       .Hint(hint)
       .Array("levels")
+      .Title("Levels")
       .Description("A nested array of integers representing levels.")
       .Items("array")
       .ItemItems("integer")
       .Default(defaultLevels)
       .Select("binningName", binningNames)
+      .Title("Binning")
       .Default(currentBinningName)
       .Build();
 }
@@ -256,10 +292,13 @@ json BuildMapSchema(const std::string & mappingPad = "pad1", const std::string &
 {
   return Ndmspc::NSchemaBuilder()
       .String("mappingPad")
+      .Title("Mapping pad")
       .Default(mappingPad)
       .String("contentPad")
+      .Title("Content pad")
       .Default(contentPad)
       .Boolean("averages")
+      .Title("Average deeper levels")
       .Description("Average deeper-level parameter values/errors into higher levels (disable for large navigators)")
       .Default(true)
       .Build();
@@ -285,12 +324,16 @@ json BuildSpectraSchema(Ndmspc::NGnTree * ngnt, const std::vector<std::string> &
 
   return Ndmspc::NSchemaBuilder()
       .String("startPad")
+      .Title("First pad")
       .Default(startPad)
       .MultiSelect("parameters", paramNames)
+      .Title("Parameters")
       .Default(defaultParamsJson)
       .Select("minmaxMode", {"V", "VE", "D"})
+      .Title("Minmax mode")
       .Default(minmaxMode)
       .Number("axismargin")
+      .Title("Edge margin")
       .Default(axismargin)
       .Build();
 }
@@ -308,85 +351,106 @@ void toolNgnt()
   //  live here in the macro, not in C++, so they can be changed without
   //  recompiling the server. `methods` narrows the tool's `method` enum.
   // ===========================================================================
-  Ndmspc::RegisterMcpTool(group + "/open", {
-      .description = "Open or close an NGnTree ROOT file. POST with 'file' opens it, GET reports the "
-                     "currently opened file and its structure, DELETE closes it.",
-      .methods     = {"GET", "POST", "DELETE"},
-      .inputSchema = {{"properties",
-                       {{"file",
-                         {{"type", "string"},
-                          {"description", "Path to the NGnTree ROOT file to open (POST only)."},
-                          {"default", "NBinnings01Gaus.root"}}}}}},
-      .order       = 1,
-      .label       = "{{ file }}",
-  });
-  Ndmspc::RegisterMcpTool(group + "/reshape", {
-      .description = "Reshape the opened tree into a navigator. POST with 'binningName' and 'levels' "
-                     "builds the navigator, GET returns its info, DELETE clears it.",
-      .methods     = {"GET", "POST", "DELETE"},
-      .inputSchema = {{"properties",
-                       {{"binningName",
-                         {{"type", "string"}, {"description", "Binning definition name (optional)."}}},
-                        {"levels",
-                         {{"type", "array"},
-                          {"description", "Nested levels array, e.g. [[0,1,2],[3,4]]."},
-                          {"items", {{"type", "array"}, {"items", {{"type", "integer"}}}}}}}}}},
-      .dependsOn   = {group + "/open"},
-      .order       = 2,
-      .label       = "{{ binningName }} ({{ levels }})",
-  });
-  Ndmspc::RegisterMcpTool(group + "/map", {
-      .description = "Project the current navigator level onto pads. POST renders the projection "
-                     "(mappingPad, contentPad, averages), PATCH drills down using a point/level/bin, "
-                     "DELETE clears the map.",
-      .methods     = {"POST", "PATCH", "DELETE"},
-      .inputSchema = {{"properties",
-                       {{"mappingPad", {{"type", "string"}, {"description", "Pad that shows the map."}}},
-                        {"contentPad", {{"type", "string"}, {"description", "Pad that shows the content."}}},
-                        {"averages", {{"type", "boolean"}, {"description", "Average deeper levels into higher levels."}}},
-                        {"point",
-                         {{"type", "array"},
-                          {"items", {{"type", "integer"}}},
-                          {"description", "Canonical drill-down point: full path of child indices to select."}}},
-                        {"level",
-                         {{"type", "integer"},
-                          {"description", "Target navigator level; used with the stored state point when 'point' "
-                                          "is omitted."}}}}}},
-      .dependsOn   = {group + "/reshape"},
-      .order       = 3,
-      .label       = "{{ mappingPad }}",
-  });
-  Ndmspc::RegisterMcpTool(group + "/spectra", {
-      .description = "Render spectra histograms for selected parameters (POST/PATCH) with 'parameters', "
-                     "'startPad', 'axismargin' and 'minmaxMode'.",
-      .methods     = {"POST", "PATCH", "DELETE"},
-      .inputSchema = {{"properties",
-                       {{"parameters", {{"type", "array"}, {"items", {{"type", "string"}}}}},
-                        {"startPad", {{"type", "string"}, {"description", "First pad index, e.g. 'pad3'."}}},
-                        {"axismargin", {{"type", "number"}}},
-                        {"minmaxMode", {{"type", "string"}, {"enum", {"V", "VE", "D"}}}},
-                        {"point",
-                         {{"type", "array"},
-                          {"items", {{"type", "integer"}}},
-                          {"description", "Canonical drill-down point: full path of child indices to select."}}},
-                        {"level",
-                         {{"type", "integer"},
-                          {"description", "Target navigator level; used with the stored state point when 'point' "
-                                          "is omitted."}}}}}},
-      .dependsOn   = {group + "/map"},
-      .order       = 4,
-      .label       = "{{ parameters }}",
-  });
-  Ndmspc::RegisterMcpTool(group + "/point", {
-      .description = "Fetch entry-level data points. GET returns the projection, POST with 'entry' and "
-                     "'contentPad' returns the entry content.",
-      .methods     = {"GET", "POST"},
-      .inputSchema = {{"properties",
-                       {{"entry", {{"type", "integer"}, {"description", "Entry index to fetch (POST)."}}},
-                        {"contentPad", {{"type", "string"}}}}}},
-      .dependsOn   = {group + "/map"},
-      .order       = 5,
-  });
+  Ndmspc::RegisterMcpTool(group + "/open",
+                          {
+                              .description =
+                                  "Open or close an NGnTree ROOT file. POST with 'file' opens it, GET reports the "
+                                  "currently opened file and its structure, DELETE closes it.",
+                              .methods     = {"GET", "POST", "DELETE"},
+                              .inputSchema = {{"properties",
+                                               {{"file",
+                                                 {{"type", "string"},
+                                                  {"description", "Path to the NGnTree ROOT file to open (POST only)."},
+                                                  {"default", "NSingleBinning01Gaus.root"}}}}}},
+                              .order       = 1,
+                              .label       = "{{ file }}",
+                          });
+  Ndmspc::RegisterMcpTool(
+      group + "/reshape",
+      {
+          .description = "Reshape the opened tree into a navigator. POST with 'binningName' and 'levels' "
+                         "builds the navigator, GET returns its info, DELETE clears it.",
+          .methods     = {"GET", "POST", "DELETE"},
+          .inputSchema = {{"properties",
+                           {{"binningName",
+                             {{"type", "string"},
+                              // One name out of the binnings that exist: the *list* of them is data, and
+                              // arrives live in the workspace schema, which the merge keeps.
+                              {"format", "select"},
+                              {"description", "Binning definition name (optional)."}}},
+                            {"levels",
+                             {{"type", "array"},
+                              {"description", "Nested levels array, e.g. [[0,1,2],[3,4]]."},
+                              {"items", {{"type", "array"}, {"items", {{"type", "integer"}}}}}}}}}},
+          .dependsOn   = {group + "/open"},
+          .order       = 2,
+          .label       = "{{ binningName }} ({{ levels }})",
+      });
+  Ndmspc::RegisterMcpTool(
+      group + "/map",
+      {
+          .description = "Project the current navigator level onto pads. POST renders the projection "
+                         "(mappingPad, contentPad, averages), PATCH drills down using a point/level/bin, "
+                         "DELETE clears the map.",
+          .methods     = {"POST", "PATCH", "DELETE"},
+          .inputSchema = {{"properties",
+                           {{"mappingPad", {{"type", "string"}, {"description", "Pad that shows the map."}}},
+                            {"contentPad", {{"type", "string"}, {"description", "Pad that shows the content."}}},
+                            {"averages",
+                             {{"type", "boolean"}, {"description", "Average deeper levels into higher levels."}}},
+                            {"point",
+                             {{"type", "array"},
+                              {"items", {{"type", "integer"}}},
+                              {"description", "Canonical drill-down point: full path of child indices to select."}}},
+                            {"level",
+                             {{"type", "integer"},
+                              {"description", "Target navigator level; used with the stored state point when 'point' "
+                                              "is omitted."}}}}}},
+          .dependsOn   = {group + "/reshape"},
+          .order       = 3,
+          .label       = "{{ mappingPad }}",
+      });
+  Ndmspc::RegisterMcpTool(
+      group + "/spectra",
+      {
+          .description = "Render spectra histograms for selected parameters (POST/PATCH) with 'parameters', "
+                         "'startPad', 'axismargin' and 'minmaxMode'.",
+          .methods     = {"POST", "PATCH", "DELETE"},
+          .inputSchema = {{"properties",
+                           {{"parameters",
+                             {{"type", "array"},
+                              {"format", "multiselect"},
+                              // The parameters that are in the tree are data, and arrive live in the
+                              // workspace schema, which the merge keeps.
+                              {"items", {{"type", "string"}}},
+                              {"description", "Parameters to draw spectra for (0 = all)."}}},
+                            {"startPad", {{"type", "string"}, {"description", "First pad index, e.g. 'pad3'."}}},
+                            {"axismargin", {{"type", "number"}}},
+                            {"minmaxMode", {{"type", "string"}, {"format", "select"}, {"enum", {"V", "VE", "D"}}}},
+                            {"point",
+                             {{"type", "array"},
+                              {"items", {{"type", "integer"}}},
+                              {"description", "Canonical drill-down point: full path of child indices to select."}}},
+                            {"level",
+                             {{"type", "integer"},
+                              {"description", "Target navigator level; used with the stored state point when 'point' "
+                                              "is omitted."}}}}}},
+          .dependsOn   = {group + "/map"},
+          .order       = 4,
+          .label       = "{{ parameters }}",
+      });
+  Ndmspc::RegisterMcpTool(
+      group + "/point",
+      {
+          .description = "Fetch entry-level data points. GET returns the projection, POST with 'entry' and "
+                         "'contentPad' returns the entry content.",
+          .methods     = {"GET", "POST"},
+          .inputSchema = {{"properties",
+                           {{"entry", {{"type", "integer"}, {"description", "Entry index to fetch (POST)."}}},
+                            {"contentPad", {{"type", "string"}}}}}},
+          .dependsOn   = {group + "/map"},
+          .order       = 5,
+      });
 
   // ===========================================================================
   //  /api/ngnt/open — Open/close NGnTree files
@@ -527,7 +591,8 @@ void toolNgnt()
 
       nav = ngnt->Reshape(binningName, levels, 0, {}, {});
       if (!nav) {
-        ctx.Result("Failed to reshape NGnTree with provided levels [" + json(levels).dump() + "] and binning '" + binningName + "'");
+        ctx.Result("Failed to reshape NGnTree with provided levels [" + json(levels).dump() + "] and binning '" +
+                   binningName + "'");
         return;
       }
 
@@ -585,20 +650,6 @@ void toolNgnt()
       std::string contentPad = ctx.GetString("contentPad", "pad2");
       NLogTrace("Mapping pad: %s, Content pad: %s", mappingPad.c_str(), contentPad.c_str());
 
-      TList * l    = new TList();
-      TH1 *   proj = nav->GetProjection();
-      if (!proj) {
-        NLogError("[Server] map POST: nav->GetProjection() returned nullptr for nav=%p", (void *)nav);
-        ctx.Result("Failed to get projection for the current navigator level " + std::to_string(nav->GetLevel()) + ", cannot render map");
-        delete l;
-        return;
-      }
-      proj->SetStats(false);
-      l->Add(proj);
-
-      TString listStr  = TBufferJSON::ConvertToJSON(l);
-      json    listJson = json::parse(listStr.Data());
-
       // Averaging can be disabled per request (or via the map workspace default) for large navigators
       bool averages = nav->GetAverageParameters();
       {
@@ -612,34 +663,23 @@ void toolNgnt()
         json exportCfg;
         exportCfg["averages"] = averages;
         nav->ExportToJson(nested, nav, std::vector<std::string>{}, exportCfg);
-        listJson["nested"] = nested;
         // Dump to file for debugging
         const char * tmpFile = gSystem->Getenv("NDMSPC_NGNG_EXPORT_JSON_FILE");
         if (tmpFile) {
-          Ndmspc::NUtils::SaveRawFile( tmpFile,nested.dump());
+          Ndmspc::NUtils::SaveRawFile(tmpFile, nested.dump());
           NLogDebug("[Server] Exported nested navigator structure to %s", tmpFile);
         }
       }
 
-      std::vector<int> pointForClickAction;
-      for (auto & item : listJson["arr"]) {
-        json clicks = json::array();
-        clicks.push_back(BuildMapClickAction(json::array(), nav->GetLevel(), "ngnt"));
-
-        json debugAction;
-        debugAction["type"]    = "debug";
-        debugAction["message"] = std::string("Debug click: ") + item["fName"].dump();
-        clicks.push_back(debugAction);
-
-        if (nav->GetLevel() == nav->GetNLevels() - 2) {
-          clicks.push_back(BuildSpectraClickAction(pointForClickAction, nav->GetLevel(), "ngnt"));
-        }
-        item["handlers"]["click"] = clicks;
+      // One envelope per layer, so the pad tabs them: the projection at this level and then the first
+      // child's at each level below. The object goes as the projection itself, never as a list, which
+      // jsroot would draw into one canvas, item on top of item.
+      if (RenderMapLayers(ctx, nav, mappingPad, json::array()) == 0) {
+        NLogError("[Server] map POST: no projection to show for nav=%p", (void *)nav);
+        ctx.Result("Failed to get projection for the current navigator level " + std::to_string(nav->GetLevel()) +
+                   ", cannot render map");
+        return;
       }
-
-      wsOut["payload"]["map"]["obj"]        = listJson;
-      wsOut["payload"]["map"]["targetPad"]  = mappingPad;
-      wsOut["payload"]["map"]["contentPad"] = contentPad;
 
       // A repeated map POST first drops the previous "map" entry, which also
       // drops it as an orphaned workspace key, so the schema has to be built
@@ -675,26 +715,10 @@ void toolNgnt()
       NLogTrace("[Server] Final navigator after traversal: %p", (void *)navCurrent);
 
       if (navCurrent && navCurrent->GetChildren().size() > 0) {
-        TH1 * proj = navCurrent->GetProjection();
-        proj->SetStats(false);
-        TList l;
-        l.Add(proj);
-        TString listStr  = TBufferJSON::ConvertToJSON(&l);
-        json    listJson = json::parse(listStr.Data());
-
-        for (auto & item : listJson["arr"]) {
-          json clicks = json::array();
-          clicks.push_back(BuildMapClickAction(point, navCurrent->GetLevel(), "ngnt"));
-
-          if (navCurrent->GetLevel() == nav->GetNLevels() - 2) {
-            clicks.push_back(BuildSpectraClickAction(point, navCurrent->GetLevel(), "ngnt"));
-          }
-          item["handlers"]["click"] = clicks;
-        }
-
-        wsOut["payload"]["map"]["obj"]         = listJson;
-        wsOut["payload"]["map"]["appendToTab"] = true;
-        wsOut["payload"]["map"]["targetPad"]   = httpIn.contains("mappingPad") ? httpIn["mappingPad"] : "pad1";
+        // The layers from where the drill landed down, replacing what the pad had: the tab strip
+        // describes the current position rather than growing a trail.
+        const std::string mappingPad = httpIn.contains("mappingPad") ? httpIn["mappingPad"].get<std::string>() : "pad1";
+        RenderMapLayers(ctx, navCurrent, mappingPad, point);
 
         if (navCurrent->GetLevel() == nav->GetNLevels() - 1) {
           NLogTrace("[Server] Reached final level navigator for point: %s [%d/%d]", json(point).dump().c_str(),
@@ -719,16 +743,26 @@ void toolNgnt()
         }
       }
       else {
+        // A click names the cell it landed in, not a tree entry: jsroot reports the cell's content as
+        // `args.cont`, and the ngnt navigator stores entry + 1 in its cells (NGnNavigator::Reshape),
+        // so a click's entry is one less than that. The translation belongs here, in the tool that
+        // knows what its cells mean — the UI only passes the click's args on.
         int entry = ctx.GetInt("entry");
+        if (entry < 0 && httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("cont") &&
+            httpIn["args"]["cont"].is_number()) {
+          entry = httpIn["args"]["cont"].get<int>() - 1;
+        }
         if (entry >= 0) {
           ngnt->GetEntry(entry);
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
           if (outputPoint) {
-            NLogTrace("Output point for bin %d:", entry);
-            std::string listStr                      = TBufferJSON::ConvertToJSON(outputPoint, 3).Data();
-            // wsOut["payload"]["content"]       = nullptr;
-            wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad2";
-            Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "content"}, listStr);
+            NLogTrace("Output point for entry %d:", entry);
+            const std::string pad = httpIn.contains("contentPad") ? httpIn["contentPad"].get<std::string>() : "pad2";
+            // One envelope per object, named after itself, so clicking the same cell again replaces
+            // its own tab rather than piling up.
+            for (TObject * object : *outputPoint) {
+              if (object != nullptr) ctx.ShowRoot(object, pad, object->GetName());
+            }
           }
           else {
             NLogTrace("No output point found for entry %d", entry);
@@ -849,7 +883,7 @@ void toolNgnt()
       wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
 
       int padIndex = ParsePadIndex(spectraPad);
-      RenderSpectra(navCurrent, parameters, minmax, minmaxMode, padIndex, wsOut, true);
+      RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex, true);
 
       ctx.Success();
       return;
@@ -859,7 +893,7 @@ void toolNgnt()
       NLogTrace("[Server] PATCH spectra received: %s", httpIn.dump().c_str());
 
       const bool hasPoint = httpIn.contains("point") && httpIn["point"].is_array();
-      const bool hasBin = httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("bin");
+      const bool hasBin   = httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("bin");
       if (!hasPoint && !hasBin && ctx.GetInt("level") < 0) {
         NLogTrace("[Server] PATCH spectra no level specified");
         ctx.Result("Missing level for PATCH spectra");
@@ -912,7 +946,7 @@ void toolNgnt()
       std::string spectraPad = ctx.GetString("startPad", "pad3");
       int         padIndex   = ParsePadIndex(spectraPad);
 
-      RenderSpectra(navCurrent, parameters, minmax, minmaxMode, padIndex, wsOut);
+      RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex);
 
       ctx.Success();
       return;
@@ -942,17 +976,18 @@ void toolNgnt()
     if (!nav) return;
 
     if (ctx.IsGet()) {
-      TH1 *   proj                   = nav->GetProjection();
-      std::string h                  = TBufferJSON::ConvertToJSON(proj,3).Data();
-      Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "map", "obj"}, h);
+      TH1 * proj = nav->GetProjection();
+      proj->SetStats(false);
 
       json clickAction;
-      clickAction["type"]                          = "http";
-      clickAction["method"]                        = "GET";
-      clickAction["contentType"]                   = "application/json";
-      clickAction["path"]                          = "ngnt/point";
-      clickAction["payload"]                       = json::object();
-      wsOut["payload"]["map"]["handlers"]["click"] = json::array({clickAction});
+      clickAction["type"]        = "http";
+      clickAction["method"]      = "GET";
+      clickAction["contentType"] = "application/json";
+      clickAction["path"]        = "ngnt/point";
+      clickAction["payload"]     = json::object();
+
+      // A point's projection goes to the first pad, the way the map does.
+      ctx.ShowRoot(proj, "pad1", "map", "", json{{"click", json::array({clickAction})}});
 
       ctx.Success();
       return;
@@ -964,11 +999,11 @@ void toolNgnt()
         ngnt->GetEntry(entry);
         TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
         if (outputPoint) {
-          NLogTrace("Output point for bin %d:", entry);
-          TString outputPointStr                   = TBufferJSON::ConvertToJSON(outputPoint,3);
-          // wsOut["payload"]["content"]       = nullptr;
-          wsOut["payload"]["content"]["targetPad"] = httpIn.contains("contentPad") ? httpIn["contentPad"] : "pad2";
-          Ndmspc::NUtils::AddRawJsonInjection(wsOut, {"payload", "content"}, outputPointStr.Data());
+          NLogTrace("Output point for entry %d:", entry);
+          const std::string pad = httpIn.contains("contentPad") ? httpIn["contentPad"].get<std::string>() : "pad2";
+          for (TObject * object : *outputPoint) {
+            if (object != nullptr) ctx.ShowRoot(object, pad, object->GetName());
+          }
         }
         else {
           NLogWarning("No output point found for entry %d", entry);
