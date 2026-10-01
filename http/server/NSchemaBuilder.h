@@ -162,6 +162,18 @@ public:
   }
 
   /**
+   * @brief Set the "title" of the current property: the name a form shows, where the property key is
+   *        the argument a tool actually takes (`binningName` reads as "Binning").
+   * @param text Display name.
+   * @return Reference to this builder for chaining.
+   */
+  NSchemaBuilder & Title(const std::string & text)
+  {
+    if (!fCurrentProp.empty()) fSchema["properties"][fCurrentProp]["title"] = text;
+    return *this;
+  }
+
+  /**
    * @brief Set the "description" of the current property.
    * @param desc Description string.
    * @return Reference to this builder for chaining.

@@ -160,6 +160,15 @@ json NMcpServer::BuildTools() const
     }
   }
 
+  // The workspace is the authority on a field's *data*: the options that exist right now (a binning's
+  // name, a parameter's name), an array's element type, the select/multiselect hint, and the current
+  // default. A macro declares what a field *is* — its type and its description — which is all it can
+  // know at load time. Merging whole properties threw the data away: it is how a binning name became a
+  // plain text box and a parameter list lost its options.
+  const auto isDataKeyword = [](const std::string & keyword) {
+    return keyword == "enum" || keyword == "items" || keyword == "format" || keyword == "default";
+  };
+
   for (const auto & key : OrderByDependency(keys)) {
     const std::string toolName = ToolName(key);
     const std::string shortKey = ShortKey(key);
@@ -180,7 +189,16 @@ json NMcpServer::BuildTools() const
       for (auto it = info->inputSchema.begin(); it != info->inputSchema.end(); ++it) {
         if (it.key() == "properties" && it.value().is_object()) {
           for (auto prop = it.value().begin(); prop != it.value().end(); ++prop) {
-            inputSchema["properties"][prop.key()] = prop.value();
+            json & target = inputSchema["properties"][prop.key()];
+            if (!prop.value().is_object()) {
+              target = prop.value();
+              continue;
+            }
+            for (auto field = prop.value().begin(); field != prop.value().end(); ++field) {
+              // The macro's word wins, except where the live workspace already has the data.
+              if (target.contains(field.key()) && isDataKeyword(field.key())) continue;
+              target[field.key()] = field.value();
+            }
           }
         }
         else {

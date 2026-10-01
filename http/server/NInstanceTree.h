@@ -46,12 +46,13 @@ class NInstanceTree {
   bool Empty() const;
 
   /**
-   * @brief Create a node under a parent.
+   * @brief Create a node under a parent, or hand back the one that is already the same.
    * @param action The action's handler key (e.g. "ngnt/reshape").
    * @param params The request input to replay the action with (internals already stripped).
    * @param parent The parent node id, or "" for a root.
-   * @param label A display label (see LabelFor when empty).
-   * @return The new node's id.
+   * @param label A display label (see LabelFor when empty); a non-empty one is part of the match.
+   * @return The node's id — an existing node's when this action, with these parameters and this
+   *         label, is already under this parent: a repeated run does not grow a twin beside it.
    */
   std::string Create(const std::string & action, const json & params, const std::string & parent,
                      const std::string & label);
@@ -94,13 +95,43 @@ class NInstanceTree {
 
   /// @brief The tree for a client: `{active:[...], roots:[{id,action,label,params,children,state}]}`.
   json ToTree() const;
-  /// @brief A flat, replayable snapshot: `{v:2, next, active, nodes:{...}}`.
+  /**
+   * @brief A flat, replayable snapshot, **keyed by tool group**.
+   *
+   * \code
+   * { "v":3, "next":12, "active":["i3","i4"],
+   *   "groups": { "ngnt":   { "roots":["i1"], "nodes":{"i1":{...}} },
+   *               "schema": { "roots":["i7"], "nodes":{"i7":{...}} } } }
+   * \endcode
+   *
+   * A node sits under the group of its **own** action, so the group is the key a session is saved and
+   * restored by. A group's `roots` are its entry points: its nodes with no parent, plus any of its
+   * nodes whose parent belongs to another group - a chain that leaves its group stays restorable on
+   * its own. `active` stays one path (a live combination lies within one group).
+   *
+   * A version 2 snapshot (`{v:2, ..., nodes}`) is still accepted by Restore and regrouped there, so
+   * a session stored before this change keeps working; the version is not a migration.
+   */
   json Snapshot() const;
   /**
+   * @brief A standalone snapshot of one group: its nodes **and** everything below its roots, whichever
+   *        group those descendants belong to, so the chain stays whole.
+   * @param group The group prefix ("ngnt"); an empty one means the whole snapshot.
+   */
+  json Snapshot(const std::string & group) const;
+  /**
    * @brief Replace the tree from a snapshot.
-   * @param snapshot A `{v:2,...}` snapshot (older snapshots are converted by the caller).
+   * @param snapshot A `{v:3, ...}` snapshot, or a `{v:2, ...}` one (regrouped here).
    */
   void Restore(const json & snapshot);
+  /**
+   * @brief Replace one group's nodes from a snapshot, leaving every other group alone.
+   * @param snapshot A `{v:3, ...}` or `{v:2, ...}` snapshot.
+   * @param group The group to take from it; an empty one means the whole snapshot.
+   */
+  void Restore(const json & snapshot, const std::string & group);
+  /// @brief Whether a snapshot holds any node at all, in either version (see the guards that use it).
+  static bool HasNodes(const json & snapshot);
 
   /// @brief The group prefix of an action key ("ngnt/reshape" -> "ngnt").
   static std::string GroupOf(const std::string & action);
@@ -120,6 +151,12 @@ class NInstanceTree {
   private:
   /// @brief Ensure the store is an object with the expected keys.
   void Ensure();
+
+  /**
+   * @brief Install a flat `{id: node}` map as the store's nodes, re-linking children from parents.
+   * @param nodes Nodes as the snapshot holds them (children are rebuilt here, so they may be absent).
+   */
+  void Adopt(const json & nodes);
 
   json & fStore; ///< The combinations JSON (owned by the workspace).
 };

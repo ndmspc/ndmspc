@@ -171,7 +171,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
         NLogWarning("Refusing a %s request over websocket %lld: its room token is read-only", method.c_str(),
                     static_cast<long long>(wsId));
         json reply;
-        reply["event"]       = "ngnt_reply";
+        reply["event"]       = "message_reply";
         reply["requestId"]   = requestId;
         reply["contentType"] = "application/json";
         reply["payload"]     = json{{"result", "failure"},
@@ -222,7 +222,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 
       std::string content(static_cast<const char *>(httpArg->GetContent()), httpArg->GetContentLength());
       json reply;
-      reply["event"] = "ngnt_reply";
+      reply["event"] = "message_reply";
       reply["requestId"] = requestId;
       reply["contentType"] = httpArg->GetContentType();
       try {

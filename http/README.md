@@ -573,6 +573,34 @@ Changing a description requires only editing the macro and reloading — no reco
 the server. Actions with no registered metadata keep the generic description, and
 `debug`/`openapi/inspector`/`inspector/openapi` stay excluded by default.
 
+### Field vocabulary
+
+A tool's `inputSchema` and the workspace schema describe the same fields, and `tools/list` merges them
+per property **and per keyword**: the macro says what a field **is** (its `type`, its `description`),
+while the live workspace is the authority on what it **can be** — `enum`, `items`, `format`, `default`
+— because that only exists at runtime (the binnings that have been defined, the parameters that are in
+the tree, the pads, the current values). A whole-property override is what once turned a binning name
+into a text box and a parameter list into a JSON box.
+
+| keyword | meaning | the UI renders |
+| --- | --- | --- |
+| `type` | `string` / `number` / `integer` / `boolean` / `array` / `object` | — |
+| `title` | the name a form shows, where the key is the argument a tool takes (`binningName` reads as "Binning") | the field's label |
+| `format` | `select` (one of `enum`), `multiselect` (several of `enum`/`items.enum`) | a select, a multi-select |
+| `enum`, `items.enum` | the options | the choices offered |
+| `items.type`, `items.items.type` | an array's element type; `array` again for levels | a list editor; the levels editor |
+| `default` | the current value (a list for a multi-select) | what the form starts from |
+| `render` | `checkbox` / `radio` for the alternate widget | a checkbox list, a radio list |
+| `hint` (schema root) | text about the form as a whole | a muted line above the fields |
+
+The picker follows `format` when it is declared and the shape when it is not, so a tool that declares
+no more than `type` still renders sensibly, and `NSchemaBuilder` already offers the helpers
+(`Select`, `MultiSelect`, `Enum`, `Items`, `ItemsEnum`, `Format`, `Default`) to declare all of it.
+
+Every kind the UI draws, with the declaration that produces it, is a worked example in
+`macros/tools/toolSchema.C` — load it beside a tool macro (`-m "macros/tools/toolNgnt.C,macros/tools/toolSchema.C"`)
+and its `schema/probe` form shows one field of each kind.
+
 ### Tool dependencies
 
 A group of tools is usually a pipeline (`ngnt/open` → `ngnt/reshape` → `ngnt/map` → …), so a
@@ -619,10 +647,24 @@ of it: several opens, several reshapes under one open, several maps under one re
 Each instance is a **node**; a **combination** is a path of nodes from a root down to a node
 (`i1/i4`); the **active** combination is the one whose objects are live.
 
-- **Creating** — a `POST` adds a child node under the active node whose action is this action's
-  dependency. `POST ngnt/open {file}` creates a root (open declares no dependency); a later
-  `POST ngnt/reshape {binningName, levels}` attaches to the open that is active. A second reshape
-  is a **second node**, not a replacement.
+- **Creating** — a `POST` adds a child node under the node it is attached to (the active node by
+  default) whose action is this action's dependency. `POST ngnt/open {file}` creates a root (open
+  declares no dependency); a later `POST ngnt/reshape {binningName, levels}` attaches to the open
+  that is active. **The same action with the same arguments under the same parent is the same node**:
+  running a step again reuses it, so the handler runs again and its fresh objects replace that node's
+  old ones, and the tree keeps one path per distinct step instead of growing a twin beside it. (An
+  explicitly given `label` is part of that identity.) Different arguments — a second reshape of the
+  same tree — are therefore a **second node**, not a replacement of the first.
+- **Grouping and storage** — a node's tool group is the name before the slash of its action
+  (`ngnt/reshape` → `ngnt`), and the session snapshot is **keyed by it**: `{v:3, next, active,
+  groups: {ngnt: {roots, nodes}, schema: {roots, nodes}}}`. Each node is stored under the group of
+  its own action, and a group's `roots` are its entry points — its parentless nodes, plus any node
+  whose parent belongs to another group, so a chain that leaves its group still restores on its own.
+  **The group is the key for `room/backup` and `room/restore`**: the router carries the session as
+  opaque text, so a document exported today restores every group, and a group can be restored into a
+  live room on its own (`NInstanceTree::Restore(document, group)`, which re-keys the incoming nodes
+  because ids are numbered per tree). A `{v:2}` document — one flat `nodes` map — still restores: it
+  is regrouped on read, so the version is not a migration.
 - **Addressing** — every action takes an optional `path` (array of node ids): the parent to attach
   to (a `POST`) or the node to act on (`PATCH`/`DELETE`/`GET`). Omitted, a `POST` extends the active
   path and a `PATCH`/`DELETE` targets the active node of its own action, which is what keeps a
@@ -651,6 +693,77 @@ Each instance is a **node**; a **combination** is a path of nodes from a root do
 A group that declares no dependency (`health`, `state`, `room/*`, and every macro without
 `dependsOn`) is untouched: it keeps the plain, single-session behaviour, with no nodes and no
 `path`.
+
+### Showing something in a pad
+
+A tool can put anything on screen without the UI knowing anything about that tool: it writes an
+**envelope** into `payload.pad`, and the viewport draws it. `NRouteContext` carries the helpers
+(`Show`, `ShowRoot`, `Action`), and one frame may hold several envelopes:
+
+```cpp
+handlers["demo/summary"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                              std::map<std::string, TObject *> & objects) {
+  Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+
+  ctx.Show(json{{"lines", json::array({"opened test.root", "24 bins"})}}, "log", "pad2");
+  ctx.Show("# Summary\n\n24 bins, 482 entries", "markdown", "pad1", "Notes");
+  ctx.ShowRoot(histogram, "pad1", "", "colz",
+               json{{"click", json::array(
+                         {Ndmspc::NRouteContext::Action("demo/drill", "PATCH", json{{"level", 1}})})}});
+  ctx.Success();
+};
+```
+
+An envelope is:
+
+| field | meaning |
+| --- | --- |
+| `pad` | the pad to fill (`pad1`, `pad2`, … — the grid and its numbering are the viewer's) |
+| `kind` | which renderer draws it: `jsroot`, `markdown`, `log`, `json` (`ndmspc-ui` registers more) |
+| `value` | what that renderer takes: a ROOT object's JSON for `jsroot`, text for `markdown`, lines for `log`, anything for `json` |
+| `label` | the tab to show it on (defaults to whatever the kind is called) |
+| `options` | renderer options, e.g. `{"drawOpts": "colz"}` |
+| `handlers` | what a click or hover means: `{"click": [{type, method, path, contentType, payload}]}` |
+
+`payload.pad` is a **list** — call `Show` as often as needed — and `NRouteContext::Action` builds an
+action in the shape the UI carries out. A tool only ever says *what* to show and *where* — how many
+pads there are, how they are laid out and which tab is showing belong to the viewer, and the same
+envelopes work whether or not the tool is part of a combination tree.
+
+**A tool the UI has never heard of needs no UI change.** The envelope is the whole display
+vocabulary: the UI draws whatever `payload.pad` names and forwards whatever `handlers` carry, and
+ignores every other key a payload may hold. One object per envelope is also how a tool asks for
+*tabs*: two envelopes naming two objects are two tabs, whereas one envelope carrying a ROOT list is
+one canvas with the list's items drawn on top of each other (jsroot's reading of a list).
+
+A **nested reshape** is the case that uses this. Each navigator layer goes as its own envelope, so
+`levels = [[0],[1,2]]` fills its pad with one tab per layer, named by that layer's axes as the map
+itself labels them (`phi`, `phi-eta`) — and a drill-down into a layer replaces the tabs, so the strip
+always describes where the navigator is rather than growing a trail.
+
+### Clicks: what the UI sends back
+
+An action's `handlers` say where a click goes; the payload of such an action is the request body, and
+the UI adds the renderer's own account of *where* the click happened under `args`:
+
+```json
+{ "point": [], "level": 1,
+  "args": { "bin": 7, "cont": 12, "x": 2.5, "y": 40 } }
+```
+
+| arg | what it is |
+| --- | --- |
+| `bin` | the clicked bin, **ROOT-numbered** (1-based). jsroot counts a `TH1`'s bins from 0 and the UI undoes that; every other histogram jsroot already numbers from 1. |
+| `cont` | the clicked cell's **content** (jsroot's own name for it) |
+| `x`, `y` | the click's coordinates |
+| `obj` | *not sent* — the whole clicked object is large and only the renderer wanted it |
+
+Everything else a handler needs it derives itself, from these: the ngnt tools, for instance, read
+`args.cont` as the entry their navigator stores in each cell. Nothing is translated on the way, so a
+new tool reads `args` however its own data wants.
+
+The websocket envelopes themselves are `message` (a tool's output) and `message_reply` (the answer to
+a request).
 
 ### HTTP transport
 

@@ -152,6 +152,54 @@ public:
   /// Copy a workspace section into wsOut for broadcasting.
   void BroadcastWorkspace(const std::string & name);
 
+  // --- Showing something in a pad ---
+
+  /**
+   * @brief Show one object in a pad: the generic envelope the viewport reads.
+   *
+   * Appends to `payload.pad`. The UI reads that as "fill a pad": `pad` names the pad (`pad1`,
+   * `pad2`, …), `kind` names the renderer to draw it with (`jsroot`, `markdown`, `log`, `json`, …),
+   * `value` is what that renderer takes, `options` its options, `label` the tab to show it on, and
+   * `handlers` what a click on it means (see Action()). One frame may carry several — call it as
+   * often as needed — and the pads, their grid and their tabs are the viewer's own.
+   *
+   * @param value What to draw.
+   * @param kind Renderer id (default "json").
+   * @param pad Pad to show it in (default "pad1").
+   * @param label Tab to show it on (default: whatever the kind is called).
+   * @param options Renderer options, e.g. `{{"drawOpts", "colz"}}`.
+   * @param handlers Click/hover actions, e.g. `{{"click", json::array({Action("ngnt/map")})}}`.
+   */
+  void Show(const json & value, const std::string & kind = "json", const std::string & pad = "pad1",
+            const std::string & label = "", const json & options = json::object(),
+            const json & handlers = json::object());
+
+  /**
+   * @brief Show a ROOT object in a pad, serialized the way the `jsroot` renderer wants it.
+   * @param object Object to draw (an error response is set when it is null).
+   * @param pad Pad to show it in (default "pad1").
+   * @param label Tab to show it on (default: the object's name).
+   * @param drawOptions jsroot draw options ("colz", "lego", …).
+   * @param handlers Click/hover actions.
+   */
+  void ShowRoot(TObject * object, const std::string & pad = "pad1", const std::string & label = "",
+                const std::string & drawOptions = "", const json & handlers = json::object());
+
+  /**
+   * @brief An action a click can carry out, shaped the way the UI expects one.
+   *
+   * The UI adds the click's own `args` (the clicked bin, the container) beside `payload` when it
+   * carries the action out, so a handler only builds the part it knows.
+   *
+   * @param path Handler path (the tool name with `/` instead of `_`, e.g. `ngnt/map`).
+   * @param method HTTP verb.
+   * @param payload Request body.
+   * @param contentType Request content type.
+   */
+  static json Action(const std::string & path, const std::string & method = "PATCH",
+                     const json & payload = json::object(),
+                     const std::string & contentType = "application/json");
+
   // --- Raw access ---
   /// @brief Get the request method.
   const std::string &                  Method() const { return fMethod; }

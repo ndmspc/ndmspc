@@ -104,6 +104,20 @@ std::string NInstanceTree::Create(const std::string & action, const json & param
 {
   Ensure();
 
+  // The same action with the same inputs, under the same parent, is the same instance: a repeated
+  // run reuses the node it already has instead of growing a twin beside it. Running a step again —
+  // or opening the same file a second time — therefore keeps one path, and the handler's fresh
+  // objects land on that node, which is exactly what re-running is for.
+  const json effective = params.is_null() ? json::object() : params;
+  for (const std::string & candidate : (parent.empty() ? Roots() : Children(parent))) {
+    const json node = Get(candidate);
+    if (!node.is_object()) continue;
+    if (node.value("action", std::string()) != action) continue;
+    if (!label.empty() && node.value("label", std::string()) != label) continue;
+    if (node.value("params", json::object()) != effective) continue;
+    return candidate;
+  }
+
   const int next = fStore["next"].get<int>();
   fStore["next"] = next + 1;
   const std::string id = "i" + std::to_string(next);
@@ -272,13 +286,76 @@ json NInstanceTree::ToTree() const
 
 json NInstanceTree::Snapshot() const
 {
-  json nodes = json::object();
+  json groups = json::object();
   for (auto it = fStore["nodes"].begin(); it != fStore["nodes"].end(); ++it) {
-    json node = it.value();
+    const std::string group = GroupOf(it.value().value("action", ""));
+    json              node  = it.value();
     node.erase("children"); // rebuildable from parent links
-    nodes[it.key()] = node;
+    groups[group]["nodes"][it.key()] = node;
   }
-  return json{{"v", 2}, {"next", fStore["next"]}, {"active", Active()}, {"nodes", nodes}};
+
+  // A group's roots are its entry points: no parent, or a parent in another group - so restoring the
+  // group on its own still yields every combination it holds.
+  for (auto it = groups.begin(); it != groups.end(); ++it) {
+    json roots = json::array();
+    for (auto node = it.value()["nodes"].begin(); node != it.value()["nodes"].end(); ++node) {
+      const json        & stored = fStore["nodes"];
+      // A root's parent is an empty string or null, so it is read defensively rather than with value().
+      const json        & given  = node.value().contains("parent") ? node.value()["parent"] : json();
+      const std::string  parent  = given.is_string() ? given.get<std::string>() : "";
+      const json         holder  = parent.empty() ? json::object() : stored.value(parent, json::object());
+      if (parent.empty() || GroupOf(holder.value("action", "")) != it.key()) roots.push_back(node.key());
+    }
+    it.value()["roots"] = roots;
+  }
+
+  return json{{"v", 3}, {"next", fStore["next"]}, {"active", Active()}, {"groups", groups}};
+}
+
+json NInstanceTree::Snapshot(const std::string & group) const
+{
+  if (group.empty()) return Snapshot();
+
+  // The group's own nodes plus everything below its roots, whichever group those descendants belong
+  // to: a combination that leaves its group is still whole.
+  json keep = json::object();
+  std::function<void(const std::string &)> walk = [&](const std::string & id) {
+    if (keep.contains(id) || !Has(id)) return;
+    keep[id] = Get(id);
+    for (const auto & child : Children(id)) walk(child);
+  };
+  for (const auto & root : Roots()) {
+    if (GroupOf(Action(root)) == group) walk(root);
+  }
+
+  const json full   = Snapshot();
+  json       groups = json::object();
+  for (auto it = full["groups"].begin(); it != full["groups"].end(); ++it) {
+    json nodes = json::object();
+    for (auto node = it.value()["nodes"].begin(); node != it.value()["nodes"].end(); ++node) {
+      if (keep.contains(node.key())) nodes[node.key()] = node.value();
+    }
+    if (nodes.empty()) continue;
+    json roots = json::array();
+    for (const auto & root : it.value().value("roots", json::array())) {
+      if (keep.contains(root.get<std::string>())) roots.push_back(root);
+    }
+    groups[it.key()] = json{{"roots", roots}, {"nodes", nodes}};
+  }
+
+  return json{{"v", 3}, {"next", full["next"]}, {"active", full["active"]}, {"groups", groups}};
+}
+
+bool NInstanceTree::HasNodes(const json & snapshot)
+{
+  if (!snapshot.is_object()) return false;
+  if (snapshot.contains("groups") && snapshot["groups"].is_object()) {
+    for (auto it = snapshot["groups"].begin(); it != snapshot["groups"].end(); ++it) {
+      if (!it.value().value("nodes", json::object()).empty()) return true;
+    }
+    return false;
+  }
+  return !snapshot.value("nodes", json::object()).empty(); // version 2
 }
 
 void NInstanceTree::Restore(const json & snapshot)
@@ -286,21 +363,105 @@ void NInstanceTree::Restore(const json & snapshot)
   Reset();
   if (!snapshot.is_object()) return;
   if (snapshot.contains("next") && snapshot["next"].is_number_integer()) fStore["next"] = snapshot["next"];
-  if (snapshot.contains("nodes") && snapshot["nodes"].is_object()) {
-    fStore["nodes"] = json::object();
-    for (auto it = snapshot["nodes"].begin(); it != snapshot["nodes"].end(); ++it) {
-      json node      = it.value();
-      node["children"] = json::array();
-      fStore["nodes"][it.key()] = node;
-    }
-    // Re-link children from the parents.
-    for (auto it = snapshot["nodes"].begin(); it != snapshot["nodes"].end(); ++it) {
-      const std::string parent =
-          it.value().contains("parent") && !it.value()["parent"].is_null() ? it.value()["parent"].get<std::string>() : "";
-      if (!parent.empty() && Has(parent)) fStore["nodes"][parent]["children"].push_back(it.key());
+
+  json nodes = json::object();
+  if (snapshot.contains("groups") && snapshot["groups"].is_object()) {
+    for (auto it = snapshot["groups"].begin(); it != snapshot["groups"].end(); ++it) {
+      const json group = it.value().value("nodes", json::object());
+      for (auto node = group.begin(); node != group.end(); ++node) nodes[node.key()] = node.value();
     }
   }
+  else if (snapshot.contains("nodes") && snapshot["nodes"].is_object()) {
+    nodes = snapshot["nodes"]; // version 2: one flat tree, regrouped by each node's own action
+  }
+  Adopt(nodes);
+
   if (snapshot.contains("active") && snapshot["active"].is_array()) fStore["active"] = snapshot["active"];
+}
+
+void NInstanceTree::Restore(const json & snapshot, const std::string & group)
+{
+  if (!snapshot.is_object() || group.empty()) {
+    Restore(snapshot);
+    return;
+  }
+
+  // Whatever the document holds, in either shape, by id.
+  json document = json::object();
+  if (snapshot.contains("groups") && snapshot["groups"].is_object()) {
+    for (auto it = snapshot["groups"].begin(); it != snapshot["groups"].end(); ++it) {
+      const json held = it.value().value("nodes", json::object());
+      for (auto node = held.begin(); node != held.end(); ++node) document[node.key()] = node.value();
+    }
+  }
+  if (snapshot.contains("nodes") && snapshot["nodes"].is_object()) {
+    for (auto it = snapshot["nodes"].begin(); it != snapshot["nodes"].end(); ++it) document[it.key()] = it.value();
+  }
+
+  const auto parentOf = [&document](const json & node) {
+    const json parent = node.contains("parent") ? node["parent"] : json();
+    return parent.is_string() ? parent.get<std::string>() : std::string();
+  };
+
+  // The group's own nodes, plus everything below them whichever group it belongs to: a chain is not
+  // cut in half by a restore either.
+  json taken = json::object();
+  std::function<void(const std::string &)> take = [&](const std::string & id) {
+    if (taken.contains(id) || !document.contains(id)) return;
+    taken[id] = document[id];
+    for (auto it = document.begin(); it != document.end(); ++it) {
+      if (parentOf(it.value()) == id) take(it.key());
+    }
+  };
+  for (auto it = document.begin(); it != document.end(); ++it) {
+    if (GroupOf(it.value().value("action", "")) == group) take(it.key());
+  }
+
+  // Ids are per tree (`i1`, `i2`, ...), so the incoming nodes are given fresh ones: a scoped restore
+  // merges two trees, and must not overwrite a node that merely shares a number.
+  int                                next = fStore.value("next", 1);
+  std::map<std::string, std::string> renamed;
+  for (auto it = taken.begin(); it != taken.end(); ++it) {
+    renamed[it.key()] = "i" + std::to_string(next++);
+    it.value()["parent"] = parentOf(it.value()); // rewritten below, through `renamed`
+  }
+
+  // Everything outside the group survives, and the group's nodes are replaced by the incoming ones.
+  json nodes = json::object();
+  for (auto it = fStore["nodes"].begin(); it != fStore["nodes"].end(); ++it) {
+    if (GroupOf(it.value().value("action", "")) != group) nodes[it.key()] = it.value();
+  }
+  for (auto it = taken.begin(); it != taken.end(); ++it) {
+    json node      = it.value();
+    const auto was = renamed.find(parentOf(node));
+    node["parent"] = was == renamed.end() ? parentOf(node) : was->second;
+    nodes[renamed.at(it.key())] = node;
+  }
+  fStore["next"] = next;
+  Adopt(nodes);
+
+  // The active path only survives where it still points at nodes.
+  json active = json::array();
+  for (const auto & id : Active()) {
+    if (Has(id)) active.push_back(id);
+  }
+  fStore["active"] = active;
+}
+
+void NInstanceTree::Adopt(const json & nodes)
+{
+  fStore["nodes"] = json::object();
+  for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+    json node        = it.value();
+    node["children"] = json::array();
+    fStore["nodes"][it.key()] = node;
+  }
+  // Re-link children from the parents.
+  for (auto it = fStore["nodes"].begin(); it != fStore["nodes"].end(); ++it) {
+    const std::string parent =
+        it.value().contains("parent") && it.value()["parent"].is_string() ? it.value()["parent"].get<std::string>() : "";
+    if (!parent.empty() && Has(parent)) fStore["nodes"][parent]["children"].push_back(it.key());
+  }
 }
 
 std::string NInstanceTree::GroupOf(const std::string & action)
