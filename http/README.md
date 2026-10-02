@@ -586,8 +586,9 @@ into a text box and a parameter list into a JSON box.
 | --- | --- | --- |
 | `type` | `string` / `number` / `integer` / `boolean` / `array` / `object` | — |
 | `title` | the name a form shows, where the key is the argument a tool takes (`binningName` reads as "Binning") | the field's label |
-| `format` | `select` (one of `enum`), `multiselect` (several of `enum`/`items.enum`) | a select, a multi-select |
+| `format` | `select` (one of `enum`), `multiselect` (several of `enum`/`items.enum`), `tree` (a picker over `nodes`) | a select, a multi-select, a tree picker |
 | `enum`, `items.enum` | the options | the choices offered |
+| `nodes` | a nested tree a `format:"tree"` field picks from (each node `{id, label, detail?, children?}`) | a collapsible tree; the field's value is the selected node's `id` |
 | `items.type`, `items.items.type` | an array's element type; `array` again for levels | a list editor; the levels editor |
 | `default` | the current value (a list for a multi-select) | what the form starts from |
 | `render` | `checkbox` / `radio` for the alternate widget | a checkbox list, a radio list |
@@ -694,6 +695,58 @@ A group that declares no dependency (`health`, `state`, `room/*`, and every macr
 `dependsOn`) is untouched: it keeps the plain, single-session behaviour, with no nodes and no
 `path`.
 
+### Browsing a ROOT file (`browser`)
+
+`macros/tools/toolBrowser.C` registers a `browser` **combination** — a TBrowser-like file browser, with
+all the work on the server: it opens a ROOT file (`TFile::Open`, so a local path or an http(s) URL),
+walks its keys to build the tree, and draws a chosen object into a pad. `browser/browse` depends on
+`browser/open`, so the Explorer shows the group with `open` as the action that starts it and, under it,
+the browse step whose form **is** the file tree.
+
+```bash
+ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
+```
+
+| Action | Group | Methods | What it does |
+| --- | --- | --- | --- |
+| `browser/open` | `browser` | GET, POST, DELETE | POST opens `file` and publishes the file tree; GET reports the open file; DELETE closes it. |
+| `browser/browse` | `browser` | POST | The browse step: its form is the file tree (`key`, a `format:"tree"` field). Live without being run; expanding a folder and clicking an object run the two actions below. |
+| `rbrowser/ls` | `rbrowser` | POST | Expands the folder at `key` and re-publishes the tree. Hidden — the tree drives it. |
+| `rbrowser/draw` | `rbrowser` | POST, PATCH | Draws the object at `key` (the pad view decides which pad; `drawOpts` is a jsroot option string). With `branch`, it projects that branch into a histogram. Hidden — the tree drives it. |
+
+The browse step's `key` field is where the tree lives: its `nodes` come from the file, so browsing and
+drawing happen in the step itself. A node carries the request a click makes — `rbrowser/ls` for a folder,
+`rbrowser/draw` for an object (a branch draws a histogram of that branch) — and clicking records **no
+step**, so the tree stays on screen as you draw. Only `draw` fills a pad. A node is
+
+```json
+{ "id": "ntuple", "label": "ntuple;1", "detail": "TNtuple",
+  "expandable": true, "loaded": true, "children": [ … ],
+  "action": { "type": "http", "method": "POST", "path": "rbrowser/ls",
+              "contentType": "application/json", "payload": { "key": "ntuple" } } }
+```
+
+The `id` (and the `key` the field emits) is the ROOT key path, the `label` is what a viewer shows
+(cycle number included), and `action` is the request a click makes. A `TTree` expands to its branches
+(so it draws nothing itself); a branch node's own `action` draws a histogram of that branch.
+
+`rbrowser` is a group of its own with **no `dependsOn`**, and that is deliberate: the server records a
+node for every POST of an action in a combination group (a dependency-less one becomes a *root*), so an
+action that must add no step cannot live in `browser`. Both internal actions are `hidden`, so neither
+the Explorer nor the Tools panel lists them; the tree's nodes invoke them by name.
+
+A node that can be expanded is **navigational**: clicking its row opens it (as the chevron does), so a
+folder — and a `TTree`, which expands to its branches — draws nothing. Only a leaf draws.
+
+The drawing names **no pad**: the `rbrowser/draw` envelope carries no `pad`, so the pad view routes it —
+to the pad in hand in **fixed** mode, or to the selected pads in turn in **rotate** mode. The tool never
+has to know how many pads there are or which is showing.
+
+The argument is named `key`, not `path`: `path` is the server's own combination address (the node ids a
+request acts on) and is consumed by the dispatch, so a tool argument of that name would be dropped from
+a node's recorded arguments. Reading an http(s) URL is ROOT's own work (`TDavixFile`/`TCurlFile`), so
+the `root-net-davix` package is required — the `ndmspc` RPM requires it.
+
 ### Showing something in a pad
 
 A tool can put anything on screen without the UI knowing anything about that tool: it writes an
@@ -719,7 +772,7 @@ An envelope is:
 | field | meaning |
 | --- | --- |
 | `pad` | the pad to fill (`pad1`, `pad2`, … — the grid and its numbering are the viewer's) |
-| `kind` | which renderer draws it: `jsroot`, `markdown`, `log`, `json` (`ndmspc-ui` registers more) |
+| `kind` | which renderer draws it: `jsroot`, `markdown`, `log`, `json`, `tree` (`ndmspc-ui` registers more) |
 | `value` | what that renderer takes: a ROOT object's JSON for `jsroot`, text for `markdown`, lines for `log`, anything for `json` |
 | `label` | the tab to show it on (defaults to whatever the kind is called) |
 | `options` | renderer options, e.g. `{"drawOpts": "colz"}` |

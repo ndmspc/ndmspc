@@ -33,9 +33,9 @@ BuildRequires: json-devel, zeromq-devel
 %if 0%{?rhel} > 10 || 0%{?almalinux} > 10
 BuildRequires: cpp-httplib-devel, cli11-devel
 %endif
-BuildRequires: root, root-net-http, root-net-httpsniff
+BuildRequires: root, root-net-http, root-net-httpsniff, root-net-davix
 BuildRequires: root-roofit root-roofit-more
-Requires:      root, root-netx, root-net-http, root-net-httpsniff, xrootd-client
+Requires:      root, root-netx, root-net-http, root-net-httpsniff, root-net-davix, xrootd-client
 Requires:      root-roofit root-roofit-more 
 
 %if %{with_taxi}

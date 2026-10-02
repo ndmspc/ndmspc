@@ -98,12 +98,14 @@ class ToolHarness {
     json in    = payload;
     json out   = json::object();
     json wsOut = json::object();
-    handler(method, in, out, wsOut, fObjects);
+    // The same map the server hands a handler, so an object one call registers
+    // (`AddInputObject`) is the one the next call reads — as it is in production.
+    handler(method, in, out, wsOut, fServer->GetObjectsMap());
     return fLast = ToolCall{wsOut, out};
   }
 
   /** The objects the tool has built so far, by the name its handlers use for them. */
-  std::map<std::string, TObject *> & Objects() { return fObjects; }
+  std::map<std::string, TObject *> & Objects() { return fServer->GetObjectsMap(); }
 
   /** The handler a tool registered under that key, or null when it registered none. */
   NHttpFuncPtr Handler(const std::string & key) { return fServer->FindHttpHandler(key); }
@@ -134,9 +136,8 @@ class ToolHarness {
   const ToolCall & Last() const { return fLast; }
 
   private:
-  std::unique_ptr<NHttpServer>     fServer;
-  std::map<std::string, TObject *> fObjects;
-  ToolCall                         fLast;
+  std::unique_ptr<NHttpServer> fServer;
+  ToolCall                     fLast;
   /** The registries the loaded tool registers into, owned here while it is loaded. */
   NHttpHandlerMap                                            fHandlers;
   std::remove_pointer_t<decltype(gNdmspcMcpTools)>           fToolInfo;
