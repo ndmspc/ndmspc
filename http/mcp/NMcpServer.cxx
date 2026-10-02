@@ -161,12 +161,14 @@ json NMcpServer::BuildTools() const
   }
 
   // The workspace is the authority on a field's *data*: the options that exist right now (a binning's
-  // name, a parameter's name), an array's element type, the select/multiselect hint, and the current
-  // default. A macro declares what a field *is* — its type and its description — which is all it can
-  // know at load time. Merging whole properties threw the data away: it is how a binning name became a
-  // plain text box and a parameter list lost its options.
+  // name, a parameter's name), an array's element type, the select/multiselect/tree hint, the nested
+  // tree a `format:"tree"` field picks from, and the current default. A macro declares what a field
+  // *is* — its type and its description — which is all it can know at load time. Merging whole
+  // properties threw the data away: it is how a binning name became a plain text box and a parameter
+  // list lost its options.
   const auto isDataKeyword = [](const std::string & keyword) {
-    return keyword == "enum" || keyword == "items" || keyword == "format" || keyword == "default";
+    return keyword == "enum" || keyword == "items" || keyword == "format" || keyword == "default" ||
+           keyword == "nodes";
   };
 
   for (const auto & key : OrderByDependency(keys)) {
