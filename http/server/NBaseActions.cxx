@@ -31,6 +31,10 @@ bool RegisterBaseActions()
                      "the heartbeat, DELETE resets the server.",
       .methods     = {"GET", "PATCH", "DELETE"},
   });
+  Ndmspc::RegisterMcpTool("group", {
+      .description = "The tool group the room is looking at: GET reports it, PATCH sets it for every client.",
+      .methods     = {"GET", "PATCH", "POST"},
+  });
 
   handlers["health"] = [](std::string method, json & /*httpIn*/, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
@@ -118,6 +122,90 @@ bool RegisterBaseActions()
       httpOut["error"] = "Unsupported HTTP method for state action";
       httpOut["result"] = "failure";
     }
+  };
+
+  handlers["group"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                         std::map<std::string, TObject *> & /*inputs*/) {
+    auto server = Ndmspc::gNHttpServer;
+
+    if (method.find("GET") != std::string::npos) {
+      httpOut["result"]             = "success";
+      httpOut["payload"]["group"]   = server->GetGroup();
+    }
+    else if (method.find("PATCH") != std::string::npos || method.find("POST") != std::string::npos) {
+      // One room, one tool: everyone looking at it sees the same pipeline, so a switch is told to every
+      // client (the payload rides the broadcast) rather than kept to the one that made it. It is also
+      // what a client that joins later is handed (see NHttpServer::SessionState).
+      const std::string group = httpIn.value("group", std::string());
+      server->SetGroup(group);
+      wsOut["payload"]["group"]   = group;
+      httpOut["result"]           = "success";
+      httpOut["payload"]["group"] = group;
+
+      // A session belongs to a group, so the room's session follows the group it is looking at: that
+      // group's own session becomes the one everyone is on. Otherwise a group with sessions would have
+      // no current one - and nothing to show as its name - until somebody picked one.
+      const std::string session = server->GroupSession(group);
+      if (!session.empty()) {
+        server->ActivateSession(session);
+        wsOut["payload"]["session"]  = session;
+        wsOut["payload"]["sessions"] = server->SessionList()["sessions"];
+      }
+    }
+    else {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "Unsupported HTTP method for group action";
+    }
+  };
+
+  Ndmspc::RegisterMcpTool("session", {
+      .description = "The room's sessions: GET lists them and the one the room is on, PATCH makes one "
+                     "the room's (and renames it when given a `name`), or starts a fresh one for a "
+                     "group with `new` - whose first step then fills it.",
+      .methods     = {"GET", "PATCH", "POST"},
+  });
+
+  handlers["session"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                           std::map<std::string, TObject *> & /*inputs*/) {
+    auto server = Ndmspc::gNHttpServer;
+
+    if (method.find("GET") != std::string::npos) {
+      httpOut["result"]  = "success";
+      httpOut["payload"] = server->SessionList();
+      return;
+    }
+    if (method.find("PATCH") != std::string::npos || method.find("POST") != std::string::npos) {
+      // A rename rides along when one is given: what the session is called, not what it is (see
+      // NHttpServer::RenameSession).
+      const std::string name = httpIn.value("name", std::string());
+      // Or a fresh session for a group: the room starts it, names it, and it becomes the one everybody
+      // is on - its first step then fills it rather than starting a session of its own (StartSession).
+      std::string session = httpIn.value("session", std::string());
+      if (session.empty() && httpIn.value("new", false)) {
+        session = server->StartSession(httpIn.value("group", std::string()), name);
+      }
+      if (session.empty() || !server->ActivateSession(session)) {
+        httpOut["result"] = "failure";
+        httpOut["error"]  = "not a session of this room: '" + session + "'";
+        return;
+      }
+      if (!name.empty() && !server->RenameSession(session, name)) {
+        httpOut["result"] = "failure";
+        httpOut["error"]  = "not a session of this room: '" + session + "'";
+        return;
+      }
+      // Told to every client, so they all follow the same session (the tree's active path moved) and
+      // their picker shows the list as it now stands.
+      const json list                  = server->SessionList();
+      wsOut["payload"]["session"]      = session;
+      wsOut["payload"]["sessions"]     = list["sessions"];
+      wsOut["payload"]["combinations"] = Ndmspc::NInstanceTree(server->GetCombinations()).ToTree();
+      httpOut["result"]                = "success";
+      httpOut["payload"]               = list;
+      return;
+    }
+    httpOut["result"] = "failure";
+    httpOut["error"]  = "Unsupported HTTP method for session action";
   };
 
   return true;

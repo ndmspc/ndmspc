@@ -2,6 +2,7 @@
 
 #include "ndmspc/http/NBaseActions.h"
 #include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NInstanceTree.h"
 
 #include <THttpCallArg.h>
 
@@ -109,8 +110,14 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
   // What the server describes itself with, as handlers and as MCP tools.
   EXPECT_NE(handlers.find("health"), handlers.end());
   EXPECT_NE(handlers.find("state"), handlers.end());
+  // The room's tool group: GET reports it, PATCH sets it for every client.
+  EXPECT_NE(handlers.find("group"), handlers.end());
+  // The room's sessions (one per open file): GET lists them, PATCH makes one active.
+  EXPECT_NE(handlers.find("session"), handlers.end());
   EXPECT_NE(tools.find("health"), tools.end());
   EXPECT_NE(tools.find("state"), tools.end());
+  EXPECT_NE(tools.find("group"), tools.end());
+  EXPECT_NE(tools.find("session"), tools.end());
 
   // The debug echo helper is gone with the macro it used to live in: a macro that wants one
   // registers its own.
@@ -119,7 +126,7 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
 
   // Registering twice is what a deployment that also loads the deprecated toolBase.C shim does.
   EXPECT_TRUE(Ndmspc::RegisterBaseActions());
-  EXPECT_EQ(handlers.size(), 2u);
+  EXPECT_EQ(handlers.size(), 4u);
 
   // A process that never wired a handler map is told so rather than crashing.
   Ndmspc::gNdmspcHttpHandlers = nullptr;
@@ -285,5 +292,82 @@ TEST(NHttpServerCombinationTest, PostCreatesNodesAndBranchesUnderAParent)
   EXPECT_EQ(bad["code"].get<std::string>(), "invalid_combination");
 
   Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
+}
+
+TEST(NHttpServerRoomStateTest, TheSnapshotCarriesTheRoomsNamesAndPadsAndGivesThemBack)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  // An open that publishes the file the snapshot's "nothing open" guard reads, and a step that draws, so
+  // the room has both the things this is about: a named session and something drawn in it.
+  handlers["browser/open"] = [](std::string, json & in, json & out, json & wsOut,
+                                std::map<std::string, TObject *> &) {
+    wsOut["workspace"]["open"]["properties"]["file"]["default"] = in.value("file", std::string());
+    wsOut["group"]                                              = "browser";
+    out["result"]                                               = "success";
+  };
+  handlers["browser/draw"] = [](std::string, json &, json & out, json & wsOut,
+                                std::map<std::string, TObject *> &) {
+    wsOut["payload"]["pad"] = json::array({json{{"pad", 0}, {"label", "h"}}});
+    wsOut["group"]          = "browser";
+    out["result"]           = "success";
+  };
+
+  // The base actions too: the session one is what names a session, so a room without it cannot be asked
+  // for what this is about.
+  Ndmspc::gNdmspcHttpHandlers = &handlers;
+  Ndmspc::RegisterBaseActions();
+
+  // A room is what has a session snapshot, and the room it is comes from the environment (see
+  // NHttpServer's constructor), so this one says which room it is.
+  setenv("NDMSPC_ROOM", "test-room", 1);
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  unsetenv("NDMSPC_ROOM");
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
+  // The open is what a session of this group is, which is also what makes it replayable: the snapshot
+  // replays the actions that define a session, so one that declares none leaves nothing to report.
+  tools["browser/open"]          = {.order = 1, .session = true};
+  tools["browser/draw"]          = {.dependsOn = {"browser/open"}};
+  Ndmspc::gNdmspcMcpTools        = &tools;
+
+  // A step that starts a session names it after its group, and drawing in it is remembered with it.
+  const json opened = json::parse(RequestJson(server, "POST", "browser/open", {{"file", "a.root"}}));
+  ASSERT_TRUE(opened["result"] == "success");
+  const std::string session = opened["combination"]["id"].get<std::string>();
+
+  const json named = json::parse(
+      RequestJson(server, "PATCH", "session", {{"session", session}, {"name", "calibration"}}));
+  const json drawn =
+      json::parse(RequestJson(server, "POST", "browser/draw", {{"path", json::array({session})}}));
+  ASSERT_TRUE(named["result"] == "success");
+  ASSERT_TRUE(drawn["result"] == "success");
+  ASSERT_TRUE(named["payload"]["sessions"][0]["label"] == "calibration");
+
+  // The snapshot carries the tree, the name the room holds and what the session has drawn.
+  const json snapshot = server->RoomSessionSnapshot();
+  ASSERT_FALSE(snapshot.is_null());
+  ASSERT_TRUE(snapshot.contains("combinations"));
+  ASSERT_TRUE(snapshot.contains("sessionNames"));
+  EXPECT_TRUE(snapshot["sessionNames"][session] == "calibration");
+  EXPECT_TRUE(snapshot["pads"].contains(session));
+
+  // A room that wakes takes the tree back and then the room's own session state - the order the restore
+  // uses, and what makes the names still belong to the right sessions.
+  auto * woken = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  Ndmspc::NInstanceTree(woken->GetCombinations()).Restore(snapshot["combinations"]);
+  woken->AdoptSessionState(snapshot);
+
+  const json sessions = woken->SessionList()["sessions"];
+  ASSERT_EQ(sessions.size(), 1u);
+  EXPECT_TRUE(sessions[0]["id"] == session);
+  EXPECT_TRUE(sessions[0]["label"] == "calibration");
+  EXPECT_TRUE(woken->GetPads().contains(session));
+
+  Ndmspc::gNdmspcMcpTools    = previous;
+  Ndmspc::gNdmspcHttpHandlers = nullptr;
+  delete woken;
   delete server;
 }

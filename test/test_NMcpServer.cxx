@@ -92,7 +92,7 @@ TEST(NMcpServerTest, ToolsListUsesInspectorSchemaAndAddsMethod)
   handlers["ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
-  serv->GetWorkspace()["open"] = Ndmspc::NSchemaBuilder().String("file").Default("test.root").Build();
+  serv->GetInspectorWorkspace()["open"] = Ndmspc::NSchemaBuilder().String("file").Default("test.root").Build();
 
   Ndmspc::NMcpServer mcp(serv);
   json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", json::object()}});

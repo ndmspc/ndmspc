@@ -417,6 +417,44 @@ struct Router {
   }
 };
 
+/// @brief The skeleton a router reads after an upgrade: the same shape, naming a new image.
+json SkeletonWithImage(const std::string & image)
+{
+  json skeleton;
+  skeleton["serviceSpec"]["template"]["spec"]["containers"] = json::array({json::object({{"image", image}})});
+  return skeleton;
+}
+
+/// @brief Seeds a room the cluster already has: on `image`, ready, its route pinned to revision-old.
+///
+/// This is the shape a router that is upgraded past finds: the room is idle (it runs at zero) and its
+/// Service still holds the image it was created with.
+void SeedRoomOnImage(const std::shared_ptr<FakeCluster> & cluster, const std::string & image)
+{
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  const std::string route   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes/ndmspc-room-alpha";
+
+  json room;
+  room["metadata"]["name"]                             = "ndmspc-room-alpha";
+  room["metadata"]["namespace"]                        = "default";
+  room["metadata"]["labels"]["ndmspc.io/room"]         = "alpha";
+  room["metadata"]["annotations"]["ndmspc.io/room-id"] = "alpha";
+  room["metadata"]["generation"]                       = 1; // what the API server stamps on a created Service
+  room["spec"]["template"]["spec"]["containers"]       = json::array({json::object({{"image", image}})});
+  room["status"]["conditions"]                         = json::array({json::object({{"type", "Ready"}, {"status", "True"}})});
+  room["status"]["latestReadyRevisionName"]            = "revision-old";
+  room["status"]["observedGeneration"]                 = 1;
+  cluster->objects[service]                            = room;
+
+  json pinned;
+  pinned["metadata"]["name"]                     = "ndmspc-room-alpha";
+  pinned["metadata"]["namespace"]                = "default";
+  pinned["metadata"]["labels"]["ndmspc.io/room"] = "alpha";
+  pinned["spec"]["rules"] = json::array({json::object(
+      {{"backendRefs", json::array({json::object({{"name", "revision-old"}, {"port", 80}})})}})});
+  cluster->objects[route] = pinned;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------- configuration
@@ -2205,6 +2243,63 @@ TEST(NRoomRouterActionsTest, AnAdoptedRoomKeepsTheProfileItsServiceCarries)
   EXPECT_EQ(test.cluster->objects[entry]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]
                 ["cpu"],
             "1");
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomIsRolledOntoTheNewImageWhenTheRouterRestarts)
+{
+  Router test;
+  // The router is upgraded: its skeleton names a new image, and the room the cluster still holds was
+  // created on the old one.
+  test.cluster->skeleton = SkeletonWithImage("ndmspc/base:new");
+  SeedRoomOnImage(test.cluster, "ndmspc/base:old");
+  test.cluster->replicas = 0; // nobody is in it
+
+  // The first read adopts the room, and - because it is idle and off the new image - rolls it and
+  // repins its route off the request path, so the next wake-up serves the image the router was
+  // upgraded to.
+  test.Call("list", "GET");
+  while (test.router->Workers() > 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  const std::string route   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "ndmspc/base:new");
+  // Repinned to the revision the new image made, which is what the room's `?room=` traffic follows.
+  EXPECT_EQ(test.cluster->objects.at(route)["spec"]["rules"][0]["backendRefs"][0]["name"], "revision-1");
+}
+
+TEST(NRoomRouterActionsTest, TheListReportsEachRoomsImageAndTag)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImage("registry.example.com/ndmspc/base:v1.4.0-rc12");
+
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  // The list carries the whole reference and the tag on its own, so a view shows the tag in the table
+  // and the reference in the detail pane without parsing either one out of the other.
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["image"], "registry.example.com/ndmspc/base:v1.4.0-rc12");
+  EXPECT_EQ(list["payload"]["rooms"][0]["imageTag"], "v1.4.0-rc12");
+}
+
+TEST(NRoomRouterActionsTest, ARoomInUseIsNotRolledOntoTheNewImage)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImage("ndmspc/base:new");
+  SeedRoomOnImage(test.cluster, "ndmspc/base:old");
+  test.cluster->replicas = 1; // somebody is in it: its pod is running
+
+  // Rolling it would replace its revision under an open websocket, so an in-use room is left exactly
+  // as it is - on the image it is serving with, and on the route that serves it.
+  test.Call("list", "GET");
+  while (test.router->Workers() > 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  const std::string route   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "ndmspc/base:old");
+  EXPECT_EQ(test.cluster->objects.at(route)["spec"]["rules"][0]["backendRefs"][0]["name"], "revision-old");
 }
 
 /// @brief A pod as Kubernetes writes one whose container died, for the rules that read it.

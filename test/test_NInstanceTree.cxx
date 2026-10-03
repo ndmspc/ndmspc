@@ -33,6 +33,36 @@ TEST(NInstanceTreeTest, CreateLinksParentAndPath)
   EXPECT_EQ(tree.Active(), (std::vector<std::string>{a, b, c}));
 }
 
+TEST(NInstanceTreeTest, KeepsEachGroupsLiveChainApart)
+{
+  json          store;
+  NInstanceTree tree(store);
+
+  const std::string a = tree.Create("ngnt/open", {{"file", "analysis.root"}}, "", "");
+  const std::string b = tree.Create("ngnt/reshape", {{"binningName", "x"}}, a, "");
+  const std::string c = tree.Create("browser/open", {{"file", "browse.root"}}, "", "");
+
+  tree.SetActive("ngnt", {a, b});
+  tree.SetActive("browser", {c});
+
+  // Each group has its own live chain: the browser's file stays open while the analysis group works.
+  EXPECT_EQ(tree.Active("ngnt"), (std::vector<std::string>{a, b}));
+  EXPECT_EQ(tree.Active("browser"), (std::vector<std::string>{c}));
+
+  // Moving one group's chain leaves the other's where it was.
+  tree.SetActive("ngnt", {});
+  EXPECT_TRUE(tree.Active("ngnt").empty());
+  EXPECT_EQ(tree.Active("browser"), (std::vector<std::string>{c}));
+
+  // Both live chains survive a snapshot/restore.
+  const json snapshot = tree.Snapshot();
+  json       store2;
+  NInstanceTree restored(store2);
+  restored.Restore(snapshot);
+  restored.SetActive("ngnt", {a, b});
+  EXPECT_EQ(restored.Active("browser"), (std::vector<std::string>{c}));
+}
+
 TEST(NInstanceTreeTest, RemoveSubtreeDropsChildrenAndCallsBackDeepestFirst)
 {
   json         store;
@@ -281,4 +311,47 @@ TEST(NInstanceTreeTest, LabelTemplateRendersFromTheArguments)
   EXPECT_EQ(tree.Get(e)["label"].get<std::string>(), "pad9");
 
   Ndmspc::gNdmspcMcpTools = previous;
+}
+
+TEST(NInstanceTreeTest, ARepeatedStartIsOneSessionAndANameIsNotTheNodes)
+{
+  json          store;
+  NInstanceTree tree(store);
+
+  // The same action with the same arguments is the same session, so a repeated run reuses the node
+  // rather than growing a twin beside it.
+  const std::string first = tree.Create("browser/open", {{"file", "a.root"}}, "", "");
+  EXPECT_EQ(tree.Create("browser/open", {{"file", "a.root"}}, "", ""), first);
+
+  // What a node is called is the action's own business - a tool's template, or the arguments guessed.
+  // A session's *name* is the room's and is held apart from this (see NHttpServer::SessionList), so a
+  // tool that opens no file, and a session called something that is not a file, work the same way.
+  EXPECT_EQ(tree.Get(first)["label"].get<std::string>(), "a.root");
+
+  const std::string other = tree.Create("a-tool/start", {{"store", "s1"}}, "", "");
+  EXPECT_EQ(other, "i2");
+  EXPECT_EQ(tree.Get(other)["label"].get<std::string>(), "s1");
+  EXPECT_EQ(Ndmspc::NInstanceTree::GroupOf(tree.Action(other)), "a-tool");
+}
+
+TEST(NInstanceTreeTest, SetParamsFillsANodeAndKeepsItsId)
+{
+  json          store;
+  NInstanceTree tree(store);
+
+  // A session started with nothing but its token: the node is there, with no arguments yet.
+  const std::string id = tree.Create("browser/open", {{"session", "t1"}}, "", "");
+  EXPECT_EQ(tree.Params(id).size(), 1u);
+
+  // Its first step fills it: the arguments it ran with, and the token it keeps, under the same id, so
+  // whatever refers to the session - the room's active path, a pad's path - goes on doing so.
+  tree.SetParams(id, {{"session", "t1"}, {"file", "hsimple.root"}});
+  EXPECT_EQ(id, "i1");
+  EXPECT_EQ(tree.Params(id)["file"].get<std::string>(), "hsimple.root");
+
+  // ... and it is called by what those arguments say.
+  EXPECT_EQ(tree.Get(id)["label"].get<std::string>(), "hsimple.root");
+
+  // Running that same step again finds the very node it filled, rather than a twin beside it.
+  EXPECT_EQ(tree.Create("browser/open", {{"session", "t1"}, {"file", "hsimple.root"}}, "", ""), id);
 }

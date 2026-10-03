@@ -751,16 +751,16 @@ Element RoomStateCell(const NRoomInfo & room, int frame)
 Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int frame)
 {
   // The columns share the width the table is actually given rather than each carrying a fixed one:
-  // seven columns cannot have hard-coded widths and also fit a narrow terminal, and it is the header
-  // that gets clipped first ("PODSPROFRESOURCEEXP" at 80 columns). The shares are the widths these
-  // columns used to have, as proportions, with a floor so a very narrow terminal still shows
+  // eight columns cannot have hard-coded widths and also fit a narrow terminal, and it is the header
+  // that gets clipped first ("PODSPROFIMAGERESOURCEEXP" at 80 columns). The shares are the widths
+  // these columns used to have, as proportions, with a floor so a very narrow terminal still shows
   // something. EXPIRES takes what is left, so the cells always add up to the table's own width.
   // The same share the pane is given below (`width * 6 / 10`, over the same 80-column floor), so the
   // two cannot drift: a floor here larger than that share is what made the columns overflow.
   const int  tableWidth = std::max(80, Terminal::Size().dimx) * 6 / 10;
   const auto share      = [tableWidth](int percent, int floor) { return std::max(floor, tableWidth * percent / 100); };
-  const int  wRoom = share(22, 6), wOwner = share(19, 5), wState = share(12, 6), wPods = share(6, 3),
-            wProfile = share(9, 5), wCeiling = share(15, 8);
+  const int  wRoom = share(20, 6), wOwner = share(16, 5), wState = share(11, 6), wPods = share(5, 3),
+            wProfile = share(8, 5), wImage = share(10, 6), wCeiling = share(14, 8);
 
   std::vector<Element> lines;
   lines.push_back(hbox({
@@ -769,6 +769,10 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
       text("STATE") | bold | size(WIDTH, EQUAL, wState),
       text("PODS") | bold | size(WIDTH, EQUAL, wPods),
       text("PROFILE") | bold | size(WIDTH, EQUAL, wProfile),
+      // The image tag the room runs, as the rooms view shows it: an idle room left behind by an
+      // upgrade is still on the old tag, which is exactly what that view has to say. The whole
+      // reference is in the detail pane.
+      text("IMAGE") | bold | size(WIDTH, EQUAL, wImage),
       // The most a room may reach, as the rooms view shows it: the requests are what it reserves,
       // and both are in the detail pane.
       text("RESOURCES MAX") | bold | size(WIDTH, EQUAL, wCeiling),
@@ -815,6 +819,9 @@ Element RenderRoomTable(const Snapshot & state, size_t selected, int rows, int f
         roomState | size(WIDTH, EQUAL, wState),
         pods | size(WIDTH, EQUAL, wPods),
         text(room.profile.empty() ? "-" : room.profile) | size(WIDTH, EQUAL, wProfile),
+        // The tag it runs ("-" for a room the router has not reported an image for, e.g. one still
+        // being created).
+        text(room.imageTag.empty() ? "-" : room.imageTag) | size(WIDTH, EQUAL, wImage),
         text(FormatCeiling(room)) | size(WIDTH, EQUAL, wCeiling),
         // A room being created is never swept, so that cell keeps saying how long its creation has
         // been running; one that is running says it is in use rather than counting down to a deadline
@@ -856,6 +863,8 @@ Element RenderDetail(const Snapshot & state, const NRoomUiOptions & options, siz
   lines.push_back(Field("pods", pods));
   // The size it runs at and what that allows, as the rooms view shows them.
   if (!room.profile.empty()) lines.push_back(Field("profile", room.profile));
+  // The image it runs, whole (tag included): the table shows only the tag.
+  if (!room.image.empty()) lines.push_back(Field("image", room.image));
   lines.push_back(Field("cpu", FormatRange(room.cpuRequest, room.cpuLimit)));
   lines.push_back(Field("memory", FormatRange(room.memoryRequest, room.memoryLimit)));
   // While a room's pod is running the router moves its idle clock forward on every read - that is how

@@ -110,6 +110,23 @@ std::vector<int> ResolveDrillPoint(const Ndmspc::NRouteContext & ctx, const json
   return point;
 }
 
+// The pad an action should use.
+//
+// A form sends the pad it was filled in with; a *click* does not — the action the tool attached to an
+// object carries only the point/entry — so a drill would otherwise always land back on the default pad
+// instead of the one the user chose. The workspace default, which the step's POST recorded, is where
+// that choice was kept.
+std::string PadArg(Ndmspc::NRouteContext & ctx, const std::string & key, const std::string & fallback,
+                   const std::string & route = "map")
+{
+  json & in = ctx.In();
+  if (in.contains(key) && in[key].is_string()) return in[key].get<std::string>();
+
+  const json wsDef = ctx.GetWorkspaceDefault(route, key);
+  if (wsDef.is_string() && !wsDef.get<std::string>().empty()) return wsDef.get<std::string>();
+  return fallback;
+}
+
 json BuildMapClickAction(const std::vector<int> & point, int level, const std::string & group = "")
 {
   json action;
@@ -364,6 +381,7 @@ void toolNgnt()
                                                   {"default", "NSingleBinning01Gaus.root"}}}}}},
                               .order       = 1,
                               .label       = "{{ file }}",
+                              .session     = true, // the opened file is part of the room's session
                           });
   Ndmspc::RegisterMcpTool(
       group + "/reshape",
@@ -385,6 +403,7 @@ void toolNgnt()
           .dependsOn   = {group + "/open"},
           .order       = 2,
           .label       = "{{ binningName }} ({{ levels }})",
+          .session     = true, // the navigator the reshape builds is part of the session
       });
   Ndmspc::RegisterMcpTool(
       group + "/map",
@@ -401,9 +420,13 @@ void toolNgnt()
                             {"point",
                              {{"type", "array"},
                               {"items", {{"type", "integer"}}},
+                              // Drilling into the mapping is what sets it, so the form does not ask for it.
+                              {"hidden", true},
                               {"description", "Canonical drill-down point: full path of child indices to select."}}},
                             {"level",
                              {{"type", "integer"},
+                              // Which level was clicked is the drill's to say too, so the form does not ask.
+                              {"hidden", true},
                               {"description", "Target navigator level; used with the stored state point when 'point' "
                                               "is omitted."}}}}}},
           .dependsOn   = {group + "/reshape"},
@@ -430,9 +453,13 @@ void toolNgnt()
                             {"point",
                              {{"type", "array"},
                               {"items", {{"type", "integer"}}},
+                              // Drilling into the spectra is what sets it, so the form does not ask for it.
+                              {"hidden", true},
                               {"description", "Canonical drill-down point: full path of child indices to select."}}},
                             {"level",
                              {{"type", "integer"},
+                              // Which level was clicked is the drill's to say here too.
+                              {"hidden", true},
                               {"description", "Target navigator level; used with the stored state point when 'point' "
                                               "is omitted."}}}}}},
           .dependsOn   = {group + "/map"},
@@ -461,7 +488,7 @@ void toolNgnt()
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
-    auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
+    auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
 
     std::string openKey    = "open";
     std::string reshapeKey = "reshape";
@@ -506,7 +533,7 @@ void toolNgnt()
           return;
         }
         ngnt->Close(false);
-        server->RemoveInputObject("ngnt");
+        server->RemoveInputObject(ctx.ObjectName("ngnt"));
       }
 
       ngnt = Ndmspc::NGnTree::Open(file);
@@ -529,7 +556,7 @@ void toolNgnt()
       }
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
-      server->AddInputObject("ngnt", ngnt);
+      server->AddInputObject(ctx.ObjectName("ngnt"), ngnt);
       return;
     }
 
@@ -537,7 +564,7 @@ void toolNgnt()
       if (ngnt) {
         NLogTrace("Closing NGnTree %s", ngnt->GetStorageTree()->GetFileName().c_str());
         ngnt->Close(false);
-        server->RemoveInputObject("ngnt");
+        server->RemoveInputObject(ctx.ObjectName("ngnt"));
       }
       ctx.Success();
       return;
@@ -556,14 +583,14 @@ void toolNgnt()
 
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
-    auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>("ngnt");
+    auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) {
       NLogError("NGnTree is not opened, cannot reshape");
       ctx.Result("File %s not opened", ngnt ? ngnt->GetStorageTree()->GetFileName().c_str() : "unknown");
       return;
     }
 
-    auto * nav = ctx.GetObject<Ndmspc::NGnNavigator>("navigator");
+    auto * nav = ctx.GetObject<Ndmspc::NGnNavigator>(ctx.ObjectName("navigator"));
 
     std::string reshapeKey = "reshape";
     std::string mapKey     = "map";
@@ -585,7 +612,7 @@ void toolNgnt()
       std::vector<std::vector<int>> levels      = ctx.GetParam("levels", std::vector<std::vector<int>>{});
 
       if (nav) {
-        server->RemoveInputObject("navigator");
+        server->RemoveInputObject(ctx.ObjectName("navigator"));
         nav = nullptr;
       }
 
@@ -596,7 +623,7 @@ void toolNgnt()
         return;
       }
 
-      server->AddInputObject("navigator", nav);
+      server->AddInputObject(ctx.ObjectName("navigator"), nav);
 
       if (!ctx.Workspace()[reshapeKey].contains("type")) {
         ctx.Workspace()[reshapeKey] = BuildReshapeSchema(ngnt);
@@ -618,7 +645,7 @@ void toolNgnt()
     if (ctx.IsDelete()) {
       NLogTrace("[DELETE][reshape] Closing reshape navigator %p", (void *)nav);
       if (nav) {
-        server->RemoveInputObject("navigator");
+        server->RemoveInputObject(ctx.ObjectName("navigator"));
       }
       ctx.Success();
       return;
@@ -637,9 +664,9 @@ void toolNgnt()
 
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
-    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
+    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) return;
-    auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>("navigator");
+    auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>(ctx.ObjectName("navigator"));
     if (!nav) return;
 
     std::string mapKey     = "map";
@@ -717,7 +744,7 @@ void toolNgnt()
       if (navCurrent && navCurrent->GetChildren().size() > 0) {
         // The layers from where the drill landed down, replacing what the pad had: the tab strip
         // describes the current position rather than growing a trail.
-        const std::string mappingPad = httpIn.contains("mappingPad") ? httpIn["mappingPad"].get<std::string>() : "pad1";
+        const std::string mappingPad = PadArg(ctx, "mappingPad", "pad1");
         RenderMapLayers(ctx, navCurrent, mappingPad, point);
 
         if (navCurrent->GetLevel() == nav->GetNLevels() - 1) {
@@ -757,7 +784,7 @@ void toolNgnt()
           TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
           if (outputPoint) {
             NLogTrace("Output point for entry %d:", entry);
-            const std::string pad = httpIn.contains("contentPad") ? httpIn["contentPad"].get<std::string>() : "pad2";
+            const std::string pad = PadArg(ctx, "contentPad", "pad2");
             // One envelope per object, named after itself, so clicking the same cell again replaces
             // its own tab rather than piling up.
             for (TObject * object : *outputPoint) {
@@ -800,9 +827,9 @@ void toolNgnt()
 
     wsOut["group"] = "ngnt";
     auto * server  = ctx.Server();
-    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
+    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) return;
-    auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>("navigator");
+    auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>(ctx.ObjectName("navigator"));
     if (!nav) return;
 
     std::string spectraKey = "spectra";
@@ -970,9 +997,9 @@ void toolNgnt()
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
     wsOut["group"] = "ngnt";
-    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>("ngnt");
+    auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) return;
-    auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>("navigator");
+    auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>(ctx.ObjectName("navigator"));
     if (!nav) return;
 
     if (ctx.IsGet()) {
@@ -1000,7 +1027,7 @@ void toolNgnt()
         TList * outputPoint = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
         if (outputPoint) {
           NLogTrace("Output point for entry %d:", entry);
-          const std::string pad = httpIn.contains("contentPad") ? httpIn["contentPad"].get<std::string>() : "pad2";
+          const std::string pad = PadArg(ctx, "contentPad", "pad2");
           for (TObject * object : *outputPoint) {
             if (object != nullptr) ctx.ShowRoot(object, pad, object->GetName());
           }

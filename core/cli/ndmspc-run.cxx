@@ -268,7 +268,12 @@ int main(int argc, char ** argv)
   // automatically without requiring an explicit tree.SetWorkerMacro() call.
   gSystem->Setenv("NDMSPC_MACRO", macroList.c_str());
 
-  std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');
+  // A bare name in the list takes the directory of the entry before it; with nothing before it, the
+  // installed macros' directory.
+  const char *      ndmspcDirEnv = gSystem->Getenv("NDMSPC_DIR");
+  const std::string macroDir =
+      (ndmspcDirEnv && *ndmspcDirEnv) ? std::string(ndmspcDirEnv) + "/macros/tools" : "";
+  std::vector<std::string> macros = Ndmspc::NUtils::ResolveMacroList(macroList, macroDir);
   for (const auto & macro : macros) {
     if (effectiveMacroParams.empty()) {
       NLogInfo("ndmspc-run: executing macro '%s'", macro.c_str());

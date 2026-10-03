@@ -882,6 +882,29 @@ bool NUtils::SaveRawFile(std::string filename, std::string content)
   return true;
 }
 
+std::vector<std::string> NUtils::ResolveMacroList(std::string_view list, const std::string & defaultDir)
+{
+  std::vector<std::string> resolved;
+  // The directory a bare name takes: the one the entry before it named. It starts at the caller's
+  // macro directory, so a list that begins with a bare name still resolves.
+  std::string dir = defaultDir;
+
+  for (const auto & entry : Tokenize(list, ',')) {
+    if (entry.empty()) continue;
+
+    // A name that names no directory of its own takes the directory in hand; one that names a
+    // directory (a path, or a URL) is used as it is, and becomes the directory the next name takes.
+    if (entry.find('/') == std::string::npos) {
+      resolved.push_back(dir.empty() ? entry : dir + "/" + entry);
+      continue;
+    }
+    resolved.push_back(entry);
+    const char * parent = gSystem->DirName(entry.c_str());
+    if (parent != nullptr && *parent != '\0') dir = parent;
+  }
+  return resolved;
+}
+
 TMacro * NUtils::OpenMacro(std::string filename)
 {
   ///

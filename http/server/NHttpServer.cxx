@@ -500,6 +500,38 @@ json JsonMember(const json & object, const char * key)
 }
 } // namespace
 
+void NHttpServer::RecordPads(const std::string & group, const json & envelopes)
+{
+  // One entry per (pad, tab label): re-drawing a map, or another point of one, replaces the tabs it
+  // already drew rather than stacking another copy, so the record is what the group is showing and not
+  // its whole history. The order is the order they first appeared, so the tabs come back as they were.
+  json & kept = fPads[group];
+  if (!kept.is_array()) kept = json::array();
+
+  // A pad and a tab are named by whatever the drawing said - a number or a string - so the key is read
+  // without pinning a type: asking for a string where the client sent a number throws, and remembering a
+  // drawing is no place to refuse one.
+  const auto keyOf = [](const json & one) {
+    return one.value("pad", json()).dump() + "\n" + one.value("label", json()).dump();
+  };
+
+  const json list = envelopes.is_array() ? envelopes : json::array({envelopes});
+  for (const auto & envelope : list) {
+    if (!envelope.is_object()) continue;
+    const std::string key      = keyOf(envelope);
+    bool              replaced = false;
+    for (auto & entry : kept) {
+      if (!entry.is_object()) continue;
+      if (keyOf(entry) == key) {
+        entry    = envelope;
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) kept.push_back(envelope);
+  }
+}
+
 json NHttpServer::SessionState()
 {
   Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
@@ -513,8 +545,244 @@ json NHttpServer::SessionState()
   json payload;
   payload["combinations"]        = tree.ToTree();
   payload["workspace"]["schema"] = schema;
+  // What each session has drawn: a client that has just joined is shown the room's pads, not an empty
+  // view (it keeps them per session and shows the one it is looking at). A request that named no
+  // session is filed under its group, so the key is a session id or a group name.
+  payload["pads"]                = fPads;
+  // The tool group the room is looking at, so a client that joins opens on the same one everyone else
+  // is on rather than on its own last choice (see the `group` base action).
+  payload["group"]               = fGroup;
+  // Each group's own schemas, kept apart: the flat `workspace.schema` above collides (two groups both
+  // publish "open"), so a client that read it would take one group's live default for the other's -
+  // the browser opening on the file the analysis tool had open. This is what it reads instead.
+  payload["workspaces"]          = fWorkspaceByGroup;
+  // Each session's own schemas, so a client can key its defaults by session. The group-keyed map
+  // above is kept for a client that still reads that.
+  payload["sessionWorkspaces"]   = fWorkspaceBySession;
+  // The room's sessions - one per open file - and which one is active, so a client can offer the
+  // picker before the tree itself is read.
+  const json sessions            = SessionList();
+  payload["session"]             = sessions["session"];
+  payload["sessions"]            = sessions["sessions"];
 
   return json{{"event", "ngnt"}, {"payload", payload}};
+}
+
+/// @brief The number in a node id ("i7" -> 7), or 0 when it is not one of ours.
+static int NodeNumber(const std::string & id)
+{
+  if (id.size() < 2) return 0;
+  try {
+    return std::stoi(id.substr(1));
+  } catch (...) {
+    return 0;
+  }
+}
+
+/**
+ * @brief A session's own id: a short hash, so what identifies it never reads as a name.
+ *
+ * A session is identified by something opaque and a person reads it by the name the room holds (see
+ * RenameSession): the two are kept apart on purpose, so renaming one is not renaming an id, and an
+ * unnamed session does not look like it was named after its file. The group and the node it is make it
+ * unique among a room's sessions.
+ */
+static std::string SessionToken(const std::string & group, int counter)
+{
+  const std::size_t hashed = std::hash<std::string>{}(group + "#" + std::to_string(counter));
+  char              buf[16];
+  std::snprintf(buf, sizeof(buf), "%012llx", static_cast<unsigned long long>(hashed) & 0xffffffffffffULL);
+  return std::string(buf);
+}
+
+json NHttpServer::SessionList()
+{
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+  // One entry per root: a session is whatever a group started with - an `open`, or any other first
+  // step - so this is the root list, not a list of files. What a session is *called* is the room's
+  // (see RenameSession), which wins over what the node itself is called; the two are separate things.
+  json sessions = json::array();
+  for (const auto & root : tree.Roots()) {
+    const auto named = fSessionNames.find(root);
+    const std::string group = Ndmspc::NInstanceTree::GroupOf(tree.Action(root));
+    json       one;
+    one["id"]    = root;
+    one["group"] = group;
+    one["label"] = named != fSessionNames.end() ? named->second
+                                                : tree.Get(root).value("label", std::string());
+    // The id it is identified by, apart from the name it is called: a session started from the bar
+    // carries it in its arguments, and one started by a plain step is identified the same way - by the
+    // node it is. A rename dialog shows it, so it is clear which session is being named.
+    one["hash"] = SessionToken(group, NodeNumber(root));
+    sessions.push_back(std::move(one));
+  }
+
+  // Forget the names of sessions that are gone, so a room that opens and closes all day does not keep
+  // a name for every one it ever had.
+  for (auto it = fSessionNames.begin(); it != fSessionNames.end();) {
+    if (tree.Has(it->first)) ++it;
+    else it = fSessionNames.erase(it);
+  }
+
+  const auto active = tree.Active();
+  json       out;
+  out["session"]  = active.empty() ? std::string() : active.front();
+  out["sessions"] = std::move(sessions);
+  return out;
+}
+
+bool NHttpServer::ActivateSession(const std::string & session)
+{
+  if (session.empty()) return false;
+
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+  if (!tree.Has(session)) return false;
+
+  // Its live chain becomes its group's live one, and the room's active session with it. Nothing is
+  // materialized: a session's objects and defaults are kept for as long as it exists, so they are
+  // still there when it comes back into view.
+  tree.SetActive(Ndmspc::NInstanceTree::GroupOf(tree.Action(session)), tree.Path(session));
+  return true;
+}
+
+bool NHttpServer::RenameSession(const std::string & session, const std::string & name)
+{
+  if (session.empty() || name.empty()) return false;
+
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+  if (!tree.Has(session)) return false;
+
+  // The room's own name for it - beside its group and its view, not part of any tool's parameters and
+  // not what the node itself is called. Its action and arguments, so its file, objects, defaults and
+  // pads, are untouched, and the name survives a re-open.
+  fSessionNames[session] = name;
+  return true;
+}
+
+std::string NHttpServer::FreshSessionRoot(const std::string & action)
+{
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+  // The session the room is on, and only while it is this action's group's own.
+  const std::vector<std::string> active = tree.Active();
+  if (active.empty()) return "";
+  const std::string root = active.front();
+  if (root.empty() || !tree.Has(root)) return "";
+  if (Ndmspc::NInstanceTree::GroupOf(tree.Action(root)) != Ndmspc::NInstanceTree::GroupOf(action)) return "";
+
+  // Still marked as not run, so this run is its first step. Once it has run it is a session with a first
+  // step, and a run is a step of it - or, for other arguments, a session of its own.
+  const json params = tree.Params(root);
+  if (params.is_object() && params.value("pending", false)) return root;
+  return "";
+}
+
+std::string NHttpServer::SessionNameFor(const std::string & group, const std::string & exclude)
+{
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+  int                   count = 0;
+  std::set<std::string> taken;
+  for (const auto & root : tree.Roots()) {
+    if (Ndmspc::NInstanceTree::GroupOf(tree.Action(root)) != group) continue;
+    // The session being named is not one of the ones already there: its number is the next one.
+    if (root == exclude) continue;
+    ++count;
+    const auto named = fSessionNames.find(root);
+    if (named != fSessionNames.end()) taken.insert(named->second);
+  }
+
+  // The next number for the group, stepping over a name one of its sessions already has (a session that
+  // was removed leaves a gap, and a name is not handed out twice).
+  std::string name;
+  do {
+    name = group + " " + std::to_string(++count);
+  } while (taken.count(name) != 0);
+  return name;
+}
+
+std::string NHttpServer::GroupSession(const std::string & group)
+{
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+  // What the group's own live chain is on, else the group's first session: what a view of that group
+  // should be showing.
+  const std::vector<std::string> active = tree.Active(group);
+  if (!active.empty() && tree.Has(active.front())) return active.front();
+  for (const auto & root : tree.Roots()) {
+    if (Ndmspc::NInstanceTree::GroupOf(tree.Action(root)) == group) return root;
+  }
+  return "";
+}
+
+std::string NHttpServer::StartSession(const std::string & group, const std::string & name)
+{
+  Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+
+  // The group's own first action - what a session of it starts with - by declaration, not by name.
+  std::string opener;
+  int         openerOrder = 0;
+  if (gNdmspcMcpTools != nullptr) {
+    for (const auto & entry : *gNdmspcMcpTools) {
+      const Ndmspc::NMcpToolInfo & info = entry.second;
+      if (!info.session || Ndmspc::NInstanceTree::GroupOf(entry.first) != group) continue;
+      if (opener.empty() || info.order < openerOrder) {
+        opener      = entry.first;
+        openerOrder = info.order;
+      }
+    }
+  }
+  if (opener.empty()) return "";
+
+  // A session that has been started and not yet run is the one to be on: every client asks for one as
+  // it joins, and they must all land on the same session rather than each making their own.
+  for (const auto & root : tree.Roots()) {
+    if (Ndmspc::NInstanceTree::GroupOf(tree.Action(root)) != group) continue;
+    const json params = tree.Params(root);
+    if (params.is_object() && params.value("pending", false)) {
+      ActivateSession(root);
+      return root;
+    }
+  }
+
+  json & store = fWorkspace.GetCombinations();
+
+  // An id of its own, so the root is a node no other session shares: the tree's own counter (which a
+  // restored tree carries on from the snapshot) says which one it is, and the hash makes it read as an
+  // id rather than a name.
+  const std::string token = SessionToken(group, store.value("next", 1));
+
+  // The arguments its first step starts with: the tool's own defaults, so a new session is not blank -
+  // it is ready to run, and the user changes what they want. The token identifies it, and `pending`
+  // says its first step has not run yet (see FreshSessionRoot).
+  json params;
+  params["session"] = token;
+  params["pending"] = true;
+  if (gNdmspcMcpTools != nullptr) {
+    const auto info = gNdmspcMcpTools->find(opener);
+    if (info != gNdmspcMcpTools->end() && info->second.inputSchema.is_object()) {
+      const json & schema = info->second.inputSchema;
+      const json   props  = schema.contains("properties") ? schema["properties"] : json::object();
+      if (props.is_object()) {
+        for (auto it = props.begin(); it != props.end(); ++it) {
+          if (it.value().is_object() && it.value().contains("default")) {
+            params[it.key()] = it.value()["default"];
+          }
+        }
+      }
+    }
+  }
+
+  // The step is called what its own tool says it is - `{{ file }}` for an `open`, so the file it opened -
+  // and the room's name is the session's, not the node's: the picker reads "browser 1" while the step
+  // reads what it is working on. A tool that opens no file declares its own label and gets the same
+  // treatment.
+  const std::string sessionName = name.empty() ? SessionNameFor(group) : name;
+  const std::string id          = tree.Create(opener, params, "", "");
+  fSessionNames[id]             = sessionName;
+  ActivateSession(id);
+  return id;
 }
 
 json NHttpServer::RoomSessionSnapshot()
@@ -552,7 +820,44 @@ json NHttpServer::RoomSessionSnapshot()
   if (Ndmspc::NInstanceTree::HasNodes(combinations)) {
     snapshot["combinations"] = combinations;
   }
+
+  // The room's own session state - the names it holds and what each session has drawn - rides beside the
+  // tree: a room that wakes comes back with the names it was using, not ones derived again from whatever
+  // each file happens to be, and with the pads it was showing.
+  const json sessionState = SessionStateSnapshot();
+  for (auto it = sessionState.begin(); it != sessionState.end(); ++it) {
+    snapshot[it.key()] = it.value();
+  }
   return snapshot;
+}
+
+json NHttpServer::SessionStateSnapshot() const
+{
+  json state;
+  if (!fSessionNames.empty()) {
+    json names = json::object();
+    for (const auto & entry : fSessionNames) {
+      names[entry.first] = entry.second;
+    }
+    state["sessionNames"] = names;
+  }
+  if (fPads.is_object() && !fPads.empty()) {
+    state["pads"] = fPads;
+  }
+  return state;
+}
+
+void NHttpServer::AdoptSessionState(const json & state)
+{
+  const json names = JsonMember(state, "sessionNames");
+  if (names.is_object()) {
+    fSessionNames.clear();
+    for (auto it = names.begin(); it != names.end(); ++it) {
+      if (it.value().is_string()) fSessionNames[it.key()] = it.value().get<std::string>();
+    }
+  }
+  const json pads = JsonMember(state, "pads");
+  if (pads.is_object()) fPads = pads;
 }
 
 void NHttpServer::RoomSessionPush()
@@ -726,27 +1031,6 @@ void NHttpServer::RoomSessionRestoreOnce()
 
   const json snapshot = JsonMember(payload, "snapshot");
 
-  // A snapshot that carries a combination tree restores it directly: the tree is a record the
-  // server adopts as-is, and the active combination is materialized (its nodes' POST handlers
-  // replayed) - neither of which has a client-facing verb, which is why this is done here rather
-  // than through the dispatcher below. The tree is keyed by tool group (v3; a v2 snapshot is
-  // regrouped on restore). Older snapshots, and sessions that declare no dependencies, fall through
-  // to the action replay.
-  const json combinations = JsonMember(snapshot, "combinations");
-  if (Ndmspc::NInstanceTree::HasNodes(combinations)) {
-    Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
-    tree.Restore(combinations);
-    json materializeOut;
-    if (MaterializeCombination(tree.Active(), materializeOut)) {
-      NLogInfo("Room '%s' restored its stored combinations", fRoomId.c_str());
-      release(true);
-      return;
-    }
-    NLogWarning("Room '%s' could not materialize its stored combination: %s", fRoomId.c_str(),
-                NUtils::GetJsonString(JsonMember(materializeOut, "error")).c_str());
-    // Fall through: the action replay below at least restores the single combination it describes.
-  }
-
   // Replay through our own request path, so the history, workspace and broadcasts behave
   // exactly as they do for a client - the route NMcpServer::CallTool already takes. Dispatched as
   // the server itself (a stated identity, empty because no client is behind a replay): that is
@@ -781,6 +1065,56 @@ void NHttpServer::RoomSessionRestoreOnce()
     }
     return parsed;
   };
+
+  // A snapshot that carries a combination tree restores it directly: the tree is a record the server
+  // adopts as-is, and the active combination is materialized (its nodes' POST handlers replayed) -
+  // neither of which has a client-facing verb, which is why this is done here rather than through the
+  // dispatcher. The tree is keyed by tool group (v3; a v2 snapshot is regrouped on restore). Older
+  // snapshots, and sessions that declare no dependencies, fall through to the action replay below.
+  const json combinations = JsonMember(snapshot, "combinations");
+  if (Ndmspc::NInstanceTree::HasNodes(combinations)) {
+    Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
+    tree.Restore(combinations);
+
+    // The room's own session state comes back with it: the names it held (the nodes keep their ids, so
+    // the names still belong to the right sessions) and what each session had drawn.
+    AdoptSessionState(snapshot);
+
+    const std::vector<std::string> roomActive = tree.Active();
+
+    // Every group's own live chain comes back - its open file and the steps it was running - because
+    // they are kept apart. A group with no live chain (a snapshot from before per-group chains) has
+    // its first root materialized, which reopens its file. One group's chain never covers another's,
+    // so no tool is left with "No ROOT file is open".
+    std::map<std::string, std::vector<std::string>> wanted;
+    for (const auto & rootId : tree.Roots()) {
+      const std::string group = Ndmspc::NInstanceTree::GroupOf(tree.Action(rootId));
+      if (group.empty() || wanted.count(group) != 0) continue;
+      const auto active = tree.Active(group);
+      wanted[group]     = active.empty() ? std::vector<std::string>{rootId} : active;
+    }
+
+    bool restored = !wanted.empty();
+    for (const auto & entry : wanted) {
+      json out;
+      if (MaterializeCombination(entry.second, entry.first, out)) {
+        NLogInfo("Room '%s' restored its %s session", fRoomId.c_str(), entry.first.c_str());
+      }
+      else {
+        NLogWarning("Room '%s' could not restore its %s session: %s", fRoomId.c_str(), entry.first.c_str(),
+                    NUtils::GetJsonString(JsonMember(out, "error")).c_str());
+        restored = false;
+      }
+    }
+    if (restored) {
+      // Materializing made each group live; the room's own selected combination stands.
+      tree.SetActive(roomActive);
+      NLogInfo("Room '%s' restored its stored combinations", fRoomId.c_str());
+      release(true);
+      return;
+    }
+    // Fall through: the action replay below at least restores the single combination it describes.
+  }
 
   std::string error;
   if (NRoomSession::RestoreInPlace(snapshot, dispatch, error)) {
@@ -831,6 +1165,9 @@ json NodeParams(const json & in)
   for (auto it = in.begin(); it != in.end(); ++it) {
     if (!it.key().empty() && it.key()[0] == '_') continue; // _query / _identity / _ws
     if (it.key() == "path") continue;                      // the node's position, not its params
+    // The room's own "started, first step not run yet" marker: it is bookkeeping, never an argument a
+    // tool is run with, so a form that carries it back must not keep a session looking unrun.
+    if (it.key() == "pending") continue;
     params[it.key()] = it.value();
   }
   return params;
@@ -851,7 +1188,9 @@ std::vector<std::string> RequestPath(const json & in)
 /// @brief The deepest active node whose action is `action`, as a path ({} when none).
 std::vector<std::string> ActivePathFor(Ndmspc::NInstanceTree & tree, const std::string & action)
 {
-  const auto active = tree.Active();
+  // The action's own group's live chain: a pathless GET/PATCH/DELETE targets the node of that action
+  // in the group it belongs to, not whatever combination another group happens to have live.
+  const auto active = tree.Active(Ndmspc::NInstanceTree::GroupOf(action));
   for (auto it = active.rbegin(); it != active.rend(); ++it) {
     if (tree.Action(*it) == action) return tree.Path(*it);
   }
@@ -1187,7 +1526,10 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
       std::string parentId; ///< POST: the parent to attach to ("" = a new root)
       std::string nodeId;   ///< PATCH/DELETE/GET: the node the request targets
       std::string required; ///< When the refusal is a missing prerequisite, the action to run first
+      std::string created;  ///< A POST's own node, created before its handler so its session is known
+      std::string filled;   ///< The fresh session root this POST fills instead of creating a node
       fCurrentInstance = "";
+      fCurrentSession  = "";
 
       if (nodeAction) {
         std::string error;
@@ -1214,10 +1556,46 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
         }
 
         // Make the combination this request belongs to the live one.
-        if (runHandler && !MaterializeCombination(isPost ? tree.Path(parentId) : tree.Path(nodeId), out)) {
+        // Only a request that acts *inside* a combination materializes one. A root POST opens a new
+        // session: it has nothing to bring live - its own node is created below and the objects it
+        // makes are keyed by the session - so it neither truncates another session nor another session
+        // of its own group. That is what lets several browser files (or analyses) be open at once.
+        const std::vector<std::string> want = isPost ? tree.Path(parentId) : tree.Path(nodeId);
+        if (runHandler && !want.empty() &&
+            !MaterializeCombination(want, Ndmspc::NInstanceTree::GroupOf(action), out)) {
           runHandler = false;
         }
-        if (runHandler && !isPost) fCurrentInstance = nodeId;
+        if (runHandler) {
+          if (isPost) {
+            // A run that lands on a session the room has just started - nothing in its arguments but
+            // its token - fills that session's root rather than adding a sibling beside it: this run is
+            // the session's first step. It is what lets two sessions of one group hold the same file,
+            // each its own root and neither replacing the other.
+            if (parentId.empty()) filled = FreshSessionRoot(action);
+
+            if (!filled.empty()) {
+              fCurrentInstance = filled;
+            }
+            // Know the session before the handler makes anything: a POST's node is created here - the
+            // same node it would have been created as below, on success - so the objects and defaults a
+            // handler makes are keyed by the session they belong to. A handler that fails has its node
+            // taken back below, so a refused POST still leaves nothing behind.
+            else {
+              created          = tree.Create(action, NodeParams(in), parentId, "");
+              fCurrentInstance = created;
+            }
+          }
+          else {
+            fCurrentInstance = nodeId;
+          }
+          fCurrentSession = fCurrentInstance.empty() ? std::string() : tree.Path(fCurrentInstance).front();
+        }
+      }
+      else {
+        // An ordinary action - the browser's internal `rbrowser/*`, say - belongs to the session its
+        // `path` names: the node it acts on.
+        const std::vector<std::string> at = RequestPath(in);
+        if (!at.empty() && tree.Has(at.front())) fCurrentSession = at.front();
       }
 
       if (runHandler) {
@@ -1250,13 +1628,41 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
       if (nodeAction) {
         const bool ok = out.contains("result") && out["result"].is_string() &&
                         out["result"].get<std::string>() == "success";
-        if (runHandler && isPost && ok) {
-          const std::string              id   = tree.Create(action, NodeParams(in), parentId, "");
-          const std::vector<std::string> path = tree.Path(id);
-          tree.SetActive(path);
-          fCurrentInstance      = id;
-          out["combination"]["id"]   = id;
-          out["combination"]["path"] = path;
+        if (!filled.empty()) {
+          if (runHandler && ok) {
+            // It takes the arguments it has just run with, and keeps its token, so it is still that
+            // session - and keeps its id, so the room stays on it (see FreshSessionRoot).
+            json params       = NodeParams(in);
+            params["session"] = tree.Params(filled).value("session", std::string());
+            tree.SetParams(filled, params);
+            out["combination"]["id"]   = filled;
+            out["combination"]["path"] = tree.Path(filled);
+          }
+          else {
+            // A refused or failed first step leaves the session as it was: started, and still empty.
+            fCurrentInstance.clear();
+            fCurrentSession.clear();
+          }
+        }
+        else if (isPost && !created.empty()) {
+          if (runHandler && ok) {
+            const std::vector<std::string> path = tree.Path(created);
+            tree.SetActive(path);
+            // A root is a session, so a plain `open` starts a named one too - the room names it, and a
+            // picker then reads a name rather than whichever file it happens to have opened. A node that
+            // already had a name keeps it: re-running a step is not a new session, and a rename stands.
+            if (parentId.empty() && fSessionNames.count(created) == 0) {
+              fSessionNames[created] = SessionNameFor(Ndmspc::NInstanceTree::GroupOf(action), created);
+            }
+            out["combination"]["id"]   = created;
+            out["combination"]["path"] = path;
+          }
+          else {
+            // A refused or failed POST leaves no node - and so no session behind it.
+            tree.RemoveSubtree(created, nullptr);
+            fCurrentInstance.clear();
+            fCurrentSession.clear();
+          }
         }
         if (runHandler && isDelete && ok && !nodeId.empty()) {
           tree.RemoveSubtree(nodeId, nullptr);
@@ -1264,6 +1670,13 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
         if (runHandler) {
           wsOut["payload"]["combinations"] = tree.ToTree();
           out["combinations"]              = tree.ToTree();
+          // The room's sessions, and the one it is on, ride along: any step that starts a session makes
+          // one (a root is a session), so a client has to be told when the list grows - not only when
+          // the `session` action runs, or a session started by a plain `open` would have no name in the
+          // bar until something else happened to refresh it.
+          const json sessions              = SessionList();
+          wsOut["payload"]["session"]      = sessions["session"];
+          wsOut["payload"]["sessions"]     = sessions["sessions"];
         }
       }
     }
@@ -1349,6 +1762,21 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
       NLogDebug("Suppressing workspace keys from broadcast due to X-Ndmspc-Suppress-Workspace-Publish header");
     }
 
+    // A drawing is the room's own to remember: a client that joins later, or a view switched to this
+    // session, is shown it again (see SessionState). It is kept under the **session** that drew it -
+    // two sessions of one tool each keep their own pads - falling back to the group for a request that
+    // names none. The group and session ride on the frame too, for the client's routing only: they say
+    // where the drawing belongs, not that the room moved there (the `group`/`session` actions say that).
+    if (!wsOut["payload"].is_null() && wsOut["payload"].is_object() && wsOut["payload"].contains("pad")) {
+      const std::string group = (wsOut.contains("group") && wsOut["group"].is_string())
+                                    ? wsOut["group"].get<std::string>()
+                                    : fGroup;
+      if (!group.empty()) wsOut["payload"]["group"] = group;
+      const std::string drewIn = fCurrentSession.empty() ? group : fCurrentSession;
+      if (!drewIn.empty()) wsOut["payload"]["session"] = drewIn;
+      RecordPads(drewIn, wsOut["payload"]["pad"]);
+    }
+
     if (!wsOut["payload"].is_null() || !wsOut["workspace"].is_null() || !wsOut["state"].is_null()) {
       json wsMessage;
       wsMessage["event"]   = "message";
@@ -1358,32 +1786,17 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
         wsMessage["payload"]["state"] = wsOut["state"];
       }
 
-      // loop over keys in wsOut["workspace"] and add them to workspace, overwriting existing ones if necessary
+      // The schemas this frame publishes, for the session it belongs to: what that session already has,
+      // plus what this frame changes. Defaults are kept per session, so two sessions of a tool never
+      // share an `open` default.
       if (!wsOut["workspace"].is_null()) {
-        // Build workspace with order of keys same as in NHistoryEntry
-        json workspace;
-        for (const auto & entry : fWorkspace.GetEntries()) {
-          // History entries use full path (e.g. "ngnt/open"), but workspace uses short keys ("open")
-          std::string entryName = entry->GetName();
-          std::string wsKey     = entryName;
-          if (!fGroup.empty() && entryName.rfind(fGroup + "/", 0) == 0) {
-            wsKey = entryName.substr(fGroup.size() + 1);
-          }
-          NLogTrace("Adding workspace entry for: %s (wsKey: %s)", entryName.c_str(), wsKey.c_str());
-          // skip suppressed keys
-          if (suppressedWorkspaceKeys.find(wsKey) != suppressedWorkspaceKeys.end()) {
-            NLogTrace("Skipping suppressed workspace entry for: %s", wsKey.c_str());
-            continue;
-          }
-          // Avoid using non-const operator[] on GetWorkspace() as it would
-          // insert a null value for missing keys. Use contains()+at() instead.
-          {
-            const json & srvWs = GetWorkspace();
-            if (srvWs.contains(wsKey) && !srvWs.at(wsKey).is_null()) {
-              workspace[wsKey] = srvWs.at(wsKey);
-            }
-          }
-        }
+        // The group the handler names, else the room's own group - it is what a client grouping by
+        // group (rather than by session) is handed.
+        const std::string frameGroup = (wsOut.contains("group") && wsOut["group"].is_string())
+                                           ? wsOut["group"].get<std::string>()
+                                           : fGroup;
+
+        json workspace = GetWorkspace();
 
         for (auto it = wsOut["workspace"].begin(); it != wsOut["workspace"].end(); ++it) {
           NLogTrace("Updating workspace entry for: %s", it.key().c_str());
@@ -1400,9 +1813,15 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
 
           workspace[it.key()]          = it.value();
           workspace[it.key()]["type"] = "object";
-          GetWorkspace()[it.key()]     = it.value();
+          GetWorkspace()[it.key()]    = it.value();         // this session (what a tool's ctx reads)
+          fWorkspace.GetWorkspace()[it.key()] = it.value(); // the flat view older readers use
+          // Kept per group too, for a client that keys its defaults by group (see SessionState).
+          if (!frameGroup.empty()) fWorkspaceByGroup[frameGroup][it.key()] = it.value();
         }
         wsMessage["payload"]["workspace"]["schema"]["properties"] = workspace;
+
+        // The session it belongs to, so a client can keep each session's defaults apart.
+        if (!fCurrentSession.empty()) wsMessage["payload"]["workspace"]["schema"]["session"] = fCurrentSession;
 
         // Pass through group prefix if set by handler macro
         if (wsOut.contains("group") && wsOut["group"].is_string()) {
@@ -1458,24 +1877,29 @@ std::string NHttpServer::UnmetPrerequisite(const std::string & action) const
   return {};
 }
 
-bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, json & out)
+bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, const std::string & group, json & out)
 {
   Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
 
-  // The live chain is the previously active combination: keep the prefix that agrees with `path`
-  // and let the rest go (their DELETE handlers free the objects they own). `fEntries` holds one
-  // entry per live node, in order; if that ever disagrees with the active path, rebuild from
-  // scratch rather than truncate the wrong node.
-  const auto   active  = tree.Active();
-  const auto & entries = fWorkspace.GetEntries();
-  size_t       keep    = 0;
+  // Only this group's live chain moves: another group's combination - and the file it has open - is its
+  // own, and materializing this one must leave it alone. The removal is scoped to the route's group
+  // (NWorkspace::RemoveEntry), so taking this group's divergent entry takes its chain with it and
+  // nothing else. `fEntries` holds one entry per live node; if that ever disagrees with the group's
+  // active path, rebuild from scratch rather than truncate the wrong node.
+  const auto                   active = tree.Active(group);
+  std::vector<NHistoryEntry *> mine;
+  for (auto * entry : fWorkspace.GetEntries()) {
+    if (Ndmspc::NInstanceTree::GroupOf(entry->GetName()) == group) mine.push_back(entry);
+  }
+
+  size_t keep = 0;
   while (keep < active.size() && keep < path.size() && active[keep] == path[keep]) keep++;
-  if (entries.size() != active.size()) {
-    if (!entries.empty()) fWorkspace.RemoveEntry(entries.front()->GetName());
+  if (mine.size() != active.size()) {
+    if (!mine.empty()) fWorkspace.RemoveEntry(mine.front()->GetName());
     keep = 0;
   }
-  else if (keep < entries.size()) {
-    fWorkspace.RemoveEntry(entries[keep]->GetName());
+  else if (keep < mine.size()) {
+    fWorkspace.RemoveEntry(mine[keep]->GetName());
   }
 
   // Replay what is not live yet.
@@ -1519,7 +1943,7 @@ bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, 
     if (state.is_object() && state.contains("point")) fWorkspace.GetState()["spectra"]["point"] = state["point"];
   }
 
-  tree.SetActive(path);
+  tree.SetActive(group, path);
   fCurrentInstance = path.empty() ? "" : path.back();
   return true;
 }

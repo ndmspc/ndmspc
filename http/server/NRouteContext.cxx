@@ -19,6 +19,14 @@ NRouteContext::NRouteContext(const std::string & method, json & in, json & out, 
 
 NHttpServer * NRouteContext::Server() { return gNHttpServer; }
 
+std::string NRouteContext::ObjectName(const std::string & name) const
+{
+  NHttpServer * server = gNHttpServer;
+  if (server == nullptr) return name;
+  const std::string & session = server->GetCurrentSession();
+  return session.empty() ? name : name + "@" + session;
+}
+
 std::string NRouteContext::GetString(const std::string & key, const std::string & def) const
 {
   if (fIn.contains(key)) return fIn[key].get<std::string>();

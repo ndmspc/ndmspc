@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "ndmspc/core/NUtils.h"
+#include "ndmspc/http/NHttpServer.h" // gNdmspcMcpTools / NMcpToolInfo::session
 
 #include "NRoomAccess.h"
 
@@ -15,9 +16,35 @@ namespace Ndmspc {
 
 namespace {
 
-/// @brief The actions that define session state, and are therefore replayed.
-constexpr const char * kOpenRoute    = "ngnt/open";
-constexpr const char * kReshapeRoute = "ngnt/reshape";
+/// @brief Whether an action defines session state, as its own tool declared it (see
+///        NMcpToolInfo::session).
+bool DeclaresSession(const std::string & routeName)
+{
+  if (gNdmspcMcpTools == nullptr) return false;
+  const auto it = gNdmspcMcpTools->find(routeName);
+  return it != gNdmspcMcpTools->end() && it->second.session;
+}
+
+/// @brief The route of the action that opens a session (a group's `open`, e.g. "ngnt/open" or
+///        "browser/open"), by declaration rather than by name: the first session-defining action that
+///        needs nothing to have run first. "" when no tool is loaded - the router has none, which is
+///        why a caller that holds a snapshot passes the route itself.
+std::string SessionOpenRoute()
+{
+  if (gNdmspcMcpTools == nullptr) return {};
+  std::string best;
+  int         bestOrder = 0;
+  for (const auto & entry : *gNdmspcMcpTools) {
+    if (!entry.second.session || !entry.second.dependsOn.empty()) continue;
+    // The tool's own order decides when several groups open a session (its `order` sequences a group,
+    // and the same value across groups is a tie the map's order settles).
+    if (best.empty() || entry.second.order < bestOrder) {
+      best      = entry.first;
+      bestOrder = entry.second.order;
+    }
+  }
+  return best;
+}
 
 /// @brief Read a member without throwing when it is absent or of another type.
 json Member(const json & object, const char * key)
@@ -95,13 +122,21 @@ bool ReadPoint(NHttpRequest & http, const std::string & base, json & point, std:
 
 bool NRoomSession::IsReplayable(const std::string & routeName)
 {
-  return routeName == kOpenRoute || routeName == kReshapeRoute;
+  return DeclaresSession(routeName);
 }
 
 NRoomSession::State NRoomSession::Probe(NHttpRequest & http, const std::string & roomBaseUrl, std::string & file,
-                                        std::string & error, const std::string & token)
+                                        std::string & error, const std::string & token, const std::string & route)
 {
-  const std::string url = TrimBase(roomBaseUrl) + "/api/" + kOpenRoute;
+  // Which action asks "is a session open here": the caller's, else the first one the loaded tools
+  // declare session-defining. With neither there is nothing to ask, and that is not "empty".
+  const std::string asked = route.empty() ? SessionOpenRoute() : route;
+  if (asked.empty()) {
+    error = "no action declares itself session-defining, so there is nothing to probe";
+    return State::Unreachable;
+  }
+
+  const std::string url = TrimBase(roomBaseUrl) + "/api/" + asked;
 
   json response;
   if (!GetJson(http, url, response, error, token)) return State::Unreachable;
@@ -161,10 +196,13 @@ json NRoomSession::Build(const std::string & roomId, const std::string & file, c
   }
 
   // A file is open but nothing replayable was recorded (the history is in-memory and can be
-  // reset): reopening it is still better than capturing nothing.
+  // reset): reopening it is still better than capturing nothing. Which action opens it is the tools'
+  // to say; with none loaded there is nothing to name, so there is no snapshot to store.
   if (actions.empty()) {
+    const std::string opener = SessionOpenRoute();
+    if (opener.empty()) return json();
     json action;
-    action["name"]       = kOpenRoute;
+    action["name"]       = opener;
     action["in"]["file"] = file;
     actions.push_back(std::move(action));
   }
@@ -175,12 +213,13 @@ json NRoomSession::Build(const std::string & roomId, const std::string & file, c
 }
 
 json NRoomSession::Capture(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & roomId,
-                           std::string & error, const std::string & token, State * reportedState)
+                           std::string & error, const std::string & token, State * reportedState,
+                           const std::string & route)
 {
   const std::string base = TrimBase(roomBaseUrl);
 
   std::string file;
-  const State state = Probe(http, base, file, error, token);
+  const State state = Probe(http, base, file, error, token, route);
   if (reportedState != nullptr) *reportedState = state;
   if (state == State::Unreachable) return json();
   // A room that refused the request said why in `error`. There is nothing to capture, and the
@@ -215,10 +254,13 @@ bool NRoomSession::RestoreInPlace(const json & snapshot, const Dispatch & dispat
     return false;
   }
 
+  // The snapshot already holds only what the tools declared session-defining (Build kept them, and
+  // only those), so it is replayed as it stands rather than re-checked here: the caller replaying it
+  // may have no tools loaded at all - the router has none, and it is what restores a room.
   for (const auto & action : actions) {
     const std::string name = StringMember(action, "name");
-    if (!IsReplayable(name)) {
-      error = "the stored room snapshot contains an action that cannot be replayed: " + name;
+    if (name.empty()) {
+      error = "the stored room snapshot contains an action with no name";
       return false;
     }
     const json  in = Member(action, "in");

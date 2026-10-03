@@ -71,6 +71,14 @@ class NInstanceTree {
   json        State(const std::string & id) const;
   /// @brief Store a node's state (e.g. its drill-down point).
   void        SetState(const std::string & id, const json & state);
+  /**
+   * @brief Give a node new arguments, and the label they derive.
+   *
+   * A node's arguments are what it is, so this is how a session that was started with nothing takes the
+   * arguments of its first step (see the session `new` action): the node keeps its id, so whatever
+   * refers to it - the room's active session, a pad's path - goes on doing so.
+   */
+  void        SetParams(const std::string & id, const json & params);
   /// @brief A node's child ids, in creation order.
   std::vector<std::string> Children(const std::string & id) const;
   /// @brief The root node ids, in creation order.
@@ -90,8 +98,24 @@ class NInstanceTree {
 
   /// @brief The active combination: the ids from a root to the live node.
   std::vector<std::string> Active() const;
+  /**
+   * @brief The live combination of one group.
+   *
+   * Each group has its own live chain: materializing one group's combination must not disturb
+   * another's - a browser's open file stays open while the analysis group works, and the other way
+   * round. `Active()` is the room's own selected path (the last one set).
+   *
+   * @param group The group prefix ("ngnt", "browser"); empty gives the room's own path.
+   */
+  std::vector<std::string> Active(const std::string & group) const;
   /// @brief Set the active combination.
   void                     SetActive(const std::vector<std::string> & path);
+  /**
+   * @brief Set one group's live combination (and the room's own selected path with it).
+   * @param group The group prefix; empty sets the room's own path only.
+   * @param path The ids from the group's root to its live node ({} when it has none).
+   */
+  void                     SetActive(const std::string & group, const std::vector<std::string> & path);
 
   /// @brief The tree for a client: `{active:[...], roots:[{id,action,label,params,children,state}]}`.
   json ToTree() const;

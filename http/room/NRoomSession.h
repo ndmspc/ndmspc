@@ -16,14 +16,15 @@ namespace Ndmspc {
  * @brief Captures and replays the session of a room server.
  *
  * A room is a Knative Service created with min-scale 0, so an idle room has no process
- * at all and everything it held is gone. A "session" is the three things worth bringing
- * back: the opened ROOT file, the navigator (binning and levels, rebuilt by
- * `ngnt/reshape`) and the drill-down state point.
+ * at all and everything it held is gone. A "session" is what is worth bringing back: the files
+ * each tool group opened, the steps that rebuild what it was doing, and the drill-down state
+ * point.
  *
- * All three are read back from the room's own API and stored as a small, replayable
- * snapshot: the route names and the verbatim request bodies that produced them. Restoring
- * means posting those bodies again and then re-applying the state point, which no POST can
- * set - it is only ever written by a `PATCH` to `ngnt/map` or `ngnt/spectra`.
+ * Which actions those are is **the tools' to declare** (NMcpToolInfo::session), so this class
+ * names no tool: a group a deployment adds is replayed by saying so itself. They are read back
+ * from the room's own API and stored as a small, replayable snapshot: the route names and the
+ * verbatim request bodies that produced them. Restoring means posting those bodies again and then
+ * re-applying the state point, which no POST can set - it is only ever written by a `PATCH`.
  *
  * Two rules keep this safe, and both are load-bearing:
  *
@@ -65,10 +66,14 @@ class NRoomSession {
    * @param file Filled with the opened file name when the room is Active.
    * @param error Filled when the room is Unreachable or Refused.
    * @param token The room's read-write access token, when it has one.
+   * @param route The session action to ask (a tool's `open`, e.g. "ngnt/open"). Empty takes the first
+   *              one whose tool declares itself session-defining (see NMcpToolInfo::session) - which a
+   *              caller with no tools loaded (the router) cannot do, so it passes the one its stored
+   *              snapshot names.
    * @return The room's state.
    */
   static State Probe(NHttpRequest & http, const std::string & roomBaseUrl, std::string & file, std::string & error,
-                     const std::string & token = std::string());
+                     const std::string & token = std::string(), const std::string & route = std::string());
 
   /**
    * @brief Assemble a snapshot from the three things a session is.
@@ -102,7 +107,7 @@ class NRoomSession {
    */
   static json Capture(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & roomId,
                       std::string & error, const std::string & token = std::string(),
-                      State * reportedState = nullptr);
+                      State * reportedState = nullptr, const std::string & route = std::string());
 
   /**
    * @brief Runs one replayed action.
@@ -148,8 +153,14 @@ class NRoomSession {
 
   /**
    * @brief Whether an action defines session state and is therefore worth replaying.
+   *
+   * The tools say so themselves (NMcpToolInfo::session, e.g. an `open`, and the step that rebuilds what
+   * the room was doing): this names no action, so a group a deployment adds is replayed without a
+   * change here. A caller with no tools loaded (the router) has nothing to consult, which is why
+   * {@link RestoreInPlace} replays a snapshot as it stands rather than asking again.
+   *
    * @param routeName Full route key, e.g. "ngnt/reshape".
-   * @return True for the actions Restore() replays.
+   * @return True for the actions Build() keeps.
    */
   static bool IsReplayable(const std::string & routeName);
 

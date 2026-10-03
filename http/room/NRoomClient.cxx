@@ -307,6 +307,9 @@ NRoomListResult NRoomClient::ParseList(const json & payload)
       room.memoryRequest   = NUtils::GetJsonString(Member(requests, "memory"));
       room.cpuLimit        = NUtils::GetJsonString(Member(limits, "cpu"));
       room.memoryLimit     = NUtils::GetJsonString(Member(limits, "memory"));
+      // The image it runs, and its tag on its own: the table shows the tag, the detail the reference.
+      room.image    = NUtils::GetJsonString(Member(entry, "image"));
+      room.imageTag = NUtils::GetJsonString(Member(entry, "imageTag"));
       // Why it died last, while the router still knows: the one thing a room that was killed cannot
       // report about itself.
       const json lastError   = Member(entry, "lastError");

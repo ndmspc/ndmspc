@@ -89,12 +89,13 @@ void NInstanceTree::Ensure()
   if (!fStore.is_object()) fStore = json::object();
   if (!fStore.contains("next") || !fStore["next"].is_number_integer()) fStore["next"] = 1;
   if (!fStore.contains("active") || !fStore["active"].is_array()) fStore["active"] = json::array();
+  if (!fStore.contains("activeGroups") || !fStore["activeGroups"].is_object()) fStore["activeGroups"] = json::object();
   if (!fStore.contains("nodes") || !fStore["nodes"].is_object()) fStore["nodes"] = json::object();
 }
 
 void NInstanceTree::Reset()
 {
-  fStore = json{{"next", 1}, {"active", json::array()}, {"nodes", json::object()}};
+  fStore = json{{"next", 1}, {"active", json::array()}, {"activeGroups", json::object()}, {"nodes", json::object()}};
 }
 
 bool NInstanceTree::Empty() const { return fStore["nodes"].empty(); }
@@ -173,6 +174,13 @@ void NInstanceTree::SetState(const std::string & id, const json & state)
   if (Has(id)) fStore["nodes"][id]["state"] = state;
 }
 
+void NInstanceTree::SetParams(const std::string & id, const json & params)
+{
+  if (!Has(id)) return;
+  fStore["nodes"][id]["params"] = params.is_null() ? json::object() : params;
+  fStore["nodes"][id]["label"]  = LabelFor(Action(id), fStore["nodes"][id]["params"]);
+}
+
 std::vector<std::string> NInstanceTree::Children(const std::string & id) const
 {
   std::vector<std::string> children;
@@ -220,6 +228,9 @@ bool NInstanceTree::RemoveSubtree(const std::string & id,
 {
   if (!Has(id)) return false;
 
+  // The group whose live chain this belongs to, read before the nodes go (the action is gone with them).
+  const std::string group = GroupOf(Action(id));
+
   // Collect the subtree (pre-order) so the caller's teardown runs deepest-first.
   std::vector<std::string> order;
   std::vector<std::string> stack{id};
@@ -245,11 +256,12 @@ bool NInstanceTree::RemoveSubtree(const std::string & id,
   }
   for (const auto & node : order) fStore["nodes"].erase(node);
 
-  // Drop the active path's tail if it pointed into the removed subtree.
-  auto active = Active();
+  // Drop this group's live-path tail if it pointed into the removed subtree (SetActive keeps the
+  // room's own selected path in step with it).
+  auto active = Active(group);
   if (std::find(active.begin(), active.end(), id) != active.end()) {
     while (!active.empty() && !Has(active.back())) active.pop_back();
-    SetActive(active);
+    SetActive(group, active);
   }
   return true;
 }
@@ -262,7 +274,29 @@ std::vector<std::string> NInstanceTree::Active() const
   return active;
 }
 
-void NInstanceTree::SetActive(const std::vector<std::string> & path) { fStore["active"] = path; }
+std::vector<std::string> NInstanceTree::Active(const std::string & group) const
+{
+  if (group.empty()) return Active();
+  std::vector<std::string> active;
+  if (!fStore.contains("activeGroups") || !fStore["activeGroups"].is_object()) return active;
+  const json held = fStore["activeGroups"].value(group, json::array());
+  if (!held.is_array()) return active;
+  for (const auto & id : held) active.push_back(id.get<std::string>());
+  return active;
+}
+
+void NInstanceTree::SetActive(const std::string & group, const std::vector<std::string> & path)
+{
+  Ensure();
+  if (!group.empty()) fStore["activeGroups"][group] = path;
+  // The room's own selected path: the one last set, which is what a client shows as selected.
+  fStore["active"] = path;
+}
+
+void NInstanceTree::SetActive(const std::vector<std::string> & path)
+{
+  SetActive(path.empty() ? std::string() : GroupOf(Action(path.front())), path);
+}
 
 json NInstanceTree::ToTree() const
 {
@@ -309,7 +343,13 @@ json NInstanceTree::Snapshot() const
     it.value()["roots"] = roots;
   }
 
-  return json{{"v", 3}, {"next", fStore["next"]}, {"active", Active()}, {"groups", groups}};
+  // `active` is the room's own selected path; `activeGroups` is each group's live chain, which is what
+  // a restore has to bring back per group.
+  return json{{"v", 3},
+              {"next", fStore["next"]},
+              {"active", Active()},
+              {"activeGroups", fStore["activeGroups"]},
+              {"groups", groups}};
 }
 
 json NInstanceTree::Snapshot(const std::string & group) const
@@ -343,7 +383,11 @@ json NInstanceTree::Snapshot(const std::string & group) const
     groups[it.key()] = json{{"roots", roots}, {"nodes", nodes}};
   }
 
-  return json{{"v", 3}, {"next", full["next"]}, {"active", full["active"]}, {"groups", groups}};
+  return json{{"v", 3},
+              {"next", full["next"]},
+              {"active", full["active"]},
+              {"activeGroups", json{{group, Active(group)}}},
+              {"groups", groups}};
 }
 
 bool NInstanceTree::HasNodes(const json & snapshot)
@@ -377,6 +421,9 @@ void NInstanceTree::Restore(const json & snapshot)
   Adopt(nodes);
 
   if (snapshot.contains("active") && snapshot["active"].is_array()) fStore["active"] = snapshot["active"];
+  if (snapshot.contains("activeGroups") && snapshot["activeGroups"].is_object()) {
+    fStore["activeGroups"] = snapshot["activeGroups"];
+  }
 }
 
 void NInstanceTree::Restore(const json & snapshot, const std::string & group)
@@ -440,7 +487,12 @@ void NInstanceTree::Restore(const json & snapshot, const std::string & group)
   fStore["next"] = next;
   Adopt(nodes);
 
-  // The active path only survives where it still points at nodes.
+  // The live paths only survive where they still point at nodes (this group's nodes were replaced).
+  std::vector<std::string> kept;
+  for (const auto & id : Active(group)) {
+    if (Has(id)) kept.push_back(id);
+  }
+  fStore["activeGroups"][group] = kept;
   json active = json::array();
   for (const auto & id : Active()) {
     if (Has(id)) active.push_back(id);
@@ -495,6 +547,8 @@ std::string NInstanceTree::ParentActionFor(const std::string & action)
 
 std::string NInstanceTree::LabelFor(const std::string & action, const json & params)
 {
+  // What a node is called is the action's own business - a tool says it with a template, or the
+  // arguments are guessed. A session's name is the room's, kept apart from this (see SessionList).
   // A macro can say what a node is called, e.g. "{{ binningName }} ({{ levels }})".
   if (gNdmspcMcpTools != nullptr) {
     const auto info = gNdmspcMcpTools->find(action);
