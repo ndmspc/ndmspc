@@ -243,6 +243,11 @@ json NMcpServer::BuildTools() const
     if (info != nullptr && !info->dependsOn.empty()) {
       tool["_meta"]["ndmspc.io/dependsOn"] = info->dependsOn;
     }
+    // And whether the step has a Run at all: a step that works through its own form says so here, so the
+    // client can leave the button out without knowing which actions those are.
+    if (info != nullptr && !info->runButton) {
+      tool["_meta"]["ndmspc.io/run"] = false;
+    }
     tools.push_back(tool);
   }
 

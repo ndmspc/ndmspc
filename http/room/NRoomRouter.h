@@ -45,12 +45,12 @@ struct NRoomConfig {
   long        idleTtlSec{86400};                ///< Idle time before an unused room is swept, in seconds
   long        readyTimeoutSec{45};              ///< How long to wait for a room to become Ready, in seconds
   int         maxPreparing{4};                  ///< Rooms prepared at the same time (0 = no limit)
-  long        watchIntervalSec{2};              ///< How often the rooms list is pushed to a watcher, in seconds (0 = never)
-  bool        waitDefault{true};                ///< Default for room/open's wait flag
-  std::vector<std::string> admins;              ///< Users who may see and act on every room
-  std::string apiServer;                        ///< In-cluster API server ("" = not in a cluster)
-  std::string tokenFile;                        ///< ServiceAccount token
-  std::string caFile;                           ///< Cluster CA bundle
+  long        watchIntervalSec{2};    ///< How often the rooms list is pushed to a watcher, in seconds (0 = never)
+  bool        waitDefault{true};      ///< Default for room/open's wait flag
+  std::vector<std::string> admins;    ///< Users who may see and act on every room
+  std::string              apiServer; ///< In-cluster API server ("" = not in a cluster)
+  std::string              tokenFile; ///< ServiceAccount token
+  std::string              caFile;    ///< Cluster CA bundle
 
   /// @brief Reads every knob above from the environment (with the defaults in this struct).
   static NRoomConfig FromEnv();
@@ -69,18 +69,18 @@ struct NRoomConfig {
  * while it is being prepared), not only once it is ready.
  */
 struct NRoomState {
-  std::string name;     ///< Kubernetes resource name (prefix + slug of the room id)
-  std::string value;    ///< The room id, as chosen by the client
-  std::string revision; ///< Latest ready Knative revision
-  std::string tokenRw;  ///< Access token for the room's read-write link (anything goes)
-  std::string tokenRo;  ///< Access token for the room's read-only link (GET only)
-  std::string owner;    ///< Who created the room ("" when nobody identified themselves, see Ownership)
-  std::string profile;  ///< The room skeleton profile it was created with ("" when the skeleton has none)
+  std::string name;        ///< Kubernetes resource name (prefix + slug of the room id)
+  std::string value;       ///< The room id, as chosen by the client
+  std::string revision;    ///< Latest ready Knative revision
+  std::string tokenRw;     ///< Access token for the room's read-write link (anything goes)
+  std::string tokenRo;     ///< Access token for the room's read-only link (GET only)
+  std::string owner;       ///< Who created the room ("" when nobody identified themselves, see Ownership)
+  std::string profile;     ///< The room skeleton profile it was created with ("" when the skeleton has none)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
   /// The same clock as it stands on the room's own Service (`ndmspc.io/room-seen`): what the router
   /// reads back after a restart, and what it writes when the two drift apart far enough to matter.
   long        seenStoredAt{0};
-  std::string snapshot;    ///< Last captured session, replayed when the room wakes
+  std::string snapshot; ///< Last captured session, replayed when the room wakes
 
   /// Why the room's container last died, and when. Kept here because the pod that carries the reason
   /// goes away with the room when it scales to zero (see kLastErrorAnnotation and NoteTermination).
@@ -269,9 +269,10 @@ class NRoomRouter {
    *
    * Pending is its own outcome, not a failure: the pod the cluster cannot place is left exactly as
    * the scheduler left it, so the room comes up by itself once there is room for it (see
-   * {@link ConvergePending}).
+   * {@link ConvergePending}). Aborted: the room was closed while the wait ran, so it stopped at once
+   * rather than keep polling the cluster until the readiness timeout.
    */
-  enum class Wait { Ready, Pending, Failed };
+  enum class Wait { Ready, Pending, Failed, Aborted };
 
   /**
    * @brief How a creation - or a request to start one - ended.
@@ -349,7 +350,7 @@ class NRoomRouter {
   /// @brief Whether a room's creation is still running.
   bool Preparing(const std::string & value) const;
   /// @brief The number of rooms currently being prepared.
-  int  PreparingCount() const;
+  int PreparingCount() const;
   /**
    * @brief Adopts the rooms that already exist in the cluster, and expires the idle ones.
    *
@@ -741,8 +742,7 @@ class NRoomRouter {
    * @param error Filled when the annotation cannot be written.
    * @return True on success.
    */
-  bool Annotate(const std::string & name, const std::string & key, const std::string & value,
-                std::string & error);
+  bool Annotate(const std::string & name, const std::string & key, const std::string & value, std::string & error);
   /**
    * @brief Returns a room's stored session snapshot.
    *
@@ -797,7 +797,8 @@ class NRoomRouter {
    * @param revision Filled with the ready revision name.
    * @param error Filled with why it is not ready - the scheduler's own message while it is pending.
    * @param code Set to kNoCapacity when the pod cannot be scheduled.
-   * @return Wait::Ready, Wait::Pending or Wait::Failed.
+   * @return Wait::Ready, Wait::Pending, Wait::Failed, or Wait::Aborted when the room was closed while
+   *         the wait was running.
    */
   Wait WaitReady(const std::string & name, std::string & revision, std::string & error, std::string & code);
 
@@ -848,6 +849,25 @@ class NRoomRouter {
    * all until someone happens to open one.
    */
   void Adopt();
+  /**
+   * @brief Brings one idle room onto the image the current skeleton names.
+   *
+   * A room is created from the skeleton and keeps a copy of it, and only room/open (or a restore) ever
+   * re-applies that copy - so a room that is idle when the router is upgraded would otherwise keep the
+   * image it was created with. The router is what was upgraded, so it is the one that brings them
+   * along: {@link Adopt} rolls every idle room whose image the skeleton has changed and repins its
+   * HTTPRoute to the new revision, which is what the next wake-up serves.
+   *
+   * A room somebody is in is left exactly as it is: rolling it would replace its revision under an open
+   * websocket. It is picked up on its next open, or by the next restart while it is idle. A reconcile
+   * never deletes a room and never fails it - a step that does not go through (an unready revision, an
+   * error) leaves the room on the revision it is already serving.
+   *
+   * @param name Kubernetes name of the room.
+   * @param value The room id (for the route's `?<param>=<id>` match).
+   * @param skeleton The current room skeleton the room is brought into line with.
+   */
+  void ReconcileRoom(const std::string & name, const std::string & value, const json & skeleton);
   /**
    * @brief Remembers why a room's container died: in the registry and on the room's Service.
    *
@@ -1005,8 +1025,8 @@ class NRoomRouter {
    * @return Preparing (the call was accepted and the work runs in the background), Ready, Pending or
    *         Failed. Only Failed is a failure of the call itself.
    */
-  Outcome EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay,
-                      json & payload, std::string & error, std::string & code);
+  Outcome EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay, json & payload,
+                      std::string & error, std::string & code);
 
   /// @brief A background thread, and how to tell whether it has finished.
   struct Worker {
@@ -1038,10 +1058,10 @@ class NRoomRouter {
   std::mutex                        fAdoptMutex;     ///< Guards the one-time adoption of existing rooms
   std::vector<Worker>               fWorkers;        ///< The background threads still running
   mutable std::mutex                fWorkerMutex;    ///< Guards fWorkers
-  std::map<long, NRequestIdentity>  fWatchers;      ///< Connections that asked for the rooms list
-  std::map<long, std::string>       fPushed;        ///< The last list pushed to each, so only changes are sent
-  mutable std::mutex                fWatchMutex;    ///< Guards fWatchers and fPushed
-  std::thread                       fWatchThread;   ///< Pushes the rooms list to watchers (NDMSPC_ROOM_WATCH_INTERVAL)
+  std::map<long, NRequestIdentity>  fWatchers;       ///< Connections that asked for the rooms list
+  std::map<long, std::string>       fPushed;         ///< The last list pushed to each, so only changes are sent
+  mutable std::mutex                fWatchMutex;     ///< Guards fWatchers and fPushed
+  std::thread                       fWatchThread;    ///< Pushes the rooms list to watchers (NDMSPC_ROOM_WATCH_INTERVAL)
   std::atomic<bool>                 fWatchStop{false}; ///< Asks the watch thread to stop when the router ends
 };
 

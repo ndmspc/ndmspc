@@ -104,6 +104,14 @@ struct NMcpToolInfo {
   std::vector<std::string> dependsOn{};    ///< Actions that must have run first (e.g. "ngnt/open")
   int                      order{0};       ///< Tie-break among ready tools (lower first; 0 = default)
   std::string              label{};        ///< Node name template, e.g. "{{ binningName }} ({{ levels }})"
+  /// Whether this action defines session state and is replayed when an idle room is restored (its
+  /// opened file, the steps that rebuild what it was doing). Declared here, by the tool, so the room
+  /// session needs no list of tool names: an action a group adds is replayed by saying so itself.
+  bool                     session{false};
+  /// Whether a step is run with a Run button at all. A step whose form *is* how it works - `browse`, whose
+  /// tree draws an object on a click - leaves nothing for one, and the client offers none. Declared here,
+  /// by the tool, rather than by the client keeping a list of actions it knows.
+  bool                     runButton{true};
 };
 
 /// @brief Map of handler action (e.g. "ngnt/open") to its MCP metadata.
@@ -324,14 +332,29 @@ class NHttpServer : public THttpServer {
 
   /// @brief Get the map of registered input objects.
   std::map<std::string, TObject *> &            GetObjectsMap() { return fObjectsMap; }
-  /// @brief Get the mutable workspace schema JSON.
-  json &                                        GetWorkspace() { return fWorkspace.GetWorkspace(); }
+  /**
+   * @brief The workspace schemas of the **current session** — what a tool's `ctx.Workspace()` is.
+   *
+   * A tool's live defaults (`open`, `reshape`, …) belong to the session they were made in, so two
+   * sessions of the same tool do not share one `open` default. Outside a request (the current session
+   * is "") this is an empty bucket; `SessionState` sends every session's schemas itself.
+   */
+  json &                                        GetWorkspace() { return fWorkspaceBySession[fCurrentSession]; }
   /// @brief Get the mutable workspace state JSON.
   json &                                        GetState() { return fWorkspace.GetState(); }
   /// @brief Get the mutable combination tree JSON (see Ndmspc::NInstanceTree).
   json &                                        GetCombinations() { return fWorkspace.GetCombinations(); }
   /// @brief The combination node this request runs for ("" when it is not a node action).
   const std::string &                           GetCurrentInstance() const { return fCurrentInstance; }
+  /**
+   * @brief The session this request runs in: the root of the combination it belongs to.
+   *
+   * A session is one open file and the steps under it, so its identity is the root node of the
+   * combination. It is what per-session runtime state is keyed by - the objects a tool creates and
+   * the workspace defaults it publishes - so several sessions of the same tool can be live at once.
+   * "" when the request names no combination.
+   */
+  const std::string &                           GetCurrentSession() const { return fCurrentSession; }
 
   /**
    * @brief The session state a client needs to render it, as one websocket frame.
@@ -346,10 +369,115 @@ class NHttpServer : public THttpServer {
   json                                          SessionState();
   /// @brief Get the combined inspector schema for the workspace.
   json                                          GetInspectorSchema() const { return fWorkspace.GetInspectorSchema(); }
+  /**
+   * @brief The flat workspace schema the inspector is built from.
+   *
+   * {@link GetInspectorSchema} - and so the MCP tool schemas - reads this view: every session's and
+   * group's published schema, keyed by property name, as an action keeps it in sync with the
+   * per-session buckets. It is the mutable counterpart of the read-only inspector schema.
+   *
+   * @return The flat workspace schema JSON.
+   */
+  json &                                        GetInspectorWorkspace() { return fWorkspace.GetWorkspace(); }
   /// @brief Set the group prefix used for workspace routes.
   void                                          SetGroup(const std::string & group) { fGroup = group; }
   /// @brief Get the group prefix used for workspace routes.
   const std::string &                           GetGroup() const { return fGroup; }
+
+  /**
+   * @brief The pads each tool group has drawn, kept so they can be shown again.
+   *
+   * A draw is broadcast to whoever is connected and then gone: a client that joins afterwards, and a
+   * view that is switched to another tool group, would otherwise show empty pads. This is the room's
+   * own record - one entry per (pad, tab label) per group, so re-drawing replaces rather than stacks -
+   * sent to a joining client by {@link SessionState}.
+   *
+   * @return The record, keyed by tool group.
+   */
+  json &                                        GetPads() { return fPads; }
+
+  /**
+   * @brief The room's sessions: one entry per open file, and which one is active.
+   *
+   * A session is a combination (its root node) - one open file and the steps under it - so this is
+   * the root list with each root's group and label, plus the room's active session id. It is what the
+   * `session` action answers and what a joining client is handed (see SessionState).
+   *
+   * @return `{"session": "<id>", "sessions": [{"id","group","label"}, …]}`.
+   */
+  json                                          SessionList();
+  /**
+   * @brief Make one session the room's active one (every client follows it).
+   * @param session The session's id (its root node).
+   * @return False when no such session exists.
+   */
+  bool                                          ActivateSession(const std::string & session);
+  /**
+   * @brief Rename one session (what a picker shows it as), keeping what it is.
+   * @param session The session's id (its root node).
+   * @param name The new name; empty is refused (a session with no name reads as nothing).
+   * @return False when no such session exists.
+   */
+  bool                                          RenameSession(const std::string & session,
+                                                            const std::string & name);
+  /**
+   * @brief The room's own session state, apart from the tree: the names it holds and what each session
+   *        has drawn.
+   *
+   * Both belong to the room rather than to any node, so neither is in the combination snapshot: they
+   * ride beside it (see RoomSessionSnapshot) and come back the same way (see AdoptSessionState).
+   */
+  json                                          SessionStateSnapshot() const;
+  /**
+   * @brief Take back what {@link SessionStateSnapshot} describes.
+   *
+   * For a room that has just restored its combinations - the nodes keep their ids, so the names still
+   * belong to the right sessions.
+   */
+  void                                          AdoptSessionState(const json & state);
+  /**
+   * @brief Start a fresh session for a tool group: a root of the group's first action, carrying that
+   *        action's own defaults and a token, and marked as not yet run.
+   *
+   * Its first step fills it rather than growing a sibling beside it (see FreshSessionRoot), so several
+   * sessions of one group can hold the same file without replacing one another.
+   *
+   * @param group The tool group to start a session for.
+   * @param name What the room should call it; empty derives one from the group.
+   * @return The new session's id, or "" when the group has no session-defining action.
+   */
+  std::string                                   StartSession(const std::string & group,
+                                                            const std::string & name);
+  /**
+   * @brief The fresh session a run of `action` fills, if there is one: the session the room is on, while
+   *        it is this action's group's own and has nothing in its arguments but its token.
+   * @param action The action about to run.
+   * @return Its node id, or "" when the run starts a session of its own.
+   */
+  std::string                                   FreshSessionRoot(const std::string & action);
+  /**
+   * @brief The name a session of `group` should carry: the group and which of its sessions it is
+   *        ("browser 1", "browser 2"), never one another of that group's sessions already has.
+   *
+   * Every session is named, however it was started - a plain `open` included - so a picker never has to
+   * fall back on reading a file path.
+   *
+   * @param exclude The session being named, when it already exists (it is not one of its own siblings).
+   */
+  std::string                                   SessionNameFor(const std::string & group,
+                                                              const std::string & exclude = "");
+  /**
+   * @brief The session a tool group is on: its own live chain's root, else its first session.
+   * @param group The tool group.
+   * @return Its session id, or "" when the group has none.
+   */
+  std::string                                   GroupSession(const std::string & group);
+  /**
+   * @brief Remember the pad envelopes one session drew, replacing the tabs it has drawn before.
+   * @param key The session the drawing belongs to, or its group when the request names no session.
+   * @param envelopes The frame's `payload.pad`: one envelope, or a list of them.
+   */
+  void                                          RecordPads(const std::string & group, const json & envelopes);
 
   /// @brief Enable or disable the MCP endpoint (POST /api/mcp). Disabled by default.
   void SetMcpEnabled(bool enabled) { fMcpEnabled = enabled; }
@@ -477,19 +605,21 @@ class NHttpServer : public THttpServer {
   std::string UnmetPrerequisite(const std::string & action) const;
 
   /**
-   * @brief Make the live session exactly the given combination path.
+   * @brief Make one group's live session exactly the given combination path.
    *
-   * Only one combination is live at a time (one NGnTree, one navigator); this truncates the live
-   * chain at the point where the path diverges from it and replays the remaining nodes' POST
-   * handlers with their stored params, so the objects, the workspace schema and the history all
-   * describe that combination. A node that cannot be materialized is reported in @p out and returns
-   * false, leaving the request unserved.
+   * A group has **one** live combination (one NGnTree, one navigator, one open file per group); other
+   * groups' live combinations are left alone, so the browser's file stays open while the analysis
+   * group works. This truncates the group's live chain where the path diverges from it and replays the
+   * remaining nodes' POST handlers with their stored params, so the objects, the workspace schema and
+   * the history all describe that combination. A node that cannot be materialized is reported in
+   * @p out and returns false, leaving the request unserved.
    *
    * @param path The node ids from a root down to the node to make live.
+   * @param group The group the path belongs to (its live chain is the one that moves).
    * @param out The response, filled with the reason when materialization fails.
    * @return True when the path is live.
    */
-  bool MaterializeCombination(const std::vector<std::string> & path, json & out);
+  bool MaterializeCombination(const std::vector<std::string> & path, const std::string & group, json & out);
 
   /**
    * @brief Start the background heartbeat thread (internal).
@@ -539,10 +669,22 @@ class NHttpServer : public THttpServer {
   std::map<std::string, Ndmspc::NHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
   std::string                                   fCurrentInstance;    ///<! Combination node this request targets ("" = none)
+  std::string                                   fCurrentSession;     ///<! Root of the combination this request belongs to ("" = none)
   NWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
   bool fUseHistory{true};  ///<! Flag to indicate whether to use history in processing requests
   bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled
   std::string fGroup;      ///<! Group prefix for workspace routes
+  json        fPads = json::object(); ///<! group -> array of the pad envelopes that group has drawn
+  /// The workspace schemas each group has published, kept apart: the flat map collides (two groups
+  /// both publish "open"), so a joining client is sent this instead (see SessionState).
+  std::map<std::string, json> fWorkspaceByGroup;
+  /// The workspace schemas of each session (one open file and its steps), which is what a tool's
+  /// `ctx.Workspace()` reads and writes: two sessions of a tool keep their own defaults.
+  std::map<std::string, json> fWorkspaceBySession;
+  /// What each session is called, as the room holds it. A name belongs to the room - beside its group
+  /// and its view - rather than to any tool's parameters: a session is whatever a group started with
+  /// (an `open`, or any other first step), so what it is called cannot come from one of them.
+  std::map<std::string, std::string> fSessionNames;
   std::string fRuntimeEnvPage; ///<! The page with this deployment's VITE_* injected ("" = serve the built page)
 
   mutable std::mutex fRoomMutex;              ///<! Guards the room-session fields below

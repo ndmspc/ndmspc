@@ -335,7 +335,7 @@ int main(int argc, char ** argv)
   {
     const char * cwd = gSystem->WorkingDirectory();
     const std::string launchCwd = (cwd && cwd[0] != '\0') ? std::string(cwd) : std::string();
-    std::vector<std::string> macros = Ndmspc::NUtils::Tokenize(macroList, ',');
+    std::vector<std::string> macros = Ndmspc::NUtils::ResolveMacroList(macroList);
     for (auto & macro : macros) {
       const bool isRemote = (macro.rfind("http://", 0) == 0 || macro.rfind("https://", 0) == 0 ||
                              macro.rfind("root://", 0) == 0);

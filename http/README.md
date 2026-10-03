@@ -512,6 +512,11 @@ available:
   loads the macro named with `-m` (`toolNgnt.C` by default), and
   serves JSON-RPC 2.0 on stdin/stdout.
 
+A `-m` list is comma-separated, and a **name with no directory of its own takes the directory of the
+entry before it**: `<dir>/one.C,two.C` loads both from `<dir>` (a URL's directory included), so a
+deployment names each directory once and can mix it with paths elsewhere and remote macros. A list that
+begins with a bare name falls back on `$NDMSPC_DIR/macros/tools`.
+
 Supported JSON-RPC methods: `initialize`, `notifications/initialized`, `tools/list`,
 `tools/call`, `ping`.
 

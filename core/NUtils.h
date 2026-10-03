@@ -328,6 +328,23 @@ class NUtils : TObject {
   static std::vector<std::string> Tokenize(std::string_view input, const char delim);
 
   /**
+   * @brief Resolve a comma-separated macro list, so a bare name takes the directory of the entry
+   *        before it.
+   *
+   * `"<dir>/one.C,two.C"` loads both from `<dir>`: an entry that names no directory of its own is
+   * prefixed with the directory the entry before it named (a URL's directory included), so a list can
+   * mix a directory's macros with paths elsewhere and remote URLs. An entry that names a directory is
+   * used as it is and becomes the directory the bare names after it take. A list that begins with a
+   * bare name falls back on @p defaultDir (the caller's macro directory); with that empty too the
+   * name is left as it is.
+   *
+   * @param list Comma-separated macro paths, as given to `-m`.
+   * @param defaultDir Directory for a bare name with nothing before it (default: none).
+   * @return The macros, in order, each a path the server can open.
+   */
+  static std::vector<std::string> ResolveMacroList(std::string_view list, const std::string & defaultDir = "");
+
+  /**
    * @brief Tokenize a string into integers by delimiter.
    * @param input Input string.
    * @param delim Delimiter character.

@@ -6,6 +6,20 @@
 
 #include "ndmspc/core/NLogger.h"
 
+namespace {
+
+/// @brief The group a route belongs to: the part before its first '/', or the whole name.
+///
+/// Each tool group is its own chain of steps, so a re-run invalidates the steps that followed it
+/// **in its own group** - not another group's, whose session (and open file) is its own.
+std::string RouteGroup(const std::string & name)
+{
+  const auto slash = name.find('/');
+  return slash == std::string::npos ? name : name.substr(0, slash);
+}
+
+} // namespace
+
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NWorkspace);
 /// \endcond
@@ -93,26 +107,23 @@ bool NWorkspace::RemoveEntry(int index)
 
 bool NWorkspace::RemoveEntry(const std::string & name)
 {
-  // Find if entry exists and remove it along with all newer entries
-  bool found = false;
+  // Roll this route back **in its own group**: the entry itself, and the steps that followed it there.
+  // Another group's entries are left alone, because its session is its own - and tearing them down
+  // would run their DELETE handlers, which close the file that group has open.
+  const std::string group = RouteGroup(name);
   for (int i = static_cast<int>(fEntries.size()) - 1; i >= 0; i--) {
-    NLogTrace("Checking workspace entry at index %d: %s", i, fEntries.at(i)->GetName());
-    std::string existingName = fEntries.at(i)->GetName();
-    if (!existingName.compare(name)) {
-      NLogTrace("Found existing workspace entry with same name: %s at index %d, removing newer entries.", name.c_str(),
-                i);
-      // remove all entries above it
-      int j = -1;
-      for (j = fEntries.size() - 1; j > static_cast<int>(i); j--) {
-        NLogTrace("Removing workspace entry at index %zu: %s", j, fEntries.at(j)->GetName());
-        RemoveEntry(j);
-      }
-      if (j >= 0) RemoveEntry(j);
-      found = true;
-      break;
+    if (fEntries.at(i)->GetName() != name) continue;
+    NLogTrace("Found existing workspace entry with same name: %s at index %d, removing its newer steps.", name.c_str(),
+              i);
+    for (int j = static_cast<int>(fEntries.size()) - 1; j > i; j--) {
+      if (RouteGroup(fEntries.at(j)->GetName()) != group) continue; // another group's step: not ours to undo
+      NLogTrace("Removing workspace entry at index %d: %s", j, fEntries.at(j)->GetName());
+      RemoveEntry(j);
     }
+    RemoveEntry(i);
+    return true;
   }
-  return found;
+  return false;
 }
 
 bool NWorkspace::HasEntry(const std::string & name) const

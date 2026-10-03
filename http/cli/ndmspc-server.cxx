@@ -179,8 +179,12 @@ int main(int argc, char ** argv)
   std::string macroFilename;
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: auto-load "
-                 "$NDMSPC_DIR/macros/tools/toolNgnt.C; the base actions are built in). Ignored with "
-                 "--rooms, which serves rooms only");
+                 "$NDMSPC_DIR/macros/tools/toolNgnt.C,toolBrowser.C; the base actions are built in). A "
+                 "name with no "
+                 "directory of its own takes the directory of the entry before it — "
+                 "<dir>/one.C,two.C loads both from <dir> — and a list that begins with a bare name "
+                 "falls back on $NDMSPC_DIR/macros/tools. Ignored with --rooms, which serves rooms "
+                 "only");
   app.add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
   app.add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
@@ -278,9 +282,11 @@ int main(int argc, char ** argv)
     if (!withRooms && macroFilename.empty()) {
       // check if ndmspcMacrosDir is exists
       if (gSystem->AccessPathName(ndmspcMacrosDir.c_str()) == 0) {
-        // The base actions (health, state) are built into the server, so only the tools a
-        // deployment actually wants (ngnt above all) have to be named here.
-        macroFilename = TString::Format("%s/macros/tools/toolNgnt.C", ndmspcMacrosDir.c_str()).Data();
+        // The base actions (health, state) are built into the server, so only the tools a deployment
+        // actually wants have to be named here. The default is the analysis tools and the ROOT file
+        // browser; the second is bare, so it takes the directory the first names.
+        macroFilename =
+            TString::Format("%s/macros/tools/toolNgnt.C,toolBrowser.C", ndmspcMacrosDir.c_str()).Data();
         NLogInfo("No macro file given, using default macros ...");
       } else {
         // just warn and continue, user may provide macro file later
@@ -315,7 +321,7 @@ int main(int argc, char ** argv)
       NLogInfo("Rooms enabled: serving the room actions only (no tool macro is loaded)");
     }
     else {
-      macros = Ndmspc::NUtils::Tokenize(macroFilename, ',');
+      macros = Ndmspc::NUtils::ResolveMacroList(macroFilename, ndmspcMacrosDir + "/macros/tools");
 
       NLogInfo("Going to load %d macro(s). Waiting ...", static_cast<int>(macros.size()));
       for (const auto & macro : macros) {

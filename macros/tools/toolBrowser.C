@@ -262,13 +262,14 @@ void PublishTreeSchema(Ndmspc::NRouteContext & ctx, const json & tree, const std
 /// The opened file, or nullptr when none is open.
 TFile * OpenFileOf(Ndmspc::NRouteContext & ctx)
 {
-  return ctx.GetObject<TFile>(kFileObject);
+  // The file belongs to this request's session, so two browser sessions keep one each.
+  return ctx.GetObject<TFile>(ctx.ObjectName(kFileObject));
 }
 
 /// Drop the opened file (the server deletes it).
 void CloseBrowserFile(Ndmspc::NRouteContext & ctx)
 {
-  if (auto * server = ctx.Server()) server->RemoveInputObject(kFileObject);
+  if (auto * server = ctx.Server()) server->RemoveInputObject(ctx.ObjectName(kFileObject));
 }
 
 /// The open file with the tree re-published, or a failure written to `ctx` when none is open.
@@ -304,6 +305,7 @@ void toolBrowser()
                           {"default", "https://root.cern/js/files/hsimple.root"}}}}}},
       .order       = 1,
       .label       = "{{ file }}",
+      .session     = true, // the opened file is part of the room's session
   });
 
   Ndmspc::RegisterMcpTool(group + "/browse", {
@@ -320,6 +322,7 @@ void toolBrowser()
       .dependsOn   = {group + "/open"},
       .order       = 2,
       .label       = "{{ key }}",
+      .runButton   = false, // the tree is how it works: clicking an object draws it, so there is no Run
   });
 
   // The internals the tree drives. They are a group of their own with no `dependsOn`, so the server
@@ -396,7 +399,7 @@ void toolBrowser()
         return;
       }
 
-      server->AddInputObject(kFileObject, opened);
+      server->AddInputObject(ctx.ObjectName(kFileObject), opened);
       StoreExpanded(ctx, {});
 
       PublishOpenSchema(ctx, filename);

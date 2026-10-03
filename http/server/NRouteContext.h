@@ -67,6 +67,16 @@ public:
     return obj;
   }
 
+  /**
+   * @brief An object's name in this request's session: `<name>@<session>`, or `name` when the request
+   *        belongs to no session (it names no combination).
+   *
+   * The input objects a tool creates belong to the session they were made in, so two sessions of the
+   * same tool - two browser files, two analyses - keep their own. Tools use this for every
+   * `AddInputObject`/`GetObject`/`RemoveInputObject` rather than the bare name.
+   */
+  std::string ObjectName(const std::string & name) const;
+
   // --- Access server singleton ---
   /// @brief Get the global NHttpServer instance.
   /// @return Pointer to the server (may be null).

@@ -22,8 +22,9 @@ or straight from the container:
 podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:next
 ```
 
-Without `-m`, the server loads the ngnt tool macro (`toolNgnt.C`); its own base
-actions (`health`, `state`) are built in and need no macro. Point a browser at
+Without `-m`, the server loads the ngnt tool macro and the ROOT file browser
+(`toolNgnt.C,toolBrowser.C`); its own base actions (`health`, `state`) are built
+in and need no macro. Point a browser at
 <http://localhost:8080/> for the
 web UI, or use the API at <http://localhost:8080/api/>.
 

@@ -9,11 +9,48 @@
 #include <utility>
 #include <vector>
 
+#include "ndmspc/http/NHttpServer.h" // gNdmspcMcpTools / NMcpToolInfo::session
 #include "ndmspc/http/NRoomSession.h"
 
 namespace {
 
 constexpr const char * kBase = "http://room.test:80";
+
+/// @brief The tools a room loads, as the registry the session consults.
+///
+/// Which actions define session state is the tools' to declare (`NMcpToolInfo::session`), so the
+/// session names no action. This stands in for the macros a room loads: the analysis group's `open`
+/// and `reshape`, and a second group's `open` (which it replays too, and whose higher `order` keeps
+/// `ngnt/open` the one a probe asks for).
+struct SessionTools {
+  Ndmspc::NMcpToolMap tools;
+
+  SessionTools()
+  {
+    Ndmspc::NMcpToolInfo open;
+    open.session      = true;
+    open.order        = 1;
+    tools["ngnt/open"] = open;
+
+    Ndmspc::NMcpToolInfo reshape;
+    reshape.session    = true;
+    reshape.dependsOn  = {"ngnt/open"};
+    reshape.order      = 2;
+    tools["ngnt/reshape"] = reshape;
+
+    Ndmspc::NMcpToolInfo browser;
+    browser.session       = true;
+    browser.order         = 9;
+    tools["browser/open"] = browser;
+
+    Ndmspc::gNdmspcMcpTools = &tools;
+  }
+
+  ~SessionTools() { Ndmspc::gNdmspcMcpTools = nullptr; }
+};
+
+/// Installed for the whole binary: the session asks the registry, so it has to exist before any test.
+SessionTools gSessionTools;
 
 /// @brief A transport that records every request and replays canned responses.
 class FakeHttpRequest : public Ndmspc::NHttpRequest {
@@ -118,6 +155,9 @@ TEST(NRoomSessionReplayTest, OnlyStateDefiningActionsAreReplayed)
 {
   EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("ngnt/open"));
   EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("ngnt/reshape"));
+  // A group declares this itself (NMcpToolInfo::session), so the session names no tool: a browser's
+  // open is replayed without a change in NRoomSession.
+  EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("browser/open"));
   // These render or read; replaying them would recompute histograms for nothing.
   EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ngnt/map"));
   EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ngnt/spectra"));
@@ -432,16 +472,19 @@ TEST(NRoomSessionRestoreTest, StopsAtTheFirstFailingStep)
   EXPECT_EQ(fake.calls.size(), 1u); // the second action was not attempted
 }
 
-TEST(NRoomSessionRestoreTest, RefusesAnUnknownAction)
+TEST(NRoomSessionRestoreTest, ReplaysWhatTheSnapshotNamesAndLetsTheRoomRefuseTheRest)
 {
-  FakeHttpRequest fake;
+  FakeHttpRequest fake; // no canned reply for POST /api/room/close: the room answers 404
 
   const json snapshot = SnapshotOf({{"room/close", json::object()}});
 
   std::string error;
   EXPECT_FALSE(Ndmspc::NRoomSession::Restore(fake, kBase, snapshot, error));
-  EXPECT_NE(error.find("cannot be replayed"), std::string::npos);
-  EXPECT_TRUE(fake.calls.empty());
+  // A snapshot holds only what the tools declared session-defining, so replaying it does not re-check
+  // (the router has no tools to ask): an action the room does not have is refused by the room, and
+  // that failure is the restore's.
+  EXPECT_NE(error.find("HTTP 404"), std::string::npos);
+  ASSERT_EQ(fake.calls.size(), 1u);
 }
 
 TEST(NRoomSessionRestoreTest, RefusesASnapshotWithoutActions)
@@ -641,16 +684,17 @@ TEST(NRoomSessionRestoreInPlaceTest, StopsAtAFailingAction)
   ASSERT_EQ(room.calls.size(), 1u);
 }
 
-TEST(NRoomSessionRestoreInPlaceTest, RefusesAnUnknownAction)
+TEST(NRoomSessionRestoreInPlaceTest, ReplaysWhatTheSnapshotNamesAndLetsTheRoomRefuseTheRest)
 {
   FakeRoom room;
+  room.Fail("POST", "room/close", "unknown action: room/close");
 
   const json snapshot = SnapshotOf({{"room/close", json::object()}});
 
   std::string error;
   EXPECT_FALSE(Ndmspc::NRoomSession::RestoreInPlace(snapshot, room.Dispatcher(), error));
-  EXPECT_NE(error.find("cannot be replayed"), std::string::npos);
-  EXPECT_TRUE(room.calls.empty());
+  EXPECT_NE(error.find("unknown action"), std::string::npos);
+  ASSERT_EQ(room.calls.size(), 1u);
 }
 
 } // namespace

@@ -42,6 +42,12 @@ struct NRoomInfo {
   std::string memoryRequest; ///< Memory request
   std::string memoryLimit;   ///< Memory limit
 
+  /// The image the room runs ("" for a room the router has not reported one for, e.g. still being
+  /// created). The tag alone is what the rooms view's table shows; the whole reference is in its
+  /// detail pane.
+  std::string image;
+  std::string imageTag; ///< Its tag on its own, e.g. "v1.4.0-rc12" ("latest" for an untagged image).
+
   /// Why the room's container last died ("" until it has). A room the kernel killed for using more
   /// memory than its limit never says so itself, so the router reads the pod and reports it here.
   std::string lastErrorReason;

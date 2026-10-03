@@ -111,8 +111,11 @@ int main(int argc, char ** argv)
   app.set_version_flag("--version", AppVersion(), "Print version information and exit");
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: "
-                 "$NDMSPC_DIR/macros/tools/toolNgnt.C; the base actions are built in). Ignored with "
-                 "--rooms, which serves rooms only");
+                 "$NDMSPC_DIR/macros/tools/toolNgnt.C; the base actions are built in). A name with no "
+                 "directory of its own takes the directory of the entry before it — "
+                 "<dir>/one.C,two.C loads both from <dir> — and a list that begins with a bare name "
+                 "falls back on $NDMSPC_DIR/macros/tools. Ignored with --rooms, which serves rooms "
+                 "only");
   app.add_option("--transport", transport, "Transport to serve (default: stdio)")
       ->check(CLI::IsMember({"stdio"}));
   app.add_flag("--all-tools", allTools, "Also expose the internal actions (openapi/inspector) as tools");
@@ -187,7 +190,7 @@ int main(int argc, char ** argv)
     NLogInfo("ndmspc-mcp: rooms enabled, serving the room_* actions only (no tool macro is loaded)");
   }
   else {
-    for (const auto & macro : Ndmspc::NUtils::Tokenize(macroFilename, ',')) {
+    for (const auto & macro : Ndmspc::NUtils::ResolveMacroList(macroFilename, NdmspcDir() + "/macros/tools")) {
       NLogInfo("ndmspc-mcp: loading macro '%s'", macro.c_str());
       TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
       if (m == nullptr) {
