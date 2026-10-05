@@ -18,6 +18,7 @@
 #include <TROOT.h>
 #include <TSystem.h>
 #include "NDimensionalExecutor.h"
+#include "NCancellation.h"
 #include "NDimensionalIpcRunner.h"
 #include "NGnThreadData.h"
 #include "NUtils.h"
@@ -225,7 +226,8 @@ NDimensionalExecutor::NDimensionalExecutor(THnSparse * hist, bool onlyfilled)
 
 NDimensionalExecutor::~NDimensionalExecutor() = default;
 
-void NDimensionalExecutor::Execute(const std::function<void(const std::vector<int> & coords)> & func)
+void NDimensionalExecutor::Execute(const std::function<void(const std::vector<int> & coords)> & func,
+                                   const std::function<bool()> &                                shouldStop)
 {
   ///
   /// Sequential Execution
@@ -236,6 +238,9 @@ void NDimensionalExecutor::Execute(const std::function<void(const std::vector<in
   }
   fCurrentCoords = fMinBounds; // Reset state
   do {
+    if (shouldStop && shouldStop()) {
+      return;
+    }
     func(fCurrentCoords);
   } while (Increment());
 }
@@ -250,7 +255,8 @@ void NDimensionalExecutor::Execute(const std::function<void(const std::vector<in
 template <typename TObject>
 void NDimensionalExecutor::ExecuteParallel(
     const std::function<void(const std::vector<int> & coords, TObject & thread_object)> & func,
-    std::vector<TObject> &                                                                thread_objects)
+    std::vector<TObject> &                                                                thread_objects,
+    const std::function<bool()> &                                                         shouldStop)
 {
   if (fNumDimensions == 0) {
     return;
@@ -378,6 +384,11 @@ void NDimensionalExecutor::ExecuteParallel(
       {
         std::unique_lock<std::mutex> lock(queue_mutex);
         if (stop_pool) break;
+      }
+
+      // A cancellation stops dispatching further points; the tasks already queued still finish.
+      if (shouldStop && shouldStop()) {
+        break;
       }
 
       std::vector<int> coords_copy = fCurrentCoords;
@@ -1149,6 +1160,7 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
   }
   auto isUserInterrupted = []() {
     if (gIpcSigIntRequested != 0) return true;
+    if (Ndmspc::NCancellation::IsCancelled()) return true;
     return (gROOT && gROOT->IsInterrupted());
   };
   auto emitProgressUpdate = [&]() {
@@ -2176,6 +2188,7 @@ void NDimensionalExecutor::FinishProcessIpc(bool abort)
 
 template void NDimensionalExecutor::ExecuteParallel<NGnThreadData>(
     const std::function<void(const std::vector<int> & coords, NGnThreadData & thread_object)> & func,
-    std::vector<NGnThreadData> &                                                                  thread_objects);
+    std::vector<NGnThreadData> &                                                                  thread_objects,
+    const std::function<bool()> &                                                                 shouldStop);
 
 } // namespace Ndmspc

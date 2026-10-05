@@ -68,6 +68,7 @@
 #include <ndmspc/http/NRouteContext.h>
 #include <ndmspc/http/NSchemaBuilder.h>
 #include <ndmspc/http/NHttpServer.h>
+#include <ndmspc/core/NCancellation.h>
 #include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NGnNavigator.h>
 #include <ndmspc/core/NParameters.h>
@@ -617,6 +618,16 @@ void toolNgnt()
       }
 
       nav = ngnt->Reshape(binningName, levels, 0, {}, {});
+      if (Ndmspc::NCancellation::IsCancelled()) {
+        // The reshape was cancelled mid-way: the navigator is partial and belongs to no session, so
+        // drop it and report a cancellation (the client stops waiting without an error notice).
+        NLogInfo("[CANCEL][reshape] cancelled; discarding partial navigator %p", (void *)nav);
+        delete nav;
+        httpOut["result"] = "failure";
+        httpOut["code"]   = "cancelled";
+        httpOut["error"]  = "Cancelled";
+        return;
+      }
       if (!nav) {
         ctx.Result("Failed to reshape NGnTree with provided levels [" + json(levels).dump() + "] and binning '" +
                    binningName + "'");

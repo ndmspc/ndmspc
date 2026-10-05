@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -157,6 +158,7 @@ inline void RegisterMcpTool(const std::string & action, const T & description)
 /// \author Martin Vala <mvala@cern.ch>
 ///
 class NHistoryEntry;
+class NActionWorker;
 class NHttpServer : public THttpServer {
 
   public:
@@ -300,6 +302,44 @@ class NHttpServer : public THttpServer {
    * @param identity The caller the action runs as.
    */
   void ProcessRequestAs(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity & identity);
+
+  /**
+   * @brief Runs one action on the action worker.
+   *
+   * Actions run on one worker thread (not the ROOT request thread) so a cancel frame can still be read
+   * while a long action runs. A synchronous caller (plain HTTP, a room replay, an MCP tool call) passes
+   * an \p onComplete that signals it and waits; the websocket bridge passes one that sends the reply and
+   * returns at once. When it is already called on the worker thread (a handler dispatching another
+   * request - the MCP path) the action runs inline, so it cannot deadlock waiting on itself.
+   *
+   * @param arg The request to run.
+   * @param identity The caller to run as, or null to derive it from the request.
+   * @param requestId The client's request id, so it can be cancelled; "" when it cannot.
+   * @param onComplete Called on the worker thread when the action is done (and the reply is ready).
+   */
+  void RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<NRequestIdentity> identity,
+                 const std::string & requestId, const std::function<void()> & onComplete);
+
+  /**
+   * @brief Asks the action registered under a request id to stop.
+   * @param requestId The client's request id.
+   * @return True when an action was waiting under that id (running or still queued).
+   */
+  bool CancelRequest(const std::string & requestId);
+
+  /**
+   * @brief Handles a control request (currently `POST /api/cancel`) inline on this thread.
+   *
+   * A cancel cannot go through {@link RunAction}: the worker is busy with the very action being
+   * cancelled, so it would queue behind it. It is handled here instead — the request thread is free
+   * (the action runs on the worker), which is what makes a cancel arrive while the action runs. The
+   * websocket bridge is not used for this: ROOT delivers a connection's frames only after its
+   * previous request has been answered, so a websocket cancel would arrive too late.
+   *
+   * @param arg The request.
+   * @return True when it was a control request and has been answered.
+   */
+  bool HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg);
 
   /// @brief Replace the HTTP handler map (thread-safe).
   void SetHttpHandlers(std::map<std::string, Ndmspc::NHttpFuncPtr> handlers);
@@ -660,6 +700,13 @@ class NHttpServer : public THttpServer {
   int               fHeartbeatMs{10000};  ///<! Heartbeat interval in milliseconds
   std::thread *     fHeartbeatThread{nullptr}; ///<! Background heartbeat thread
   std::atomic<bool> fHeartbeatRunning{false};  ///<! Whether the heartbeat thread is running
+
+  NActionWorker *   fActionWorker{nullptr};    ///<! The one thread tool actions run on
+  std::mutex        fWorkerMutex;              ///<! Guards fActionWorker's creation
+  /// The cancel flag of each action waiting to run, by the client's request id. Set by CancelRequest;
+  /// the worker checks it before running a queued action and the loops poll it while one runs.
+  std::mutex        fCancelMutex;              ///<! Guards fCancelFlags
+  std::map<std::string, std::shared_ptr<std::atomic<bool>>> fCancelFlags;
   std::atomic<int> fServCnt{0};           ///<! Service counter used in heartbeat payload
   std::mutex        fHeartbeatMutex;       ///<! Guards the heartbeat interval/timer
   std::condition_variable fHeartbeatCv;    ///<! Signals heartbeat thread wake-up/shutdown

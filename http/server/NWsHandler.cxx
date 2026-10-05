@@ -161,6 +161,19 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
     }
 
     const bool isApiRequest = parsedJson && parsed.is_object() && parsed.contains("path") && parsed["path"].is_string();
+
+    // A cancel frame stops the action waiting under its request id. It is handled here, on the ROOT
+    // thread, before any action is dispatched: actions run on the worker precisely so this thread is
+    // free to read this while one runs. It carries no path, so it never reaches the API branch.
+    if (parsedJson && parsed.is_object() && parsed.value("event", "") == "cancel") {
+      const std::string target = parsed.contains("requestId") && parsed["requestId"].is_string()
+                                     ? parsed["requestId"].get<std::string>()
+                                     : std::string();
+      if (Ndmspc::gNHttpServer != nullptr && !target.empty()) Ndmspc::gNHttpServer->CancelRequest(target);
+      NLogInfo("Received cancel for request %s", target.empty() ? "(none)" : target.c_str());
+      return kTRUE;
+    }
+
     if (isApiRequest) {
       json requestId = parsed.contains("requestId") ? parsed["requestId"] : json(nullptr);
       std::string method = parsed.value("method", "POST");
@@ -177,7 +190,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
         reply["payload"]     = json{{"result", "failure"},
                                     {"error", "this room's access token is read-only"},
                                     {"code", "read_only"}};
-        SendCharStarWS(wsId, reply.dump().c_str());
+        SendFrame(wsId, reply.dump());
         return kTRUE;
       }
       std::string path = parsed["path"].get<std::string>();
@@ -218,20 +231,24 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       }
       if (!headerBlock.empty()) httpArg->SetRequestHeader(headerBlock.c_str());
 
-      Ndmspc::gNHttpServer->ProcessRequest(httpArg);
-
-      std::string content(static_cast<const char *>(httpArg->GetContent()), httpArg->GetContentLength());
-      json reply;
-      reply["event"] = "message_reply";
-      reply["requestId"] = requestId;
-      reply["contentType"] = httpArg->GetContentType();
-      try {
-        reply["payload"] = json::parse(content);
-      }
-      catch (const json::parse_error &) {
-        reply["payload"] = content;
-      }
-      SendCharStarWS(wsId, reply.dump().c_str());
+      // Run the action on the worker and answer when it finishes, without blocking this thread - which
+      // is what keeps it free to read a cancel frame while a long action runs.
+      const std::string requestIdText = requestId.is_string() ? requestId.get<std::string>() : std::string();
+      Ndmspc::gNHttpServer->RunAction(httpArg, nullptr, requestIdText,
+                                      [this, wsId, requestId, httpArg]() {
+        std::string content(static_cast<const char *>(httpArg->GetContent()), httpArg->GetContentLength());
+        json        reply;
+        reply["event"]       = "message_reply";
+        reply["requestId"]   = requestId;
+        reply["contentType"] = httpArg->GetContentType();
+        try {
+          reply["payload"] = json::parse(content);
+        }
+        catch (const json::parse_error &) {
+          reply["payload"] = content;
+        }
+        SendFrame(wsId, reply.dump());
+      });
       return kTRUE;
     }
 
@@ -244,7 +261,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
         if (clientId != wsId && client.IsTokenValidAt(std::chrono::system_clock::now())) recipients.push_back(clientId);
       }
     }
-    for (const auto recipient : recipients) SendCharStarWS(recipient, receivedStr.c_str());
+    for (const auto recipient : recipients) SendFrame(recipient, receivedStr);
     return kTRUE;
   }
 
@@ -315,7 +332,7 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
   authenticated["payload"]["username"] = result.identity->preferredUsername;
   authenticated["payload"]["expiresAt"] = std::chrono::duration_cast<std::chrono::milliseconds>(
       result.identity->expiresAt.time_since_epoch()).count();
-  SendCharStarWS(wsId, authenticated.dump().c_str());
+  SendFrame(wsId, authenticated.dump());
   if (activated) SendWelcomeAndAnnounce(wsId, result.identity->preferredUsername);
   else if (usernameChanged) Broadcast(BuildClientsMessage().dump());
 }
@@ -336,10 +353,10 @@ void NWsHandler::SendWelcomeAndAnnounce(ULong_t wsId, const std::string & userna
   welcome["event"] = "welcome";
   welcome["payload"]["username"] = username;
   welcome["payload"]["wsId"] = wsId;
-  SendCharStarWS(wsId, welcome.dump().c_str());
+  SendFrame(wsId, welcome.dump());
 
   for (const auto recipient : ClientIds()) {
-    if (recipient != wsId) SendCharStarWS(recipient, (username + " has joined the chat!").c_str());
+    if (recipient != wsId) SendFrame(recipient, username + " has joined the chat!");
   }
   Broadcast(BuildClientsMessage().dump());
 
@@ -354,7 +371,7 @@ void NWsHandler::SendAuthenticationError(ULong_t wsId, const std::string & code,
   json error;
   error["event"] = "authentication_error";
   error["payload"] = {{"code", code}, {"message", message}, {"retryable", retryable}};
-  SendCharStarWS(wsId, error.dump().c_str());
+  SendFrame(wsId, error.dump());
 }
 
 void NWsHandler::RemoveClientAndAnnounce(ULong_t wsId)
@@ -449,7 +466,7 @@ size_t NWsHandler::GetClientCount() const
 
 void NWsHandler::Broadcast(const std::string & message)
 {
-  for (const auto wsId : ClientIds()) SendCharStarWS(wsId, message.c_str());
+  for (const auto wsId : ClientIds()) SendFrame(wsId, message);
 }
 
 void NWsHandler::BroadcastUnsafe(const std::string & message)
@@ -469,11 +486,35 @@ std::string NWsHandler::UsernameOf(ULong_t wsId) const
   return it == fClients.end() ? std::string() : it->second.GetUsername();
 }
 
-bool NWsHandler::SendTo(ULong_t wsId, const std::string & message)
+bool NWsHandler::SendFrame(ULong_t wsId, const std::string & message)
 {
   if (wsId == 0 || message.empty()) return false;
-  SendCharStarWS(wsId, message.c_str());
-  return true;
+  {
+    std::unique_lock<std::mutex> lock(fSendMutex);
+    // Wait for the previous send on this connection to complete. Bounded, so a missed completion
+    // callback cannot wedge the sender for ever.
+    fSendCv.wait_for(lock, std::chrono::seconds(5),
+                     [&]() { return fSending.find(wsId) == fSending.end(); });
+    fSending.insert(wsId);
+  }
+  const int rc = SendCharStarWS(wsId, message.c_str());
+  if (rc < 0) {
+    std::lock_guard<std::mutex> lock(fSendMutex);
+    fSending.erase(wsId);
+  }
+  return rc >= 0;
+}
+
+void NWsHandler::CompleteWSSend(UInt_t wsId)
+{
+  std::lock_guard<std::mutex> lock(fSendMutex);
+  fSending.erase(wsId);
+  fSendCv.notify_all();
+}
+
+bool NWsHandler::SendTo(ULong_t wsId, const std::string & message)
+{
+  return SendFrame(wsId, message);
 }
 
 Bool_t NWsHandler::HandleTimer(TTimer *)

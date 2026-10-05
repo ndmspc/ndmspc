@@ -1,11 +1,15 @@
 #include <TROOT.h>
+#include <TSystem.h>
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <set>
@@ -16,6 +20,7 @@
 #include <THttpCallArg.h>
 #include <THttpServer.h>
 
+#include "ndmspc/core/NCancellation.h"
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NHistoryEntry.h"
@@ -26,6 +31,7 @@
 #include "ndmspc/http/NRoomAccess.h"
 #include "ndmspc/http/NRoomSession.h"
 #include "ndmspc/ndmspc.h"
+#include "NActionWorker.h"
 #include "NHttpServer.h"
 
 // The process environment, as the C library exposes it. Declared here rather than pulling in
@@ -369,6 +375,13 @@ void NHttpServer::SetHeartbeatMs(int ms)
 NHttpServer::~NHttpServer()
 {
   StopHeartbeatThread();
+  // Stop the action worker last: it may be running an action that touches this server's state, so it
+  // is joined (finished) before the rest is torn down.
+  {
+    std::lock_guard<std::mutex> lock(fWorkerMutex);
+    delete fActionWorker;
+    fActionWorker = nullptr;
+  }
 }
 
 void NHttpServer::StartHeartbeatThread()
@@ -1129,12 +1142,246 @@ void NHttpServer::RoomSessionRestoreOnce()
 
 void NHttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
 {
-  Dispatch(std::move(arg), nullptr);
+  // A control request (cancel) is answered here, inline, before the action worker: it must not queue
+  // behind the action it is cancelling.
+  if (HandleControlRequest(arg)) return;
+
+  // Page, static assets and the websocket engine's own frames (WS_CONNECT/WS_READY/WS_DATA/...) are
+  // served on this thread, as they always were. Only /api actions run on the worker: routing the
+  // engine's frames through it would run NWsHandler::ProcessWS on the worker too, so a running action
+  // would block reading the cancel (and ProcessWS's RunAction would run inline and block the worker).
+  const TString pathName = arg->GetPathName();
+  const TString fileName = arg->GetFileName();
+  TString       fullpath = TString::Format("/%s/%s/", pathName.Data(), fileName.Data());
+  fullpath.ReplaceAll("//", "/");
+  fullpath.ReplaceAll("//", "/");
+  if (!fullpath.BeginsWith("/api/")) {
+    Dispatch(std::move(arg), nullptr);
+    return;
+  }
+
+  // Synchronous: the action runs on the worker and this waits for it, so the caller still reads the
+  // reply content right after (the contract every HTTP/MCP/replay caller relies on).
+  std::mutex              doneMutex;
+  std::condition_variable done;
+  bool                    finished = false;
+  RunAction(std::move(arg), nullptr, "", [&]() {
+    std::lock_guard<std::mutex> lock(doneMutex);
+    finished = true;
+    done.notify_one();
+  });
+  std::unique_lock<std::mutex> lock(doneMutex);
+  done.wait(lock, [&]() { return finished; });
 }
 
 void NHttpServer::ProcessRequestAs(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity & identity)
 {
-  Dispatch(std::move(arg), &identity);
+  std::mutex              doneMutex;
+  std::condition_variable done;
+  bool                    finished = false;
+  auto                    stated   = std::make_shared<NRequestIdentity>(identity);
+  RunAction(std::move(arg), std::move(stated), "", [&]() {
+    std::lock_guard<std::mutex> lock(doneMutex);
+    finished = true;
+    done.notify_one();
+  });
+  std::unique_lock<std::mutex> lock(doneMutex);
+  done.wait(lock, [&]() { return finished; });
+}
+
+void NHttpServer::RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<NRequestIdentity> identity,
+                            const std::string & requestId, const std::function<void()> & onComplete)
+{
+  NActionWorker * worker;
+  {
+    std::lock_guard<std::mutex> lock(fWorkerMutex);
+    if (fActionWorker == nullptr) fActionWorker = new NActionWorker();
+    worker = fActionWorker;
+  }
+
+  // Already on the worker: a handler dispatching another request (the MCP tool-call path, or a room
+  // replay). Run it inline - submitting it would have the worker wait on itself and deadlock.
+  if (worker->OnWorkerThread()) {
+    Dispatch(arg, identity.get());
+    if (onComplete) onComplete();
+    return;
+  }
+
+  // The flag this request can be cancelled through. Registered before it is queued, so a cancel
+  // arriving while it waits (not only while it runs) still reaches it.
+  std::shared_ptr<std::atomic<bool>> flag;
+  if (!requestId.empty()) {
+    flag = std::make_shared<std::atomic<bool>>(false);
+    std::lock_guard<std::mutex> lock(fCancelMutex);
+    fCancelFlags[requestId] = flag;
+  }
+
+  worker->Submit([this, arg, identity, requestId, flag, onComplete]() {
+    if (flag && flag->load(std::memory_order_relaxed)) {
+      // Cancelled while it was still queued: answer as cancelled without running the action.
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"code", "cancelled"}, {"error", "Cancelled"}}.dump());
+    }
+    else {
+      if (flag) NCancellation::SetCurrent(flag.get());
+      Dispatch(arg, identity.get());
+      if (flag) NCancellation::ClearCurrent();
+    }
+    if (!requestId.empty()) {
+      std::lock_guard<std::mutex> lock(fCancelMutex);
+      fCancelFlags.erase(requestId);
+    }
+    if (onComplete) onComplete();
+  });
+}
+
+bool NHttpServer::CancelRequest(const std::string & requestId)
+{
+  if (requestId.empty()) return false;
+  std::lock_guard<std::mutex> lock(fCancelMutex);
+  const auto                  it = fCancelFlags.find(requestId);
+  if (it == fCancelFlags.end()) return false;
+  it->second->store(true, std::memory_order_relaxed);
+  NLogInfo("Cancelling action for request %s", requestId.c_str());
+  return true;
+}
+
+bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg)
+{
+  if (!arg) return false;
+  const TString path = arg->GetPathName();
+  const TString file = arg->GetFileName();
+  if (path != "api" || (file != "cancel" && file != "upload" && file != "files")) return false;
+
+  const std::string level =
+      RoomAccessRequired() ? RoomAccessLevel(RequestAccessToken(arg.get())) : std::string("rw");
+  if (level.empty()) {
+    arg->SetContentType("application/json");
+    arg->SetContent(json{{"result", "failure"}, {"error", "this room's access token is required"}}.dump());
+    return true;
+  }
+
+  // Upload one chunk of a file the browser is bringing into the room. Ephemeral: it lands in the
+  // room's working directory and is gone when the pod scales to zero (a durable file is opened by URL).
+  if (file == "upload") {
+    if (level != "rw") {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"error", "this room's access token is read-only"}}.dump());
+      return true;
+    }
+    const std::string query = arg->GetQuery() != nullptr ? arg->GetQuery() : "";
+    auto              param = [&query](const std::string & key) -> std::string {
+      const std::string needle = key + "=";
+      const size_t      at     = query.find(needle);
+      if (at == std::string::npos) return "";
+      const size_t from = at + needle.size();
+      const size_t end  = query.find('&', from);
+      return query.substr(from, end == std::string::npos ? std::string::npos : end - from);
+    };
+    std::string name = param("name");
+    const size_t slash = name.find_last_of("/\\");
+    if (slash != std::string::npos) name = name.substr(slash + 1);
+    std::string clean;
+    for (const char c : name) {
+      if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-') clean += c;
+    }
+    if (clean.empty() || clean == "." || clean == "..") {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"error", "invalid file name"}}.dump());
+      return true;
+    }
+    const std::string offsetText = param("offset");
+    const long long   offset     = offsetText.empty() ? 0 : std::atoll(offsetText.c_str());
+    const bool        last       = param("last") == "1";
+
+    const std::string dir   = gSystem->pwd();
+    const std::string part  = dir + "/." + clean + ".part";
+    const std::string final = dir + "/" + clean;
+    const char *      data  = static_cast<const char *>(arg->GetPostData());
+    const size_t      len   = arg->GetPostDataLength();
+
+    // A file already in the room is not overwritten silently: the first chunk is refused with
+    // `code=exists`, and the caller either uploads under another name or repeats with `force=1`.
+    if (offset == 0 && param("force") != "1") {
+      std::ifstream probe(final, std::ios::binary);
+      if (probe.good()) {
+        probe.close();
+        json reply;
+        reply["result"] = "failure";
+        reply["code"]   = "exists";
+        reply["file"]   = clean;
+        arg->SetContentType("application/json");
+        arg->SetContent(reply.dump());
+        return true;
+      }
+    }
+
+    std::ofstream out(part, std::ios::binary | (offset == 0 ? std::ios::trunc : std::ios::app));
+    if (!out) {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"error", "cannot write the file"}}.dump());
+      return true;
+    }
+    if (len > 0 && data != nullptr) out.write(data, static_cast<std::streamsize>(len));
+    out.close();
+    // Only the finished file is visible: a half-upload is not openable.
+    if (last) std::rename(part.c_str(), final.c_str());
+
+    json reply;
+    reply["result"] = "success";
+    reply["file"]   = clean;
+    reply["path"]   = final;
+    reply["bytes"]  = static_cast<long long>(offset) + static_cast<long long>(len);
+    arg->SetContentType("application/json");
+    arg->SetContent(reply.dump());
+    return true;
+  }
+
+  // The files in the room's working directory (what a browser brought in, and what the room made).
+  // Ephemeral, like the uploads: gone when the pod scales to zero. Dotfiles (half-uploads) are hidden.
+  if (file == "files") {
+    const std::string dir = gSystem->pwd();
+    json              list = json::array();
+    std::error_code   ec;
+    for (const auto & entry : std::filesystem::directory_iterator(dir, ec)) {
+      const std::string name = entry.path().filename().string();
+      if (name.empty() || name[0] == '.') continue;
+      if (!entry.is_regular_file(ec)) continue;
+      json item;
+      item["name"]     = name;
+      item["path"]     = entry.path().string();
+      item["size"]     = static_cast<long long>(entry.file_size(ec));
+      item["modified"] = 0;
+      list.push_back(item);
+    }
+    json reply;
+    reply["result"] = "success";
+    reply["path"]   = dir;
+    reply["files"]  = list;
+    arg->SetContentType("application/json");
+    arg->SetContent(reply.dump());
+    return true;
+  }
+
+  json in = json::object();
+  const char * postData = (const char *)arg->GetPostData();
+  if (postData != nullptr) {
+    try {
+      in = json::parse(postData);
+    }
+    catch (const json::parse_error &) {
+    }
+  }
+  const std::string requestId =
+      in.contains("requestId") && in["requestId"].is_string() ? in["requestId"].get<std::string>() : std::string();
+  const bool cancelled = CancelRequest(requestId);
+
+  json out;
+  out["result"]    = "success";
+  out["cancelled"] = cancelled;
+  arg->SetContentType("application/json");
+  arg->SetContent(out.dump());
+  return true;
 }
 
 namespace {

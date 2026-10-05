@@ -69,18 +69,24 @@ class NDimensionalExecutor {
   /**
    * @brief Execute a function over all coordinates in the N-dimensional space.
    * @param func Function to execute, taking coordinates as argument.
+   * @param shouldStop Checked before each point; returning true stops the iteration early (a
+   *        cancellation). Empty means run to the end.
    */
-  void Execute(const std::function<void(const std::vector<int> & coords)> & func);
+  void Execute(const std::function<void(const std::vector<int> & coords)> & func,
+               const std::function<bool()> & shouldStop = {});
 
   /**
    * @brief Execute a function in parallel over all coordinates, using thread-local objects.
    * @tparam TObject Type of thread-local object.
    * @param func Function to execute, taking coordinates and thread-local object.
    * @param thread_objects Vector of thread-local objects, one per thread.
+   * @param shouldStop Checked before enqueueing each point; returning true stops dispatching (a
+   *        cancellation). Empty means run to the end.
    */
   template <typename TObject>
   void ExecuteParallel(const std::function<void(const std::vector<int> & coords, TObject & thread_object)> & func,
-                       std::vector<TObject> & thread_objects);
+                       std::vector<TObject> & thread_objects,
+                       const std::function<bool()> & shouldStop = {});
 
   /**
    * @brief Execute fixed-contract processing in multiple child processes over IPC.
