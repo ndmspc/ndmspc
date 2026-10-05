@@ -127,6 +127,7 @@ NRoomConfig NRoomConfig::FromEnv()
   c.idleTtlSec      = ParseDuration(NRoomEnv("NDMSPC_ROOM_IDLE_TTL", "24h"), 86400);
   c.readyTimeoutSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_READY_TIMEOUT", "45s"), 45);
   c.maxPreparing    = static_cast<int>(std::strtol(NRoomEnv("NDMSPC_ROOM_MAX_PREPARING", "4").c_str(), nullptr, 10));
+  c.autoUpdate      = ParseBool(NRoomEnv("NDMSPC_ROOM_AUTO_UPDATE", "false"), false);
   c.watchIntervalSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_WATCH_INTERVAL", "2s"), 2);
   c.waitDefault     = ParseBool(NRoomEnv("NDMSPC_ROOM_WAIT", "true"), true);
   c.admins          = NRoomList(NRoomEnv("NDMSPC_ROOM_ADMINS", ""));
@@ -223,6 +224,46 @@ static std::string NdmspcImageTag(const std::string & image)
   const auto slash = image.rfind('/');
   if (colon == std::string::npos || (slash != std::string::npos && colon < slash)) return "latest";
   return image.substr(colon + 1);
+}
+
+// An image reference with its tag replaced (or added): "repo:old" + "new" -> "repo:new". The tag is
+// the ':' after the last '/', so a registry host with a port keeps its port (see NdmspcImageTag).
+std::string NRoomRouter::WithTag(const std::string & image, const std::string & tag)
+{
+  const auto colon = image.rfind(':');
+  const auto slash = image.rfind('/');
+  if (colon != std::string::npos && (slash == std::string::npos || colon > slash)) {
+    return image.substr(0, colon) + ":" + tag;
+  }
+  return image + ":" + tag;
+}
+
+// The image tags a room may be upgraded or reverted to: the skeleton's `imageTags` with its own
+// image's tag added if missing (the deployment's current tag is always a target).
+json NRoomRouter::ImageTags(const json & skeleton)
+{
+  json tags = json::array();
+  auto has  = [&tags](const std::string & tag) {
+    for (const auto & entry : tags) {
+      if (entry.is_string() && entry.get<std::string>() == tag) return true;
+    }
+    return false;
+  };
+  const json advertised = skeleton.value("imageTags", json::array());
+  if (advertised.is_array()) {
+    for (const auto & entry : advertised) {
+      if (entry.is_string() && !entry.get<std::string>().empty() && !has(entry.get<std::string>())) {
+        tags.push_back(entry.get<std::string>());
+      }
+    }
+  }
+  // The skeleton's own tag is always a target; a skeleton naming no image has no tags to offer.
+  const std::string image = NdmspcRoomImage(skeleton);
+  if (!image.empty()) {
+    const std::string current = NdmspcImageTag(image);
+    if (!has(current)) tags.push_back(current);
+  }
+  return tags;
 }
 
 // ===========================================================================
@@ -684,6 +725,22 @@ void NRoomRouter::SetProfile(const std::string & name, const std::string & profi
   if (it != fRooms.end()) it->second.profile = profile;
 }
 
+// The image a room is pinned to, read under the registry lock.
+std::string NRoomRouter::RoomImage(const std::string & name) const
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  return it == fRooms.end() ? std::string() : it->second.image;
+}
+
+// Records the image a room is rolled onto, under the registry lock.
+void NRoomRouter::SetImage(const std::string & name, const std::string & image)
+{
+  std::lock_guard<std::mutex> lock(fMutex);
+  const auto                  it = fRooms.find(name);
+  if (it != fRooms.end()) it->second.image = image;
+}
+
 // A room's tokens, read under the registry lock.
 json NRoomRouter::RoomAccess(const std::string & name) const
 {
@@ -770,6 +827,35 @@ std::string NRoomRouter::RequestProfile(json & in)
   return {};
 }
 
+// The image tag a room/upgrade asks for, when it names one. Read like the profile: body first, then
+// the query, so a script can post `{"room":"x","tag":"v1.4.0"}` as well as a link carry `?tag=`.
+std::string NRoomRouter::RequestImageTag(json & in)
+{
+  const json tag = NdmspcRoomMember(in, "tag");
+  if (tag.is_string() && !tag.get<std::string>().empty()) return tag.get<std::string>();
+  const json query = NdmspcRoomMember(in, "_query");
+  if (query.is_string()) {
+    const auto params = NRoomRouter::ParseQuery(query.get<std::string>());
+    const auto it     = params.find("tag");
+    if (it != params.end() && !it->second.empty()) return it->second;
+  }
+  return {};
+}
+
+// The full image a room/upgrade asks for, when it names one (body "image", or "?image=").
+std::string NRoomRouter::RequestImage(json & in)
+{
+  const json image = NdmspcRoomMember(in, "image");
+  if (image.is_string() && !image.get<std::string>().empty()) return image.get<std::string>();
+  const json query = NdmspcRoomMember(in, "_query");
+  if (query.is_string()) {
+    const auto params = NRoomRouter::ParseQuery(query.get<std::string>());
+    const auto it     = params.find("image");
+    if (it != params.end() && !it->second.empty()) return it->second;
+  }
+  return {};
+}
+
 // The caller of a request: what the server verified wins, and the client's own word is the fallback.
 NRequestIdentity NRoomRouter::RequestIdentity(json & in)
 {
@@ -835,6 +921,76 @@ std::string NRoomRouter::RoutePath(const std::string & name) const
 std::string NRoomRouter::RevisionPath(const std::string & name) const
 {
   return "/apis/serving.knative.dev/v1/namespaces/" + fConfig.ns + "/revisions/" + name;
+}
+
+// The Revisions of one room's Service (Knative labels each Revision with its Service).
+std::string NRoomRouter::RevisionsPath(const std::string & name) const
+{
+  return "/apis/serving.knative.dev/v1/namespaces/" + fConfig.ns + "/revisions?labelSelector=serving.knative.dev%2Fservice%3D" +
+         name;
+}
+
+// The images a room has actually run: its Knative revisions, newest first (see the header note).
+//
+// A Revision stores the image it ran (the pod spec it carries), so this is the room's own version
+// history - and the one rollback source that is always valid, since it names images the room has run.
+// Reading it needs list access to revisions; when the cluster refuses, this is empty and every caller
+// keeps working (a version list is a convenience, never a reason to fail a room).
+json NRoomRouter::RoomVersions(const std::string & name, const std::string & currentRevision)
+{
+  json versions = json::array();
+  const auto response = Request("GET", RevisionsPath(name));
+  if (response.status != 200) return versions;
+
+  try {
+    json items = json::parse(response.body).value("items", json::array());
+    if (!items.is_array()) return versions;
+
+    // Newest first. The creation timestamps are RFC 3339, so a string comparison orders them.
+    std::sort(items.begin(), items.end(), [](const json & a, const json & b) {
+      return a.value("metadata", json::object()).value("creationTimestamp", std::string()) >
+             b.value("metadata", json::object()).value("creationTimestamp", std::string());
+    });
+
+    for (const auto & item : items) {
+      if (!item.is_object()) continue;
+      const json        metadata = item.value("metadata", json::object());
+      const std::string revision = metadata.value("name", "");
+      if (revision.empty()) continue;
+
+      bool active = false;
+      for (const auto & condition : item.value("status", json::object()).value("conditions", json::array())) {
+        if (condition.value("type", "") == "Active") active = (condition.value("status", "") == "True");
+      }
+
+      json entry;
+      entry["revision"] = revision;
+      entry["created"]  = NRoomRouter::Rfc3339(metadata.value("creationTimestamp", ""));
+      entry["active"]   = active;
+      entry["current"]  = (!currentRevision.empty() && revision == currentRevision);
+      // A Revision carries the pod spec directly (`spec.containers`), not nested like a Service; accept
+      // the nested shape too, so either spelling of a revision reads.
+      json containers = item.value("spec", json::object()).value("containers", json::array());
+      if (!containers.is_array() || containers.empty()) {
+        containers = item.value("spec", json::object())
+                         .value("template", json::object())
+                         .value("spec", json::object())
+                         .value("containers", json::array());
+      }
+      const std::string image = (containers.is_array() && !containers.empty())
+                                    ? containers[0].value("image", std::string())
+                                    : std::string();
+      if (!image.empty()) {
+        entry["image"]    = image;
+        entry["imageTag"] = NdmspcImageTag(image);
+      }
+      versions.push_back(std::move(entry));
+    }
+  }
+  catch (const std::exception &) {
+    // A response that cannot be read is one this router does not have: an empty history, not a failure.
+  }
+  return versions;
 }
 
 std::string NRoomRouter::SkeletonPath() const
@@ -1052,7 +1208,8 @@ void NRoomRouter::StoreSnapshot(const std::string & name, const std::string & id
 
 json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
                                 const std::string & stateUrl, const json & access, const std::string & owner,
-                                const json & skeleton, const std::string & profile, const json & resources)
+                                const json & skeleton, const std::string & profile, const json & resources,
+                                const std::string & image)
 {
   json service;
   service["apiVersion"]                      = "serving.knative.dev/v1";
@@ -1086,11 +1243,20 @@ json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & nam
     service["metadata"]["annotations"][kProfileAnnotation] = profile;
   }
 
+  // And the image it runs, for the same reason: the tag a room is on is part of what it is, so a new
+  // release does not move it and a restart still knows what it was pinned to (see "Room image").
+  if (!image.empty()) {
+    service["metadata"]["annotations"][kImageAnnotation] = image;
+  }
+
   // Tag the server with the room id so a room can tell which room it is, tell it where to report
   // its session, and hand it the tokens its own traffic has to carry. A value the skeleton
   // already sets wins.
   json & containers = service["spec"]["template"]["spec"]["containers"];
   if (!containers.is_array() || containers.empty()) containers = json::array({json::object()});
+  // The image the room is pinned to wins over the skeleton's own (which is why a room keeps the tag
+  // it was created on); an empty one leaves the skeleton's image in place.
+  if (!image.empty()) containers[0]["image"] = image;
   json & env = containers[0]["env"];
   if (!env.is_array()) env = json::array();
 
@@ -1486,6 +1652,13 @@ void NRoomRouter::Adopt()
           // skeleton's default the next time it is opened.
           state.profile = metadata.value("annotations", json::object()).value(kProfileAnnotation, "");
         }
+        if (state.image.empty()) {
+          // The image it is pinned to: the annotation this router wrote when it created or last
+          // rolled the room, or - for a room created before image pinning existed - the image its own
+          // Service already carries, so the read itself never moves a room onto the skeleton's image.
+          state.image = metadata.value("annotations", json::object()).value(kImageAnnotation, "");
+          if (state.image.empty()) state.image = NdmspcFirstImage(item.value("spec", json::object()));
+        }
         if (state.lastReason.empty()) {
           // And why it died last: the pod that said so is long gone (which is what the annotation is
           // for), and a room that comes back should still be able to tell a client that its
@@ -1514,18 +1687,12 @@ void NRoomRouter::Adopt()
           }
           if (!ready) state.phase = "pending";
         }
-        // This room's Service no longer matches the image the skeleton names: it is one the router was
-        // upgraded past while it was idle. Collected here (this walk already carries each room's spec)
-        // and rolled back into shape below, off the request path.
-        if (!desiredImage.empty()) {
-          const json containers = item.value("spec", json::object())
-                                      .value("template", json::object())
-                                      .value("spec", json::object())
-                                      .value("containers", json::array());
-          const std::string image = (containers.is_array() && !containers.empty())
-                                        ? containers[0].value("image", std::string())
-                                        : std::string();
-          if (image != desiredImage) stale.emplace_back(name, state.value);
+        // This room is off the image the skeleton names, and the deployment asks for convergence
+        // (NDMSPC_ROOM_AUTO_UPDATE): it is one the router was upgraded past while it was idle, and it
+        // is rolled onto the current image below, off the request path. Off by default, so a new
+        // release leaves existing rooms exactly where they are (see "Room image").
+        if (cfg.autoUpdate && !desiredImage.empty() && state.image != desiredImage) {
+          stale.emplace_back(name, state.value);
         }
         ++adopted;
       }
@@ -1552,10 +1719,10 @@ void NRoomRouter::Adopt()
     if (!stale.empty()) {
       ReapWorkers();
       auto done = std::make_shared<std::atomic<bool>>(false);
-      SpawnWorker(std::string(), std::thread([this, stale, skeleton, done]() {
+      SpawnWorker(std::string(), std::thread([this, stale, skeleton, desiredImage, done]() {
                     for (const auto & room : stale) {
                       try {
-                        ReconcileRoom(room.first, room.second, skeleton);
+                        ReconcileRoom(room.first, room.second, skeleton, desiredImage, /*force=*/false);
                       }
                       catch (const std::exception & e) {
                         NLogWarning("[room] cannot reconcile %s: %s", room.first.c_str(), e.what());
@@ -1572,13 +1739,16 @@ void NRoomRouter::Adopt()
   }
 }
 
-// Brings one idle room onto the image the current skeleton names (see the header note).
+// Rolls one room onto `image` (see "Room image" in the header note).
 //
-// Best-effort and never destructive: it rolls the room only while it is idle, and a step that does not
-// go through leaves the room on the revision it is already serving - its route still pins it, so the
-// next wake-up answers exactly as before.
-void NRoomRouter::ReconcileRoom(const std::string & name, const std::string & value, const json & skeleton)
+// Best-effort and never destructive: a step that does not go through leaves the room on the revision
+// it is already serving - its route still pins it, so the next wake-up answers exactly as before.
+// A room somebody is in is left alone unless `force` is set, since rolling it replaces the revision
+// under an open websocket.
+void NRoomRouter::ReconcileRoom(const std::string & name, const std::string & value, const json & skeleton,
+                                const std::string & image, bool force)
 {
+  if (image.empty()) return; // nothing to roll onto
   NRoomState room;
   {
     std::lock_guard<std::mutex> lock(fMutex);
@@ -1588,8 +1758,8 @@ void NRoomRouter::ReconcileRoom(const std::string & name, const std::string & va
     room = it->second;
   }
   // Somebody is in it: leave it on the image it is serving with, rather than replace its revision
-  // under an open websocket. It is picked up on its next open, or by a later restart while it is idle.
-  if (RoomInUse(room)) return;
+  // under an open websocket - unless the caller asked for the room to be rolled anyway.
+  if (!force && RoomInUse(room)) return;
 
   // The room keeps the size it was created with. A profile the skeleton no longer defines stops the
   // reconcile rather than resizing the room: being brought up to date is not being resized.
@@ -1607,7 +1777,7 @@ void NRoomRouter::ReconcileRoom(const std::string & name, const std::string & va
 
   const json  service = NRoomRouter::ServiceObject(fConfig, name, value, RouterBaseUrl(),
                                                    NRoomRouter::AccessJson(room.tokenRw, room.tokenRo), room.owner,
-                                                   skeleton, profile, resources);
+                                                   skeleton, profile, resources, image);
   std::string error;
   std::string code;
   if (!Apply(SvcCollection(), SvcPath(name), service, error, code)) {
@@ -1635,9 +1805,12 @@ void NRoomRouter::ReconcileRoom(const std::string & name, const std::string & va
     const auto                  it = fRooms.find(name);
     // Deliberately no Touch: being brought up to date is not somebody using the room, and the idle
     // clock it is counting down must not move for it.
-    if (it != fRooms.end()) it->second.revision = revision;
+    if (it != fRooms.end()) {
+      it->second.revision = revision;
+      it->second.image    = image;
+    }
   }
-  NLogInfo("[room] reconciled %s onto the current image (%s)", value.c_str(), revision.c_str());
+  NLogInfo("[room] reconciled %s onto %s (%s)", value.c_str(), image.c_str(), revision.c_str());
 }
 
 // Whether a room is in use, which the router can only tell from its pod.
@@ -1985,7 +2158,8 @@ bool NRoomRouter::ConvergePending(const std::string & name, const std::string & 
 // Holds no lock across the Kubernetes waits, and stops as soon as the room is closed or a newer
 // request for it supersedes this one.
 NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int generation,
-                                               const std::string & requestedProfile, Replay replay, json & payload,
+                                               const std::string & requestedProfile,
+                                               const std::string & requestedImage, Replay replay, json & payload,
                                                std::string & error, std::string & code)
 {
   const NRoomConfig & cfg  = fConfig;
@@ -2022,9 +2196,18 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
   if (!profileError.empty()) return fail(profileError, kUnknownProfile);
   SetProfile(name, profile);
 
+  // The image the room runs: the one this call asked for, else the room's own pinned image, else the
+  // skeleton's image (a room that has none yet - its first creation). This is what keeps a room on
+  // the tag it was created on when the skeleton names a newer one (see "Room image").
+  const std::string pinned = RoomImage(name);
+  const std::string image  = !requestedImage.empty()
+                                 ? requestedImage
+                                 : (pinned.empty() ? NdmspcRoomImage(skeleton) : pinned);
+  SetImage(name, image);
+
   const json access  = RoomAccess(name);
   json       service = NRoomRouter::ServiceObject(cfg, name, value, RouterBaseUrl(), access, RoomOwner(name),
-                                                  skeleton, profile, resources);
+                                                  skeleton, profile, resources, image);
 
   // A room created for a restore is born with its session already on it. A room asks the router for
   // its session as it comes up, and gives up for good when it is told there is nothing stored — so an
@@ -2068,6 +2251,10 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
     payload["access"]   = access;
     if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
     if (!profile.empty()) payload["profile"] = profile;
+    if (!image.empty()) {
+      payload["image"]    = image;
+      payload["imageTag"] = NdmspcImageTag(image);
+    }
     payload["ttl"]      = cfg.idleTtlSec;
     payload["state"]    = "pending";
     payload["phase"]    = "pending";
@@ -2118,6 +2305,10 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
   payload["access"]   = access;
   if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
   if (!profile.empty()) payload["profile"] = profile;
+  if (!image.empty()) {
+    payload["image"]    = image;
+    payload["imageTag"] = NdmspcImageTag(image);
+  }
   payload["ttl"]      = cfg.idleTtlSec;
   payload["state"]    = "ready";
   if (session.contains("session")) payload["session"] = session["session"];
@@ -2133,8 +2324,9 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
 // replay Whether the room's stored session is replayed once it is up.
 // payload Receives the room's state and, once it is ready, its URL.
 // error  Actionable reason when the room failed, or the scheduler's message while it waits for room.
-NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const std::string & profile, bool wait,
-                                              Replay replay, json & payload, std::string & error, std::string & code)
+NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const std::string & profile,
+                                              const std::string & image, bool wait, Replay replay, json & payload,
+                                              std::string & error, std::string & code)
 {
   const NRoomConfig & cfg  = fConfig;
   const std::string        name = NRoomRouter::RoomName(cfg, value);
@@ -2172,6 +2364,11 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
       if (!state.owner.empty()) payload["owner"] = state.owner;
       // What this open asked for, so a client can say what the room is being created as.
       if (!profile.empty()) payload["profile"] = profile;
+      const std::string shownImage = !image.empty() ? image : state.image;
+      if (!shownImage.empty()) {
+        payload["image"]    = shownImage;
+        payload["imageTag"] = NdmspcImageTag(shownImage);
+      }
       payload["ttl"]       = cfg.idleTtlSec;
       payload["state"]     = "preparing";
       payload["phase"]     = state.phase;
@@ -2206,8 +2403,9 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
     startedAt  = state.startedAt;
   }
 
-  if (wait) return EnsureWorker(value, generation, profile, replay, payload, error, code);
+  if (wait) return EnsureWorker(value, generation, profile, image, replay, payload, error, code);
 
+  const std::string shownImage = !image.empty() ? image : RoomImage(name);
   payload["room"]      = value;
   payload["name"]      = name;
   payload["param"]     = cfg.param;
@@ -2215,6 +2413,10 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
   payload["access"]    = NRoomRouter::AccessJson(tokenRw, tokenRo);
   if (const std::string owner = RoomOwner(name); !owner.empty()) payload["owner"] = owner;
   if (!profile.empty()) payload["profile"] = profile;
+  if (!shownImage.empty()) {
+    payload["image"]    = shownImage;
+    payload["imageTag"] = NdmspcImageTag(shownImage);
+  }
   payload["ttl"]       = cfg.idleTtlSec;
   payload["state"]     = "preparing";
   payload["phase"]     = "service";
@@ -2225,12 +2427,13 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
   // entry, which is what room/list and room/status report to every other client.
   ReapWorkers();
   auto done = std::make_shared<std::atomic<bool>>(false);
-  SpawnWorker(value, std::thread([this, value, generation, profile, replay, done]() {
+  SpawnWorker(value, std::thread([this, value, generation, profile, image, replay, done]() {
                 json        result;
                 std::string failure;
                 std::string code;
                 try {
-                  const Outcome outcome = EnsureWorker(value, generation, profile, replay, result, failure, code);
+                  const Outcome outcome =
+                      EnsureWorker(value, generation, profile, image, replay, result, failure, code);
                   if (outcome == Outcome::Failed && !failure.empty()) {
                     NLogError("[room] '%s' could not be created: %s", value.c_str(), failure.c_str());
                   }
@@ -2714,6 +2917,34 @@ bool NRoomRouter::Register(NHttpServer * server)
       .methods     = {"GET"},
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
+  Ndmspc::RegisterMcpTool("room/upgrade", {
+      .description = "Roll one room onto a chosen image tag - a newer one to upgrade, an older one to "
+                     "revert. 'tag' is one the deployment offers (room/list reports them as "
+                     "imageTags, with currentTag being the deployment's own); without it the room is "
+                     "rolled onto the current tag. Or pass 'image', a full image reference the room has "
+                     "run before (one of the images room/status reports as versions) - the way to roll "
+                     "back to a version the tag list does not reach. A room somebody is in is refused "
+                     "with code=in_use unless force=true. With wait=false the roll runs in the "
+                     "background (the default); poll room/status or room/list for the outcome.",
+      .methods     = {"POST"},
+      .inputSchema = {{"properties",
+                       {{"room", {{"type", "string"}, {"description", "Room id."}}},
+                        {"tag",
+                         {{"type", "string"},
+                          {"description", "Image tag to roll the room onto (see room/list's imageTags); "
+                                          "defaults to the deployment's current tag."}}},
+                        {"image",
+                         {{"type", "string"},
+                          {"description", "Full image reference to roll the room onto; must be one the "
+                                          "room has run (see room/status's versions) or the skeleton's."}}},
+                        {"force",
+                         {{"type", "boolean"},
+                          {"description", "Roll the room even while somebody is in it (default false)."}}},
+                        {"wait",
+                         {{"type", "boolean"},
+                          {"description", "Wait for the new revision before answering (default true); "
+                                          "false returns at once with state=preparing."}}}}}},
+  });
   Ndmspc::RegisterMcpTool("room/list", {
       .description = "List the rooms the router is currently tracking (with their last-seen time). A "
                      "room whose creation is still running is listed as well, with state=preparing and "
@@ -2773,6 +3004,13 @@ bool NRoomRouter::Register(NHttpServer * server)
   handlers["room/open"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleOpen(method, in, out);
+  };
+  // -------------------------------------------------------------------------
+  //  /api/room/upgrade — roll one room onto a chosen image tag
+  // -------------------------------------------------------------------------
+  handlers["room/upgrade"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                                std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleUpgrade(method, in, out);
   };
   // -------------------------------------------------------------------------
   //  /api/room/status — report a room's state
@@ -2914,7 +3152,7 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   std::string code;
   Outcome     outcome = Outcome::Failed;
   try {
-    outcome = EnsureStart(ref.value, profile, wait, Replay::Stored, payload, error, code);
+    outcome = EnsureStart(ref.value, profile, /*image=*/std::string(), wait, Replay::Stored, payload, error, code);
   }
   catch (const std::exception & e) {
     // A failure here must not take the router down with it: report it like any other.
@@ -2962,6 +3200,171 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   // A watcher sees the room the moment it is opened rather than on its next push.
   PublishRooms();
 
+  out["result"]  = "success";
+  out["payload"] = payload;
+}
+
+// ===========================================================================
+//  room/upgrade
+// ===========================================================================
+//
+// Whether a room/upgrade should roll a room even while somebody is in it: body "force", or the
+// query's. Off by default - rolling replaces the room's revision, so an open websocket would be
+// dropped under whoever is in the room.
+static bool NdmspcRoomForce(const json & in)
+{
+  if (in.is_object()) {
+    if (in.contains("force")) {
+      if (in["force"].is_boolean()) return in["force"].get<bool>();
+      if (in["force"].is_number_integer()) return in["force"].get<int>() != 0;
+      if (in["force"].is_string()) return NRoomConfig::ParseBool(in["force"].get<std::string>(), false);
+    }
+    if (in.contains("_query") && in["_query"].is_string()) {
+      const auto params = NRoomRouter::ParseQuery(in["_query"].get<std::string>());
+      const auto it     = params.find("force");
+      if (it != params.end()) return NRoomConfig::ParseBool(it->second, false);
+    }
+  }
+  return false;
+}
+
+// Rolls one room onto a chosen image tag (see "Room image" in the header note). The tag is one the
+// deployment offers - the skeleton's `imageTags`, or the skeleton's own current tag - so a room can be
+// upgraded to a newer release or reverted to an older one, one room at a time.
+void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & out)
+{
+  if (method.find("POST") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/upgrade";
+    return;
+  }
+
+  const std::string id = RequestId(in);
+  if (id.empty()) {
+    out["result"] = "failure";
+    out["error"]  = "Missing room id (send it in the body as {\"room\": \"<id>\"})";
+    return;
+  }
+
+  Adopt();
+
+  const NRequestIdentity identity = RequestIdentity(in);
+  const NRoomRef         ref      = Resolve(id, identity);
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it != fRooms.end() && !MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
+      return;
+    }
+  }
+
+  json        skeleton;
+  std::string skeletonError;
+  if (!Skeleton(skeleton, skeletonError)) {
+    out["result"] = "failure";
+    out["error"]  = skeletonError;
+    return;
+  }
+
+  // The version to roll onto, named one of two ways (see "Room image"):
+  //  - `image`: a full reference, allowed only when it is one this room has actually run (a revision in
+  //    its history) or the skeleton's own image. That is what a rollback picks from, and it is the only
+  //    way to reach a version whose repository is not the skeleton's.
+  //  - `tag`: composed onto the skeleton image's repository, and one the deployment offers (room/list's
+  //    imageTags, or the current tag). Without either, the current tag is the plain "update this room".
+  const std::string name      = ref.name;
+  const std::string requested = NRoomRouter::RequestImage(in);
+  std::string       image;
+  if (!requested.empty()) {
+    bool known = (requested == NdmspcRoomImage(skeleton));
+    if (!known) {
+      for (const auto & version : RoomVersions(name, std::string())) {
+        if (version.value("image", std::string()) == requested) {
+          known = true;
+          break;
+        }
+      }
+    }
+    if (!known) {
+      out["result"] = "failure";
+      out["code"]   = kUnknownImage;
+      out["error"]  = "Unknown image '" + requested +
+                      "' (roll back to one of the images room/status reports as versions, or pass a tag)";
+      return;
+    }
+    image = requested;
+  }
+  else {
+    std::string tag      = RequestImageTag(in);
+    const json  offered  = ImageTags(skeleton);
+    auto        offers   = [&offered](const std::string & value) {
+      for (const auto & entry : offered) {
+        if (entry.is_string() && entry.get<std::string>() == value) return true;
+      }
+      return false;
+    };
+    if (tag.empty()) tag = NdmspcImageTag(NdmspcRoomImage(skeleton));
+    if (tag.empty() || tag == "latest" || !offers(tag)) {
+      out["result"] = "failure";
+      out["code"]   = kUnknownImage;
+      out["error"]  = "Unknown image tag '" + tag +
+                      "' (this deployment offers the tags room/list reports as imageTags)";
+      return;
+    }
+    image = NRoomRouter::WithTag(NdmspcRoomImage(skeleton), tag);
+  }
+
+  // Rolling replaces the room's revision, so a room somebody is in is refused unless the caller says
+  // to go ahead: an open websocket would otherwise be dropped under whoever is in the room.
+  if (!NdmspcRoomForce(in)) {
+    NRoomState room;
+    bool       tracked = false;
+    {
+      std::lock_guard<std::mutex> lock(fMutex);
+      const auto                  it = fRooms.find(name);
+      if (it != fRooms.end() && !it->second.preparing) {
+        tracked = true;
+        room    = it->second;
+      }
+    }
+    if (tracked && RoomInUse(room)) {
+      out["result"] = "failure";
+      out["code"]   = kInUse;
+      out["error"]  = "room '" + ref.value + "' is in use; pass force=true to replace its revision";
+      return;
+    }
+  }
+
+  const bool wait = NRoomRouter::WaitFlag(fConfig, in);
+
+  json        payload;
+  std::string error;
+  std::string code;
+  Outcome     outcome = Outcome::Failed;
+  try {
+    outcome = EnsureStart(ref.value, /*profile=*/std::string(), image, wait, Replay::Stored, payload, error, code);
+  }
+  catch (const std::exception & e) {
+    error   = std::string("cannot upgrade the room: ") + e.what();
+    code.clear();
+    outcome = Outcome::Failed;
+  }
+  if (outcome == Outcome::Failed) {
+    NLogError("[room] upgrade failed for '%s': %s", ref.value.c_str(), error.c_str());
+    out["result"] = "failure";
+    out["error"]  = error;
+    if (!code.empty()) out["code"] = code;
+    PublishRooms();
+    return;
+  }
+
+  payload["room"] = ref.value;
+  payload["name"] = name;
+  NLogInfo("[room] room '%s' is being rolled onto %s", ref.value.c_str(), image.c_str());
+  PublishRooms();
   out["result"]  = "success";
   out["payload"] = payload;
 }
@@ -3111,6 +3514,10 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
     }
     catch (const std::exception &) {
     }
+    // The images this room has run, newest first (see "Room image"): the room's own revision history,
+    // which is what a rollback picks from. Only when the Service exists - a room that was never created,
+    // or is gone, has no revisions.
+    out["payload"]["versions"] = RoomVersions(ref.name, out["payload"].value("revision", std::string()));
   }
   if (!state.empty()) out["payload"]["state"] = state;
 }
@@ -3355,6 +3762,15 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
     if (profiles.is_object() && !profiles.empty()) {
       out["payload"]["profiles"]       = profiles;
       out["payload"]["defaultProfile"] = skeleton.value("defaultProfile", std::string());
+    }
+    // The image tags a room may be rolled onto (room/upgrade), and the deployment's current one, so a
+    // view can offer an update/revert without knowing the tags in advance. A room's own tag is on the
+    // room itself (`imageTag`), which is what a view compares against `currentTag` to say one is due.
+    const json tags = NRoomRouter::ImageTags(skeleton);
+    if (!tags.empty()) {
+      out["payload"]["imageTags"] = tags;
+      const std::string image = NdmspcRoomImage(skeleton);
+      if (!image.empty()) out["payload"]["currentTag"] = NdmspcImageTag(image);
     }
   }
   else {
@@ -3907,7 +4323,8 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
     try {
       // No profile: a restored room is re-created from today's skeleton, so it takes the skeleton's
       // default unless it already had a size of its own.
-      ensured = EnsureStart(id, /*profile=*/std::string(), /*wait=*/true, Replay::None, payload, error, code);
+      ensured = EnsureStart(id, /*profile=*/std::string(), /*image=*/std::string(), /*wait=*/true, Replay::None,
+                            payload, error, code);
     }
     catch (const std::exception & e) {
       error   = std::string("cannot create the room: ") + e.what();

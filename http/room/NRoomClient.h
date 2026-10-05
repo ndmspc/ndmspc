@@ -100,6 +100,12 @@ struct NRoomListResult {
    * list may hold rooms that are not the caller's. False for a caller the router could not identify.
    */
   bool                   admin{false};
+  /**
+   * The image tags a room may be rolled onto (`Upgrade`), as the deployment offers them, and the tag
+   * it is currently on. A room on another tag is one an update would move; empty when none is offered.
+   */
+  std::vector<std::string> imageTags;
+  std::string              currentTag;
 };
 
 /**
@@ -256,6 +262,26 @@ class NRoomClient {
    *         yet, or `error` when it failed).
    */
   NRoomResult Open(const std::string & roomId, bool wait = true);
+
+  /**
+   * @brief Roll a room onto a chosen image tag: a newer one to upgrade, an older one to revert.
+   *
+   * `tag` is one of the tags `room_list` reports as `imageTags` (or the deployment's current tag,
+   * `currentTag`); empty rolls onto the deployment's current tag. Alternatively `image` is a full
+   * reference this room has run before (one of the images `Status` reports as `versions`) - the way to
+   * roll back to a version the tag list does not reach. A room somebody is in is refused with
+   * `code: in_use` unless `force` is set - rolling replaces the room's revision under whoever is in it.
+   * The roll runs in the background unless `wait`, exactly as `Open` (poll `Status`, or watch `List`).
+   *
+   * @param roomId Room id.
+   * @param tag Image tag to roll onto ("" = the deployment's current tag).
+   * @param wait Whether to wait for the new revision before answering (default false).
+   * @param force Roll the room even while somebody is in it (default false).
+   * @param image Full image reference to roll onto (takes precedence over `tag`; default empty).
+   * @return The action result; payload holds room, name, revision, image, imageTag, state and phase.
+   */
+  NRoomResult Upgrade(const std::string & roomId, const std::string & tag = std::string(), bool wait = false,
+                      bool force = false, const std::string & image = std::string());
 
   /**
    * @brief Report one room's state.

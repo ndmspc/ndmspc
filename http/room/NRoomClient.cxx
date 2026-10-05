@@ -333,6 +333,16 @@ NRoomListResult NRoomClient::ParseList(const json & payload)
   // the admin list, which could differ from the router's.
   list.admin = NUtils::GetJsonBool(Member(payload, "admin"));
 
+  // The tags a room may be rolled onto (`Upgrade`), and the deployment's current one: what a view
+  // offers, and what it compares each room's tag against to say one is due an update.
+  const json tags = Member(payload, "imageTags");
+  if (tags.is_array()) {
+    for (const auto & entry : tags) {
+      if (entry.is_string()) list.imageTags.push_back(entry.get<std::string>());
+    }
+  }
+  list.currentTag = NUtils::GetJsonString(Member(payload, "currentTag"));
+
   list.ok = true;
   return list;
 }
@@ -348,6 +358,20 @@ NRoomResult NRoomClient::Open(const std::string & roomId, bool wait)
   json extra;
   extra["wait"] = wait;
   return Call("room_open", "POST", roomId, extra);
+}
+
+NRoomResult NRoomClient::Upgrade(const std::string & roomId, const std::string & tag, bool wait, bool force,
+                                 const std::string & image)
+{
+  // Always send `wait`: whether the roll blocks should not depend on the router's default. A full
+  // `image` names the version exactly and wins over `tag`; `force` goes only when set, so the router's
+  // own default (refuse a room in use) applies otherwise.
+  json extra;
+  extra["wait"] = wait;
+  if (!image.empty()) extra["image"] = image;
+  else if (!tag.empty()) extra["tag"] = tag;
+  if (force) extra["force"] = true;
+  return Call("room_upgrade", "POST", roomId, extra);
 }
 
 NRoomResult NRoomClient::Status(const std::string & roomId) { return Call("room_status", "GET", roomId); }

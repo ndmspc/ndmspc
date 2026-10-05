@@ -26,6 +26,8 @@ namespace Ndmspc {
  *   NDMSPC_ROOM_IDLE_TTL       idle time before an unused room is swept (default: 24h)
  *   NDMSPC_ROOM_READY_TIMEOUT  how long to wait for a room to be Ready (default: 45s)
  *   NDMSPC_ROOM_MAX_PREPARING  rooms being created at the same time  (default: 4, 0 = no limit)
+ *   NDMSPC_ROOM_AUTO_UPDATE    roll every idle room onto the current image when the router starts
+ *                              (default: false); when off, rooms move only via room/upgrade
  *   NDMSPC_ROOM_WATCH_INTERVAL how often the rooms list is pushed to a watcher (default: 2s, 0 = off)
  *   NDMSPC_ROOM_WAIT           default for room/open's wait flag     (default: true)
  *   NDMSPC_ROOM_ADMINS         users who may see and act on every room, by email or user name
@@ -45,6 +47,7 @@ struct NRoomConfig {
   long        idleTtlSec{86400};                ///< Idle time before an unused room is swept, in seconds
   long        readyTimeoutSec{45};              ///< How long to wait for a room to become Ready, in seconds
   int         maxPreparing{4};                  ///< Rooms prepared at the same time (0 = no limit)
+  bool        autoUpdate{false};                ///< Roll idle rooms onto the current image on start
   long        watchIntervalSec{2};    ///< How often the rooms list is pushed to a watcher, in seconds (0 = never)
   bool        waitDefault{true};      ///< Default for room/open's wait flag
   std::vector<std::string> admins;    ///< Users who may see and act on every room
@@ -76,6 +79,7 @@ struct NRoomState {
   std::string tokenRo;     ///< Access token for the room's read-only link (GET only)
   std::string owner;       ///< Who created the room ("" when nobody identified themselves, see Ownership)
   std::string profile;     ///< The room skeleton profile it was created with ("" when the skeleton has none)
+  std::string image;       ///< The container image it is pinned to ("" until one is resolved)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
   /// The same clock as it stands on the room's own Service (`ndmspc.io/room-seen`): what the router
   /// reads back after a restart, and what it writes when the two drift apart far enough to matter.
@@ -154,7 +158,12 @@ class NRoomClusterClient : public IRoomCluster {
  *                           wait=false returns at once with state=preparing and the work continues
  *                           in the background - poll room/status or room/list
  *   room/status   GET       whether a room is known, its revision, and - while it is being created -
- *                           the phase that creation has reached
+ *                           the phase that creation has reached; also `versions`, the images this room
+ *                           has actually run (its Knative revisions), newest first
+ *   room/upgrade  POST      roll one room onto a chosen image tag (one the skeleton advertises, or
+ *                           the deployment's current tag) or onto an explicit `image` this room has
+ *                           run before; refused while the room is in use unless force=true (see
+ *                           "Room image")
  *   room/list     GET       the rooms being tracked (including those still preparing, and those
  *                           whose creation failed)
  *   room/close    DELETE    delete a room's HTTPRoute and Knative Service (a creation still running
@@ -174,6 +183,31 @@ class NRoomClusterClient : public IRoomCluster {
  * room/status with the `phase` it has reached; NDMSPC_ROOM_MAX_PREPARING bounds how many run at
  * once. The worker checks between steps whether the room was closed or superseded, so a slow create
  * cannot outlive the room it belongs to.
+ *
+ * ### Room image
+ * A room is created from the skeleton's `serviceSpec`, but the skeleton's image is only the starting
+ * point: the image a room actually runs is pinned per room, kept on its own Service as the annotation
+ * `ndmspc.io/room-image` (beside its profile, owner and tokens) and reported as `image` and `imageTag`
+ * by room/list and room/status. Re-opening a room therefore keeps the image it already has, and a
+ * skeleton whose image changed (a new release) no longer moves a room: it only changes what the *next*
+ * new room is created on.
+ *
+ * A room moves when it is asked to. room/upgrade takes a `tag` - one the skeleton advertises in its
+ * `imageTags` (reported by room/list), or the deployment's current tag, which is the skeleton image's
+ * own tag - and rolls that one room onto it, reverting to an older tag as readily as upgrading to a
+ * newer one. It also takes an explicit `image`: the full reference a room has actually run before,
+ * which is what room/status reports as `versions` (the room's Knative revisions, newest first, each
+ * with the image it ran). That is the rollback list: the tags a deployment lists may or may not still
+ * exist, but an image in a room's own revision history is one it has run, so rolling back to it is
+ * always valid - and it is the only way to reach a version whose repository differs from today's
+ * skeleton. Rolling replaces the room's revision, so a room somebody is in is refused with
+ * `code: in_use` unless the caller passes `force=true`; the roll runs in the background like room/open
+ * (non-blocking by default) and repins the room's HTTPRoute to the new revision, so the next wake-up
+ * serves the chosen image.
+ *
+ * For a deployment that wants every room converged without anyone asking, `NDMSPC_ROOM_AUTO_UPDATE`
+ * (off by default) restores the older behaviour: on start, every idle room whose image is not the
+ * skeleton's is rolled onto it (a room in use is still left alone, see {@link ReconcileRoom}).
  *
  * ### Ownership and visibility
  * A room belongs to whoever creates it, and the router records that owner when the room is made:
@@ -324,6 +358,8 @@ class NRoomRouter {
   void HandleOpen(const std::string & method, json & in, json & out);
   /// @brief room/status: whether a room is known and where its creation has reached.
   void HandleStatus(const std::string & method, json & in, json & out);
+  /// @brief room/upgrade: roll one room onto a chosen image tag (see "Room image").
+  void HandleUpgrade(const std::string & method, json & in, json & out);
   /// @brief room/list: the rooms being tracked that the caller may see.
   ///
   /// Asked over a websocket, the call also subscribes that connection: the router then pushes the list
@@ -403,6 +439,28 @@ class NRoomRouter {
   static std::string ProfileName(const json & skeleton, const std::string & requested, std::string & error);
   /// @brief The resources a profile allows, resolved from the skeleton (empty for an empty name).
   static json ProfileResources(const json & skeleton, const std::string & name, std::string & error);
+  /**
+   * @brief An image reference with its tag replaced (or added): "repo:old" + "new" -> "repo:new".
+   *
+   * The tag is the part after the last ':' that follows the last '/', so a registry host with a port
+   * (`localhost:5001/x`) keeps its port and gains the tag (see {@link NdmspcImageTag}).
+   *
+   * @param image A container image reference.
+   * @param tag The tag to put on it.
+   * @return The reference carrying that tag.
+   */
+  static std::string WithTag(const std::string & image, const std::string & tag);
+  /**
+   * @brief The image tags a room may be upgraded or reverted to, from the skeleton.
+   *
+   * The skeleton's `imageTags` (what the deployment chooses to offer) with the skeleton image's own
+   * tag added if it is not already there - the deployment's current tag is always a target. Empty when
+   * the skeleton names no tags and no image: there is then nothing to choose between.
+   *
+   * @param skeleton The room skeleton JSON.
+   * @return An array of tag strings (possibly empty).
+   */
+  static json ImageTags(const json & skeleton);
   /**
    * @brief A Kubernetes timestamp (RFC 3339, seconds precision) as epoch seconds.
    * @return The instant, or 0 when the value is not one - so "the cluster did not say" stays
@@ -548,6 +606,24 @@ class NRoomRouter {
   static std::string RequestProfile(json & in);
 
   /**
+   * @brief The image tag a room/upgrade asks for: its `tag` member, or that of its query string.
+   * @param in The request's input JSON.
+   * @return The tag asked for, or "" when the request names none.
+   */
+  static std::string RequestImageTag(json & in);
+
+  /**
+   * @brief The full image a room/upgrade asks for: its `image` member, or that of its query string.
+   *
+   * A full reference names a version exactly (see "Room image"), which is how a room rolls back to one
+   * of the images in its `versions` even when that image's repository is not the skeleton's.
+   *
+   * @param in The request's input JSON.
+   * @return The image reference asked for, or "" when the request names none.
+   */
+  static std::string RequestImage(json & in);
+
+  /**
    * @brief The email a request asserts beside its owner: `owner_email`, or that of its query string.
    *
    * A client that knows both names for itself can send both, so an admin list written in emails
@@ -583,10 +659,13 @@ class NRoomRouter {
    *                an annotation so the room keeps it across a restart.
    * @param resources What that profile allows, welded onto the room's container - which is what gives
    *                  a room its size.
+   * @param image The image the room is pinned to (see "Room image"); when empty the skeleton's own
+   *              image is used. Stored as an annotation so the room keeps it across a restart.
    */
   static json ServiceObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
                             const std::string & stateUrl, const json & access, const std::string & owner,
-                            const json & skeleton, const std::string & profile, const json & resources);
+                            const json & skeleton, const std::string & profile, const json & resources,
+                            const std::string & image);
   /// @brief The per-room HTTPRoute object: the `?<param>=<id>` match, the `/ws` alias, the headers.
   static json RouteObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
                           const std::string & revision, const json & skeleton);
@@ -607,8 +686,14 @@ class NRoomRouter {
   /// @brief The `code` reported when a caller asks for a room that belongs to someone else.
   static constexpr const char * kNotOwner = "not_owner";
 
+  /// @brief The `code` reported when room/upgrade names a room somebody is in and no force was given.
+  static constexpr const char * kInUse = "in_use";
+
   /// @brief The `code` reported when room/open names a profile the skeleton does not define.
   static constexpr const char * kUnknownProfile = "unknown_profile";
+
+  /// @brief The `code` reported when room/upgrade names a tag the deployment does not offer.
+  static constexpr const char * kUnknownImage = "unknown_image";
 
   /**
    * @brief The `code` reported when a room's container keeps dying while the room is being created.
@@ -629,6 +714,15 @@ class NRoomRouter {
    * running room is not disturbed by it; a room created before profiles existed simply has none.
    */
   static constexpr const char * kProfileAnnotation = "ndmspc.io/room-profile";
+
+  /**
+   * @brief The Service annotation holding the container image a room is pinned to (see "Room image").
+   *
+   * Kept so a room keeps the image it was created (or upgraded/reverted) on across a router restart,
+   * an idle room waking up and an open that names no tag. A new release changes what the *next* room
+   * is created on, never this one.
+   */
+  static constexpr const char * kImageAnnotation = "ndmspc.io/room-image";
 
   /**
    * @brief The Service annotation holding why a room's container last died.
@@ -693,6 +787,25 @@ class NRoomRouter {
    * @return The API path.
    */
   std::string RevisionPath(const std::string & name) const;
+  /**
+   * @brief The Knative Revisions collection path for one room's Service.
+   * @param name Kubernetes name of the room.
+   * @return The API path, filtered to that Service's revisions.
+   */
+  std::string RevisionsPath(const std::string & name) const;
+  /**
+   * @brief The images a room has actually run: its Knative revisions, newest first.
+   *
+   * A room's Knative Service keeps a Revision per roll, and each Revision carries the image it ran, so
+   * this is the room's own version history - what room/status reports as `versions` and what a rollback
+   * picks from. Revisions are subject to Knative's garbage collector (config-gc), so older ones age out.
+   *
+   * @param name Kubernetes name of the room.
+   * @param currentRevision The revision the room serves now, marked in the result ("" when unknown).
+   * @return An array of `{revision, image, imageTag, created, active, current}`; empty when the
+   *         cluster cannot be read (a permission or a room that is gone) - never a failure.
+   */
+  json RoomVersions(const std::string & name, const std::string & currentRevision);
   /// @brief The path of the skeleton ConfigMap.
   std::string SkeletonPath() const;
   /**
@@ -850,24 +963,27 @@ class NRoomRouter {
    */
   void Adopt();
   /**
-   * @brief Brings one idle room onto the image the current skeleton names.
+   * @brief Rolls one room onto `image` and repins its HTTPRoute to the new revision.
    *
-   * A room is created from the skeleton and keeps a copy of it, and only room/open (or a restore) ever
-   * re-applies that copy - so a room that is idle when the router is upgraded would otherwise keep the
-   * image it was created with. The router is what was upgraded, so it is the one that brings them
-   * along: {@link Adopt} rolls every idle room whose image the skeleton has changed and repins its
-   * HTTPRoute to the new revision, which is what the next wake-up serves.
+   * Used by room/upgrade, and by {@link Adopt} when the deployment asks for convergence
+   * (NDMSPC_ROOM_AUTO_UPDATE): a room that is idle when the router is upgraded would otherwise keep
+   * the image it was created with, and this is what brings it onto the current one. It applies the
+   * room's Service with the pinned image, waits for the new revision to be ready, and repins the route
+   * so the next wake-up serves it.
    *
-   * A room somebody is in is left exactly as it is: rolling it would replace its revision under an open
-   * websocket. It is picked up on its next open, or by the next restart while it is idle. A reconcile
-   * never deletes a room and never fails it - a step that does not go through (an unready revision, an
-   * error) leaves the room on the revision it is already serving.
+   * A room somebody is in is left exactly as it is unless `force` is set: rolling it would replace its
+   * revision under an open websocket. A reconcile never deletes a room and never fails it - a step that
+   * does not go through (an unready revision, an error) leaves the room on the revision it is already
+   * serving.
    *
    * @param name Kubernetes name of the room.
    * @param value The room id (for the route's `?<param>=<id>` match).
    * @param skeleton The current room skeleton the room is brought into line with.
+   * @param image The image to roll the room onto (see "Room image").
+   * @param force Roll the room even while somebody is in it (otherwise an in-use room is left alone).
    */
-  void ReconcileRoom(const std::string & name, const std::string & value, const json & skeleton);
+  void ReconcileRoom(const std::string & name, const std::string & value, const json & skeleton,
+                     const std::string & image, bool force);
   /**
    * @brief Remembers why a room's container died: in the registry and on the room's Service.
    *
@@ -898,6 +1014,18 @@ class NRoomRouter {
    * @param profile The resolved profile name.
    */
   void SetProfile(const std::string & name, const std::string & profile);
+  /**
+   * @brief The image a room is pinned to, read under the registry lock (see "Room image").
+   * @param name Kubernetes name of the room.
+   * @return The image reference, or "" when the room has none yet.
+   */
+  std::string RoomImage(const std::string & name) const;
+  /**
+   * @brief Records the image a room is (or is being) rolled onto.
+   * @param name Kubernetes name of the room.
+   * @param image The resolved image reference.
+   */
+  void SetImage(const std::string & name, const std::string & image);
   /**
    * @brief Cancels a creation still running for a room and deletes it.
    * @param value Room id.
@@ -1003,6 +1131,8 @@ class NRoomRouter {
    * @param generation The generation the worker was started with.
    * @param profile The profile this creation asks for, or "" to keep the room's own (and, for a room
    *                that has none, the skeleton's default).
+   * @param image The image this creation asks for, or "" to keep the room's own (and, for a room that
+   *              has none, the skeleton's image) - see "Room image".
    * @param replay Whether the room's stored session is replayed once it is up.
    * @param payload Filled with the room's state and, once it is ready, its URL.
    * @param error Filled when the room is not ready - the reason it failed, or the scheduler's own
@@ -1011,12 +1141,14 @@ class NRoomRouter {
    * @return Ready, Pending (waiting for cluster resources; the Service is kept) or Failed (the
    *         half-created room has been deleted again - see {@link CleanupFailed}).
    */
-  Outcome EnsureWorker(const std::string & value, int generation, const std::string & profile, Replay replay,
-                       json & payload, std::string & error, std::string & code);
+  Outcome EnsureWorker(const std::string & value, int generation, const std::string & profile,
+                       const std::string & image, Replay replay, json & payload, std::string & error,
+                       std::string & code);
   /**
    * @brief Starts creating (or rolling) a room, and reports what the client can act on.
    * @param value Room id chosen by the client.
    * @param profile The profile asked for, or "" (see {@link EnsureWorker}).
+   * @param image The image asked for, or "" (see {@link EnsureWorker}).
    * @param wait True keeps the blocking answer; false registers the room as preparing and returns at once.
    * @param replay Whether the room's stored session is replayed once it is up.
    * @param payload Receives the room's state and, once it is ready, its URL.
@@ -1025,8 +1157,8 @@ class NRoomRouter {
    * @return Preparing (the call was accepted and the work runs in the background), Ready, Pending or
    *         Failed. Only Failed is a failure of the call itself.
    */
-  Outcome EnsureStart(const std::string & value, const std::string & profile, bool wait, Replay replay, json & payload,
-                      std::string & error, std::string & code);
+  Outcome EnsureStart(const std::string & value, const std::string & profile, const std::string & image,
+                      bool wait, Replay replay, json & payload, std::string & error, std::string & code);
 
   /// @brief A background thread, and how to tell whether it has finished.
   struct Worker {

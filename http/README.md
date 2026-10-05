@@ -895,7 +895,8 @@ are served both as `/api/room/*` and as MCP tools):
 | Action | Methods | What it does |
 | ------ | ------- | ------------ |
 | `room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. A room the cluster has no room for answers `state=pending` — the room exists and is kept (see [Room router](#room-router-nroomrouter)). `profile` (body or query) picks one of the skeleton's sizes — see [Room profiles](#room-profiles) — and resizes an existing room when it differs from the one it runs. |
-| `room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached; `state=pending` with `code=no_capacity` while it waits for cluster resources. Finishing a pending room that can now be placed happens here (and in `room/list`). |
+| `room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached; `state=pending` with `code=no_capacity` while it waits for cluster resources. Finishing a pending room that can now be placed happens here (and in `room/list`). Also `versions`: the images the room has run (its Knative revisions) — see [Rollback](#rollback-the-rooms-own-versions). |
+| `room/upgrade` | POST | Roll **one** room onto a chosen version — a newer tag to upgrade, an older tag to revert, or an `image` the room has run (a `versions` entry, for a rollback the tag list does not reach). `tag` is one the deployment offers (`room/list`'s `imageTags`); without `tag` or `image` the room is rolled onto the current tag. A room somebody is in is refused with `code=in_use` unless `force=true`; `wait=false` runs the roll in the background like `room/open`. See [Room image and upgrades](#room-image-and-upgrades). |
 | `room/list` | GET | Every room being tracked, including those still preparing, those waiting for resources (`state=pending`) and those whose creation failed. |
 | `room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
 | `room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
@@ -1130,6 +1131,61 @@ time it is opened — which resizes it from whatever it declared on its own. The
 ("the size in play is the one asked for, else the room's, else the default"), so a deployment that
 turns profiles on moves its existing rooms onto the default rather than leaving them at a size
 nothing describes any more; give such a room a profile explicitly to choose where it lands.
+
+### Room image and upgrades
+
+A room is created from the skeleton's `serviceSpec`, but the image it runs is pinned **per room**: the
+tag is kept on the room's own Service as the annotation `ndmspc.io/room-image` (beside its profile,
+owner and tokens) and reported as `image` (the whole reference) and `imageTag` (the tag alone) by
+`room/list` and `room/status`. Re-opening a room therefore keeps the image it already has, and a
+skeleton whose image changed — a new release — does not move an existing room; it only decides what the
+*next* new room is created on.
+
+A room moves when it is asked to. `room/upgrade` rolls one room onto a chosen tag: a newer one to
+upgrade it, an older one to revert it. The tags a deployment offers live in the skeleton's `imageTags`,
+which `room/list` reports alongside `currentTag` (the skeleton image's own tag, always a valid target):
+
+```json
+"imageTags": ["v1.4.0", "v1.3.2", "v1.5.0-rc12"],
+"currentTag": "v1.5.0-rc12"
+```
+
+`room/upgrade` takes `room`, `tag`, `image`, `force` and `wait` (body or MCP arguments; `tag`/`image`
+may also come as `?tag=`/`?image=`). Without `tag` or `image` the room is rolled onto `currentTag` —
+the plain "update this room". Instead of a tag, `image` names a full reference: it is accepted only when
+it is one the room has actually run (see `versions` below), which is the way to roll back to a version
+whose tag the deployment no longer lists, or whose repository is not the skeleton's. Rolling replaces
+the room's revision, so a room somebody is in is refused with `code=in_use`; `force=true` rolls it
+anyway (an open websocket is dropped). The roll runs in the background unless `wait`, exactly as
+`room/open`, and repins the room's HTTPRoute to the new revision, so the next wake-up serves the chosen
+image. A tag the deployment does not offer, or an image the room has never run, fails with
+`code=unknown_image`.
+
+### Rollback: the room's own versions
+
+Knative keeps a **Revision** per roll of a room's Service, and each carries the image it ran, so a room
+has its own version history — the one rollback list that is always valid, since it names images the room
+has run. `room/status` reports it as `versions`, newest first:
+
+```json
+"versions": [
+  { "revision": "ndmspc-room-test-00002", "image": "…/base:v1.5.0", "imageTag": "v1.5.0",
+    "created": 1789472932, "active": true,  "current": true  },
+  { "revision": "ndmspc-room-test-00001", "image": "…/base:v1.4.0", "imageTag": "v1.4.0",
+    "created": 1789470000, "active": false, "current": false }
+]
+```
+
+A client offers these as rollback targets and rolls back by passing the chosen entry's `image` to
+`room/upgrade`. Revisions are subject to Knative's garbage collector (`config-gc`: `retain-since-*`,
+`min`/`max-non-active-revisions`), so older ones age out; an image that has been collected is no longer a
+target. `room/list` stays a flat list and does not carry `versions` — reading them is a `room/status`
+call, asked for when a view opens its update choice.
+
+For a deployment that wants every room converged without anyone asking, `NDMSPC_ROOM_AUTO_UPDATE`
+(off by default; `ndmspc_room_auto_update` in the devops role) restores the older behaviour: on start,
+every **idle** room whose image is not the skeleton's is rolled onto it (a room in use is still left
+alone). With it off, a new image tag leaves existing rooms exactly where they are.
 
 ### Cluster capacity
 

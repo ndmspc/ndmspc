@@ -68,6 +68,69 @@ class FakeCluster : public IRoomCluster {
   bool nodesForbidden{false};       ///< The cluster refuses to list nodes
   bool clusterPodsForbidden{false}; ///< The cluster refuses the cluster-wide pods list
 
+  /// The Knative Revisions of the room Services, in creation order (one per image a Service rolled
+  /// onto) - what a room's `versions` are read from.
+  json revisions = json::array();
+
+  /// @brief The containers' image in a Service's pod template.
+  static std::string ServiceImage(const json & service)
+  {
+    const json containers = service.value("spec", json::object())
+                                .value("template", json::object())
+                                .value("spec", json::object())
+                                .value("containers", json::array());
+    return (containers.is_array() && !containers.empty()) ? containers[0].value("image", std::string())
+                                                          : std::string();
+  }
+
+  /// @brief The image a Revision ran (its own pod spec).
+  static std::string RevisionImage(const json & revision)
+  {
+    const json containers = revision.value("spec", json::object()).value("containers", json::array());
+    return (containers.is_array() && !containers.empty()) ? containers[0].value("image", std::string())
+                                                          : std::string();
+  }
+
+  /// @brief The latest recorded Revision name for a Service ("" when it has none).
+  std::string LatestRevisionFor(const std::string & service) const
+  {
+    for (auto it = revisions.rbegin(); it != revisions.rend(); ++it) {
+      if (it->value("metadata", json::object()).value("labels", json::object()).value("serving.knative.dev/service", "") ==
+          service) {
+        return it->value("metadata", json::object()).value("name", "");
+      }
+    }
+    return {};
+  }
+
+  /// @brief Records a Knative Revision for a Service's image, unless it is already on that image.
+  void RecordRevision(const std::string & service, const std::string & image)
+  {
+    if (service.empty() || image.empty()) return;
+    // A Service rolls a new Revision only when its pod template changes, so record one unless the image
+    // is what this Service is already on (the last revision it has) - a re-open patches the same spec.
+    for (auto it = revisions.rbegin(); it != revisions.rend(); ++it) {
+      const std::string owner = it->value("metadata", json::object())
+                                    .value("labels", json::object())
+                                    .value("serving.knative.dev/service", "");
+      if (owner != service) continue;
+      if (RevisionImage(*it) == image) return; // already on this image
+      break;                                    // the image changed: record a new revision
+    }
+
+    const int  n                 = static_cast<int>(revisions.size()) + 1;
+    json       revision;
+    revision["metadata"]["name"] = "revision-" + std::to_string(n);
+    // Increasing RFC 3339 timestamps so newest-first ordering is deterministic (tests stay small).
+    const std::string sec = n < 10 ? "0" + std::to_string(n) : std::to_string(n);
+    revision["metadata"]["creationTimestamp"]                     = "2026-01-01T00:00:" + sec + "Z";
+    revision["metadata"]["labels"]["serving.knative.dev/service"] = service;
+    revision["spec"]["containers"]                                = json::array({json::object({{"image", image}})});
+    revision["status"]["conditions"] =
+        json::array({json::object({{"type", "Active"}, {"status", "True"}})});
+    revisions.push_back(revision);
+  }
+
   /// @brief Adds a node and what it can give.
   void AddNode(const std::string & name, const std::string & cpu, const std::string & memory)
   {
@@ -246,23 +309,51 @@ class FakeCluster : public IRoomCluster {
         std::string key    = services + "/" + object["metadata"]["name"].get<std::string>();
         object["metadata"]["generation"] = 1; // the API server stamps this, not the router
         objects[key]                     = object;
+        RecordRevision(object["metadata"]["name"].get<std::string>(), ServiceImage(object));
         return Status(201, objects[key].dump());
       }
       if (method == "PATCH") {
         if (!objects.count(path)) return Status(404, "{\"message\":\"not found\"}");
+        // Only a pod-template change rolls a Revision; a metadata PATCH (an annotation the router keeps
+        // on the Service) leaves the image alone and must not invent one.
+        const std::string before = ServiceImage(objects[path]);
         objects[path].merge_patch(json::parse(body));
+        const std::string after = ServiceImage(objects[path]);
+        if (!after.empty() && after != before) RecordRevision(path.substr(services.size() + 1), after);
         return Ok(objects[path]);
       }
       if (!objects.count(path)) return Status(404, "{\"message\":\"not found\"}");
       if (++readyGets >= readyAfterGets && readyAfterGets > 0) {
         objects[path]["status"]["conditions"]              = json::array(
             {json::object({{"type", "Ready"}, {"status", "True"}})});
-        objects[path]["status"]["latestCreatedRevisionName"] = "revision-1";
-        objects[path]["status"]["latestReadyRevisionName"]   = "revision-1";
-        objects[path]["status"]["observedGeneration"]        = 1;
+        // The ready revision is the newest one this Service rolled; a Service the cluster was handed
+        // fully formed (a test's seed) keeps whatever revision it already names.
+        const std::string latest = LatestRevisionFor(path.substr(services.size() + 1));
+        objects[path]["status"]["latestCreatedRevisionName"] =
+            latest.empty() ? "revision-1" : latest;
+        objects[path]["status"]["latestReadyRevisionName"] = latest.empty() ? "revision-1" : latest;
+        objects[path]["status"]["observedGeneration"]      = 1;
         return Ok(objects[path]);
       }
       return Ok(objects[path]);
+    }
+
+    // The Revisions of the room Services: what a room's `versions` (images it has run) are read from.
+    if (path.rfind("/apis/serving.knative.dev/v1/namespaces/default/revisions", 0) == 0) {
+      std::string wanted;
+      const auto  eq = path.find("service%3D");
+      if (eq != std::string::npos) wanted = path.substr(eq + 10);
+      json items = json::array();
+      for (const auto & revision : revisions) {
+        if (wanted.empty() ||
+            revision.value("metadata", json::object()).value("labels", json::object()).value(
+                "serving.knative.dev/service", "") == wanted) {
+          items.push_back(revision);
+        }
+      }
+      json list;
+      list["items"] = items;
+      return Ok(list);
     }
 
     // A room's HTTPRoute.
@@ -308,7 +399,8 @@ class FakeCluster : public IRoomCluster {
 };
 
 /// @brief A configuration that never waits long, whatever the environment says.
-NRoomConfig Config(int readyTimeoutSec = 2, std::vector<std::string> admins = {}, long idleTtlSec = 3600)
+NRoomConfig Config(int readyTimeoutSec = 2, std::vector<std::string> admins = {}, long idleTtlSec = 3600,
+                   bool autoUpdate = false)
 {
   NRoomConfig cfg;
   cfg.ns              = "default";
@@ -317,6 +409,7 @@ NRoomConfig Config(int readyTimeoutSec = 2, std::vector<std::string> admins = {}
   cfg.readyTimeoutSec = readyTimeoutSec;
   cfg.idleTtlSec      = idleTtlSec;
   cfg.admins          = std::move(admins);
+  cfg.autoUpdate      = autoUpdate;
   cfg.apiServer       = "https://api.test"; // the fake cluster answers whatever the router asks
   return cfg;
 }
@@ -349,17 +442,20 @@ struct Router {
   std::shared_ptr<FakeCluster> cluster = std::make_shared<FakeCluster>();
   std::unique_ptr<NRoomRouter> router;
 
-  explicit Router(int readyTimeoutSec = 2, std::vector<std::string> admins = {}, long idleTtlSec = 3600)
-      : router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins), idleTtlSec), cluster))
+  explicit Router(int readyTimeoutSec = 2, std::vector<std::string> admins = {}, long idleTtlSec = 3600,
+                  bool autoUpdate = false)
+      : router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins), idleTtlSec, autoUpdate),
+                                             cluster))
   {
   }
 
   /// @brief A second router over a cluster another one already used: a restart, which is what tells
   ///        what the router keeps in the cluster from what it only kept in its own memory.
   Router(std::shared_ptr<FakeCluster> existing, int readyTimeoutSec = 2,
-         std::vector<std::string> admins = {}, long idleTtlSec = 3600)
+         std::vector<std::string> admins = {}, long idleTtlSec = 3600, bool autoUpdate = false)
       : cluster(std::move(existing)),
-        router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins), idleTtlSec), cluster))
+        router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins), idleTtlSec, autoUpdate),
+                                             cluster))
   {
   }
 
@@ -381,6 +477,7 @@ struct Router {
   {
     json out;
     if (action == "open") router->HandleOpen(method, in, out);
+    else if (action == "upgrade") router->HandleUpgrade(method, in, out);
     else if (action == "status") router->HandleStatus(method, in, out);
     else if (action == "list") router->HandleList(method, in, out);
     else if (action == "capacity") router->HandleCapacity(method, in, out);
@@ -404,6 +501,18 @@ struct Router {
     return Call("open", "POST", std::move(extra));
   }
 
+  /// @brief Rolls a room onto `tag` ("" = the deployment's current tag), as room/upgrade.
+  json Upgrade(const std::string & room, const std::string & tag = std::string(), bool force = false,
+               bool wait = false)
+  {
+    json in;
+    in["room"] = room;
+    in["wait"] = wait;
+    if (!tag.empty()) in["tag"] = tag;
+    if (force) in["force"] = true;
+    return Call("upgrade", "POST", std::move(in));
+  }
+
   /// @brief Waits until a room's creation has finished (the worker runs in the background).
   bool WaitFinished(const std::string & room, int seconds = 8)
   {
@@ -422,6 +531,14 @@ json SkeletonWithImage(const std::string & image)
 {
   json skeleton;
   skeleton["serviceSpec"]["template"]["spec"]["containers"] = json::array({json::object({{"image", image}})});
+  return skeleton;
+}
+
+/// @brief A skeleton naming an image and the tags a room may be rolled onto (room/upgrade).
+json SkeletonWithImageTags(const std::string & image, const json & tags)
+{
+  json skeleton       = SkeletonWithImage(image);
+  skeleton["imageTags"] = tags;
   return skeleton;
 }
 
@@ -568,7 +685,8 @@ TEST(NRoomRouterTest, OnlyObjectsCarryingTheRoomLabelCountAsRooms)
   // What the router creates: both objects are stamped with the room label.
   const json service =
       NRoomRouter::ServiceObject(Config(), "ndmspc-room-test", "test", "http://router.svc:80", json::object(), "",
-                                 json::object(), /*profile=*/std::string(), /*resources=*/json::object());
+                                 json::object(), /*profile=*/std::string(), /*resources=*/json::object(),
+                                 /*image=*/std::string());
   EXPECT_TRUE(NRoomRouter::HasRoomLabel(service));
   const json route = NRoomRouter::RouteObject(Config(), "ndmspc-room-test", "test", "revision-1", json::object());
   EXPECT_TRUE(NRoomRouter::HasRoomLabel(route));
@@ -829,7 +947,7 @@ TEST(NRoomRouterTest, ServiceObjectStampsTheRoomAndTheSkeletonWins)
   const json service =
       NRoomRouter::ServiceObject(Config(), "ndmspc-room-alpha", "alpha", "http://router.default.svc:80", access,
                                  "alice@example.com", skeleton, /*profile=*/std::string(),
-                                 /*resources=*/json::object());
+                                 /*resources=*/json::object(), /*image=*/"ndmspc/base:pinned");
 
   EXPECT_EQ(service["apiVersion"], "serving.knative.dev/v1");
   EXPECT_EQ(service["kind"], "Service");
@@ -851,12 +969,16 @@ TEST(NRoomRouterTest, ServiceObjectStampsTheRoomAndTheSkeletonWins)
   // The owner is kept beside the tokens and for the same reason: a restart, and an idle room waking
   // up, must not lose who the room belongs to.
   EXPECT_EQ(service["metadata"]["annotations"]["ndmspc.io/room-owner"], "alice@example.com");
+  // The image the room is pinned to wins over the skeleton's, and is kept on the Service so a restart
+  // and an idle room waking up still know which tag the room runs (see "Room image").
+  EXPECT_EQ(service["spec"]["template"]["spec"]["containers"][0]["image"], "ndmspc/base:pinned");
+  EXPECT_EQ(service["metadata"]["annotations"]["ndmspc.io/room-image"], "ndmspc/base:pinned");
 
   // A room handed no tokens enforces nothing, so it must not get an empty switch either.
   const json bare =
       NRoomRouter::ServiceObject(Config(), "ndmspc-room-beta", "beta", "http://router.default.svc:80",
                                  json::object(), "", skeleton, /*profile=*/std::string(),
-                                 /*resources=*/json::object());
+                                 /*resources=*/json::object(), /*image=*/std::string());
   std::map<std::string, std::string> bareValues;
   for (const auto & entry : bare["spec"]["template"]["spec"]["containers"][0]["env"]) {
     bareValues[entry["name"]] = entry["value"];
@@ -2247,7 +2369,8 @@ TEST(NRoomRouterActionsTest, AnAdoptedRoomKeepsTheProfileItsServiceCarries)
 
 TEST(NRoomRouterActionsTest, AnIdleRoomIsRolledOntoTheNewImageWhenTheRouterRestarts)
 {
-  Router test;
+  // Only when the deployment asks for convergence: NDMSPC_ROOM_AUTO_UPDATE=true (the default is off).
+  Router test(/*readyTimeoutSec=*/2, /*admins=*/{}, /*idleTtlSec=*/3600, /*autoUpdate=*/true);
   // The router is upgraded: its skeleton names a new image, and the room the cluster still holds was
   // created on the old one.
   test.cluster->skeleton = SkeletonWithImage("ndmspc/base:new");
@@ -2300,6 +2423,175 @@ TEST(NRoomRouterActionsTest, ARoomInUseIsNotRolledOntoTheNewImage)
   EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
             "ndmspc/base:old");
   EXPECT_EQ(test.cluster->objects.at(route)["spec"]["rules"][0]["backendRefs"][0]["name"], "revision-old");
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomIsLeftOnItsImageByDefault)
+{
+  // The default (NDMSPC_ROOM_AUTO_UPDATE=false): a router that restarts onto a new image leaves the
+  // rooms it finds exactly where they are - a room moves only when it is upgraded.
+  Router test;
+  test.cluster->skeleton = SkeletonWithImage("ndmspc/base:new");
+  SeedRoomOnImage(test.cluster, "ndmspc/base:old");
+  test.cluster->replicas = 0; // nobody is in it
+
+  test.Call("list", "GET");
+  while (test.router->Workers() > 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  const std::string route   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "ndmspc/base:old");
+  EXPECT_EQ(test.cluster->objects.at(route)["spec"]["rules"][0]["backendRefs"][0]["name"], "revision-old");
+
+  // The list says so too: the room is on "old", and the deployment's current tag is "new".
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["imageTag"], "old");
+  EXPECT_EQ(list["payload"]["currentTag"], "new");
+}
+
+TEST(NRoomRouterActionsTest, OpeningARoomKeepsItsImageWhenTheSkeletonNamesANewOne)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImage("ndmspc/base:v1");
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  // The deployment is upgraded: its skeleton names a new image. Re-opening the room (what entering it
+  // does) must keep the image the room was created on, and the pin must say so.
+  test.cluster->skeleton = SkeletonWithImage("ndmspc/base:v2");
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "ndmspc/base:v1");
+  EXPECT_EQ(test.cluster->objects.at(service)["metadata"]["annotations"]["ndmspc.io/room-image"], "ndmspc/base:v1");
+}
+
+TEST(NRoomRouterActionsTest, UpgradeRollsARoomOntoAChosenTag)
+{
+  Router test;
+  test.cluster->skeleton =
+      SkeletonWithImageTags("registry.example.com/ndmspc/base:v1.5.0", json::array({"v1.5.0", "v1.4.0"}));
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  // A revert: the room is rolled onto the older advertised tag, and the pin follows it.
+  const json upgraded = test.Upgrade("alpha", "v1.4.0", /*force=*/false, /*wait=*/true);
+  ASSERT_EQ(upgraded["result"], "success");
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "registry.example.com/ndmspc/base:v1.4.0");
+  EXPECT_EQ(test.cluster->objects.at(service)["metadata"]["annotations"]["ndmspc.io/room-image"],
+            "registry.example.com/ndmspc/base:v1.4.0");
+
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["imageTag"], "v1.4.0");
+}
+
+TEST(NRoomRouterActionsTest, UpgradeRefusesARoomInUseUnlessForced)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImageTags("registry.example.com/ndmspc/base:v1.5.0",
+                                                 json::array({"v1.5.0", "v1.4.0"}));
+  SeedRoomOnImage(test.cluster, "registry.example.com/ndmspc/base:v1.5.0");
+  test.cluster->replicas = 1; // somebody is in it: its pod is running
+
+  // Rolling replaces the room's revision under an open websocket, so an in-use room is refused -
+  // and nothing changes.
+  const json refused = test.Upgrade("alpha", "v1.4.0");
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused["code"], "in_use");
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "registry.example.com/ndmspc/base:v1.5.0");
+
+  // Forcing it rolls the room anyway.
+  const json forced = test.Upgrade("alpha", "v1.4.0", /*force=*/true, /*wait=*/true);
+  ASSERT_EQ(forced["result"], "success");
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "registry.example.com/ndmspc/base:v1.4.0");
+}
+
+TEST(NRoomRouterActionsTest, UpgradeRefusesATagTheDeploymentDoesNotOffer)
+{
+  Router test;
+  test.cluster->skeleton =
+      SkeletonWithImageTags("registry.example.com/ndmspc/base:v1.5.0", json::array({"v1.4.0"}));
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  const json refused = test.Upgrade("alpha", "v0.0.1");
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused["code"], "unknown_image");
+}
+
+TEST(NRoomRouterActionsTest, TheListReportsTheImageTagsARoomMayBeRolledOnto)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImageTags("registry.example.com/ndmspc/base:v1.5.0",
+                                                 json::array({"v1.4.0", "v1.3.2"}));
+
+  const json list = test.Call("list", "GET");
+  // The advertised tags, with the deployment's own current tag added - and not duplicated when it is
+  // already among them.
+  ASSERT_TRUE(list["payload"].contains("imageTags"));
+  EXPECT_EQ(list["payload"]["imageTags"], json::array({"v1.4.0", "v1.3.2", "v1.5.0"}));
+  EXPECT_EQ(list["payload"]["currentTag"], "v1.5.0");
+}
+
+TEST(NRoomRouterActionsTest, TheStatusReportsTheImagesTheRoomHasRun)
+{
+  Router test;
+  test.cluster->skeleton =
+      SkeletonWithImageTags("registry.example.com/ndmspc/base:v2", json::array({"v1", "v2"}));
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+  // Roll it back to v1: the room has now run both images, and both are its rollback list.
+  ASSERT_EQ(test.Upgrade("alpha", "v1", /*force=*/false, /*wait=*/true)["result"], "success");
+
+  json       in{{"room", "alpha"}};
+  const json status = test.Call("status", "GET", in);
+  ASSERT_EQ(status["result"], "success");
+  const json versions = status["payload"]["versions"];
+  ASSERT_EQ(versions.size(), 2u);
+  // Newest first, the one it serves now marked current.
+  EXPECT_EQ(versions[0]["image"], "registry.example.com/ndmspc/base:v1");
+  EXPECT_TRUE(versions[0]["current"]);
+  EXPECT_EQ(versions[1]["image"], "registry.example.com/ndmspc/base:v2");
+  EXPECT_FALSE(versions[1]["current"]);
+}
+
+TEST(NRoomRouterActionsTest, UpgradeAcceptsAnImageTheRoomHasRun)
+{
+  Router test;
+  test.cluster->skeleton =
+      SkeletonWithImageTags("registry.example.com/ndmspc/base:v3", json::array({"v1", "v2", "v3"}));
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");        // v3
+  ASSERT_EQ(test.Upgrade("alpha", "v1", false, true)["result"], "success"); // v1
+  ASSERT_EQ(test.Upgrade("alpha", "v2", false, true)["result"], "success"); // v2
+
+  // Roll back to the full image it ran earlier, named exactly - not the skeleton's, not a listed tag.
+  json in{{"room", "alpha"}, {"image", "registry.example.com/ndmspc/base:v1"}, {"wait", true}};
+  const json rolled = test.Call("upgrade", "POST", in);
+  ASSERT_EQ(rolled["result"], "success");
+  EXPECT_EQ(rolled["payload"]["imageTag"], "v1");
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "registry.example.com/ndmspc/base:v1");
+}
+
+TEST(NRoomRouterActionsTest, UpgradeRefusesAnImageTheRoomHasNotRun)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImage("registry.example.com/ndmspc/base:v2");
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  // An image from nowhere - not the skeleton's, not one the room ran - is refused, so a roll can only
+  // name a version the deployment offered or the room already held.
+  json in{{"room", "alpha"}, {"image", "registry.example.com/ndmspc/base:v0"}};
+  const json refused = test.Call("upgrade", "POST", in);
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused["code"], "unknown_image");
 }
 
 /// @brief A pod as Kubernetes writes one whose container died, for the rules that read it.

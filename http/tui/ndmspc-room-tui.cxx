@@ -43,8 +43,10 @@ std::string app_description()
 
 /// @brief One action requested on the command line (non-interactive use).
 struct PendingAction {
-  std::string name;  ///< "list", "open", "status", "close", "backup" or "restore"
+  std::string name;  ///< "list", "open", "upgrade", "status", "close", "backup" or "restore"
   std::string value; ///< Room id, or the file for "backup"/"restore" (empty for "list")
+  std::string tag;   ///< Image tag, for "upgrade" (empty takes the deployment's current tag)
+  std::string image; ///< Full image reference, for "upgrade" (wins over tag; empty otherwise)
 };
 
 /// @brief A private, base64-encoded passphrase file that removes itself on exit.
@@ -163,9 +165,9 @@ Ndmspc::NRoomResult WaitForRoom(Ndmspc::NRoomClient & client, const std::string 
 /// @brief Run one room action without a terminal.
 /// @param client The room client (already handshaken).
 /// @param action The action to run.
-/// @param force Allow --backup to overwrite an existing file.
-/// @param noWait With --open: return as soon as the router accepts the room.
-/// @param waitTimeoutSeconds How long --open follows a room the router is still preparing.
+/// @param force Allow --backup to overwrite an existing file, and --upgrade to roll a room that is in use.
+/// @param noWait With --open/--upgrade: return as soon as the router accepts it.
+/// @param waitTimeoutSeconds How long --open/--upgrade follows a room the router is still preparing.
 /// @param replace With --restore: delete a room the document names that already exists, so the
 ///        document's session is what it comes back holding.
 /// @return The process exit code: 0 on success, 1 on failure.
@@ -198,7 +200,14 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
       if (!room.owner.empty()) entry["owner"] = room.owner;
       rooms.push_back(std::move(entry));
     }
-    PrintJson({{"rooms", rooms}, {"ttl", list.ttl}, {"admin", list.admin}});
+    json out = {{"rooms", rooms}, {"ttl", list.ttl}, {"admin", list.admin}};
+    // The tags a room may be rolled onto (`--upgrade`), and the deployment's current one: a script can
+    // offer the choice, and tell which rooms are off it, from the same listing.
+    if (!list.imageTags.empty()) {
+      out["imageTags"]  = list.imageTags;
+      out["currentTag"] = list.currentTag;
+    }
+    PrintJson(out);
     return 0;
   }
 
@@ -301,6 +310,24 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
   else if (action.name == "status") {
     result = client.Status(action.value);
   }
+  else if (action.name == "upgrade") {
+    // Never wait inside the router (it would hold up every other client), then follow the room here
+    // unless --no-wait: rolling a room is a new revision, which is quick but not instant.
+    result = client.Upgrade(action.value, action.tag, /*wait=*/false, force, action.image);
+    if (result.ok && !noWait && result.payload.value("state", std::string()) == "preparing") {
+      const Ndmspc::NRoomResult waited = WaitForRoom(client, action.value, waitTimeoutSeconds);
+      if (!waited.ok) {
+        result = waited;
+      }
+      else {
+        result.payload["state"]    = waited.payload.value("state", std::string("ready"));
+        const std::string revision = result.payload.value("revision", std::string());
+        result.payload["revision"] = waited.payload.value("revision", revision);
+        if (waited.payload.contains("code")) result.payload["code"] = waited.payload["code"];
+        if (waited.payload.contains("error")) result.payload["error"] = waited.payload["error"];
+      }
+    }
+  }
   else {
     result = client.Close(action.value);
   }
@@ -322,6 +349,9 @@ int main(int argc, char ** argv)
   std::string owner;
   bool        listRooms      = false;
   std::string openRoom;
+  std::string upgradeRoom;
+  std::string upgradeTag;
+  std::string upgradeImage; // a full image reference, for --upgrade
   std::string statusRoom;
   std::string closeRoom;
   std::string backupFile;
@@ -370,16 +400,27 @@ int main(int argc, char ** argv)
                  "to be ready unless --no-wait is given; a room the cluster has no room for yet is "
                  "reported as state=pending and not waited out");
   app.add_flag("--no-wait", noWait,
-               "With --open: return as soon as the router accepts the room, without waiting for it to be ready");
+               "With --open/--upgrade: return as soon as the router accepts it, without waiting for it to be ready");
   app.add_option("--wait-timeout", waitTimeoutSeconds,
-                 "With --open: seconds to wait for the room to become ready (default: 600)");
+                 "With --open/--upgrade: seconds to wait for the room to become ready (default: 600)");
   app.add_option("--status", statusRoom, "Print one room's state, then exit (no terminal needed)");
+  app.add_option("--upgrade", upgradeRoom,
+                 "Roll a room onto another image tag (a newer one upgrades it, an older one reverts it), "
+                 "then exit (no terminal needed). --tag picks one of the tags the router reports as "
+                 "imageTags; --image names a full reference the room has run before (its versions). "
+                 "Without either the room is rolled onto the deployment's current tag. Waits for the "
+                 "new revision unless --no-wait; a room in use is refused unless --force is given");
+  app.add_option("--tag", upgradeTag, "With --upgrade: the image tag to roll the room onto");
+  app.add_option("--image", upgradeImage,
+                 "With --upgrade: a full image reference to roll the room onto; must be one the room has "
+                 "run (see room/status versions). Takes precedence over --tag");
   app.add_option("--close", closeRoom, "Delete a room, then exit (no terminal needed)");
   app.add_option("--backup", backupFile,
                  "Export every room and its session to this JSON file, then exit (no terminal needed)");
   app.add_option("--restore", restoreFile,
                  "Ensure and replay every room in a file written by --backup, then exit (no terminal needed)");
-  app.add_flag("--force", force, "Allow --backup to overwrite an existing file");
+  app.add_flag("--force", force,
+               "Allow --backup to overwrite an existing file, and --upgrade to roll a room that is in use");
   app.add_flag("--replace", replace,
                "With --restore: delete a room the document names that already exists before restoring "
                "it, so the document's session is what it comes back holding (a room already in use is "
@@ -419,15 +460,16 @@ int main(int argc, char ** argv)
   }
 
   std::vector<PendingAction> pending;
-  if (listRooms) pending.push_back({"list", ""});
-  if (!openRoom.empty()) pending.push_back({"open", openRoom});
-  if (!statusRoom.empty()) pending.push_back({"status", statusRoom});
-  if (!closeRoom.empty()) pending.push_back({"close", closeRoom});
-  if (!backupFile.empty()) pending.push_back({"backup", backupFile});
-  if (!restoreFile.empty()) pending.push_back({"restore", restoreFile});
+  if (listRooms) pending.push_back({"list", "", "", ""});
+  if (!openRoom.empty()) pending.push_back({"open", openRoom, "", ""});
+  if (!upgradeRoom.empty()) pending.push_back({"upgrade", upgradeRoom, upgradeTag, upgradeImage});
+  if (!statusRoom.empty()) pending.push_back({"status", statusRoom, "", ""});
+  if (!closeRoom.empty()) pending.push_back({"close", closeRoom, "", ""});
+  if (!backupFile.empty()) pending.push_back({"backup", backupFile, "", ""});
+  if (!restoreFile.empty()) pending.push_back({"restore", restoreFile, "", ""});
 
   if (pending.size() > 1) {
-    NLogError("Use at most one of --list, --open, --status, --close, --backup and --restore.");
+    NLogError("Use at most one of --list, --open, --upgrade, --status, --close, --backup and --restore.");
     return 2;
   }
   if (serverUrl.empty()) {
@@ -526,8 +568,8 @@ int main(int argc, char ** argv)
   // The room actions above cover scripted use; the interactive screen needs a terminal.
   if (::isatty(STDIN_FILENO) == 0) {
     NLogError("ndmspc-room-tui needs an interactive terminal for the room UI.");
-    NLogError("For scripted use, pick one of --list, --open <id>, --status <id>, --close <id>, "
-              "--backup <file> or --restore <file>.");
+    NLogError("For scripted use, pick one of --list, --open <id>, --upgrade <id> [--tag <tag>], "
+              "--status <id>, --close <id>, --backup <file> or --restore <file>.");
     return 2;
   }
 
