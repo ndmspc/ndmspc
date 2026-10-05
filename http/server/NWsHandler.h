@@ -4,6 +4,8 @@
 #include <string> // For std::string
 #include <mutex>  // For std::mutex
 #include <chrono> // For std::chrono::system_clock
+#include <condition_variable> // For std::condition_variable
+#include <set>    // For std::set
 #include <cstdio>
 #include <memory>
 #include <vector>
@@ -101,6 +103,12 @@ class NWsHandler : public THttpWSHandler {
    * @return True if processed successfully.
    */
   Bool_t ProcessWS(THttpCallArg * arg) override;
+
+  /// @brief Allow the reply to be sent from the action worker thread (the async WS bridge).
+  Bool_t AllowMTSend() const override { return kTRUE; }
+
+  /// @brief Called by ROOT when a multi-threaded send finishes (releases the connection's send slot).
+  void CompleteWSSend(UInt_t wsId) override;
 
   /**
    * @brief Broadcasts a message to all connected clients (unsafe, not thread-safe).
@@ -203,10 +211,30 @@ class NWsHandler : public THttpWSHandler {
   /// @brief Get the ids of connected clients with a still-valid token.
   std::vector<ULong_t> ClientIds() const;
 
+  /**
+   * @brief Sends one frame to one connection, serialized against the previous send.
+   *
+   * ROOT's websocket engine permits one send in flight per connection; a send attempted before the
+   * previous completed is dropped ("Try to book next send operation before previous completed"). An
+   * action run on the worker may send two frames in a row (the state broadcast and then the reply),
+   * so every send goes through here and waits for the previous one to finish ({@link CompleteWSSend}).
+   *
+   * @param wsId The connection.
+   * @param message The frame text.
+   * @return True when the frame was handed to the engine.
+   */
+  bool SendFrame(ULong_t wsId, const std::string & message);
+
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
   std::map<ULong_t, NWsPendingClient> fPendingClients; ///<! Runtime pending authentication state
   std::map<ULong_t, std::string>   fAccessLevels; ///<! Room-access level per admitted connection
   mutable std::mutex               fMutex;      ///<! Mutex for thread-safe client map access
+  /// Serializes sends: ROOT's engine allows one in flight per connection, so a send waits for the
+  /// previous one to complete ({@link CompleteWSSend}) — the worker can otherwise send the state
+  /// broadcast and the reply back-to-back and have the second dropped.
+  std::mutex                       fSendMutex;  ///<! Guards fSending
+  std::condition_variable          fSendCv;     ///<! Signals a completed send
+  std::set<ULong_t>                fSending;    ///<! Connection ids with a send in flight
   std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Runtime token verifier
   std::chrono::seconds fAuthenticationTimeout; ///<! Runtime authentication timeout
   Int_t                            fServCnt{0}; ///< Service counter

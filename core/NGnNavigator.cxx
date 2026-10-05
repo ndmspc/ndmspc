@@ -19,6 +19,7 @@
 
 #include "Buttons.h"
 #include "NBinningDef.h"
+#include "NCancellation.h"
 #include "NDimensionalExecutor.h"
 #include "NGnTree.h"
 #include "NLogger.h"
@@ -752,7 +753,10 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       // execute next child
       Reshape(binningDef, levels, level + 1, rangesTmp, rangesBaseTmp, currentChild);
     };
-    executorBin.Execute(loop_task_bin);
+    // A cancelled action stops at the next point and unwinds: the loop returns, the navigator is left
+    // partly built, and the caller (NGnTree::Reshape -> the ngnt/reshape handler) reports the
+    // cancellation and cleans up.
+    executorBin.Execute(loop_task_bin, []() { return NCancellation::IsCancelled(); });
   }
   else {
     NLogTrace("NGnNavigator::Reshape: Reached the end of levels, level=%d", level);
