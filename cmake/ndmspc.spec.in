@@ -27,6 +27,13 @@ Source0:    %{name}-%{version}.tar.gz
 %endif
 %endif
 
+# Fedora >= 45 no longer ships root-net-davix; use the curl backend there, davix everywhere else.
+%if 0%{?fedora} >= 45
+%global root_net_pkg root-net-curl
+%else
+%global root_net_pkg root-net-davix
+%endif
+
 BuildRequires: systemd-rpm-macros
 BuildRequires: git, gcc-c++, cmake, openssl-devel
 BuildRequires: json-devel, zeromq-devel
@@ -35,7 +42,7 @@ BuildRequires: cpp-httplib-devel, cli11-devel
 %endif
 BuildRequires: root, root-net-http, root-net-httpsniff
 BuildRequires: root-roofit root-roofit-more
-Requires:      root, root-netx, root-net-http, root-net-httpsniff, root-net-curl, xrootd-client
+Requires:      root, root-netx, root-net-http, root-net-httpsniff, %{root_net_pkg}, xrootd-client
 Requires:      root-roofit root-roofit-more 
 
 %if %{with_taxi}
