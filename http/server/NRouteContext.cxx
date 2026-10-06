@@ -183,7 +183,8 @@ json NRouteContext::Action(const std::string & path, const std::string & method,
 }
 
 void NRouteContext::Show(const json & value, const std::string & kind, const std::string & pad,
-                         const std::string & label, const json & options, const json & handlers)
+                         const std::string & label, const json & options, const json & handlers,
+                         bool replace)
 {
   json envelope;
   envelope["pad"]   = pad;
@@ -192,6 +193,8 @@ void NRouteContext::Show(const json & value, const std::string & kind, const std
   if (!label.empty()) envelope["label"] = label;
   if (!options.empty()) envelope["options"] = options;
   if (!handlers.empty()) envelope["handlers"] = handlers;
+  // Tell the pad to drop what it was showing, so this object replaces it rather than joining it.
+  if (replace) envelope["replace"] = true;
 
   // A frame may carry several objects, so the slot is a list. An envelope a handler wrote by hand
   // is kept as the first of them.
@@ -206,7 +209,7 @@ void NRouteContext::Show(const json & value, const std::string & kind, const std
 }
 
 void NRouteContext::ShowRoot(TObject * object, const std::string & pad, const std::string & label,
-                             const std::string & drawOptions, const json & handlers)
+                             const std::string & drawOptions, const json & handlers, bool replace)
 {
   if (object == nullptr) {
     Error("ShowRoot: no object to show");
@@ -232,7 +235,25 @@ void NRouteContext::ShowRoot(TObject * object, const std::string & pad, const st
 
   // The object's own name reads well as a tab name.
   Show(value, "jsroot", pad, label.empty() ? std::string(object->GetName()) : label, options,
-       handlers);
+       handlers, replace);
+}
+
+void NRouteContext::Dialog(const std::string & title, const json & schema, const json & action,
+                           const json & options)
+{
+  if (!schema.is_object()) {
+    Error("Dialog: the form schema must be a JSON object");
+    return;
+  }
+
+  json dialog;
+  if (!title.empty()) dialog["title"] = title;
+  dialog["schema"] = schema;
+  dialog["action"] = action;
+  if (!options.empty()) dialog["options"] = options;
+
+  // One dialog at a time: the slot is a value, so a tool opening a second one replaces the first.
+  fWsOut["payload"]["dialog"] = std::move(dialog);
 }
 
 } // namespace Ndmspc

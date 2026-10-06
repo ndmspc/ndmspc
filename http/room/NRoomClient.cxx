@@ -290,6 +290,11 @@ NRoomListResult NRoomClient::ParseList(const json & payload)
       // An idle room keeps its Service but runs no pods, so a missing "active" is
       // derived from replicas rather than assumed to be false.
       room.active = ActiveOr(entry, room.replicas > 0);
+      // When it became active, so a view can say how long it has been in use (`in use 12m (20:31:12)`).
+      // A room with no such instant - idle, or a router that could not read its pod - reads 0, not
+      // whatever an absent member happens to decode to.
+      const long activeSince = NUtils::GetJsonInt(Member(entry, "activeSince"));
+      room.activeSince       = activeSince > 0 ? activeSince : 0;
       // A room whose creation is still running is listed too, with what it is waiting for.
       room.state     = NUtils::GetJsonString(Member(entry, "state"));
       room.preparing = NUtils::GetJsonBool(Member(entry, "preparing"));

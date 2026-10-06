@@ -19,6 +19,10 @@ bool IsAuthenticationMessage(const json & message)
          message.contains("token") && message["token"].is_string() && !message["token"].get_ref<const std::string &>().empty();
 }
 
+/// The shortest gap between the previous reading and a connect that is still worth a CPU rate: a
+/// sample taken moments ago would divide by almost nothing and read as a spike.
+constexpr long kMinPreviousGapMs = 1000;
+
 bool IsAuthorizationHeader(std::string name)
 {
   std::transform(name.begin(), name.end(), name.begin(), [](unsigned char value) { return std::tolower(value); });
@@ -360,6 +364,12 @@ void NWsHandler::SendWelcomeAndAnnounce(ULong_t wsId, const std::string & userna
   }
   Broadcast(BuildClientsMessage().dump());
 
+  // The heartbeat this client would otherwise wait a whole interval for, sent as it connects: the
+  // room's system monitoring is then on screen from the first frame rather than ten seconds in. It
+  // carries the last periodic reading with it, so the CPU rate - which only exists between two
+  // samples - is there too.
+  SendFrame(wsId, BuildHeartbeat(/*withPrevious=*/true).dump());
+
   // A client that has just joined has to be told what the room already holds — the combination tree
   // and the workspace schema (the forms' live defaults). Without it a view that shows them is empty
   // until the next action, even though the room has combinations.
@@ -520,6 +530,22 @@ bool NWsHandler::SendTo(ULong_t wsId, const std::string & message)
 Bool_t NWsHandler::HandleTimer(TTimer *)
 {
   ExpireConnections();
+  // The periodic reading is the one a connecting client is handed as "previous": remembering it here
+  // (and not on the connect-time frame) keeps the gap a joiner sees a full interval, whatever other
+  // clients have been doing.
+  const auto sentAt = std::chrono::steady_clock::now();
+  json       data   = BuildHeartbeat(/*withPrevious=*/false);
+  Broadcast(data.dump());
+  if (data["payload"].contains("system")) {
+    fPrevSystem     = data["payload"]["system"];
+    fPrevSystemTs   = sentAt;
+    fHavePrevSystem = true;
+  }
+  return kTRUE;
+}
+
+json NWsHandler::BuildHeartbeat(bool withPrevious)
+{
   json data;
   data["event"] = "heartbeat";
   data["payload"]["count"] = ++fServCnt;
@@ -561,8 +587,22 @@ Bool_t NWsHandler::HandleTimer(TTimer *)
   catch (...) {
   }
   data["payload"]["users"] = BuildClientsMessage()["payload"]["users"];
-  Broadcast(data.dump());
-  return kTRUE;
+
+  // A client that has just connected has no earlier sample of its own, and a CPU rate only exists
+  // between two - so it is handed the last periodic reading, with how long ago it was taken. The gap
+  // travels as a duration, not a timestamp: the browser's clock is not the server's, and an absolute
+  // one would skew every rate computed from it. A gap too short to be worth a rate is left out, and
+  // the client simply waits for the next tick.
+  if (withPrevious && fHavePrevSystem) {
+    const long afterMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - fPrevSystemTs)
+                             .count();
+    if (afterMs >= kMinPreviousGapMs) {
+      data["payload"]["previous"]["afterMs"] = afterMs;
+      data["payload"]["previous"]["system"]  = fPrevSystem;
+    }
+  }
+  return data;
 }
 
 } // namespace Ndmspc

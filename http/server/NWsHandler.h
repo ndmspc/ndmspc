@@ -208,6 +208,15 @@ class NWsHandler : public THttpWSHandler {
   void ExpireConnections();
   /// @brief Build the "clients" broadcast payload.
   json BuildClientsMessage() const;
+  /**
+   * @brief Build the "heartbeat" frame: the system, file and net readings, and the clients.
+   *
+   * @param withPrevious Attach the previous periodic reading as `payload.previous`, so a client that
+   *        has just connected can show a CPU rate at once (a rate only exists between two samples).
+   *        Only the connect-time frame asks for it - a connected client has its own chain of samples.
+   * @return The frame, ready to be sent.
+   */
+  json BuildHeartbeat(bool withPrevious);
   /// @brief Get the ids of connected clients with a still-valid token.
   std::vector<ULong_t> ClientIds() const;
 
@@ -247,6 +256,11 @@ class NWsHandler : public THttpWSHandler {
   json                             fPrevFileStats; ///< previous TFile IO counters snapshot
   std::chrono::steady_clock::time_point fPrevFileTs; ///< timestamp of previous file snapshot
   bool                             fHavePrevFile{false}; ///< whether previous file snapshot exists
+  // The last periodic system reading, handed to a client as it connects so it can show a CPU rate
+  // without waiting a whole interval for a second sample (see BuildHeartbeat).
+  json                             fPrevSystem; ///< previous system stats snapshot
+  std::chrono::steady_clock::time_point fPrevSystemTs; ///< timestamp of previous system snapshot
+  bool                             fHavePrevSystem{false}; ///< whether previous system snapshot exists
 
   /// \cond CLASSIMP
   ClassDefOverride(NWsHandler, 2);

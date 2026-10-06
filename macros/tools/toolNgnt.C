@@ -67,6 +67,7 @@
 
 #include <ndmspc/http/NRouteContext.h>
 #include <ndmspc/http/NSchemaBuilder.h>
+#include <ndmspc/http/NInstanceTree.h>
 #include <ndmspc/http/NHttpServer.h>
 #include <ndmspc/core/NCancellation.h>
 #include <ndmspc/core/NGnTree.h>
@@ -128,7 +129,24 @@ std::string PadArg(Ndmspc::NRouteContext & ctx, const std::string & key, const s
   return fallback;
 }
 
-json BuildMapClickAction(const std::vector<int> & point, int level, const std::string & group = "")
+// The combination node this request runs for, as the path a click on what it drew should name.
+//
+// A click carries no node of its own, so the router resolves its action against the group's live chain
+// (NHttpServer::ActivePathFor) - correct only while that chain is still the one the drawing came from.
+// Naming the node makes the click land on the map it was drawn for, wherever the live combination has
+// moved since; without it a drawing left on the pad by another combination is refused with
+// "no <action> node; run it first".
+json DrawnNodePath(Ndmspc::NRouteContext & ctx)
+{
+  Ndmspc::NHttpServer * server = ctx.Server();
+  if (server == nullptr) return json::array();
+  const std::string node = server->GetCurrentInstance();
+  if (node.empty()) return json::array();
+  return json(Ndmspc::NInstanceTree(server->GetCombinations()).Path(node));
+}
+
+json BuildMapClickAction(const std::vector<int> & point, int level, const std::string & group = "",
+                         const json & nodePath = json::array())
 {
   json action;
   action["type"]             = "http";
@@ -138,6 +156,9 @@ json BuildMapClickAction(const std::vector<int> & point, int level, const std::s
   action["payload"]          = json::object();
   action["payload"]["point"] = point;
   action["payload"]["level"] = level;
+  // The map this click was drawn from (see DrawnNodePath): the drill belongs to that node, not to
+  // whichever map the live combination is on by the time it is clicked.
+  if (!nodePath.empty()) action["payload"]["path"] = nodePath;
   return action;
 }
 
@@ -198,6 +219,9 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
   const size_t           nLevels = nav->GetNLevels();
   Ndmspc::NGnNavigator * at      = nav;
   size_t                 drew    = 0;
+  // The node these layers are drawn for, so a click on one drills this map rather than whichever map
+  // the group's live combination is on when it is clicked.
+  const json drawnAt = DrawnNodePath(ctx);
   for (size_t level = nav->GetLevel(); at != nullptr && level < nLevels; level++) {
     TH1 * proj = at->GetProjection();
     if (proj == nullptr) {
@@ -206,8 +230,10 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
     else {
       proj->SetStats(false);
       json clicks = json::array();
-      clicks.push_back(BuildMapClickAction(drill, level, "ngnt"));
-      // One level above the last is where drilling stops, so a spectra makes sense there.
+      clicks.push_back(BuildMapClickAction(drill, level, "ngnt", drawnAt));
+      // One level above the last is where drilling stops, so a spectra makes sense there. That click
+      // names no node on purpose: it targets a *spectra* node, and these layers' own node is a map one,
+      // which the router would refuse ("node '…' is a ngnt/map, not a ngnt/spectra").
       if (level + 2 == nLevels) clicks.push_back(BuildSpectraClickAction(drill, level, "ngnt"));
       ctx.ShowRoot(proj, pad, LayersLabel(proj), "", json{{"click", clicks}});
       drew++;

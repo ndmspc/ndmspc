@@ -200,8 +200,12 @@ bool RegisterBaseActions()
       wsOut["payload"]["session"]      = session;
       wsOut["payload"]["sessions"]     = list["sessions"];
       wsOut["payload"]["combinations"] = Ndmspc::NInstanceTree(server->GetCombinations()).ToTree();
-      httpOut["result"]                = "success";
-      httpOut["payload"]               = list;
+      // Re-publish what each session has drawn: switching the room's session is "show this one", and a
+      // client that did not draw it - or joined after it was drawn - is handed the pads rather than an
+      // empty view (see NHttpServer::SessionState, which hands a joining client the same).
+      wsOut["payload"]["pads"] = server->GetPads();
+      httpOut["result"]        = "success";
+      httpOut["payload"]       = list;
       return;
     }
     httpOut["result"] = "failure";

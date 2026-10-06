@@ -120,14 +120,34 @@ bool BoolMember(const json & object, const char * key)
 }
 
 /// @brief Local wall-clock time as HH:MM:SS.
-std::string ClockNow()
+/// @param epochSeconds Seconds since the epoch; "--:--:--" when there is no instant to name.
+std::string FormatClock(long epochSeconds)
 {
-  const std::time_t now = std::time(nullptr);
+  if (epochSeconds <= 0) return "--:--:--";
+  const std::time_t at = epochSeconds;
   std::tm           tm{};
-  localtime_r(&now, &tm);
+  localtime_r(&at, &tm);
   char buffer[16];
   std::strftime(buffer, sizeof(buffer), "%H:%M:%S", &tm);
   return buffer;
+}
+
+/// @brief The current local wall-clock time as HH:MM:SS.
+std::string ClockNow()
+{
+  return FormatClock(static_cast<long>(std::time(nullptr)));
+}
+
+/// @brief A duration in words (`45s`, `12m`, `1h 5m`, `2d 3h`), as the rooms view words it.
+std::string FormatElapsed(long seconds)
+{
+  if (seconds < 0) seconds = 0;
+  if (seconds < 60) return std::to_string(seconds) + "s";
+  if (seconds < 3600) return std::to_string(seconds / 60) + "m";
+  if (seconds < 86400) {
+    return std::to_string(seconds / 3600) + "h " + std::to_string((seconds % 3600) / 60) + "m";
+  }
+  return std::to_string(seconds / 86400) + "d " + std::to_string((seconds % 86400) / 3600) + "h";
 }
 
 /// @brief Render an epoch timestamp as a short age.
@@ -655,14 +675,20 @@ std::string FormatRange(const std::string & request, const std::string & limit)
 ///
 /// A room with a running pod is one somebody is in - the router cannot see traffic into a room, so the
 /// pod is what it goes by, and Knative keeps it up while anything (a websocket included) is using it -
-/// and such a room is never swept, so it says "in use" rather than counting down to a deadline it does
-/// not have. Neither is a room still being created, or waiting for resources. Otherwise this counts
-/// down to when the room goes.
+/// and such a room is never swept, so it says how long it has been in use and since when - `in use 12m
+/// (20:31:12)` - rather than counting down to a deadline it does not have. Neither is a room still
+/// being created, or waiting for resources. Otherwise this counts down to when the room goes.
 /// @param room One room from room/list.
 /// @param ttl The idle TTL in seconds (0 when this deployment keeps rooms until they are closed).
 std::string FormatExpiry(const NRoomInfo & room, int ttl)
 {
-  if (room.active) return "in use";
+  if (room.active) {
+    // A room whose pod the router found but whose start it could not read still reads "in use": the
+    // fact is what matters, and the times are what a view adds when it has them.
+    if (room.activeSince <= 0) return "in use";
+    const long inUse = static_cast<long>(std::time(nullptr)) - room.activeSince;
+    return "in use " + FormatElapsed(inUse) + " (" + FormatClock(room.activeSince) + ")";
+  }
   if (ttl <= 0) return "not swept";
   if (room.lastSeen <= 0) return "unknown";
   const long remaining = room.lastSeen + ttl - static_cast<long>(std::time(nullptr));
