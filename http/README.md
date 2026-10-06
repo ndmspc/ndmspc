@@ -771,7 +771,8 @@ has to know how many pads there are or which is showing.
 The argument is named `key`, not `path`: `path` is the server's own combination address (the node ids a
 request acts on) and is consumed by the dispatch, so a tool argument of that name would be dropped from
 a node's recorded arguments. Reading an http(s) URL is ROOT's own work (`TDavixFile`/`TCurlFile`), so
-the `root-net-curl` package is required — the `ndmspc` RPM requires it.
+the matching ROOT net package is required — `root-net-curl` on Fedora >= 45, `root-net-davix`
+otherwise — and the `ndmspc` RPM requires it.
 
 ### Showing something in a pad
 

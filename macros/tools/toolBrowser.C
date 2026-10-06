@@ -36,8 +36,8 @@
 ///
 /// `file` may be a local path or an http(s) URL. A URL is read by ROOT itself (`TFile::Open` ->
 /// `TDavixFile`/`TCurlFile`), which needs the matching ROOT net package installed (`root-net-curl` on
-/// Fedora, alongside `root-net-http`); without it ROOT's `TFile::Open` fails on a URL and the tool
-/// reports that as an open failure.
+/// Fedora >= 45, `root-net-davix` otherwise, alongside `root-net-http`); without it ROOT's
+/// `TFile::Open` fails on a URL and the tool reports that as an open failure.
 ///
 /// Usage:
 ///   ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
