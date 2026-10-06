@@ -196,7 +196,8 @@ TEST_F(NRoomClientTest, ListParsesRoomsAndTtl)
                      {"lastSeen", 1730000123},
                      {"ready", true},
                      {"replicas", 2},
-                     {"active", true}}})},
+                     {"active", true},
+                     {"activeSince", 1730000100}}})},
       {"ttl", 3600}};
   fake->responseBody = McpEnvelope({{"result", "success"}, {"payload", payload}});
 
@@ -217,6 +218,9 @@ TEST_F(NRoomClientTest, ListParsesRoomsAndTtl)
   EXPECT_EQ(list.rooms[1].room, "busy");
   EXPECT_EQ(list.rooms[1].replicas, 2);
   EXPECT_TRUE(list.rooms[1].active);
+  // When it became active, so a client can say how long it has been in use.
+  EXPECT_EQ(list.rooms[1].activeSince, 1730000100);
+  EXPECT_EQ(list.rooms[0].activeSince, 0);
 }
 
 TEST_F(NRoomClientTest, IdleRoomWithoutAnActiveFlagIsDerivedFromReplicas)

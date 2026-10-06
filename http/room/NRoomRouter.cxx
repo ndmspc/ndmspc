@@ -3707,6 +3707,20 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
           room["replicas"] = replicas;
           room["active"]   = replicas > 0;
           if (replicas > 0) {
+            // When it became active, for a view that says how long it has been in use. The pod is the
+            // authority (a router restart does not lose it), and listing pods asks nothing of the room,
+            // so this is not itself a use. The earliest still-running pod is the answer: a roll can
+            // leave two around for a moment, and the room has been in use since the first of them.
+            const json pods  = RoomPods(name, revision);
+            const json items = pods.value("items", json::array());
+            long       activeSince = 0;
+            for (const auto & pod : items) {
+              const json status = pod.value("status", json::object());
+              if (status.value("phase", "") != "Running") continue;
+              const long at = NRoomRouter::Rfc3339(status.value("startTime", std::string()));
+              if (at > 0 && (activeSince == 0 || at < activeSince)) activeSince = at;
+            }
+            if (activeSince > 0) room["activeSince"] = activeSince;
             // Somebody is in it (this loop already knows whether the room has pods, which is the
             // router's only way to tell - traffic into a room never reaches it). That is a use, so the
             // room's clock is pushed forward here, on every read, rather than only when the sweep

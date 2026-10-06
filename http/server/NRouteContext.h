@@ -179,10 +179,12 @@ public:
    * @param label Tab to show it on (default: whatever the kind is called).
    * @param options Renderer options, e.g. `{{"drawOpts", "colz"}}`.
    * @param handlers Click/hover actions, e.g. `{{"click", json::array({Action("ngnt/map")})}}`.
+   * @param replace Whether the pad should drop what it was showing first (this object replaces the
+   *        pad's previous one).
    */
   void Show(const json & value, const std::string & kind = "json", const std::string & pad = "pad1",
             const std::string & label = "", const json & options = json::object(),
-            const json & handlers = json::object());
+            const json & handlers = json::object(), bool replace = false);
 
   /**
    * @brief Show a ROOT object in a pad, serialized the way the `jsroot` renderer wants it.
@@ -191,9 +193,29 @@ public:
    * @param label Tab to show it on (default: the object's name).
    * @param drawOptions jsroot draw options ("colz", "lego", …).
    * @param handlers Click/hover actions.
+   * @param replace Whether the pad should drop what it was showing first — the object replaces the
+   *        pad's previous one rather than joining it (a new drawing over the last).
    */
   void ShowRoot(TObject * object, const std::string & pad = "pad1", const std::string & label = "",
-                const std::string & drawOptions = "", const json & handlers = json::object());
+                const std::string & drawOptions = "", const json & handlers = json::object(),
+                bool replace = false);
+
+  /**
+   * @brief Show a modal dialog whose form is `schema` and whose submit carries out `action`.
+   *
+   * The UI renders `schema` with the same schema-driven form it uses for a tool's input and, on
+   * submit, dispatches `action` (build it with Action()) with the form's values merged into its
+   * payload. It is how a tool opens a small, purpose-built form over the view - a THnSparse's axis
+   * picker, say - without adding a step to the combination tree. The dialog names no pad; the form
+   * is the message, so a handler that opens one usually fills nothing else.
+   *
+   * @param title Dialog heading.
+   * @param schema JSON Schema of the form (`{"type":"object","properties":{...}}`).
+   * @param action The request the form's submit makes (see Action()).
+   * @param options Extra dialog options, e.g. `{{"submit", "Project"}}`.
+   */
+  void Dialog(const std::string & title, const json & schema, const json & action,
+              const json & options = json::object());
 
   /**
    * @brief An action a click can carry out, shaped the way the UI expects one.

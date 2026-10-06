@@ -24,6 +24,7 @@ struct NRoomInfo {
   bool        ready{false};    ///< Knative Service Ready condition
   int         replicas{0};     ///< Running pods of the latest revision (0 when the room is idle)
   bool        active{false};   ///< replicas > 0
+  long        activeSince{0};  ///< Epoch seconds its running pod started (0 = not active, or not known)
 
   /// The router's own view of the room: "preparing", "pending", "ready", "not ready" or "failed".
   std::string state;

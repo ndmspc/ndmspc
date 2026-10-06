@@ -183,6 +183,16 @@ The username comes from `preferred_username`, falling back to the JWT `sub` clai
 
 A client may send another `authenticate` message after refreshing its Keycloak token. The refreshed token must have the same `sub`; changing users requires a new WebSocket connection. Expired sessions are removed and closed.
 
+A `heartbeat` follows the welcome **at once**, rather than a whole interval later, so a view that shows
+the room's system monitoring has something to show from its first moment. That first frame carries
+`payload.previous` as well — `{"afterMs": 10000, "system": {…}}`, the last *periodic* reading and how
+long ago it was taken — because a CPU rate only exists between two samples: a client that has just
+connected has none, and would otherwise show nothing but the counters until the next tick. The gap is a
+duration and not a timestamp on purpose: the browser's clock is not the cluster's, and an absolute
+instant would skew every rate computed from it. A gap under a second is left out, and the client simply
+waits for the next heartbeat. The periodic frames carry no `previous`: a connected client has its own
+chain of samples.
+
 Authentication failures use this shape:
 
 ```json
@@ -591,9 +601,10 @@ into a text box and a parameter list into a JSON box.
 | --- | --- | --- |
 | `type` | `string` / `number` / `integer` / `boolean` / `array` / `object` | — |
 | `title` | the name a form shows, where the key is the argument a tool takes (`binningName` reads as "Binning") | the field's label |
-| `format` | `select` (one of `enum`), `multiselect` (several of `enum`/`items.enum`), `tree` (a picker over `nodes`) | a select, a multi-select, a tree picker |
+| `format` | `select` (one of `enum`), `multiselect` (several of `enum`/`items.enum`), `tree` (a picker over `nodes`), `table` (rows of named `columns`) | a select, a multi-select, a tree picker, a table |
 | `enum`, `items.enum` | the options | the choices offered |
 | `nodes` | a nested tree a `format:"tree"` field picks from (each node `{id, label, detail?, children?}`) | a collapsible tree; the field's value is the selected node's `id` |
+| `columns` | a `format:"table"` field's columns (each `{key, title?, type?, format?, readOnly?}`); the value is a list of row objects | a line per row; each cell is the widget its column's type names, a read-only column the row's label. `format:"rootlatex"` renders ROOT TLatex (`#eta`, `p_{T}`) as text |
 | `items.type`, `items.items.type` | an array's element type; `array` again for levels | a list editor; the levels editor |
 | `default` | the current value (a list for a multi-select) | what the form starts from |
 | `render` | `checkbox` / `radio` for the alternate widget | a checkbox list, a radio list |
@@ -718,6 +729,8 @@ ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
 | `browser/browse` | `browser` | POST | The browse step: its form is the file tree (`key`, a `format:"tree"` field). Live without being run; expanding a folder and clicking an object run the two actions below. |
 | `rbrowser/ls` | `rbrowser` | POST | Expands the folder at `key` and re-publishes the tree. Hidden — the tree drives it. |
 | `rbrowser/draw` | `rbrowser` | POST, PATCH | Draws the object at `key` (the pad view decides which pad; `drawOpts` is a jsroot option string). With `branch`, it projects that branch into a histogram. Hidden — the tree drives it. |
+| `rbrowser/sparse` | `rbrowser` | POST | For a `THnSparse` at `key`, opens the projection dialog: a table with one line per axis — labelled `index, name [title]` (the title in ROOT TLatex) — and project/min/max/rebin columns, plus draw options. It opens on the last configuration kept for the object's **axis signature** (axes' names, titles, bin counts and bounds), so another object with the same axes comes up with it too. Hidden — the tree drives it. |
+| `rbrowser/project` | `rbrowser` | POST | Projects the `THnSparse` at `key` onto the axes the dialog's `axes` table ticked (1–3 of them) and draws the resulting `TH1`/`TH2`/`TH3`. A row's `min`/`max` cut that axis whether or not it is projected — so a cut on a non-projected axis (a pT window while projecting mass) carves the sample — and a projected row's `rebin` coarsens its output bins. It keeps the configuration for the axis signature. `name` is the projection's name — its own tab and the histogram's name (default `projection`) — and projections named alike share one canvas, so a different name is a tab of its own. `same` **overlays** every projection on one canvas — ROOT composes them onto a `TCanvas` (each after the first drawn `same`, in its own colour), so each projection is a curve of its own and the pad only draws the finished canvas. With `same` **off** the projection is drawn as its own object and **starts a new canvas** — unticking it is the "new canvas"; ticking it adds to the canvas in hand. The same projection (same object, axes and options) is not drawn twice, so a step the server replays to make a combination live does not pile a twin onto the canvas. A `THnSparse` is released as soon as a request has projected it (opening the dialog included), so it is not held between requests — the next projection re-reads it — and a canvas keeps at most ten curves (the oldest falls off), with all of them freed when the file is closed. Hidden — the dialog's submit drives it. |
 
 The browse step's `key` field is where the tree lives: its `nodes` come from the file, so browsing and
 drawing happen in the step itself. A node carries the request a click makes — `rbrowser/ls` for a folder,
@@ -743,6 +756,14 @@ the Explorer nor the Tools panel lists them; the tree's nodes invoke them by nam
 A node that can be expanded is **navigational**: clicking its row opens it (as the chevron does), so a
 folder — and a `TTree`, which expands to its branches — draws nothing. Only a leaf draws.
 
+A `THnSparse` is a **leaf** whose click opens a dialog rather than drawing: jsroot has no renderer for
+one, and a projection needs choices (which axes, which range), so the tree sends `rbrowser/sparse`,
+which answers with a **dialog** — the generic `payload.dialog` envelope — listing the object's axes.
+Its submit runs `rbrowser/project`, which projects the chosen 1–3 axes with the chosen ranges and draws
+the resulting `TH1`/`TH2`/`TH3` as an ordinary jsroot envelope. The axis picker is the tool's form, not
+a UI feature: any tool can open a dialog the same way (see [Showing something in a
+pad](#showing-something-in-a-pad)).
+
 The drawing names **no pad**: the `rbrowser/draw` envelope carries no `pad`, so the pad view routes it —
 to the pad in hand in **fixed** mode, or to the selected pads in turn in **rotate** mode. The tool never
 has to know how many pads there are or which is showing.
@@ -750,13 +771,13 @@ has to know how many pads there are or which is showing.
 The argument is named `key`, not `path`: `path` is the server's own combination address (the node ids a
 request acts on) and is consumed by the dispatch, so a tool argument of that name would be dropped from
 a node's recorded arguments. Reading an http(s) URL is ROOT's own work (`TDavixFile`/`TCurlFile`), so
-the `root-net-davix` package is required — the `ndmspc` RPM requires it.
+the `root-net-curl` package is required — the `ndmspc` RPM requires it.
 
 ### Showing something in a pad
 
 A tool can put anything on screen without the UI knowing anything about that tool: it writes an
 **envelope** into `payload.pad`, and the viewport draws it. `NRouteContext` carries the helpers
-(`Show`, `ShowRoot`, `Action`), and one frame may hold several envelopes:
+(`Show`, `ShowRoot`, `Action`, `Dialog`), and one frame may hold several envelopes:
 
 ```cpp
 handlers["demo/summary"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
@@ -782,11 +803,36 @@ An envelope is:
 | `label` | the tab to show it on (defaults to whatever the kind is called) |
 | `options` | renderer options, e.g. `{"drawOpts": "colz"}` |
 | `handlers` | what a click or hover means: `{"click": [{type, method, path, contentType, payload}]}` |
+| `replace` | drop what the pad was showing first, so this object replaces it rather than joining it (`Show`/`ShowRoot`'s `replace` argument) |
 
 `payload.pad` is a **list** — call `Show` as often as needed — and `NRouteContext::Action` builds an
 action in the shape the UI carries out. A tool only ever says *what* to show and *where* — how many
 pads there are, how they are laid out and which tab is showing belong to the viewer, and the same
 envelopes work whether or not the tool is part of a combination tree.
+
+**A form, not a pad: `payload.dialog`.** A tool that needs a few choices before it can act — the
+browser's `THnSparse` projection picker, for instance — writes a dialog instead of drawing:
+
+```cpp
+handlers["demo/project"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                              std::map<std::string, TObject *> & objects) {
+  Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+  ctx.Dialog("Project the spectrum", NSchemaBuilder()
+      .Boolean("use0").Default(true)
+      .Number("min0").Default(0.0)
+      .Number("max0").Default(10.0)
+      .Build(),
+      Ndmspc::NRouteContext::Action("demo/draw", "POST", json{{"key", "spectrum"}}),
+      json{{"submit", "Project"}});
+  ctx.Success();
+};
+```
+
+The UI renders `schema` with the same schema-driven form it uses for a tool's input (see
+[Field vocabulary](#field-vocabulary)) and, on submit, dispatches `action` with the form's values
+folded into its payload — so a tool configures a whole dialog in the macro, and the UI needs no
+knowledge of what it is for. The envelope is `{title, schema, action, options}`; one dialog is shown at
+a time, and the UI closes it on submit or cancel.
 
 **A tool the UI has never heard of needs no UI change.** The envelope is the whole display
 vocabulary: the UI draws whatever `payload.pad` names and forwards whatever `handlers` carry, and
@@ -1310,6 +1356,14 @@ read that finds a room running moves its idle clock forward, so its countdown ne
 is in use. The sweep that enforces the TTL runs on `room/list`, `room/status` and `room/open` — a view
 that polls enforces it while it watches, and a room is deleted about the TTL after its pod has gone,
 not on the next create. A room still being created, or waiting for resources, is never swept either.
+
+A room in use has no deadline to count down to, so a view says how long it has been in use and since
+when instead — `in use 12m (20:31:12)` — from the entry's `activeSince`: the start of the earliest pod
+still running for the room's revision, which the router reads from the pods it lists for that room
+anyway (a pod list asks nothing of the room, so it is not itself a use). The pod is the authority, so
+the times survive a router restart and say what the cluster knows rather than how long the router
+happened to be watching. A room found running whose pod start could not be read still reads `in use`:
+the fact, without the times.
 
 That clock outlives the router: each room's Service carries when it was last wanted
 (`ndmspc.io/room-seen`, written whenever the stored copy has drifted a fraction of the TTL from the
