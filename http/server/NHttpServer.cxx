@@ -10,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <set>
@@ -48,6 +49,85 @@ NHttpHandlerMap *    gNdmspcHttpHandlers   = nullptr;
 NMcpToolMap *          gNdmspcMcpTools       = nullptr;
 NHttpServer *          gNHttpServer        = nullptr;
 NdmspcWsConnectFilter  gNdmspcWsConnectFilter = nullptr;
+
+namespace {
+
+/// @brief Parses a human-readable byte size into bytes.
+///
+/// Accepts a plain integer (bytes) and the suffixes B, K/KiB/KB, M/MiB/MB, G/GiB/GB, T/TiB/TB,
+/// without regard to letter case, all 1024-based. Anything that does not parse yields 0, which the
+/// server reads as "unlimited" - a typo relaxes a cap rather than making every upload fail.
+long long ParseSizeBytes(const std::string & text)
+{
+  std::string value;
+  for (const char c : text) {
+    if (!std::isspace(static_cast<unsigned char>(c))) value += c;
+  }
+  if (value.empty()) return 0;
+
+  size_t digits = 0;
+  while (digits < value.size() && std::isdigit(static_cast<unsigned char>(value[digits]))) ++digits;
+  if (digits == 0) {
+    NLogWarning("Ignoring a malformed room size limit '%s'", text.c_str());
+    return 0;
+  }
+
+  std::string suffix = value.substr(digits);
+  for (char & c : suffix) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+  long long multiplier = 1;
+  if (!suffix.empty() && suffix != "b") {
+    switch (suffix[0]) {
+    case 'k': multiplier = 1024LL; break;
+    case 'm': multiplier = 1024LL * 1024; break;
+    case 'g': multiplier = 1024LL * 1024 * 1024; break;
+    case 't': multiplier = 1024LL * 1024 * 1024 * 1024; break;
+    default:
+      NLogWarning("Ignoring a room size limit '%s' with an unknown suffix", text.c_str());
+      return 0;
+    }
+  }
+
+  return std::atoll(value.substr(0, digits).c_str()) * multiplier;
+}
+
+/// @brief The basename of a client-supplied file name, keeping only [A-Za-z0-9._-].
+///
+/// The name is what the room stores the file under, so it is flattened to a single path element
+/// with nothing that could climb out of the working directory. Returns "" for a name that reduces
+/// to nothing, "." or "..".
+std::string SanitizeRoomFileName(const std::string & raw)
+{
+  std::string  name  = raw;
+  const size_t slash = name.find_last_of("/\\");
+  if (slash != std::string::npos) name = name.substr(slash + 1);
+  std::string clean;
+  for (const char c : name) {
+    if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-') clean += c;
+  }
+  if (clean.empty() || clean == "." || clean == "..") return {};
+  return clean;
+}
+
+/// @brief The bytes held by the regular, non-dotfile entries of a directory, skipping one name.
+///
+/// The same set `GET /api/files` lists: half-uploads (dotfiles) and directories do not count. The
+/// excluded name is the file about to be (re)written, so it is not counted against itself.
+long long RoomDirectoryUsageBytes(const std::string & dir, const std::string & excludeName = "")
+{
+  long long       total = 0;
+  std::error_code ec;
+  for (const auto & entry : std::filesystem::directory_iterator(dir, ec)) {
+    const std::string name = entry.path().filename().string();
+    if (name.empty() || name[0] == '.') continue;
+    if (!excludeName.empty() && name == excludeName) continue;
+    if (!entry.is_regular_file(ec)) continue;
+    total += static_cast<long long>(entry.file_size(ec));
+  }
+  return total;
+}
+
+} // namespace
 
 NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcConfig oidcConfig, bool startEngine)
     : THttpServer(startEngine ? engine : ""), fWsEnabled(ws), fHeartbeatMs(heartbeat_ms), fHeartbeatThread(nullptr)
@@ -94,6 +174,21 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcCo
       NLogInfo("Room '%s' requires an access token (a read-write and a read-only one were minted)",
                fRoomId.c_str());
     }
+  }
+
+  // The ceilings this room's deployment put on it: one file, and its whole working directory. Both
+  // are read once here, so the values a client sees in `/api/files` are the ones enforced. Unset, or
+  // "0", is unlimited - a server run outside a room carries no cap.
+  if (const char * maxFile = std::getenv("NDMSPC_ROOM_MAX_FILE_SIZE"); maxFile != nullptr && *maxFile != '\0') {
+    fMaxFileBytes = ParseSizeBytes(maxFile);
+  }
+  if (const char * maxStorage = std::getenv("NDMSPC_ROOM_MAX_STORAGE"); maxStorage != nullptr && *maxStorage != '\0') {
+    fMaxStorageBytes = ParseSizeBytes(maxStorage);
+  }
+  if (fMaxFileBytes > 0 || fMaxStorageBytes > 0) {
+    NLogInfo("Room '%s' caps an upload at %s and its storage at %s", fRoomId.c_str(),
+             fMaxFileBytes > 0 ? NUtils::FormatBytes(fMaxFileBytes).c_str() : "unlimited",
+             fMaxStorageBytes > 0 ? NUtils::FormatBytes(fMaxStorageBytes).c_str() : "unlimited");
   }
 }
 
@@ -531,6 +626,16 @@ void NHttpServer::RecordPads(const std::string & group, const json & envelopes)
   const json list = envelopes.is_array() ? envelopes : json::array({envelopes});
   for (const auto & envelope : list) {
     if (!envelope.is_object()) continue;
+    // A drawing that replaces its pad (a fresh map) drops what that pad held before it, so the record
+    // matches the view the client is shown: a map from another combination - same session, same tool -
+    // does not linger beside it. A drill does not replace, so its layers join what is there.
+    if (envelope.value("replace", false)) {
+      const json pad = envelope.value("pad", json());
+      kept.erase(
+          std::remove_if(kept.begin(), kept.end(),
+                         [&pad](const json & one) { return one.is_object() && one.value("pad", json()) == pad; }),
+          kept.end());
+    }
     const std::string key      = keyOf(envelope);
     bool              replaced = false;
     for (auto & entry : kept) {
@@ -1251,7 +1356,9 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
   if (!arg) return false;
   const TString path = arg->GetPathName();
   const TString file = arg->GetFileName();
-  if (path != "api" || (file != "cancel" && file != "upload" && file != "files")) return false;
+  if (path != "api" ||
+      (file != "cancel" && file != "upload" && file != "files" && file != "download" && file != "delete"))
+    return false;
 
   const std::string level =
       RoomAccessRequired() ? RoomAccessLevel(RequestAccessToken(arg.get())) : std::string("rw");
@@ -1261,6 +1368,17 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
     return true;
   }
 
+  // The upload and download carry their parameters in the query string.
+  const std::string query = arg->GetQuery() != nullptr ? arg->GetQuery() : "";
+  auto              param = [&query](const std::string & key) -> std::string {
+    const std::string needle = key + "=";
+    const size_t      at     = query.find(needle);
+    if (at == std::string::npos) return "";
+    const size_t from = at + needle.size();
+    const size_t end  = query.find('&', from);
+    return query.substr(from, end == std::string::npos ? std::string::npos : end - from);
+  };
+
   // Upload one chunk of a file the browser is bringing into the room. Ephemeral: it lands in the
   // room's working directory and is gone when the pod scales to zero (a durable file is opened by URL).
   if (file == "upload") {
@@ -1269,23 +1387,8 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
       arg->SetContent(json{{"result", "failure"}, {"error", "this room's access token is read-only"}}.dump());
       return true;
     }
-    const std::string query = arg->GetQuery() != nullptr ? arg->GetQuery() : "";
-    auto              param = [&query](const std::string & key) -> std::string {
-      const std::string needle = key + "=";
-      const size_t      at     = query.find(needle);
-      if (at == std::string::npos) return "";
-      const size_t from = at + needle.size();
-      const size_t end  = query.find('&', from);
-      return query.substr(from, end == std::string::npos ? std::string::npos : end - from);
-    };
-    std::string name = param("name");
-    const size_t slash = name.find_last_of("/\\");
-    if (slash != std::string::npos) name = name.substr(slash + 1);
-    std::string clean;
-    for (const char c : name) {
-      if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-') clean += c;
-    }
-    if (clean.empty() || clean == "." || clean == "..") {
+    const std::string clean = SanitizeRoomFileName(param("name"));
+    if (clean.empty()) {
       arg->SetContentType("application/json");
       arg->SetContent(json{{"result", "failure"}, {"error", "invalid file name"}}.dump());
       return true;
@@ -1299,6 +1402,45 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
     const std::string final = dir + "/" + clean;
     const char *      data  = static_cast<const char *>(arg->GetPostData());
     const size_t      len   = arg->GetPostDataLength();
+
+    // The room's ceilings, against the running total of the file (what the earlier chunks staged,
+    // plus this one). Checked on every chunk, not only the first, so a chunked upload cannot grow
+    // past a cap by never declaring how big it will be.
+    const long long incoming = static_cast<long long>(offset) + static_cast<long long>(len);
+    if (fMaxFileBytes > 0 && incoming > fMaxFileBytes) {
+      std::error_code ec;
+      std::filesystem::remove(part, ec); // discard what earlier chunks staged
+      json reply;
+      reply["result"] = "failure";
+      reply["code"]   = "file_too_large";
+      reply["file"]   = clean;
+      reply["limit"]  = fMaxFileBytes;
+      reply["error"]  = "the file is larger than this room's limit of " + NUtils::FormatBytes(fMaxFileBytes);
+      arg->SetContentType("application/json");
+      arg->SetContent(reply.dump());
+      return true;
+    }
+
+    // The whole room's storage: what is already there, plus the file in flight. The target name is
+    // excluded so an overwrite is not counted against itself; the staging `.part` is a dotfile and is
+    // never counted. Best effort - two uploads in flight at once are not serialised - so the client
+    // checks too, and this is the backstop.
+    const long long used = RoomDirectoryUsageBytes(dir, clean);
+    if (fMaxStorageBytes > 0 && used + incoming > fMaxStorageBytes) {
+      std::error_code ec;
+      std::filesystem::remove(part, ec);
+      json reply;
+      reply["result"]    = "failure";
+      reply["code"]      = "quota_exceeded";
+      reply["limit"]     = fMaxStorageBytes;
+      reply["usedBytes"] = used;
+      reply["error"]     = "the room's storage is full: " + NUtils::FormatBytes(used) + " of " +
+                       NUtils::FormatBytes(fMaxStorageBytes) + " in use and this file needs " +
+                       NUtils::FormatBytes(incoming);
+      arg->SetContentType("application/json");
+      arg->SetContent(reply.dump());
+      return true;
+    }
 
     // A file already in the room is not overwritten silently: the first chunk is refused with
     // `code=exists`, and the caller either uploads under another name or repeats with `force=1`.
@@ -1342,24 +1484,92 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
   if (file == "files") {
     const std::string dir = gSystem->pwd();
     json              list = json::array();
+    long long         used = 0;
     std::error_code   ec;
     for (const auto & entry : std::filesystem::directory_iterator(dir, ec)) {
       const std::string name = entry.path().filename().string();
       if (name.empty() || name[0] == '.') continue;
       if (!entry.is_regular_file(ec)) continue;
+      const long long size = static_cast<long long>(entry.file_size(ec));
+      // The file's last write, as epoch seconds, so a browser can show and sort by it. The
+      // filesystem clock is not the system clock, so it is rebased onto system_clock (the usual
+      // portable conversion) rather than cast directly.
+      const auto ftime = std::filesystem::last_write_time(entry, ec);
+      const auto sctp  = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+          ftime - decltype(ftime)::clock::now() + std::chrono::system_clock::now());
       json item;
       item["name"]     = name;
       item["path"]     = entry.path().string();
-      item["size"]     = static_cast<long long>(entry.file_size(ec));
-      item["modified"] = 0;
+      item["size"]     = size;
+      item["modified"] = static_cast<long long>(std::chrono::system_clock::to_time_t(sctp));
       list.push_back(item);
+      used += size;
     }
     json reply;
     reply["result"] = "success";
     reply["path"]   = dir;
     reply["files"]  = list;
+    // What the room holds and what it is allowed to hold, so a client can refuse an upload that
+    // would not fit before it starts one. 0 in either limit means unlimited.
+    reply["usage"]  = {{"usedBytes", used}, {"files", list.size()}};
+    reply["limits"] = {{"maxFileBytes", fMaxFileBytes}, {"maxStorageBytes", fMaxStorageBytes}};
     arg->SetContentType("application/json");
     arg->SetContent(reply.dump());
+    return true;
+  }
+
+  // Read one of the room's files back to the browser. Ephemeral, like the uploads. A read token is
+  // enough (the gate above already asked for one). The body is the file's bytes, whole, like every
+  // other response here - a room's files are small enough for the request/response buffering.
+  if (file == "download") {
+    const std::string clean = SanitizeRoomFileName(param("name"));
+    const std::string path  = std::string(gSystem->pwd()) + "/" + clean;
+    std::ifstream     in(clean.empty() ? "" : path.c_str(), std::ios::binary);
+    if (clean.empty() || !in.good()) {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"code", "not_found"}, {"error", "file not found"}}.dump());
+      return true;
+    }
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    arg->SetContentType("application/octet-stream");
+    arg->AddHeader("Content-Disposition", ("attachment; filename=\"" + clean + "\"").c_str());
+    arg->SetContent(std::move(bytes));
+    return true;
+  }
+
+  // Remove one of the room's files, so its storage can be reclaimed against the quota above.
+  if (file == "delete") {
+    if (level != "rw") {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"error", "this room's access token is read-only"}}.dump());
+      return true;
+    }
+    json in = json::object();
+    const char * postData = static_cast<const char *>(arg->GetPostData());
+    if (postData != nullptr) {
+      try {
+        in = json::parse(postData);
+      }
+      catch (const json::parse_error &) {
+      }
+    }
+    const std::string clean =
+        SanitizeRoomFileName(in.contains("name") && in["name"].is_string() ? in["name"].get<std::string>() : "");
+    const std::string path = std::string(gSystem->pwd()) + "/" + clean;
+    std::error_code   ec;
+    if (clean.empty() || !std::filesystem::is_regular_file(path, ec)) {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"code", "not_found"}, {"error", "file not found"}}.dump());
+      return true;
+    }
+    std::filesystem::remove(path, ec);
+    if (ec) {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"error", "cannot remove the file"}}.dump());
+      return true;
+    }
+    arg->SetContentType("application/json");
+    arg->SetContent(json{{"result", "success"}, {"file", clean}}.dump());
     return true;
   }
 
@@ -1822,6 +2032,12 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
 
             if (!filled.empty()) {
               fCurrentInstance = filled;
+            }
+            // A *transient* POST runs on the node it hangs off without becoming a step of its own: it
+            // draws (a click's spectra) and the combination tree does not grow, so nothing useless is
+            // added to it. The caller asks for it with `"transient": true` in the payload.
+            else if (in.is_object() && in.value("transient", false)) {
+              fCurrentInstance = parentId;
             }
             // Know the session before the handler makes anything: a POST's node is created here - the
             // same node it would have been created as below, on success - so the objects and defaults a

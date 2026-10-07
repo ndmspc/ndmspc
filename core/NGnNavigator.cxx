@@ -1597,6 +1597,19 @@ NGnNavigator * NGnNavigator::GetChild(size_t index) const
   return (index < fChildren.size()) ? fChildren[index] : nullptr;
 }
 
+NGnNavigator * NGnNavigator::GetFirstChild(size_t * bin) const
+{
+  ///
+  /// Returns the first child that exists, with the index (ROOT bin) it sits at
+  ///
+  for (size_t i = 0; i < fChildren.size(); i++) {
+    if (fChildren[i] == nullptr) continue;
+    if (bin != nullptr) *bin = i;
+    return fChildren[i];
+  }
+  return nullptr;
+}
+
 void NGnNavigator::SetChild(NGnNavigator * child, int index)
 {
   ///

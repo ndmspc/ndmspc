@@ -60,7 +60,9 @@
 #include <string>
 #include <vector>
 #include <TBufferJSON.h>
+#include <TCanvas.h>
 #include <TH1.h>
+#include <THStack.h>
 #include <TList.h>
 #include <TString.h>
 #include <TSystem.h>
@@ -162,16 +164,24 @@ json BuildMapClickAction(const std::vector<int> & point, int level, const std::s
   return action;
 }
 
-json BuildSpectraClickAction(const std::vector<int> & point, int level, const std::string & group = "")
+json BuildSpectraClickAction(const std::vector<int> & point, int level, const std::string & group = "",
+                             const json & nodePath = json::array())
 {
   json action;
-  action["type"]             = "http";
-  action["method"]           = "PATCH";
-  action["path"]             = group.empty() ? "spectra" : group + "/spectra";
-  action["contentType"]      = "application/json";
-  action["payload"]          = json::object();
-  action["payload"]["point"] = point;
-  action["payload"]["level"] = level;
+  action["type"] = "http";
+  // A **transient** POST: it draws the spectra for the clicked point and adds nothing to the
+  // combination - the server creates no node for a `transient` POST (see NHttpServer::Dispatch), so a
+  // click shows spectra on their pad and the tree stays as it was. A plain POST would leave a `spectra`
+  // node behind on every click; a PATCH would target a node that does not exist yet and be refused
+  // ("no ngnt/spectra node; run it first"). The node path names the map the click came from.
+  action["method"]               = "POST";
+  action["path"]                 = group.empty() ? "spectra" : group + "/spectra";
+  action["contentType"]          = "application/json";
+  action["payload"]              = json::object();
+  action["payload"]["point"]     = point;
+  action["payload"]["level"]     = level;
+  action["payload"]["transient"] = true;
+  if (!nodePath.empty()) action["payload"]["path"] = nodePath;
   return action;
 }
 
@@ -203,6 +213,10 @@ std::string LayersLabel(TH1 * proj)
   return "map";
 }
 
+/// The slice a drill passed through, as one term per axis of each level above a layer. Defined below;
+/// used by {@link RenderSpectra} for a spectrum's title.
+std::string DrillLabel(Ndmspc::NGnNavigator * navCurrent, const std::vector<int> & point);
+
 /**
  * Draw every navigator layer from `nav` down, one envelope per layer, so the pad shows them as tabs.
  *
@@ -211,17 +225,21 @@ std::string LayersLabel(TH1 * proj)
  * click handlers.
  *
  * @param drill The path this drawing came from, so a click knows where it stands.
+ * @param replace Whether the first layer drops the pad's tabs (what a *fresh* map does, so a map for
+ *        another combination does not linger beside it); a drill passes `false` and appends.
  * @return How many layers were drawn; none at all is a failure the caller reports.
  */
 size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, const std::string & pad,
-                       const json & drill)
+                       const json & drill, bool replace)
 {
   const size_t           nLevels = nav->GetNLevels();
   Ndmspc::NGnNavigator * at      = nav;
   size_t                 drew    = 0;
-  // The node these layers are drawn for, so a click on one drills this map rather than whichever map
-  // the group's live combination is on when it is clicked.
-  const json drawnAt = DrawnNodePath(ctx);
+  // The bins this drawing sits under, one per level above a layer: the point the drill came in with,
+  // then the first child taken at each level down - so every layer can say which slice it shows, the
+  // same way a spectrum's title does.
+  std::vector<int> walk    = drill.is_array() ? drill.get<std::vector<int>>() : std::vector<int>{};
+  const json       drawnAt = DrawnNodePath(ctx);
   for (size_t level = nav->GetLevel(); at != nullptr && level < nLevels; level++) {
     TH1 * proj = at->GetProjection();
     if (proj == nullptr) {
@@ -229,26 +247,126 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
     }
     else {
       proj->SetStats(false);
+      // The histogram's title is the slice this layer is under - and nothing else: the layer's own name
+      // is already its tab, and the projection's title named the ranges it was made for, which would say
+      // the same a second time. A layer under nothing (the top of a fresh drawing) keeps its own title.
+      const std::string slice = DrillLabel(at, walk);
+      if (!slice.empty()) proj->SetTitle(slice.c_str());
       json clicks = json::array();
       clicks.push_back(BuildMapClickAction(drill, level, "ngnt", drawnAt));
-      // One level above the last is where drilling stops, so a spectra makes sense there. That click
-      // names no node on purpose: it targets a *spectra* node, and these layers' own node is a map one,
-      // which the router would refuse ("node '…' is a ngnt/map, not a ngnt/spectra").
-      if (level + 2 == nLevels) clicks.push_back(BuildSpectraClickAction(drill, level, "ngnt"));
-      ctx.ShowRoot(proj, pad, LayersLabel(proj), "", json{{"click", clicks}});
+      // One level above the last is where drilling stops, so a spectra makes sense there: the click also
+      // draws the spectra for that point. That is a *transient* POST - it shows on the spectra pad and
+      // adds nothing to the combination (see BuildSpectraClickAction).
+      if (level + 2 == nLevels) clicks.push_back(BuildSpectraClickAction(drill, level, "ngnt", drawnAt));
+      // The first layer carries `replace` for a fresh map, so the pad drops what it held (a map from
+      // another combination included); a drill appends its layers to what is there.
+      // The tab keeps the layer's own label: it is what identifies the tab, so anything that changes
+      // with a drill would make a new tab instead of replacing the same one.
+      ctx.ShowRoot(proj, pad, LayersLabel(proj), "", json{{"click", clicks}}, replace && drew == 0);
       drew++;
     }
-    if (at->GetChildren().empty()) break;
-    at = at->GetChild(0);
+    // The next layer down: the first child this level has. Not `GetChild(0)` - a bin is a ROOT bin
+    // number (1-based), so index 0 is the underflow slot and is never a child; a navigator whose bin 1
+    // holds no data has its first child further along, and this is the walk down every level.
+    size_t                bin   = 0;
+    Ndmspc::NGnNavigator * first = at->GetFirstChild(&bin);
+    if (first == nullptr) break;
+    // The bin this layer took is part of the next layer's slice.
+    walk.push_back(static_cast<int>(bin));
+    at = first;
   }
   return drew;
+}
+
+/// One axis of a slice. A categorical axis reads by its bin's label (`entries = 1000`); a numeric one
+/// by the bin's range (`mean ∈ [2.25, 2.75]`) - a bin is an interval, not a point, so the centre would
+/// hide its width and be wrong for a non-uniform axis. "" when the bin is outside the axis.
+std::string AxisSlice(TAxis * axis, int bin)
+{
+  if (axis == nullptr || bin < 1 || bin > axis->GetNbins()) return "";
+  const char *      title = axis->GetTitle();
+  const std::string name  = (title != nullptr && *title != '\0') ? title : axis->GetName();
+
+  const char * label = axis->GetBinLabel(bin);
+  if (label != nullptr && *label != '\0') return name + " = " + label;
+
+  const auto edge = [](double value) { return std::string(TString::Format("%.3g", value).Data()); };
+  return name + " ∈ [" + edge(axis->GetBinLowEdge(bin)) + ", " + edge(axis->GetBinUpEdge(bin)) + "]";
+}
+
+/// Takes a projection's global bin apart into one bin per axis: ROOT lays a `TH2`/`TH3` bin out as
+/// `bx + by*(nx+2) + ...`, which is what `FindFixBin` returns - done here so no `TH2`/`TH3` header is
+/// needed for the two numbers we want.
+void GlobalToAxisBins(TH1 * proj, int global, int & bx, int & by, int & bz)
+{
+  const int nx = proj->GetNbinsX() + 2;
+  const int ny = proj->GetNbinsY() + 2;
+  bx            = global % nx;
+  by            = (global / nx) % ny;
+  bz            = global / (nx * ny);
+}
+
+/// The slice a drill passed through, as one term per axis of each level above - `Mean ∈ [2.25, 2.75]`
+/// for a numeric axis, `Entries = 1000` for a categorical one - joined with `, `; "" when nothing was
+/// drilled. It is appended to a spectrum's title, so a spectrum says which slice it was made in.
+std::string DrillLabel(Ndmspc::NGnNavigator * navCurrent, const std::vector<int> & point)
+{
+  // The levels above the one the spectra are drawn at, root first: `navCurrent` is that level, so its
+  // parents are the levels a drill passed through, and `point` names the cell taken at each.
+  std::vector<Ndmspc::NGnNavigator *> chain;
+  for (Ndmspc::NGnNavigator * up = navCurrent->GetParent(); up != nullptr; up = up->GetParent()) {
+    chain.push_back(up);
+  }
+  std::reverse(chain.begin(), chain.end());
+
+  std::vector<std::string> parts;
+  for (size_t level = 0; level < chain.size() && level < point.size(); level++) {
+    TH1 * proj = chain[level]->GetProjection();
+    if (proj == nullptr || point[level] < 1) continue;
+    int bx = 0;
+    int by = 0;
+    int bz = 0;
+    GlobalToAxisBins(proj, point[level], bx, by, bz);
+    const auto keep = [&parts](std::string part) {
+      if (!part.empty()) parts.push_back(std::move(part));
+    };
+    keep(AxisSlice(proj->GetXaxis(), bx));
+    if (proj->GetDimension() >= 2) keep(AxisSlice(proj->GetYaxis(), by));
+    if (proj->GetDimension() >= 3) keep(AxisSlice(proj->GetZaxis(), bz));
+  }
+
+  std::string label;
+  for (const auto & part : parts) {
+    if (!label.empty()) label += ", ";
+    label += part;
+  }
+  return label;
+}
+
+/// The object a pad shows a title from: the histogram or stack itself, or - for the canvas a spectrum
+/// is handed back as - the first one inside it. Nothing else (an axis, a frame) carries the title.
+TNamed * TitleBearer(TObject * object)
+{
+  if (object == nullptr) return nullptr;
+  if (dynamic_cast<TH1 *>(object) != nullptr || dynamic_cast<THStack *>(object) != nullptr) {
+    return dynamic_cast<TNamed *>(object);
+  }
+  if (auto * pad = dynamic_cast<TPad *>(object)) {
+    if (TList * primitives = pad->GetListOfPrimitives()) {
+      for (TObject * child : *primitives) {
+        if (TNamed * found = TitleBearer(child)) return found;
+      }
+    }
+  }
+  return nullptr;
 }
 
 /// Show every parameter's spectra: one envelope per spectrum, on that parameter's pad, tabbed under
 /// the object's own name (unique per spectrum, so asking again replaces its own tab).
 bool RenderSpectra(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * navCurrent,
                    const std::vector<std::string> & parameters, double axismargin, const std::string & minmaxMode,
-                   int startPadIndex, bool addDebugAction = false)
+                   int startPadIndex, const std::vector<int> & point, bool addDebugAction = false,
+                   bool replace = false)
 {
   int  padIndex = startPadIndex;
   bool drew     = false;
@@ -270,10 +388,34 @@ bool RenderSpectra(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * navCurren
         handlers["click"]      = json::array({debugAction});
       }
 
+      // The slice the drill passed through rides on every spectrum's title, so a spectrum says which
+      // point it belongs to ("meanFit : entries at Mean[-1.25]Sigma[2.0]"). A drawn spectrum is a
+      // `TNamed` of one kind or another (a histogram, or the `THStack` a fit is drawn as), which is all
+      // this needs to carry.
+      const std::string slice      = DrillLabel(navCurrent, point);
+      bool              firstOnPad = true;
       for (TObject * object : *spectra) {
         if (object == nullptr) continue;
-        ctx.ShowRoot(object, padName, object->GetName(), "", handlers);
-        drew = true;
+        if (!slice.empty()) {
+          TNamed * bearer = TitleBearer(object);
+          if (bearer != nullptr) {
+            const std::string suffix = " | " + slice;
+            const auto        append = [&suffix](TNamed * named) {
+              if (named == nullptr) return;
+              const char * title = named->GetTitle();
+              named->SetTitle(((title == nullptr ? std::string() : std::string(title)) + suffix).c_str());
+            };
+            append(bearer);
+            // A stack draws its own histogram's title, so the suffix has to be on that too.
+            if (auto * stack = dynamic_cast<THStack *>(bearer)) append(stack->GetHistogram());
+          }
+        }
+        // The first spectrum on each pad carries `replace` for a fresh draw, so the pad drops what it
+        // held before - spectra from another combination included, the same way a map's pad does. A
+        // drill passes `replace=false` and appends to what is there.
+        ctx.ShowRoot(object, padName, object->GetName(), "", handlers, replace && firstOnPad);
+        firstOnPad = false;
+        drew       = true;
       }
 
       spectra->SetOwner(kTRUE); // the list owns what it drew; going out of scope frees them
@@ -738,7 +880,7 @@ void toolNgnt()
       // One envelope per layer, so the pad tabs them: the projection at this level and then the first
       // child's at each level below. The object goes as the projection itself, never as a list, which
       // jsroot would draw into one canvas, item on top of item.
-      if (RenderMapLayers(ctx, nav, mappingPad, json::array()) == 0) {
+      if (RenderMapLayers(ctx, nav, mappingPad, json::array(), /*replace=*/true) == 0) {
         NLogError("[Server] map POST: no projection to show for nav=%p", (void *)nav);
         ctx.Result("Failed to get projection for the current navigator level " + std::to_string(nav->GetLevel()) +
                    ", cannot render map");
@@ -779,10 +921,14 @@ void toolNgnt()
       NLogTrace("[Server] Final navigator after traversal: %p", (void *)navCurrent);
 
       if (navCurrent && navCurrent->GetChildren().size() > 0) {
-        // The layers from where the drill landed down, replacing what the pad had: the tab strip
-        // describes the current position rather than growing a trail.
+        // The layers from where the drill landed down, joined to what the pad already holds
+        // (`replace=false`): the layer that was clicked stays as a tab, and only a fresh map owns the pad.
         const std::string mappingPad = PadArg(ctx, "mappingPad", "pad1");
-        RenderMapLayers(ctx, navCurrent, mappingPad, point);
+        // A drill is "show me the layer I went into": `reveal` moves the pad to this drawing's first
+        // layer, so a click opens the deeper projection rather than leaving the user on the tab they
+        // clicked. A fresh map does not ask for it - its first layer is new and shows on its own.
+        wsOut["payload"]["reveal"] = true;
+        RenderMapLayers(ctx, navCurrent, mappingPad, point, /*replace=*/false);
 
         if (navCurrent->GetLevel() == nav->GetNLevels() - 1) {
           NLogTrace("[Server] Reached final level navigator for point: %s [%d/%d]", json(point).dump().c_str(),
@@ -908,27 +1054,41 @@ void toolNgnt()
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "axismargin", minmax);
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[spectraKey], "minmaxMode", minmaxMode);
 
-      std::vector<int>       point      = ctx.GetStatePoint();
-      size_t                 nLevels    = nav->GetNLevels();
+      // The spectra are drawn for the last level's bins, so the point only has to name a bin for the
+      // levels above it. A fresh run has no point yet, and a bin the point names (or its default, the
+      // first) may be an empty one - the navigator builds a child only for a bin with data - so a
+      // missing child falls back to the level's first bin that does have one, rather than refusing.
+      // An entry for the last level, if the point carries one, names the spectra themselves and is not
+      // used here.
+      //
+      // A bin is a ROOT bin number (1-based; see NGnNavigator::Reshape, `indexInProj = FindFixBin`), so
+      // 0 is no bin: a level the point leaves at 0 or does not reach starts from bin 1.
+      // The point the request asked for (`point`/`level`/`args.bin` - what a click carries), else the
+      // stored one: the same resolution a PATCH uses, so a spectra step a click created draws the point
+      // that was clicked rather than the empty default.
+      std::vector<int>       point      = ResolveDrillPoint(ctx, ctx.In());
+      const size_t           nLevels    = nav->GetNLevels();
       Ndmspc::NGnNavigator * navCurrent = nav;
 
-      for (size_t iLevel = 0; iLevel < nLevels - 1; iLevel++) {
-        int bin = (iLevel < point.size()) ? point[iLevel] : -1;
-        if (bin == -1) {
-          NLogTrace("[Server] Point does not have bin for level %zu", iLevel);
+      const size_t needed = nLevels > 0 ? nLevels - 1 : 0;
+      point.resize(needed, 1); // drop a last-level entry; a missing level starts at the first bin
 
-          ctx.Result("Point does not have bin for level " + std::to_string(iLevel));
+      for (size_t iLevel = 0; iLevel < needed; iLevel++) {
+        const int bin = point[iLevel] < 1 ? 1 : point[iLevel];
+        Ndmspc::NGnNavigator * next = navCurrent->GetChild(static_cast<size_t>(bin));
+        if (next == nullptr) {
+          // The named bin holds no data (a child is built for a bin with data only): take the level's
+          // first bin that does, and name it in the point.
+          size_t firstBin = 0;
+          next            = navCurrent->GetFirstChild(&firstBin);
+          if (next != nullptr) point[iLevel] = static_cast<int>(firstBin);
+        }
+        if (next == nullptr) {
+          NLogTrace("No navigator found for spectra at point: %s", json(point).dump().c_str());
+          ctx.Result("No navigator found for spectra at point: " + json(point).dump());
           return;
         }
-        navCurrent = navCurrent->GetChild(bin);
-        if (!navCurrent) break;
-      }
-
-      if (!navCurrent) {
-        NLogTrace("No navigator found for spectra at point: %s", json(point).dump().c_str());
-
-        ctx.Result("No navigator found for spectra at point: " + json(point).dump());
-        return;
+        navCurrent = next;
       }
 
       {
@@ -947,7 +1107,9 @@ void toolNgnt()
       wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
 
       int padIndex = ParsePadIndex(spectraPad);
-      RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex, true);
+      // A fresh draw owns the pads it draws to (`replace`), so spectra from another combination do not
+      // linger; the PATCH path appends.
+      RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex, point, true, /*replace=*/true);
 
       ctx.Success();
       return;
@@ -1010,8 +1172,7 @@ void toolNgnt()
       std::string spectraPad = ctx.GetString("startPad", "pad3");
       int         padIndex   = ParsePadIndex(spectraPad);
 
-      RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex);
-
+      RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex, point);
       ctx.Success();
       return;
     }
