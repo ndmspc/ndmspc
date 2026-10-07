@@ -183,6 +183,17 @@ class NGnNavigator : public TNamed {
   NGnNavigator * GetChild(size_t index) const;
 
   /**
+   * @brief Get the first child this navigator has, and the bin index it sits at.
+   *
+   * A child is built only for a bin that holds data, so the first bin (1) may be absent: this is the
+   * level's first bin that does have a child, which is what a drill that names no bin should land on.
+   *
+   * @param bin Set to the child's index when one is found (untouched otherwise).
+   * @return Pointer to the first child NGnNavigator, or nullptr when this navigator has none.
+   */
+  NGnNavigator * GetFirstChild(size_t * bin = nullptr) const;
+
+  /**
    * Returns a pointer to a child NGnNavigator object specified by a sequence of coordinate vectors.
    * Each inner vector in the coords parameter represents a set of indices at a particular hierarchy level.
    * Traverses the hierarchy according to the provided coordinates.

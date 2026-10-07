@@ -328,13 +328,16 @@ class NHttpServer : public THttpServer {
   bool CancelRequest(const std::string & requestId);
 
   /**
-   * @brief Handles a control request (currently `POST /api/cancel`) inline on this thread.
+   * @brief Handles a control request inline on this thread.
    *
-   * A cancel cannot go through {@link RunAction}: the worker is busy with the very action being
-   * cancelled, so it would queue behind it. It is handled here instead — the request thread is free
-   * (the action runs on the worker), which is what makes a cancel arrive while the action runs. The
-   * websocket bridge is not used for this: ROOT delivers a connection's frames only after its
-   * previous request has been answered, so a websocket cancel would arrive too late.
+   * The control requests are `POST /api/cancel` (stop a running action), `POST /api/upload`
+   * (bring a file into the room, chunk by chunk), `GET /api/files` (list them), `GET /api/download`
+   * (read one back) and `POST /api/delete` (remove one). They are answered here rather than through
+   * {@link RunAction}: the worker is busy with the very action being cancelled, so a cancel would
+   * queue behind it. The request thread is free (the action runs on the worker), which is what makes
+   * a cancel arrive while the action runs. The websocket bridge is not used for this: ROOT delivers a
+   * connection's frames only after its previous request has been answered, so a websocket cancel
+   * would arrive too late.
    *
    * @param arg The request.
    * @return True when it was a control request and has been answered.
@@ -741,13 +744,18 @@ class NHttpServer : public THttpServer {
   // constructor and store `[{}]` - a *non-empty* array, which read as "this room enforces access"
   // on every server, router included.
   json               fRoomAccess = json::object(); ///<! NDMSPC_ROOM_ACCESS: the tokens to enforce
+  /// NDMSPC_ROOM_MAX_FILE_SIZE / NDMSPC_ROOM_MAX_STORAGE: the ceilings a room puts on one upload and
+  /// on its working directory. Parsed once at construction; 0 means unlimited. Set by the room
+  /// deployment, not by the client, so the limit holds even against a hand-written request.
+  long long          fMaxFileBytes{0};        ///<! Largest single file the room accepts (0 = no cap)
+  long long          fMaxStorageBytes{0};     ///<! Largest total the room's directory may hold (0 = no cap)
   std::string        fRoomPushed;             ///<! Last reported snapshot, to skip no-op reports
   bool               fRoomRestoring{false};   ///<! Guards the nested replay against recursion
   bool               fRoomRestored{false};    ///<! Nothing left to restore
   long               fRoomRestoreNextTrySec{0}; ///<! Cooldown before retrying a failed fetch
 
   /// \cond CLASSIMP
-  ClassDefOverride(NHttpServer, 1);
+  ClassDefOverride(NHttpServer, 2);
   /// \endcond;
 };
 
