@@ -474,4 +474,67 @@ TEST_F(NRoomClientTest, RestoreSurfacesAPartialFailureInThePayload)
   EXPECT_EQ(result.payload["failed"][0]["error"], "ngnt/open failed: cannot open file");
 }
 
+TEST_F(NRoomClientTest, BackupCanNameOneRoom)
+{
+  fake->responseBody = McpEnvelope(
+      {{"result", "success"}, {"payload", {{"version", 1}, {"rooms", json::array({{{"room", "alpha"}}})}}}});
+
+  const Ndmspc::NRoomResult result = Client().Backup("alpha");
+
+  ASSERT_TRUE(result.ok) << result.error;
+  const json request = fake->Request();
+  EXPECT_EQ(request["params"]["name"], "room_backup");
+  EXPECT_EQ(request["params"]["arguments"]["method"], "GET");
+  // Naming the room is what asks for a document holding that room alone.
+  EXPECT_EQ(request["params"]["arguments"]["room"], "alpha");
+}
+
+TEST_F(NRoomClientTest, ConfigAsksForOneRoomsConfiguration)
+{
+  fake->responseBody = McpEnvelope({{"result", "success"},
+                                    {"payload", {{"v", 1}, {"file", "x.root"}, {"steps", json::array()}}}});
+
+  const Ndmspc::NRoomResult result = Client().Config("alpha");
+
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(result.payload["file"], "x.root");
+  EXPECT_EQ(result.payload["v"], 1);
+
+  const json request = fake->Request();
+  EXPECT_EQ(request["params"]["name"], "room_config");
+  EXPECT_EQ(request["params"]["arguments"]["method"], "GET");
+  EXPECT_EQ(request["params"]["arguments"]["room"], "alpha");
+}
+
+TEST_F(NRoomClientTest, ImportCarriesTheConfigAndTheSize)
+{
+  const json config = {{"version", 1}, {"rooms", json::array({{{"room", "elsewhere"}}})}};
+  fake->responseBody = McpEnvelope({{"result", "success"},
+                                    {"payload", {{"room", "fresh"}, {"revision", "ndmspc-room-fresh-00001"}}}});
+
+  const Ndmspc::NRoomResult result = Client().Import("fresh", config, "small");
+
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(result.payload["room"], "fresh");
+
+  const json request = fake->Request();
+  EXPECT_EQ(request["params"]["name"], "room_import");
+  EXPECT_EQ(request["params"]["arguments"]["method"], "POST");
+  EXPECT_EQ(request["params"]["arguments"]["room"], "fresh");
+  EXPECT_EQ(request["params"]["arguments"]["config"], config);
+  EXPECT_EQ(request["params"]["arguments"]["profile"], "small");
+}
+
+TEST_F(NRoomClientTest, ImportWithoutASizeLeavesTheChoiceToTheRouter)
+{
+  const json config = {{"version", 1}, {"rooms", json::array({{{"room", "elsewhere"}}})}};
+  fake->responseBody = McpEnvelope({{"result", "success"}, {"payload", {{"room", "fresh"}}}});
+
+  const Ndmspc::NRoomResult result = Client().Import("fresh", config);
+
+  ASSERT_TRUE(result.ok) << result.error;
+  // Without it the router takes the config's own size, then the skeleton's.
+  EXPECT_FALSE(fake->Request()["params"]["arguments"].contains("profile"));
+}
+
 } // namespace

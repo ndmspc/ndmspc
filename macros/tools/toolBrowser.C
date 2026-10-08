@@ -292,14 +292,12 @@ json SparseDialogSchema(THnSparse * sparse, const json & saved = json())
                              : json::array();
 
   // The checkbox leads the line, the axis name is the label, and the options follow it. The label is
-  // TLatex (`p_{T} (GeV/c^{2})`), which the form renders through the column's `format`.
+  // the axis **name** (`mean`), not its title: a name is what identifies an axis, and the title is
+  // prose written for a reader ("Mean [GeV]") that a row in a table does not need - and plain text, so
+  // a name carrying an underscore is not read as LaTeX.
   json columns = json::array({
       {{"key", "use"}, {"title", "Project"}, {"type", "boolean"}},
-      {{"key", "axis"},
-       {"title", "Axis"},
-       {"type", "string"},
-       {"format", "rootlatex"},
-       {"readOnly", true}},
+      {{"key", "axis"}, {"title", "Axis"}, {"type", "string"}, {"readOnly", true}},
       {{"key", "min"}, {"title", "min"}, {"type", "number"}},
       {{"key", "max"}, {"title", "max"}, {"type", "number"}},
       {{"key", "rebin"}, {"title", "rebin"}, {"type", "integer"}},
@@ -307,14 +305,12 @@ json SparseDialogSchema(THnSparse * sparse, const json & saved = json())
 
   json rows = json::array();
   for (int i = 0; i < ndim; i++) {
-    TAxis *      axis  = sparse->GetAxis(i);
-    const char * name  = (axis != nullptr && axis->GetName() != nullptr) ? axis->GetName() : "";
-    const char * title = (axis != nullptr && axis->GetTitle() != nullptr) ? axis->GetTitle() : "";
+    TAxis *      axis = sparse->GetAxis(i);
+    const char * name = (axis != nullptr && axis->GetName() != nullptr) ? axis->GetName() : "";
 
-    // "index, name [title]" - the index places the axis, the name is what the file calls it, and the
-    // bracketed title is what it means.
-    std::string label = std::to_string(i) + ", " + name;
-    if (title[0] != '\0') label += " [" + std::string(title) + "]";
+    // "index, name" - the index places the axis where the projection will put it, the name is what the
+    // file calls it.
+    const std::string label = std::to_string(i) + ", " + name;
 
     // The bounds default to the axis' own, so the table opens on the full range and the user narrows it.
     const double xmin  = axis != nullptr ? axis->GetXmin() : 0.0;
@@ -343,6 +339,18 @@ json SparseDialogSchema(THnSparse * sparse, const json & saved = json())
     }
 
     rows.push_back({{"axis", label}, {"use", use}, {"min", lo}, {"max", hi}, {"rebin", rebin}});
+  }
+
+  // A rebin ROOT cannot do is not offered: `Rebin` works on fixed bin widths only, so an axis with
+  // variable-width bins gets its `rebin` cell disabled rather than accepting a number that would be
+  // ignored. The table carries that as a per-row list of the cells that are off (see the UI's table
+  // field). `GetXbins()` answers every axis — two edges for a uniform one — so the count tells them
+  // apart.
+  for (int i = 0; i < static_cast<int>(rows.size()) && i < ndim; i++) {
+    TAxis *        axis  = sparse->GetAxis(i);
+    const TArrayD * edges = axis == nullptr ? nullptr : axis->GetXbins();
+    if (edges == nullptr || edges->GetSize() <= 2) continue;
+    rows[i]["disabled"] = json::array({"rebin"});
   }
 
   json properties = json::object();
@@ -837,7 +845,10 @@ void toolBrowser()
         }
 
         // No pad is named: the pad view decides where it lands (its fixed pad, or the rotating ones).
-        ctx.ShowRoot(object, "", label, drawOpts);
+        // `replace`, because browsing draws one object at a time - a click means "show me this", so the
+        // pad shows it rather than collecting a tab for every object looked at. A view that keeps a tab
+        // per drawing is the default elsewhere; the tool that wants otherwise says so (see NdmspcPadSource).
+        ctx.ShowRoot(object, "", label, drawOpts, json::object(), /*replace=*/true);
         if (ctx.HasError()) return;
 
         // Keep the tree on screen (and the picked node), and remember what was drawn last.
@@ -962,13 +973,18 @@ void toolBrowser()
           const auto it = rebins.find(axes[pos]);
           if (it == rebins.end()) continue;
           const int factor = it->second;
+          // A rebin ROOT cannot do — a variable-width axis — leaves the projection as it was: `Rebin`
+          // answers `nullptr` rather than refusing, so the result is taken only when it produced a
+          // histogram. Assigning it either way is what used to lose the whole projection.
+          TH1 * rebinned = nullptr;
           if (pos == 0) {
-            projection = projection->RebinX(factor);
+            rebinned = projection->RebinX(factor);
           }
           else if (auto * two = dynamic_cast<TH2 *>(projection)) {
-            if (pos == 1) projection = two->RebinY(factor);
-            else if (auto * three = dynamic_cast<TH3 *>(projection)) projection = three->RebinZ(factor);
+            if (pos == 1) rebinned = two->RebinY(factor);
+            else if (auto * three = dynamic_cast<TH3 *>(projection)) rebinned = three->RebinZ(factor);
           }
+          if (rebinned != nullptr) projection = rebinned;
         }
         if (projection == nullptr) {
           ctx.Result("Failed to rebin " + key);
@@ -980,7 +996,25 @@ void toolBrowser()
         std::string name = ctx.GetString("name");
         if (name.empty()) name = "projection";
 
-        projection->SetTitle((std::string(sparse->GetTitle()) + " projection").c_str());
+        // The projection's title says what it is, in names: the object it came from and the axes it was
+        // made of (`hns mass-pt projection`). Not the object's ROOT title, which is prose written for a
+        // reader - and the object is named too, because two objects with the same axes are otherwise
+        // two identical titles over one canvas.
+        std::string axesLabel;
+        for (const auto position : axes) {
+          TAxis * axis = sparse->GetAxis(static_cast<int>(position));
+          if (axis == nullptr) continue;
+          const char * axisName = axis->GetName();
+          if (axisName == nullptr || *axisName == '\0') continue;
+          if (!axesLabel.empty()) axesLabel += "-";
+          axesLabel += axisName;
+        }
+        const char * objectName = sparse->GetName();
+        std::string  title      = (objectName != nullptr && *objectName != '\0')
+                                      ? std::string(objectName) + " "
+                                      : std::string();
+        title += axesLabel.empty() ? "projection" : axesLabel + " projection";
+        projection->SetTitle(title.c_str());
 
         const std::string options = ctx.GetString("drawOpts");
         const bool        same    = httpIn.value("same", false);

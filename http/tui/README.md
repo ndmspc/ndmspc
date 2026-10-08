@@ -6,7 +6,7 @@ Home of the FTXUI-based terminal user interfaces for the NDMSPC HTTP services.
 
 | File | Purpose |
 |---|---|
-| `ndmspc-room-tui.cxx` | The room-management CLI: options, TLS/OIDC setup, the MCP handshake, the headless `--list/--open/--status/--close/--backup/--restore` actions, and the hand-off to the screen. Includes no FTXUI header. |
+| `ndmspc-room-tui.cxx` | The room-management CLI: options, TLS/OIDC setup, the MCP handshake, the headless `--list/--open/--status/--close/--backup/--config/--restore/--import` actions, and the hand-off to the screen. Includes no FTXUI header. |
 | `room_ui.cxx` / `.h` | The interactive room screen for that binary: room table, detail pane, dialogs and the worker thread. This is the only file that includes FTXUI. |
 
 The FTXUI implementation itself is **not** here — it is generic TUI infrastructure and

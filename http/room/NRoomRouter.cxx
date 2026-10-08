@@ -2975,10 +2975,26 @@ bool NRoomRouter::Register(NHttpServer * server)
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
   Ndmspc::RegisterMcpTool("room/backup", {
-      .description = "Export every tracked room and its session as one JSON document, for backup or "
+      .description = "Export the tracked rooms and their sessions as one JSON document, for backup or "
                      "for restoring onto another deployment. It carries no ROOT data, only the "
-                     "session (file, navigator, drill-down).",
+                     "session (file, navigator, drill-down), plus the size and image each room was "
+                     "created at. Name one room to get a document holding just that room. For one "
+                     "room's configuration - what to hand to somebody else - see room/config.",
       .methods     = {"GET"},
+      .inputSchema = {{"properties",
+                       {{"room",
+                         {{"type", "string"},
+                          {"description",
+                           "Export this one room alone instead of every room the caller may see."}}}}}},
+  });
+  Ndmspc::RegisterMcpTool("room/config", {
+      .description = "Export one room's configuration: the file it opened, the steps that were run, "
+                     "the size it was created at, and what was on screen (the sessions, the pads and "
+                     "their tabs, the drill-down). It holds nothing about the room itself - no id, no "
+                     "owner, no links - so it is what somebody hands to somebody else, and what "
+                     "room/import takes.",
+      .methods     = {"GET"},
+      .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
   Ndmspc::RegisterMcpTool("room/restore", {
       .description = "Ensure every room named in a document from room/backup and replay its session. "
@@ -2996,6 +3012,26 @@ bool NRoomRouter::Register(NHttpServer * server)
                            "Delete a room the document names that is already there before restoring "
                            "it, so the document's session wins over whatever the room holds. "
                            "Defaults to false (a room already in use is left alone)."}}}}}},
+  });
+  Ndmspc::RegisterMcpTool("room/import", {
+      .description = "Replace one room with the configuration room/config answers with (or with one "
+                     "room of a document from room/backup). The room is deleted if it is already "
+                     "there - its current work is lost - and created again carrying that "
+                     "configuration, so what comes back is the configuration and nothing of the old "
+                     "room. A room that is not there yet is simply created.",
+      .methods     = {"POST"},
+      .inputSchema = {{"properties",
+                       {{"room",
+                         {{"type", "string"}, {"description", "The room to import into."}}},
+                        {"config",
+                         {{"type", "object"},
+                          {"description",
+                           "A config from room/config, or a document from room/backup."}}},
+                        {"profile",
+                         {{"type", "string"},
+                          {"description",
+                           "The size to create the room at. Defaults to the config's own, then to "
+                           "the skeleton's."}}}}}},
   });
 
   // -------------------------------------------------------------------------
@@ -3072,6 +3108,17 @@ bool NRoomRouter::Register(NHttpServer * server)
     NRoomRouter::Instance().HandleBackup(method, in, out);
   };
   // -------------------------------------------------------------------------
+  //  /api/room/config — one room's configuration, and nothing about the room
+  // -------------------------------------------------------------------------
+  //
+  // What somebody hands to somebody else: the file, the steps that were run, the size, and what was on
+  // screen. No id, no owner, no links - so there is nothing in it that reaches back into the room it
+  // came from, and the person importing it gets a room of their own holding that configuration.
+  handlers["room/config"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                               std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleConfig(method, in, out);
+  };
+  // -------------------------------------------------------------------------
   //  /api/room/restore — ensure every room in a document and replay its session
   // -------------------------------------------------------------------------
   //
@@ -3084,6 +3131,19 @@ bool NRoomRouter::Register(NHttpServer * server)
   handlers["room/restore"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleRestore(method, in, out);
+  };
+  // -------------------------------------------------------------------------
+  //  /api/room/import — replace one room with one from a config
+  // -------------------------------------------------------------------------
+  //
+  // One room, not a set: the config is a document holding that room (what room/backup answers for a
+  // single room). It is all-or-nothing - the room is deleted if it is there and created again carrying
+  // the config's session - because a room takes its session as it starts and latches: there is no way
+  // to hand a session to a room that is already running, so the session has to be on the room before
+  // it exists. Naming a room that is not there simply creates it.
+  handlers["room/import"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                               std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleImport(method, in, out);
   };
   return true;
 }
@@ -4158,12 +4218,39 @@ void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out
   // exports an empty document - and the rooms it is supposed to back up look like they never existed.
   Adopt();
 
+  // A request may name one room, which is what a room's own export asks for: the answer is a document
+  // holding that room alone, so one format serves a single room (what room/import takes) and the whole
+  // set. A room that is not there, or is not this caller's to see, is refused rather than answered
+  // with a document that quietly holds nothing.
+  const std::string wantedId = RequestId(in);
+
+  std::string       wantedName;
+  if (!wantedId.empty()) {
+    const NRoomRef ref = Resolve(wantedId, identity);
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it == fRooms.end()) {
+      out["result"] = "failure";
+      out["code"]   = kUnknownRoom;
+      out["error"]  = "No room '" + wantedId + "' is tracked here";
+      return;
+    }
+    if (!MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
+      return;
+    }
+    wantedName = ref.name;
+  }
+
   // Copy the registry under the lock, then read each session outside it. A caller exports the rooms
   // it may see: an admin exports all of them, and anyone else their own.
   std::vector<NRoomState> rooms;
   {
     std::lock_guard<std::mutex> lock(fMutex);
     for (const auto & entry : fRooms) {
+      if (!wantedName.empty() && entry.first != wantedName) continue;
       if (!MaySee(entry.second, identity)) continue;
       rooms.push_back(entry.second);
     }
@@ -4184,6 +4271,12 @@ void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out
     entry["name"]     = room.name;
     entry["revision"] = room.revision; // informational: recomputed when the room is restored
     entry["lastSeen"] = room.lastSeen; // informational: reset when the room is restored
+
+    // The size it was created at and the image it is pinned to. Informational for a whole-set restore,
+    // which re-creates every room from the deployment's current skeleton; room/import reads them to
+    // recreate a room as the config had it.
+    if (!room.profile.empty()) entry["profile"] = room.profile;
+    if (!room.image.empty()) entry["image"] = room.image;
 
     // Carry the tokens, so that restoring hands out the same links again instead of quietly
     // minting new ones - which would roll the restored room's revision as well.
@@ -4394,6 +4487,374 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
   out["result"]              = "success";
   out["payload"]["restored"] = restored;
   out["payload"]["failed"]   = failed;
+}
+
+/**
+ * @brief A config turned into the entry room/import works with.
+ *
+ * A config (what room/config answers) is not a document: it holds the analysis - the file, the steps
+ * that were run, the size, what was on screen - and nothing about a room. Turning it into the entry
+ * room/import already understands is what makes the two take exactly the same path from here on: the
+ * steps become the session's actions, the view becomes the session's state, and the size rides along.
+ *
+ * @param config The config.
+ * @return The entry, holding a `snapshot` the room can be born with and the `profile` to create it at.
+ */
+static json NdmspcRoomConfigEntry(const json & config)
+{
+  json snapshot;
+  snapshot["v"] = 1;
+
+  const json file = NdmspcRoomMember(config, "file");
+  if (file.is_string() && !file.get<std::string>().empty()) snapshot["file"] = file;
+
+  json actions = json::array();
+  for (const auto & step : NdmspcRoomMember(config, "steps")) {
+    if (!step.is_object()) continue;
+    const json name = NdmspcRoomMember(step, "action");
+    if (!name.is_string() || name.get<std::string>().empty()) continue;
+    json action;
+    action["name"]   = name;
+    const json params = NdmspcRoomMember(step, "params");
+    action["in"]     = params.is_object() ? params : json::object();
+    actions.push_back(std::move(action));
+  }
+  if (!actions.empty()) snapshot["actions"] = actions;
+
+  const json view = NdmspcRoomMember(config, "view");
+  if (view.is_object()) {
+    const json sessions = NdmspcRoomMember(view, "sessions");
+    if (sessions.is_object() && !sessions.empty()) snapshot["sessionNames"] = sessions;
+    const json pads = NdmspcRoomMember(view, "pads");
+    if (pads.is_object() && !pads.empty()) snapshot["pads"] = pads;
+    const json point = NdmspcRoomMember(view, "point");
+    if (point.is_array() && !point.empty()) snapshot["point"] = point;
+  }
+
+  json entry;
+  entry["snapshot"] = snapshot;
+  const json profile = NdmspcRoomMember(config, "profile");
+  if (profile.is_string() && !profile.get<std::string>().empty()) entry["profile"] = profile;
+  return entry;
+}
+
+// ===========================================================================
+//  room/import
+// ===========================================================================
+void NRoomRouter::HandleImport(const std::string & method, json & in, json & out)
+{
+  if (method.find("POST") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/import";
+    return;
+  }
+
+  const std::string id = RequestId(in);
+  if (id.empty()) {
+    out["result"] = "failure";
+    out["error"]  = "Missing room id (send it in the body as {\"room\": \"<id>\"})";
+    return;
+  }
+
+  // The config is a document holding the room (what room/backup answers for a single room), or one
+  // entry of such a document. A document holding one room is taken as it is, whatever that room was
+  // called where it came from, so someone else's export imports into a room of one's own. A document
+  // holding several is read only for the room it names: guessing among many would import the wrong one.
+  const json source = in.contains("config") ? NdmspcRoomMember(in, "config") : NdmspcRoomMember(in, "document");
+  json       entry  = source;
+  const json rooms  = NdmspcRoomMember(source, "rooms");
+
+  // A config is not a document: it holds the analysis and nothing about a room, so it is turned into
+  // the entry the rest of this works with. Both then take exactly the same path. What tells them apart
+  // is that a config says `v` (how its format is versioned) where a document says `version`, and that a
+  // document names rooms or carries a `snapshot` while a config does neither.
+  if (source.is_object() && !rooms.is_array() && !source.contains("snapshot") &&
+      (source.contains("v") || source.contains("steps") || source.contains("file") ||
+       source.contains("view"))) {
+    entry = NdmspcRoomConfigEntry(source);
+  }
+
+  if (source.is_object() && rooms.is_array()) {
+    if (rooms.empty()) {
+      out["result"] = "failure";
+      out["code"]   = kBadConfig;
+      out["error"]  = "The config holds no room";
+      return;
+    }
+    if (rooms.size() == 1) {
+      entry = rooms[0];
+    }
+    else {
+      entry = json();
+      for (const auto & candidate : rooms) {
+        const json candidateId = NdmspcRoomMember(candidate, "room");
+        if (candidate.is_object() && candidateId.is_string() &&
+            candidateId.get<std::string>() == id) {
+          entry = candidate;
+          break;
+        }
+      }
+      if (entry.is_null()) {
+        out["result"] = "failure";
+        out["code"]   = kBadConfig;
+        out["error"]  = "The config holds " + std::to_string(rooms.size()) + " rooms and none is '" +
+                        id + "'; a document with several rooms cannot say which one to import";
+        return;
+      }
+    }
+  }
+  if (!entry.is_object() || entry.empty()) {
+    out["result"] = "failure";
+    out["code"]   = kBadConfig;
+    out["error"]  = "Missing the room config (send a document from room/backup as \"config\")";
+    return;
+  }
+
+  const NRoomConfig &   cfg      = fConfig;
+  const NRequestIdentity identity = RequestIdentity(in);
+
+  // Everything that can be refused is refused before anything is deleted: a config this deployment
+  // cannot apply must never cost a room that works.
+  //
+  // The session has to be readable, or there is nothing to import.
+  std::string sessionText;
+  const json  stored = NdmspcRoomMember(entry, "snapshot");
+  if (stored.is_object() && !stored.empty()) {
+    sessionText = Ndmspc::NRoomSession::Encode(stored);
+    json check;
+    if (sessionText.empty() || !Ndmspc::NRoomSession::Decode(sessionText, check)) {
+      out["result"] = "failure";
+      out["code"]   = kBadConfig;
+      out["error"]  = "The config's session cannot be read";
+      return;
+    }
+  }
+
+  json              skipped      = json::array();
+  json              skeleton;
+  std::string       skeletonError;
+  const bool        haveSkeleton = Skeleton(skeleton, skeletonError);
+
+  // The size: the request's, else the config's, else the skeleton's own default.
+  const json        entryProfile = NdmspcRoomMember(entry, "profile");
+  std::string       profile      = RequestProfile(in);
+  if (profile.empty() && entryProfile.is_string()) profile = entryProfile.get<std::string>();
+  if (haveSkeleton) {
+    std::string       profileError;
+    const std::string resolved = NRoomRouter::ProfileName(skeleton, profile, profileError);
+    if (!profileError.empty()) {
+      out["result"] = "failure";
+      out["code"]   = kUnknownProfile;
+      out["error"]  = profileError;
+      return;
+    }
+    profile = resolved;
+  }
+
+  // The image: taken only when this deployment offers it, and rebuilt on this deployment's own image -
+  // a config from elsewhere may pin a repository that does not exist here. A setting that cannot be
+  // applied is reported rather than failing the import over it.
+  const json        entryImage = NdmspcRoomMember(entry, "image");
+  const std::string wantedImage =
+      entryImage.is_string() ? entryImage.get<std::string>() : std::string();
+  std::string image;
+  if (!wantedImage.empty() && haveSkeleton) {
+    const std::string base = NdmspcRoomImage(skeleton);
+    if (!base.empty() && wantedImage == base) {
+      image = base;
+    }
+    else {
+      const std::string tag = NdmspcImageTag(wantedImage);
+      for (const auto & offered : ImageTags(skeleton)) {
+        const bool matches = !base.empty() && !tag.empty() && offered.is_string() &&
+                             offered.get<std::string>() == tag;
+        if (!matches) continue;
+        image = NRoomRouter::WithTag(base, tag);
+        break;
+      }
+    }
+  }
+  if (!wantedImage.empty() && image.empty()) {
+    json skip;
+    skip["setting"] = "image";
+    skip["reason"]  = "this deployment does not offer '" + wantedImage + "'";
+    skipped.push_back(std::move(skip));
+  }
+
+  Adopt();
+
+  const NRoomRef ref = Resolve(id, identity);
+
+  // Someone else's room is not this caller's to replace.
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it != fRooms.end() && !MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
+      return;
+    }
+  }
+
+  // All or nothing: the room is deleted first, so what comes back is the config's room rather than a
+  // mixture of the two. A room that is not tracked was never there, and this is simply its creation.
+  CloseRoom(ref.value);
+
+  // The session goes on the room before the room exists: the created Service carries it (see
+  // EnsureWorker), so the room restores its whole combination tree as it comes up. Storing it only
+  // afterwards is too late - a room asks for its session as it starts and gives up for good when told
+  // there is none. The room is the caller's: the config's own owner and links are not carried, because
+  // an import may come from somebody else's export.
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    NRoomState &                state = fRooms[ref.name];
+    state.name                        = ref.name;
+    state.value                       = ref.value;
+    if (state.owner.empty() && !identity.Empty()) state.owner = identity.Owner();
+    if (!sessionText.empty()) state.snapshot = sessionText;
+  }
+
+  json        payload;
+  std::string error;
+  std::string code;
+  Outcome     ensured = Outcome::Failed;
+  try {
+    ensured = EnsureStart(ref.value, profile, image, /*wait=*/true, Replay::Stored, payload, error, code);
+  }
+  catch (const std::exception & e) {
+    error   = std::string("cannot create the room: ") + e.what();
+    code.clear();
+    ensured = Outcome::Failed;
+  }
+
+  if (ensured != Outcome::Ready) {
+    // A room the cluster cannot place keeps the session, so it comes back holding it when the
+    // convergence path finishes the job (a room fetches its session as it wakes).
+    if (ensured == Outcome::Pending && !sessionText.empty()) StoreSnapshot(ref.name, ref.value, sessionText);
+    NLogError("[room] import of '%s' failed: %s", ref.value.c_str(), error.c_str());
+    out["result"] = "failure";
+    if (!code.empty()) out["code"] = code;
+    out["error"] = error;
+    return;
+  }
+
+  // The session came back through the room's own startup read; keeping it in the registry and on the
+  // Service annotation is what a later scale-to-zero wakes up with.
+  if (!sessionText.empty()) StoreSnapshot(ref.name, ref.value, sessionText);
+
+  NLogInfo("[room] imported '%s'", ref.value.c_str());
+  json done;
+  done["room"]     = ref.value;
+  done["name"]     = payload.value("name", ref.name);
+  done["revision"] = payload.value("revision", std::string());
+  done["session"]  = payload.value("session", std::string());
+  if (!profile.empty()) done["profile"] = profile;
+  if (!image.empty()) done["image"] = image;
+  if (!skipped.empty()) done["skipped"] = skipped;
+
+  // A watcher sees the room as the import left it now rather than on its next push.
+  PublishRooms();
+  out["result"]  = "success";
+  out["payload"] = done;
+}
+
+// ===========================================================================
+//  room/config
+// ===========================================================================
+void NRoomRouter::HandleConfig(const std::string & method, json & in, json & out)
+{
+  if (method.find("GET") == std::string::npos && method.find("POST") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/config";
+    return;
+  }
+
+  const std::string id = RequestId(in);
+  if (id.empty()) {
+    out["result"] = "failure";
+    out["error"]  = "Missing room id (send it in the body as {\"room\": \"<id>\"})";
+    return;
+  }
+
+  const NRequestIdentity identity = RequestIdentity(in);
+
+  // What is exported is what the registry holds: adopt first, or a router that has just started
+  // answers with an empty config for a room that is plainly there.
+  Adopt();
+
+  const NRoomRef ref = Resolve(id, identity);
+
+  NRoomState room;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it == fRooms.end()) {
+      out["result"] = "failure";
+      out["code"]   = kUnknownRoom;
+      out["error"]  = "No room '" + id + "' is tracked here";
+      return;
+    }
+    if (!MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
+      return;
+    }
+    room = it->second;
+  }
+
+  json snapshot;
+  const bool hasSnapshot = Ndmspc::NRoomSession::Decode(Snapshot(room.name, room.value), snapshot);
+
+  // The configuration, and nothing about the room: no id, no name, no owner, no links. What somebody
+  // hands on is what they set up, not the room they set it up in.
+  json config;
+  config["v"] = 1;
+
+  const json file = NdmspcRoomMember(snapshot, "file");
+  if (hasSnapshot && file.is_string() && !file.get<std::string>().empty()) config["file"] = file;
+  // The size it was created at, so an import can make a room the same size. A room that has none says
+  // nothing rather than "": an absent size is the deployment's default, not a size called "".
+  if (!room.profile.empty()) config["profile"] = room.profile;
+
+  // The steps that were run, in the tools' own vocabulary. The router's own bookkeeping (`_identity`,
+  // `_query`) is left out: it is about who asked, and a config is about what was done.
+  json steps = json::array();
+  for (const auto & action : NdmspcRoomMember(snapshot, "actions")) {
+    if (!action.is_object()) continue;
+    const json name = NdmspcRoomMember(action, "name");
+    if (!name.is_string() || name.get<std::string>().empty()) continue;
+
+    json step;
+    step["action"] = name;
+    json params    = NdmspcRoomMember(action, "in");
+    if (params.is_object()) {
+      for (auto it = params.begin(); it != params.end();) {
+        if (it.key().empty() || it.key().front() == '_') it = params.erase(it);
+        else ++it;
+      }
+      if (!params.empty()) step["params"] = params;
+    }
+    steps.push_back(std::move(step));
+  }
+  if (!steps.empty()) config["steps"] = steps;
+
+  // And what was on screen: the sessions that were started, the pads and their tabs, and where the
+  // drill-down was left. Each only when there is one - a config of a room nobody has done anything in
+  // is just `{"v": 1}`.
+  json view;
+  const json sessions = NdmspcRoomMember(snapshot, "sessionNames");
+  if (sessions.is_object() && !sessions.empty()) view["sessions"] = sessions;
+  const json pads = NdmspcRoomMember(snapshot, "pads");
+  if (pads.is_object() && !pads.empty()) view["pads"] = pads;
+  const json point = NdmspcRoomMember(snapshot, "point");
+  if (point.is_array() && !point.empty()) view["point"] = point;
+  if (!view.empty()) config["view"] = view;
+
+  NLogInfo("[room] exported the config of '%s'", room.value.c_str());
+  out["result"]  = "success";
+  out["payload"] = config;
 }
 
 } // namespace Ndmspc

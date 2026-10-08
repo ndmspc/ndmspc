@@ -948,8 +948,10 @@ are served both as `/api/room/*` and as MCP tools):
 | `room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
 | `room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
 | `room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
-| `room/backup` | GET | Every tracked room and its session as one JSON document. |
+| `room/backup` | GET | Every tracked room and its session as one JSON document, links and all; `room` (body or query) answers with that one room alone. A backup, for coming back to your own deployment. |
+| `room/config` | GET | **One room's configuration**: the file it opened, the steps that were run, the size it was created at, and what was on screen — and nothing about the room: no id, no owner, no links. What somebody hands to somebody else, and what `room/import` takes. |
 | `room/restore` | POST | Ensure every room in such a document and replay its session. Additive: rooms not named are untouched. |
+| `room/import` | POST | Replace **one** room with a configuration: `room` names the target, `config` the configuration (or a one-room document). The room is deleted if it is there and created again carrying it. A room that is not there is created. |
 
 ### Watching the rooms (instead of polling)
 
@@ -1461,6 +1463,8 @@ ndmspc-room-tui --url "$BASE" --close myroom
 ndmspc-room-tui --url "$BASE" --backup rooms.json    # export the rooms and their sessions
 ndmspc-room-tui --url "$BASE" --restore rooms.json   # re-create and replay them
 ndmspc-room-tui --url "$BASE" --restore rooms.json --replace   # as they were exported, over what is there
+ndmspc-room-tui --url "$BASE" --config mine.json --room myroom   # one room's configuration
+ndmspc-room-tui --url "$BASE" --import mine.json --room myroom   # put that configuration in a room
 ```
 
 `--backup` writes the router's rooms and their sessions to a file and `--restore` brings
@@ -1469,6 +1473,10 @@ restore](#room-backup-and-restore) below. `--backup` refuses to overwrite an exi
 unless you add `--force`, and `--restore` leaves a room that is already there alone unless you
 add `--replace` (which deletes it first, so the document's session is what it comes back with).
 
+`--room` names the room `--backup` or `--config` is about, and the target of `--import`, which puts
+the configuration the file holds into that room — see [One room's
+configuration](#one-rooms-configuration-roomconfig-and-roomimport).
+
 ### Options
 
 | Option | Env | Default | Meaning |
@@ -1476,6 +1484,8 @@ add `--replace` (which deletes it first, so the document's session is what it co
 | `--url,-u` | `NDMSPC_ROOM_URL` | `http://localhost:8080` | Router base URL, or a full `.../api/mcp` endpoint |
 | `--refresh,-r` | | `5` | Seconds between automatic refreshes (`0` = manual only) |
 | `--replace` | | `false` | With `--restore`: delete a room the document names that already exists before restoring it, so the document's session wins over what the room holds |
+| `--room` | | | The room `--backup`/`--config` is about, or the target of `--import` |
+| `--config` | | | With `--room`: write that room's configuration (the file, the steps, the size, the view) to this file — what you hand to somebody else |
 | `--owner` | `NDMSPC_ROOM_OWNER` | | Act as this owner (an email address or user name): the router then shows only its rooms. Empty says nothing about the caller, which keeps the operator's view of every room |
 | `--cert` / `--key` | | | Client certificate and key for mutual TLS |
 | `--key-pass` / `--key-pass-file` | `NDMSPC_KEY_PASS` / `NDMSPC_KEY_PASS_FILE` | | Private-key passphrase, or a base64 file holding it; an encrypted key with no source prompts on a terminal |
@@ -1612,6 +1622,52 @@ nor restores it.
 A document can be refused outright rather than acted on half-way: an unknown `version`, or a
 `router.param`/`router.prefix` that disagrees with this router, means it came from a
 differently configured deployment and would create wrongly named rooms here.
+
+### One room's configuration: `room/config` and `room/import`
+
+`room/config` writes **one room's configuration** — the file it opened, the steps that were run, the
+size it was created at, and what was on screen — and nothing about the room itself: no id, no name, no
+owner, no links.
+
+```json
+{
+  "v": 1,
+  "file": "NSingleBinning01Gaus.root",
+  "profile": "small",
+  "steps": [
+    { "action": "ngnt/reshape",
+      "params": { "binningName": "default", "levels": [[0], [1], [2]] } }
+  ],
+  "view": {
+    "sessions": { "i1": "ngnt 1" },
+    "pads": { "pad1": { "tabs": ["i1"] } },
+    "point": [1, 2, 3]
+  }
+}
+```
+
+That is what somebody hands to somebody else, and `room/import` takes it:
+
+```bash
+ndmspc-room-tui --url "$BASE" --config mine.json --room alice-mine   # that room's configuration
+ndmspc-room-tui --url "$BASE" --import mine.json --room own-room     # ...into a room of your own
+```
+
+An import is **all or nothing**, unlike a restore: the room is deleted if it is there and created again
+carrying the configuration, so what comes back is the configuration and nothing of the one that was
+there. That is not a preference but the way a room takes its session — it fetches it once, as it
+starts, and latches (see [Room session restore](#room-session-restore)) — so it has to be on the room
+before the room exists. Naming a room that is not there simply creates it, which is what makes
+"create a room from a configuration" the same call as "import into an existing one".
+
+Nothing in the file reaches back into the room it came from: there is no link to strip, no flag to
+remember, and no owner to ignore. The room belongs to whoever imports it, under their own id with their
+own links, and the configuration's `profile` is applied — a size this deployment does not define is
+refused **before** anything is deleted. `room/import` also takes a document from `room/backup`, so a
+one-room backup imports the same way.
+
+`room/backup` and `room/restore` are untouched by this: a backup is the room set *with* its links, for
+coming back to your own deployment, and a restore stays additive by default.
 
 ### Restoring from a file in devops
 

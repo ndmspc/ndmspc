@@ -552,6 +552,12 @@ json NWsHandler::BuildHeartbeat(bool withPrevious)
   data["payload"]["clients"] = static_cast<int>(GetClientCount());
   data["payload"]["serverStartedAt"] = std::chrono::duration_cast<std::chrono::milliseconds>(
       fServerStartedAt.time_since_epoch()).count();
+  // The cadence in force and the one the deployment configured: a client that asked for a finer one
+  // while something long was running puts this back when it is done (see the `heartbeat` action).
+  if (Ndmspc::gNHttpServer != nullptr) {
+    data["payload"]["intervalMs"]        = Ndmspc::gNHttpServer->GetHeartbeatMs();
+    data["payload"]["defaultIntervalMs"] = Ndmspc::gNHttpServer->GetHeartbeatDefaultMs();
+  }
   try {
     data["payload"]["system"] = NUtils::GetSystemStats();
     json currentFile = NUtils::GetTFileIOStats();
