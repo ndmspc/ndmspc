@@ -657,6 +657,48 @@ That has three effects:
 This enforcement is the framework's own: it applies to `/api/*`, the WebSocket bridge and
 `tools/call` alike, because a tool call is dispatched through the same path.
 
+### Tool tutorial
+
+A tool can declare a guided tour of itself, so a client can walk a user through running it without
+knowing anything about the tool. It is a **named** tour: `name` and `description` say what it does, and
+`steps` is a **combination** — the same shape a client builds: an ordered list of steps, each naming an
+action to open and the arguments to fill its form with.
+
+```cpp
+Ndmspc::RegisterMcpTool("browser/browse", {
+    .description = "Browse the open file: the step's form is its tree. …",
+    .dependsOn   = {"browser/open"},
+    .runButton   = false,
+    .tutorial    = json{
+        {"name", "Browse a ROOT file"},
+        {"description", "Open a file and draw a few of its objects."},
+        {"steps", json::array({
+            json{{"action", "browser/open"},
+                 {"params", {{"file", "https://root.cern/js/files/hsimple.root"}}}},
+            json{{"action", "browser/browse"}},
+        })},
+    },
+});
+```
+
+It is published as `_meta["ndmspc.io/tutorial"]` on the tool in `tools/list`, and it is **optional**:
+a tool that declares none offers no tour, which is what most want — a tour is for the tool a user does
+not yet know how to drive, not for `health` or an internal helper. The `name` and `description` are what
+a client lists the tour by, so where a tour is offered (Help, or an Inspector with no session yet) it is
+offered by what it does rather than by the tool's own name. A step's `params` is optional too;
+without it the client opens that step on the room's own live defaults. A `runButton = false` step whose
+form is a tree (like `browse`) may instead name the object to click with `"click": "hpx"`: the client
+shows the tree and points the user at that node, since a click is what draws it. To open a folder or a
+tree first, a step names it with `"expand": "ntuple"`: the client points at that node's expander and
+moves on once its children appear, so the step after it can click one (`"click": "ntuple/px"`). A step
+may also be `{"show": "pads"}` — a surface rather than an action, so a tour can end on the result it
+drew. Any step may also carry its own `body`: the card's text, when the tool wants to say more than the
+default (e.g. "…now draw a different object. Click Next.").
+
+The client walks the steps in order, opening each action's step and pointing at **Save & Run** (or at
+the form, or at the named node) for the user to do — the tool says what a tour of it is; the client
+only renders it.
+
 ### Combinations
 
 A group whose tools declare `dependsOn` is a **pipeline**, and a session is a **tree of instances**

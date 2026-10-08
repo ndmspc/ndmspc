@@ -4610,7 +4610,6 @@ void NRoomRouter::HandleImport(const std::string & method, json & in, json & out
     return;
   }
 
-  const NRoomConfig &   cfg      = fConfig;
   const NRequestIdentity identity = RequestIdentity(in);
 
   // Everything that can be refused is refused before anything is deleted: a config this deployment
