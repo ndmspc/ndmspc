@@ -26,6 +26,13 @@ bool RegisterBaseActions()
       .description = "Server health and workspace snapshot (GET prints the server, POST/PATCH return the workspace).",
       .methods     = {"GET", "POST", "PATCH", "DELETE"},
   });
+  Ndmspc::RegisterMcpTool("heartbeat", {
+      .description = "The server's heartbeat interval: GET reports it, POST sets it (milliseconds), so "
+                     "a view can ask for finer readings while something long is running and put the "
+                     "deployment's own back afterwards.",
+      .methods     = {"GET", "POST"},
+      .inputSchema = {{"properties", {{"intervalMs", {{"type", "integer"}}}}}},
+  });
   Ndmspc::RegisterMcpTool("state", {
       .description = "Inspect or reset server state: GET returns the workspace inspector schema, PATCH updates "
                      "the heartbeat, DELETE resets the server.",
@@ -62,6 +69,36 @@ bool RegisterBaseActions()
     else {
       httpOut["error"] = "Unsupported HTTP method for test action";
     }
+  };
+
+  handlers["heartbeat"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
+                             std::map<std::string, TObject *> &) {
+    auto server = Ndmspc::gNHttpServer;
+    if (server == nullptr) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "No server to set the heartbeat on";
+      return;
+    }
+
+    if (method.find("POST") != std::string::npos) {
+      const int wanted  = httpIn.value("intervalMs", 0);
+      int       interval = wanted;
+      // Clamped at both ends: under the floor the readings are noise and the socket spins, and over the
+      // deployment's own interval a room would stop reporting as often as it does by default.
+      const int ceiling = server->GetHeartbeatDefaultMs();
+      if (interval < 250) interval = 250;
+      if (interval > ceiling) interval = ceiling;
+      server->SetHeartbeatMs(interval);
+    }
+    else if (method.find("GET") == std::string::npos) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "Unsupported HTTP method for heartbeat";
+      return;
+    }
+
+    httpOut["result"]                        = "success";
+    httpOut["payload"]["intervalMs"]         = server->GetHeartbeatMs();
+    httpOut["payload"]["defaultIntervalMs"]  = server->GetHeartbeatDefaultMs();
   };
 
   handlers["state"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,

@@ -197,16 +197,27 @@ int ParsePadIndex(const std::string & padName, int defaultIndex = 3)
   return defaultIndex;
 }
 
-/// A layer's tab name: the projection's axes as they are drawn, joined the way the spectra canvases
-/// are (`phi-eta`). An axis with no title contributes nothing, and nothing at all falls back to the
-/// histogram's own name.
+/// A layer's tab name: the **names** of the projection's axes, joined the way the spectra canvases are
+/// (`phi-eta`). The name is what identifies an axis (`mean`) where its title is prose written for a
+/// reader ("Mean [GeV]"), and a tab is an identifier - so it takes the name. Nothing at all falls back
+/// to the histogram's own name.
+///
+/// Only the axes the projection actually has: `GetYaxis()` and `GetZaxis()` answer for a 1D or 2D
+/// histogram too, carrying an empty title but a real name, so the dimension is what decides - taking
+/// all three would name an axis that is not drawn.
 std::string LayersLabel(TH1 * proj)
 {
+  std::vector<TAxis *> axes{proj->GetXaxis()};
+  if (proj->GetDimension() >= 2) axes.push_back(proj->GetYaxis());
+  if (proj->GetDimension() >= 3) axes.push_back(proj->GetZaxis());
+
   std::string label;
-  for (const auto * axis : {proj->GetXaxis(), proj->GetYaxis(), proj->GetZaxis()}) {
-    if (axis == nullptr || axis->GetTitle() == nullptr || *axis->GetTitle() == '\0') continue;
+  for (const auto * axis : axes) {
+    if (axis == nullptr) continue;
+    const char * name = axis->GetName();
+    if (name == nullptr || *name == '\0') continue;
     if (!label.empty()) label += '-';
-    label += axis->GetTitle();
+    label += name;
   }
   if (!label.empty()) return label;
   if (proj->GetName() != nullptr && *proj->GetName() != '\0') return proj->GetName();
@@ -284,8 +295,11 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
 std::string AxisSlice(TAxis * axis, int bin)
 {
   if (axis == nullptr || bin < 1 || bin > axis->GetNbins()) return "";
-  const char *      title = axis->GetTitle();
-  const std::string name  = (title != nullptr && *title != '\0') ? title : axis->GetName();
+  // The axis's **name** (`mean`), not its title: a slice names the axis it is a slice of, and the
+  // title is prose written for a reader ("Mean [GeV]") that reads oddly in the middle of one.
+  const char *      axisName = axis->GetName();
+  const std::string name =
+      (axisName != nullptr && *axisName != '\0') ? axisName : std::string(axis->GetTitle());
 
   const char * label = axis->GetBinLabel(bin);
   if (label != nullptr && *label != '\0') return name + " = " + label;
@@ -722,6 +736,12 @@ void toolNgnt()
 
       if (!ctx.Workspace()[reshapeKey].contains("type")) {
         ctx.Workspace()[reshapeKey] = BuildReshapeSchema(ngnt);
+      }
+      else {
+        // The schema stays - it carries the defaults the reshapes so far set - but its hint lists the
+        // axes of the file that is open, so it is refreshed with this one rather than left describing
+        // whichever file was open when the schema was first built.
+        ctx.Workspace()[reshapeKey]["hint"] = BuildReshapeSchema(ngnt)["hint"];
       }
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 

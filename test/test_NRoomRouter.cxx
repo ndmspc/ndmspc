@@ -484,7 +484,9 @@ struct Router {
     else if (action == "close") router->HandleClose(method, in, out);
     else if (action == "state") router->HandleState(method, in, out);
     else if (action == "backup") router->HandleBackup(method, in, out);
+    else if (action == "config") router->HandleConfig(method, in, out);
     else if (action == "restore") router->HandleRestore(method, in, out);
+    else if (action == "import") router->HandleImport(method, in, out);
     return out;
   }
 
@@ -1567,6 +1569,277 @@ TEST(NRoomRouterActionsTest, ARestoreOnlyDeletesTheRoomsItIsAskedToReplace)
   // And it is a restore again, not a room that kept what it had.
   const json state = test.Call("status", "GET", json({{"room", "alpha"}}));
   EXPECT_EQ(state["payload"]["hasSnapshot"], true);
+}
+
+TEST(NRoomRouterActionsTest, ABackupCanNameOneRoom)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  test.Open("alpha", true);
+  test.Open("beta", true);
+
+  // The whole set, and then the one room a room's own export asks for.
+  const json all = test.Call("backup", "GET");
+  EXPECT_EQ(all["result"], "success");
+  EXPECT_EQ(all["payload"]["rooms"].size(), 2u);
+
+  const json one = test.Call("backup", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(one["result"], "success");
+  ASSERT_EQ(one["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(one["payload"]["rooms"][0]["room"], "alpha");
+  // The document keeps the whole-set shape, so room/restore and room/import read it the same way.
+  EXPECT_EQ(one["payload"]["version"], 1);
+  EXPECT_TRUE(one["payload"]["router"].is_object());
+
+  // A room the router does not track is refused, rather than answered with a document holding nothing:
+  // an export that silently came back empty is the one outcome a caller cannot tell from "no rooms".
+  const json missing = test.Call("backup", "GET", json({{"room", "nope"}}));
+  EXPECT_EQ(missing["result"], "failure");
+  EXPECT_EQ(missing.value("code", ""), "unknown_room");
+}
+
+TEST(NRoomRouterActionsTest, ABackupOfSomeoneElsesRoomIsRefused)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+
+  const json refused =
+      test.Call("backup", "GET", Verified("bob", "bob@example.com", {{"room", "alice-alpha"}}));
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused.value("code", ""), "not_owner");
+
+  // Its owner's export is of course fine.
+  const json mine =
+      test.Call("backup", "GET", Verified("alice", "alice@example.com", {{"room", "alice-alpha"}}));
+  EXPECT_EQ(mine["result"], "success");
+  ASSERT_EQ(mine["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(mine["payload"]["rooms"][0]["owner"], "alice");
+}
+
+TEST(NRoomRouterActionsTest, AnImportReplacesTheRoomAndCarriesItsSession)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // A room that is already there, with work of its own that the import must not leave behind.
+  test.Open("alpha", true);
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+
+  json config;
+  config["version"] = 1;
+  config["rooms"] =
+      json::array({json::object({{"room", "elsewhere"}, {"snapshot", {{"v", 1}, {"file", "x.root"}}}})});
+
+  const json out = test.Call("import", "POST", json({{"room", "alpha"}, {"config", config}}));
+  EXPECT_EQ(out["result"], "success");
+  EXPECT_EQ(out["payload"]["room"], "alpha");
+
+  // All or nothing: the room that was there was deleted first, so it comes back holding the config's
+  // session rather than a mixture of the two.
+  EXPECT_GE(test.cluster->Count("DELETE", service), 1u);
+  EXPECT_TRUE(test.router->Tracked("alpha"));
+
+  const json state = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(state["payload"]["hasSnapshot"], true);
+}
+
+TEST(NRoomRouterActionsTest, AnImportCreatesARoomThatIsNotThere)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->skeleton["profiles"]       = {{"small", {{"resources", {{"limits", {{"cpu", "1"}}}}}}}};
+  test.cluster->skeleton["defaultProfile"] = "small";
+
+  json config;
+  config["version"] = 1;
+  config["rooms"]   = json::array({json::object({{"room", "elsewhere"},
+                                                 {"profile", "small"},
+                                                 {"snapshot", {{"v", 1}, {"file", "x.root"}}}})});
+
+  // Nothing to delete: naming a room that is not there simply creates it, at the config's own size.
+  const json out = test.Call("import", "POST", json({{"room", "fresh"}, {"config", config}}));
+  EXPECT_EQ(out["result"], "success");
+  EXPECT_TRUE(test.router->Tracked("fresh"));
+  EXPECT_EQ(out["payload"]["profile"], "small");
+
+  const json state = test.Call("status", "GET", json({{"room", "fresh"}}));
+  EXPECT_EQ(state["payload"]["hasSnapshot"], true);
+}
+
+TEST(NRoomRouterActionsTest, AnImportRefusesAConfigItCannotApplyBeforeDeletingAnything)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->skeleton["profiles"]       = {{"small", {{"resources", {{"limits", {{"cpu", "1"}}}}}}}};
+  test.cluster->skeleton["defaultProfile"] = "small";
+
+  test.Open("alpha", true);
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+
+  // A size this deployment does not define: refused while the room is still there, because a config
+  // that cannot be applied must never cost a room that works.
+  const json badProfile =
+      test.Call("import", "POST",
+                json({{"room", "alpha"},
+                      {"config", json::object({{"room", "elsewhere"}, {"profile", "enormous"}})}}));
+  EXPECT_EQ(badProfile["result"], "failure");
+  EXPECT_EQ(badProfile.value("code", ""), "unknown_profile");
+  EXPECT_EQ(test.cluster->Count("DELETE", service), 0u);
+
+  // And a config that is not one at all.
+  const json badConfig = test.Call("import", "POST", json({{"room", "alpha"}, {"config", "nonsense"}}));
+  EXPECT_EQ(badConfig["result"], "failure");
+  EXPECT_EQ(badConfig.value("code", ""), "bad_config");
+  EXPECT_EQ(test.cluster->Count("DELETE", service), 0u);
+  EXPECT_TRUE(test.router->Tracked("alpha"));
+}
+
+TEST(NRoomRouterActionsTest, AnImportReportsAnImageThisDeploymentDoesNotOffer)
+{
+  Router test;
+  test.cluster->skeleton = {
+      {"serviceSpec",
+       {{"template", {{"spec", {{"containers", json::array({json::object({{"image", "ndmspc/base:v1"}})})}}}}}}},
+      {"imageTags", json::array({"v1"})}};
+
+  json config;
+  config["version"] = 1;
+  config["rooms"] =
+      json::array({json::object({{"room", "elsewhere"}, {"image", "other.registry/ndmspc/base:v9"}})});
+
+  const json out = test.Call("import", "POST", json({{"room", "fresh"}, {"config", config}}));
+  EXPECT_EQ(out["result"], "success");
+  // The room is created from today's skeleton and the dropped setting is said out loud.
+  ASSERT_EQ(out["payload"]["skipped"].size(), 1u);
+  EXPECT_EQ(out["payload"]["skipped"][0]["setting"], "image");
+  EXPECT_EQ(out["payload"].count("image"), 0u);
+  EXPECT_TRUE(test.router->Tracked("fresh"));
+}
+
+TEST(NRoomRouterActionsTest, AnImportIntoSomebodyElsesRoomIsRefused)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+
+  json config;
+  config["version"] = 1;
+  config["rooms"] = json::array(
+      {json::object({{"room", "somewhere"}, {"snapshot", {{"v", 1}, {"file", "x.root"}}}})});
+
+  const json refused = test.Call(
+      "import", "POST",
+      Verified("bob", "bob@example.com", {{"room", "alice-alpha"}, {"config", config}}));
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused.value("code", ""), "not_owner");
+}
+
+TEST(NRoomRouterActionsTest, AConfigCarriesTheWorkAndNothingAboutTheRoom)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // Alice's room, with work in it - a file open and a reshape - reported the way a room reports it.
+  const json opened = test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  const std::string token = opened["payload"]["access"]["rw"].get<std::string>();
+  ASSERT_FALSE(token.empty());
+  const json levels = json::array({json::array({0, 1, 2})});
+  const json report{
+      {"room", "alice-alpha"},
+      {"snapshot",
+       {{"v", 1},
+        {"file", "x.root"},
+        {"actions",
+         json::array({json::object({{"name", "ngnt/open"}, {"in", {{"file", "x.root"}}}}),
+                      json::object({{"name", "ngnt/reshape"},
+                                    {"in",
+                                     {{"binningName", "default"},
+                                      {"levels", levels},
+                                      // The router's own bookkeeping rides in the recorded action; a
+                                      // config must not carry it: it is about who asked, not what was
+                                      // done.
+                                      {"_identity", {{"user", "alice"}}}}}})})},
+        {"sessionNames", {{"i1", "ngnt 1"}}},
+        {"pads", {{"pad1", {{"tabs", json::array({"i1"})}}}}},
+        {"point", json::array({1, 2, 3})}}},
+      {"_query", "room=alice-alpha&token=" + token}};
+  ASSERT_EQ(test.Call("state", "POST", report)["result"], "success");
+
+  // The config: the work, and nothing about the room it was done in.
+  const json out = test.Call("config", "GET", json({{"room", "alice-alpha"}}));
+  EXPECT_EQ(out["result"], "success");
+  const json config = out["payload"];
+
+  EXPECT_EQ(config["v"], 1);
+  EXPECT_EQ(config["file"], "x.root");
+  for (const std::string & absent :
+       {"room", "name", "owner", "access", "revision", "lastSeen", "router", "snapshot"}) {
+    EXPECT_FALSE(config.contains(absent)) << absent;
+  }
+
+  ASSERT_EQ(config["steps"].size(), 2u);
+  EXPECT_EQ(config["steps"][0]["action"], "ngnt/open");
+  EXPECT_EQ(config["steps"][0]["params"]["file"], "x.root");
+  EXPECT_EQ(config["steps"][1]["action"], "ngnt/reshape");
+  EXPECT_EQ(config["steps"][1]["params"]["levels"], levels);
+  EXPECT_FALSE(config["steps"][1]["params"].contains("_identity"));
+
+  EXPECT_EQ(config["view"]["sessions"], json({{"i1", "ngnt 1"}}));
+  EXPECT_EQ(config["view"]["pads"]["pad1"]["tabs"], json::array({"i1"}));
+  EXPECT_EQ(config["view"]["point"], json::array({1, 2, 3}));
+
+  // Somebody else imports it into a room of their own: it is their room, holding the work, and alice's
+  // room is untouched.
+  const json imported = test.Call(
+      "import", "POST", Verified("bob", "bob@example.com", {{"room", "mine"}, {"config", config}}));
+  EXPECT_EQ(imported["result"], "success");
+  EXPECT_EQ(imported["payload"]["room"], "bob-mine");
+  EXPECT_TRUE(test.router->Tracked("bob-mine"));
+  EXPECT_TRUE(test.router->Tracked("alice-alpha"));
+  EXPECT_EQ(test.Call("status", "GET", {{"room", "bob-mine"}})["payload"]["hasSnapshot"], true);
+
+  // Each room has its own links: what bob's import minted is not what alice's room hands out.
+  std::string bobToken;
+  std::string aliceToken;
+  // Hold the list: `Call(...)["payload"]["rooms"]` is a reference into a temporary that dies at the end
+  // of the range-init, so iterating it directly dangles (it read as empty under Al9's GCC).
+  const json listed = test.Call("list", "GET");
+  for (const auto & room : listed["payload"]["rooms"]) {
+    if (room["room"] == "bob-mine") bobToken = room["access"]["rw"].get<std::string>();
+    if (room["room"] == "alice-alpha") aliceToken = room["access"]["rw"].get<std::string>();
+  }
+  EXPECT_FALSE(bobToken.empty());
+  EXPECT_FALSE(aliceToken.empty());
+  EXPECT_NE(bobToken, aliceToken);
+}
+
+TEST(NRoomRouterActionsTest, AConfigIsRefusedForARoomTheCallerMayNotSee)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // Alice's room, which nobody has done anything in: its config says only what version it is - there
+  // is no file, no step and nothing on screen to write down.
+  test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+  const json empty = test.Call("config", "GET", json({{"room", "alice-alpha"}}));
+  EXPECT_EQ(empty["result"], "success");
+  EXPECT_EQ(empty["payload"]["v"], 1);
+  EXPECT_EQ(empty["payload"].size(), 1u);
+
+  // Someone else's room, and a room that is not there, are refused rather than answered with an empty
+  // config that looks like "nothing to share".
+  const json refused = test.Call("config", "GET", Verified("bob", "bob@example.com", {{"room", "alice-alpha"}}));
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused.value("code", ""), "not_owner");
+
+  const json missing = test.Call("config", "GET", json({{"room", "nope"}}));
+  EXPECT_EQ(missing["result"], "failure");
+  EXPECT_EQ(missing.value("code", ""), "unknown_room");
 }
 
 TEST(NRoomRouterActionsTest, AdoptsTheRoomsTheClusterAlreadyHas)

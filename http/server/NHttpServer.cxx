@@ -130,7 +130,8 @@ long long RoomDirectoryUsageBytes(const std::string & dir, const std::string & e
 } // namespace
 
 NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcConfig oidcConfig, bool startEngine)
-    : THttpServer(startEngine ? engine : ""), fWsEnabled(ws), fHeartbeatMs(heartbeat_ms), fHeartbeatThread(nullptr)
+    : THttpServer(startEngine ? engine : ""), fWsEnabled(ws), fHeartbeatMs(heartbeat_ms),
+      fHeartbeatDefaultMs(heartbeat_ms > 0 ? heartbeat_ms : 10000), fHeartbeatThread(nullptr)
 {
   const auto authenticationTimeout = oidcConfig.authenticationTimeout;
   fAuthenticationTimeout = authenticationTimeout;
@@ -458,13 +459,72 @@ void NHttpServer::SetupWebSocketAndHeartbeat()
   if (fHeartbeatMs > 0 && fNWsHandler && !fHeartbeatThread) StartHeartbeatThread();
 }
 
+namespace {
+/// Whether this request is one of the room's *tools* — the analysis actions, namespaced like
+/// `browser/project` or `ngnt/reshape`. The server's own are bare (`state`, `session`, `group`,
+/// `health`, `heartbeat`) and room management carries `room/`, which is a step rather than a watch: a
+/// cadence that followed those would hold a frame a second for as long as a client kept polling.
+bool IsToolAction(const std::shared_ptr<THttpCallArg> & arg)
+{
+  const TString action = TString::Format("%s/%s", arg->GetPathName(), arg->GetFileName());
+  return action.CountChar('/') > 1 && !action.BeginsWith("api/room/");
+}
+
+/// Notes the tool that is about to run, and again when it is done: the fine cadence is kept while it works
+/// — however long that is — and for the activity window after it, so a client that has just been handed a
+/// job's results is not snapped back to the coarse one while it looks at them.
+class NBusyAction {
+public:
+  NBusyAction(Ndmspc::NHttpServer * server, bool tool) : fServer(server), fTool(tool) { fServer->SetBusyAction(true); }
+  ~NBusyAction()
+  {
+    fServer->SetBusyAction(false);
+    if (fTool) fServer->NoteActivity();
+  }
+
+  NBusyAction(const NBusyAction &)             = delete;
+  NBusyAction & operator=(const NBusyAction &)  = delete;
+
+private:
+  Ndmspc::NHttpServer * fServer;
+  bool                  fTool;
+};
+
+/// The cadence a room is put on while it is working: a second, fine enough to watch a job as it goes.
+const int kBusyHeartbeatMs = 1000;
+
+/// How long the fine cadence is kept after the last tool the room was asked to run. Long enough to cover
+/// the gap between finishing a job and looking at what it drew, so a client left reading its plots is not
+/// paid for with a frame a second.
+const int kActivityWindowMs = 10000;
+}  // namespace
+
+void NHttpServer::SetBusyAction(bool busy)
+{
+  // Kept while an action runs, so the fine cadence lasts for as long as it does, however long that is —
+  // the activity window only covers the quiet that follows one.
+  if (fBusyActions.fetch_add(busy ? 1 : -1) + (busy ? 1 : -1) < 0) fBusyActions.store(0);
+  // The cadence itself is chosen by the heartbeat thread, which reads this: see StartHeartbeatThread.
+}
+
+void NHttpServer::NoteActivity()
+{
+  fLastActivity.store(std::chrono::steady_clock::now());
+}
+
 void NHttpServer::SetHeartbeatMs(int ms)
 {
   std::lock_guard<std::mutex> lk(fHeartbeatMutex);
   fHeartbeatMs = ms;
-  // restart thread according to new interval
-  StopHeartbeatThread();
-  if (fNWsHandler && fHeartbeatMs > 0) StartHeartbeatThread();
+  // The heartbeat thread re-reads the interval on every wake, so changing it is a matter of waking it:
+  // stopping and restarting it instead joins the thread, and this is called *from inside an action* —
+  // that is where the busy cadence is raised and put back — so a restart there can find the old thread
+  // not yet exited, skip starting a new one, and leave the room with no heartbeat at all. Waking it also
+  // means a shorter interval takes effect at once, rather than after the one it replaced had elapsed.
+  {
+    std::lock_guard<std::mutex> cvLock(fHeartbeatCvMutex);
+    fHeartbeatCv.notify_all();
+  }
 }
 
 NHttpServer::~NHttpServer()
@@ -486,8 +546,13 @@ void NHttpServer::StartHeartbeatThread()
   fHeartbeatThread = new std::thread([this]() {
     std::unique_lock<std::mutex> lk(fHeartbeatCvMutex);
     while (fHeartbeatRunning.load()) {
+      // The cadence follows the work: fine for as long as an action runs — however long that is — and for
+      // the window after the last thing the room was asked to do, then back to the configured interval.
+      const bool active =
+          fBusyActions.load() > 0 ||
+          (std::chrono::steady_clock::now() - fLastActivity.load()) < std::chrono::milliseconds(kActivityWindowMs);
       // wait_for returns when notified or when timeout elapses
-      auto dur = std::chrono::milliseconds(fHeartbeatMs);
+      auto dur = std::chrono::milliseconds(active ? std::min(kBusyHeartbeatMs, fHeartbeatMs) : fHeartbeatMs);
       // release fHeartbeatCvMutex while waiting but will reacquire on wake
       fHeartbeatCv.wait_for(lk, dur, [this]() { return !fHeartbeatRunning.load(); });
       if (!fHeartbeatRunning.load()) break;
@@ -1297,6 +1362,8 @@ void NHttpServer::ProcessRequestAs(std::shared_ptr<THttpCallArg> arg, const NReq
 void NHttpServer::RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<NRequestIdentity> identity,
                             const std::string & requestId, const std::function<void()> & onComplete)
 {
+  // The activity that counts here is a tool running: it is started by the guard below, which also notes
+  // the moment it finishes.
   NActionWorker * worker;
   {
     std::lock_guard<std::mutex> lock(fWorkerMutex);
@@ -1307,6 +1374,7 @@ void NHttpServer::RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<N
   // Already on the worker: a handler dispatching another request (the MCP tool-call path, or a room
   // replay). Run it inline - submitting it would have the worker wait on itself and deadlock.
   if (worker->OnWorkerThread()) {
+    NBusyAction busy(this, IsToolAction(arg));
     Dispatch(arg, identity.get());
     if (onComplete) onComplete();
     return;
@@ -1328,6 +1396,7 @@ void NHttpServer::RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<N
       arg->SetContent(json{{"result", "failure"}, {"code", "cancelled"}, {"error", "Cancelled"}}.dump());
     }
     else {
+      NBusyAction busy(this, IsToolAction(arg));
       if (flag) NCancellation::SetCurrent(flag.get());
       Dispatch(arg, identity.get());
       if (flag) NCancellation::ClearCurrent();

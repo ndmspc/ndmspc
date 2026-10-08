@@ -230,10 +230,32 @@ class NHttpServer : public THttpServer {
    * @param ms Interval in milliseconds. If <=0, heartbeat is disabled.
    */
   void SetHeartbeatMs(int ms);
+  /// @brief The interval the deployment configured, which a caller can put back after asking for a
+  ///        finer one (see {@link SetHeartbeatMs} and the `heartbeat` action).
+  int GetHeartbeatDefaultMs() const { return fHeartbeatDefaultMs; }
   /**
    * @brief Get the current heartbeat interval (ms).
    */
   int GetHeartbeatMs() const { return fHeartbeatMs; }
+
+  /// Notes an action in flight (see the busy-action guard in the action path): while one runs, the room
+  /// takes its readings at a fine interval, so a long job can be watched as it goes.
+  void SetBusyAction(bool busy);
+
+  /// Notes that the room was asked to do something — any action, over any transport.
+  ///
+  /// This and {@link SetBusyAction} are what the heartbeat thread reads to choose its cadence, and it is
+  /// deliberately not a request the cadence is changed by: an action runs *inline on the worker*, so a
+  /// request asking for the finer cadence could not be served until the action it was about had already
+  /// finished.
+  void NoteActivity();
+
+  /// How many actions are in flight (a nested dispatch — the MCP tool-call path, a room replay — counts
+  /// too). Atomic: written by whatever runs the action, read by the heartbeat thread.
+  std::atomic<int> fBusyActions{0};
+
+  /// When the room was last asked to do something (see {@link NoteActivity}). Atomic for the same reason.
+  std::atomic<std::chrono::steady_clock::time_point> fLastActivity{std::chrono::steady_clock::now()};
 
   /// @brief Print server information.
   /// @param option Optional ROOT option string (unused).
@@ -701,6 +723,7 @@ class NHttpServer : public THttpServer {
   bool              fEngineStarted{false}; ///<! Whether the HTTP engine has been created
   std::chrono::seconds fAuthenticationTimeout{15}; ///<! WS authentication timeout
   int               fHeartbeatMs{10000};  ///<! Heartbeat interval in milliseconds
+  int               fHeartbeatDefaultMs{10000}; ///<! The interval it was configured with, kept so a caller can restore it
   std::thread *     fHeartbeatThread{nullptr}; ///<! Background heartbeat thread
   std::atomic<bool> fHeartbeatRunning{false};  ///<! Whether the heartbeat thread is running
 
@@ -755,7 +778,7 @@ class NHttpServer : public THttpServer {
   long               fRoomRestoreNextTrySec{0}; ///<! Cooldown before retrying a failed fetch
 
   /// \cond CLASSIMP
-  ClassDefOverride(NHttpServer, 2);
+  ClassDefOverride(NHttpServer, 3);
   /// \endcond;
 };
 

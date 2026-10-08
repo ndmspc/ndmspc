@@ -383,7 +383,9 @@ NRoomResult NRoomClient::Status(const std::string & roomId) { return Call("room_
 
 NRoomResult NRoomClient::Close(const std::string & roomId) { return Call("room_close", "DELETE", roomId); }
 
-NRoomResult NRoomClient::Backup() { return Call("room_backup", "GET", ""); }
+NRoomResult NRoomClient::Backup(const std::string & roomId) { return Call("room_backup", "GET", roomId); }
+
+NRoomResult NRoomClient::Config(const std::string & roomId) { return Call("room_config", "GET", roomId); }
 
 NRoomResult NRoomClient::Restore(const json & document, bool replace)
 {
@@ -393,6 +395,15 @@ NRoomResult NRoomClient::Restore(const json & document, bool replace)
   // its own session. `replace` is what makes the document's session win (the room is deleted first).
   if (replace) extra["replace"] = true;
   return Call("room_restore", "POST", "", extra);
+}
+
+NRoomResult NRoomClient::Import(const std::string & roomId, const json & config, const std::string & profile)
+{
+  json extra;
+  extra["config"] = config;
+  // Sent only when asked for: without it the router takes the config's own size, then the skeleton's.
+  if (!profile.empty()) extra["profile"] = profile;
+  return Call("room_import", "POST", roomId, extra);
 }
 
 } // namespace Ndmspc

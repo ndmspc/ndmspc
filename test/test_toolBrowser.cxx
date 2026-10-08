@@ -324,15 +324,17 @@ TEST_F(ToolBrowser, ASparseNodeOpensAProjectionDialog)
   ASSERT_TRUE(props["axes"]["columns"].is_array());
   EXPECT_EQ(props["axes"]["columns"][0].value("key", std::string()), "use");
   EXPECT_EQ(props["axes"]["columns"][1].value("key", std::string()), "axis");
-  // The label is TLatex, so the column says how to render it.
-  EXPECT_EQ(props["axes"]["columns"][1].value("format", std::string()), "rootlatex");
+  // The label is an axis name, rendered as plain text: not TLatex, which would read the underscore of
+  // a name like `p_T` as markup.
+  EXPECT_FALSE(props["axes"]["columns"][1].contains("format"));
 
-  // One row per axis, labelled "index, name [title]"; the first axis is ticked by default, so the
-  // form's first run is a 1D projection.
+  // One row per axis, labelled "index, name" — the name is what identifies the axis, and the title is
+  // prose a table row does not need. The first axis is ticked by default, so the form's first run is a
+  // 1D projection.
   ASSERT_TRUE(props["axes"]["default"].is_array());
   ASSERT_EQ(props["axes"]["default"].size(), 3u);
-  EXPECT_EQ(props["axes"]["default"][0].value("axis", std::string()), "0, mass [invariant mass]");
-  EXPECT_EQ(props["axes"]["default"][1].value("axis", std::string()), "1, pt [p_{T}]");
+  EXPECT_EQ(props["axes"]["default"][0].value("axis", std::string()), "0, mass");
+  EXPECT_EQ(props["axes"]["default"][1].value("axis", std::string()), "1, pt");
   EXPECT_EQ(props["axes"]["default"][0].value("use", false), true);
   EXPECT_EQ(props["axes"]["default"][1].value("use", true), false);
 }

@@ -43,10 +43,11 @@ std::string app_description()
 
 /// @brief One action requested on the command line (non-interactive use).
 struct PendingAction {
-  std::string name;  ///< "list", "open", "upgrade", "status", "close", "backup" or "restore"
-  std::string value; ///< Room id, or the file for "backup"/"restore" (empty for "list")
+  std::string name;  ///< "list", "open", "upgrade", "status", "close", "backup", "config", "restore" or "import"
+  std::string value; ///< Room id, or the file for "backup"/"config"/"restore"/"import" (empty for "list")
   std::string tag;   ///< Image tag, for "upgrade" (empty takes the deployment's current tag)
   std::string image; ///< Full image reference, for "upgrade" (wins over tag; empty otherwise)
+  std::string room;  ///< The room a "backup"/"config" exports, or an "import" replaces (empty otherwise)
 };
 
 /// @brief A private, base64-encoded passphrase file that removes itself on exit.
@@ -211,8 +212,8 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
     return 0;
   }
 
-  // Export every room and its session to a file. Refusing to overwrite by default: a backup
-  // that silently clobbers the last good one is worse than an error.
+  // Export the rooms and their sessions to a file - one room alone when --room names it. Refusing to
+  // overwrite by default: a backup that silently clobbers the last good one is worse than an error.
   if (action.name == "backup") {
     if (!force) {
       std::ifstream existing(action.value);
@@ -221,7 +222,7 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
         return 1;
       }
     }
-    const Ndmspc::NRoomResult result = client.Backup();
+    const Ndmspc::NRoomResult result = client.Backup(action.room);
     if (!result.ok) {
       NLogError("%s", result.error.c_str());
       return 1;
@@ -232,7 +233,37 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
       return 1;
     }
     out << result.payload.dump(2) << std::endl;
-    NLogInfo("Wrote %zu room(s) to %s", result.payload.value("rooms", json::array()).size(), action.value.c_str());
+    NLogInfo("Wrote %zu room(s) to %s", result.payload.value("rooms", json::array()).size(),
+             action.value.c_str());
+    return 0;
+  }
+
+  // Export one room's configuration: the file, the steps, the size and the view, and nothing about the
+  // room - so it is what somebody hands to somebody else, and what --import takes.
+  if (action.name == "config") {
+    if (action.room.empty()) {
+      NLogError("--config needs --room <id>: say which room's configuration to write");
+      return 2;
+    }
+    if (!force) {
+      std::ifstream existing(action.value);
+      if (existing.good()) {
+        NLogError("Refusing to overwrite %s; pass --force to replace it", action.value.c_str());
+        return 1;
+      }
+    }
+    const Ndmspc::NRoomResult result = client.Config(action.room);
+    if (!result.ok) {
+      NLogError("%s", result.error.c_str());
+      return 1;
+    }
+    std::ofstream out(action.value);
+    if (!out.is_open()) {
+      NLogError("Cannot write %s", action.value.c_str());
+      return 1;
+    }
+    out << result.payload.dump(2) << std::endl;
+    NLogInfo("Wrote the configuration of %s to %s", action.room.c_str(), action.value.c_str());
     return 0;
   }
 
@@ -272,6 +303,43 @@ int RunHeadless(Ndmspc::NRoomClient & client, const PendingAction & action, bool
     }
     NLogInfo("Restored %zu room(s), %zu failed", restored.size(), failed.size());
     return failed.empty() ? 0 : 1;
+  }
+
+  // Replace one room with the one a config holds - a document written by --backup --room. The room is
+  // deleted if it is there and created again carrying the config's session, so what comes back is the
+  // config's room rather than a mixture of the two.
+  if (action.name == "import") {
+    if (action.room.empty()) {
+      NLogError("--import needs --room <id>: say which room to import into");
+      return 2;
+    }
+    std::ifstream in(action.value);
+    if (!in.is_open()) {
+      NLogError("Cannot read %s", action.value.c_str());
+      return 1;
+    }
+    json config;
+    try {
+      in >> config;
+    }
+    catch (const json::parse_error & e) {
+      NLogError("%s is not valid JSON: %s", action.value.c_str(), e.what());
+      return 1;
+    }
+
+    const Ndmspc::NRoomResult result = client.Import(action.room, config);
+    if (!result.ok) {
+      NLogError("%s", result.error.c_str());
+      return 1;
+    }
+
+    NLogInfo("Imported %s (%s)", result.payload.value("room", "").c_str(),
+             result.payload.value("revision", "").c_str());
+    // A setting the deployment could not apply is said out loud rather than left to be noticed.
+    for (const auto & skip : result.payload.value("skipped", json::array())) {
+      NLogInfo("  %s not applied: %s", skip.value("setting", "").c_str(), skip.value("reason", "").c_str());
+    }
+    return 0;
   }
 
   Ndmspc::NRoomResult result;
@@ -356,6 +424,9 @@ int main(int argc, char ** argv)
   std::string closeRoom;
   std::string backupFile;
   std::string restoreFile;
+  std::string importFile;
+  std::string configFile;
+  std::string actionRoom;
   bool        replace          = false;
   bool        force            = false;
   bool        noWait           = false;
@@ -416,9 +487,19 @@ int main(int argc, char ** argv)
                  "run (see room/status versions). Takes precedence over --tag");
   app.add_option("--close", closeRoom, "Delete a room, then exit (no terminal needed)");
   app.add_option("--backup", backupFile,
-                 "Export every room and its session to this JSON file, then exit (no terminal needed)");
+                 "Export the rooms and their sessions to this JSON file, then exit (no terminal needed)");
+  app.add_option("--config", configFile,
+                 "Export the configuration of the room named by --room to this JSON file, then exit "
+                 "(no terminal needed): the file, the steps, the size and the view, and nothing about "
+                 "the room - what to hand to somebody else, and what --import takes");
   app.add_option("--restore", restoreFile,
                  "Ensure and replay every room in a file written by --backup, then exit (no terminal needed)");
+  app.add_option("--import", importFile,
+                 "Replace the room named by --room with the configuration in this file (a config from "
+                 "--config, or a document from --backup), then exit (no terminal needed). The room is "
+                 "deleted first, so it comes back holding that configuration and none of its own");
+  app.add_option("--room", actionRoom,
+                 "With --backup or --config: this one room. With --import: the room to import into");
   app.add_flag("--force", force,
                "Allow --backup to overwrite an existing file, and --upgrade to roll a room that is in use");
   app.add_flag("--replace", replace,
@@ -460,16 +541,27 @@ int main(int argc, char ** argv)
   }
 
   std::vector<PendingAction> pending;
-  if (listRooms) pending.push_back({"list", "", "", ""});
-  if (!openRoom.empty()) pending.push_back({"open", openRoom, "", ""});
-  if (!upgradeRoom.empty()) pending.push_back({"upgrade", upgradeRoom, upgradeTag, upgradeImage});
-  if (!statusRoom.empty()) pending.push_back({"status", statusRoom, "", ""});
-  if (!closeRoom.empty()) pending.push_back({"close", closeRoom, "", ""});
-  if (!backupFile.empty()) pending.push_back({"backup", backupFile, "", ""});
-  if (!restoreFile.empty()) pending.push_back({"restore", restoreFile, "", ""});
+  if (listRooms) pending.push_back({"list", "", "", "", ""});
+  if (!openRoom.empty()) pending.push_back({"open", openRoom, "", "", ""});
+  if (!upgradeRoom.empty()) pending.push_back({"upgrade", upgradeRoom, upgradeTag, upgradeImage, ""});
+  if (!statusRoom.empty()) pending.push_back({"status", statusRoom, "", "", ""});
+  if (!closeRoom.empty()) pending.push_back({"close", closeRoom, "", "", ""});
+  if (!backupFile.empty()) pending.push_back({"backup", backupFile, "", "", actionRoom});
+  if (!configFile.empty()) pending.push_back({"config", configFile, "", "", actionRoom});
+  if (!restoreFile.empty()) pending.push_back({"restore", restoreFile, "", "", ""});
+  if (!importFile.empty()) pending.push_back({"import", importFile, "", "", actionRoom});
 
   if (pending.size() > 1) {
-    NLogError("Use at most one of --list, --open, --upgrade, --status, --close, --backup and --restore.");
+    NLogError("Use at most one of --list, --open, --upgrade, --status, --close, --backup, --config, "
+              "--restore and --import.");
+    return 2;
+  }
+  // --room names the room an export is about and the room an import replaces; anywhere else it would
+  // be silently ignored, which is worse than saying so.
+  const bool roomApplies = !backupFile.empty() || !configFile.empty() || !importFile.empty();
+  if (!actionRoom.empty() && !roomApplies) {
+    NLogError("--room applies to --backup, --config (which room to export) and --import (the room to "
+              "import into); it was given with none of them.");
     return 2;
   }
   if (serverUrl.empty()) {
@@ -563,13 +655,15 @@ int main(int argc, char ** argv)
     return 2;
   }
 
-  if (pending.size() == 1) return RunHeadless(client, pending.front(), force, noWait, waitTimeoutSeconds, replace);
+  if (pending.size() == 1)
+    return RunHeadless(client, pending.front(), force, noWait, waitTimeoutSeconds, replace);
 
   // The room actions above cover scripted use; the interactive screen needs a terminal.
   if (::isatty(STDIN_FILENO) == 0) {
     NLogError("ndmspc-room-tui needs an interactive terminal for the room UI.");
     NLogError("For scripted use, pick one of --list, --open <id>, --upgrade <id> [--tag <tag>], "
-              "--status <id>, --close <id>, --backup <file> or --restore <file>.");
+              "--status <id>, --close <id>, --backup <file> [--room <id>], --config <file> --room <id>, "
+              "--restore <file> or --import <file> --room <id>.");
     return 2;
   }
 

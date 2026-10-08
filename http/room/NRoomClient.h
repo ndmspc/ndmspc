@@ -306,15 +306,28 @@ class NRoomClient {
   NRoomResult Close(const std::string & roomId);
 
   /**
-   * @brief Export every tracked room and its session to a document.
+   * @brief Export the tracked rooms and their sessions to a document.
    *
    * The document is the payload: the room set plus each room's session, suitable for writing to a
    * file and restoring later or elsewhere. It carries no ROOT data - only which file was open,
-   * its navigator and its drill-down.
+   * its navigator and its drill-down - plus the size and image each room was created at. For one
+   * room's configuration, which is what somebody hands to somebody else, see Config().
    *
+   * @param roomId Export this one room instead of every room the caller may see.
    * @return The action result; payload holds the document.
    */
-  NRoomResult Backup();
+  NRoomResult Backup(const std::string & roomId = std::string());
+
+  /**
+   * @brief Export one room's configuration: the file, the steps that were run, the size, the view.
+   *
+   * It holds nothing about the room itself - no id, no owner, no links - so it is what somebody hands
+   * to somebody else, and what Import() takes.
+   *
+   * @param roomId The room whose configuration to export.
+   * @return The action result; payload holds the config.
+   */
+  NRoomResult Config(const std::string & roomId);
 
   /**
    * @brief Ensure every room in a document and replay its session.
@@ -330,6 +343,22 @@ class NRoomClient {
    * @return The action result.
    */
   NRoomResult Restore(const json & document, bool replace = false);
+
+  /**
+   * @brief Replace one room with the configuration a config describes.
+   *
+   * The config is what Config() answers, or one room of a document from Backup(). The room is deleted
+   * if it is already there and created again carrying that configuration, so what comes back is the
+   * configuration and nothing of the one that was there; naming a room that is not there simply
+   * creates it. A setting the deployment cannot apply is reported in the payload rather than failing.
+   *
+   * @param roomId The room to import into.
+   * @param config A config from Config(), or a document from Backup().
+   * @param profile Size to create the room at; empty takes the config's own, then the skeleton's.
+   * @return The action result.
+   */
+  NRoomResult Import(const std::string & roomId, const json & config,
+                     const std::string & profile = std::string());
 
   private:
   /**

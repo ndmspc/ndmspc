@@ -372,11 +372,21 @@ class NRoomRouter {
   void HandleClose(const std::string & method, json & in, json & out);
   /// @brief room/state: a room reports its session, or fetches it back.
   void HandleState(const std::string & method, json & in, json & out);
-  /// @brief room/backup: export the tracked rooms the caller may see and their sessions.
+  /// @brief room/backup: export the tracked rooms the caller may see and their sessions. A `room` in
+  ///        the request answers with that one room alone, so the same document serves both a single
+  ///        room and the whole set.
   void HandleBackup(const std::string & method, json & in, json & out);
+  /// @brief room/config: export **one room's configuration** - the file it opened, the steps that were
+  ///        run, the size and what was on screen - and nothing about the room itself: no id, no owner,
+  ///        no links. It is what somebody hands to somebody else, and what room/import takes.
+  void HandleConfig(const std::string & method, json & in, json & out);
   /// @brief room/restore: ensure every room in a document and replay its session; `replace` deletes
   ///        the rooms it names first, so the document's session wins over a room that is in use.
   void HandleRestore(const std::string & method, json & in, json & out);
+  /// @brief room/import: replace one room with the one a config (or a document holding one room)
+  ///        describes. The room is deleted if it is there, then created carrying that configuration,
+  ///        so what comes back is the configuration's room and nothing of the one that was there.
+  void HandleImport(const std::string & method, json & in, json & out);
 
   // ---------------------------------------------------------------- the router's own vocabulary
   /// @brief Whether this websocket upgrade may be served here (see the class note).
@@ -686,6 +696,9 @@ class NRoomRouter {
   /// @brief The `code` reported when a caller asks for a room that belongs to someone else.
   static constexpr const char * kNotOwner = "not_owner";
 
+  /// @brief The `code` reported when a single-room request names a room this router does not track.
+  static constexpr const char * kUnknownRoom = "unknown_room";
+
   /// @brief The `code` reported when room/upgrade names a room somebody is in and no force was given.
   static constexpr const char * kInUse = "in_use";
 
@@ -694,6 +707,9 @@ class NRoomRouter {
 
   /// @brief The `code` reported when room/upgrade names a tag the deployment does not offer.
   static constexpr const char * kUnknownImage = "unknown_image";
+
+  /// @brief The `code` reported when a config handed to room/import cannot be read as one room.
+  static constexpr const char * kBadConfig = "bad_config";
 
   /**
    * @brief The `code` reported when a room's container keeps dying while the room is being created.
