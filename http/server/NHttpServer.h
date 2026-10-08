@@ -113,6 +113,13 @@ struct NMcpToolInfo {
   /// tree draws an object on a click - leaves nothing for one, and the client offers none. Declared here,
   /// by the tool, rather than by the client keeping a list of actions it knows.
   bool                     runButton{true};
+  /// A guided tour of this tool, or empty for none. A **named** tour: `"name"` and `"description"` say
+  /// what it does, and `"steps"` is the **combination** the client walks — an ordered list of steps,
+  /// each naming an action to open (with the arguments to fill its form with), so the user presses
+  /// Save & Run at each. A client lists the tour by its name and description, so where a tour is offered
+  /// it is offered by what it does rather than by the tool's own name; a tool that needs no tour simply
+  /// declares none. A step is `{"action": "browser/open", "params": { … }}`; `params` is optional.
+  json                     tutorial{};
 };
 
 /// @brief Map of handler action (e.g. "ngnt/open") to its MCP metadata.

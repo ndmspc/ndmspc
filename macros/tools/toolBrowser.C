@@ -641,6 +641,33 @@ void toolBrowser()
       .order       = 2,
       .label       = "{{ key }}",
       .runButton   = false, // the tree is how it works: clicking an object draws it, so there is no Run
+      // The tour of browsing, named by what it does — that name and description are how a client offers
+      // it. It opens the sample file, then draws a few of its objects — a 1D histogram, a 2D one, then a
+      // profile — looking at each in the pads between clicks. Each object step names what to click, so
+      // the client shows the tree and points the user at that node; the drawing moves the tour on, and
+      // the tour ends on the pads.
+      .tutorial    = json{{"name", "Browse hsimple.root file"},
+                          {"description",
+                           "Open the hsimple.root sample and draw a few of its objects — a 1D histogram, "
+                           "a 2D one, a profile, and a branch of the ntuple — looking at each in the "
+                           "pads."},
+                          {"steps",
+                           json::array({
+                               json{{"show", "group"}, {"body", "Choose the browser tool."}},
+                               json{{"show", "sessionNew"}, {"body", "Start a new session."}},
+                               json{{"show", "sessionName"}, {"body", "Name the session."}},
+                               json{{"action", group + "/open"},
+                                    {"params", {{"file", "https://root.cern/js/files/hsimple.root"}}}},
+                               json{{"action", group + "/browse"}, {"click", "hpx"}},
+                               json{{"show", "pads"}, {"body", "Now draw hpxpy. Click Next."}},
+                               json{{"action", group + "/browse"}, {"click", "hpxpy"}},
+                               json{{"show", "pads"}, {"body", "Now draw hprof. Click Next."}},
+                               json{{"action", group + "/browse"}, {"click", "hprof"}},
+                               json{{"show", "pads"}, {"body", "Now expand the ntuple. Click Next."}},
+                               json{{"action", group + "/browse"}, {"expand", "ntuple"}},
+                               json{{"action", group + "/browse"}, {"click", "ntuple/px"}},
+                               json{{"show", "pads"}},
+                           })}},
   });
 
   // The internals the tree drives. They are a group of their own with no `dependsOn`, so the server

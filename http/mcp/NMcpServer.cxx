@@ -248,6 +248,13 @@ json NMcpServer::BuildTools() const
     if (info != nullptr && !info->runButton) {
       tool["_meta"]["ndmspc.io/run"] = false;
     }
+    // And the tool's own guided tour, when it declares one: what it is called, what it does, and the
+    // combination of steps the client walks. Declared here rather than invented by the client, so the
+    // tool says what a tour of it should do — and a tool with no tour simply declares none.
+    if (info != nullptr && info->tutorial.is_object() && info->tutorial.contains("steps") &&
+        info->tutorial["steps"].is_array() && !info->tutorial["steps"].empty()) {
+      tool["_meta"]["ndmspc.io/tutorial"] = info->tutorial;
+    }
     tools.push_back(tool);
   }
 
