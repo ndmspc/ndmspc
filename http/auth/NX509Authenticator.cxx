@@ -28,13 +28,21 @@ std::string gIdentityAttr = "cn";
 std::string ExtractIdentityFromX509(::X509 * cert, const std::string & identityAttr)
 {
   if (!cert) return {};
-  ::X509_NAME * subject = X509_get_subject_name(cert);
+  const ::X509_NAME * subject = X509_get_subject_name(cert);
   if (!subject) return {};
   if (identityAttr == "cn") {
-    char cn[256] = {0};
-    const int len = X509_NAME_get_text_by_NID(subject, NID_commonName, cn, sizeof(cn));
-    if (len <= 0) return {};
-    return std::string(cn, static_cast<size_t>(len));
+    const int idx = X509_NAME_get_index_by_NID(subject, NID_commonName, -1);
+    if (idx < 0) return {};
+    const ::X509_NAME_ENTRY * entry = X509_NAME_get_entry(subject, idx);
+    if (!entry) return {};
+    const ::ASN1_STRING * data = X509_NAME_ENTRY_get_data(entry);
+    if (!data) return {};
+    unsigned char * utf8 = nullptr;
+    const int len = ASN1_STRING_to_UTF8(&utf8, data);
+    if (len < 0 || utf8 == nullptr) return {};
+    std::string cn(reinterpret_cast<const char *>(utf8), static_cast<size_t>(len));
+    ::OPENSSL_free(utf8);
+    return cn;
   }
   char * line = X509_NAME_oneline(subject, nullptr, 0);
   if (!line) return {};
