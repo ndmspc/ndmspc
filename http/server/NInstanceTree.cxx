@@ -75,8 +75,8 @@ std::string GuessedLabel(const std::string & action, const json & params)
       }
     }
   }
-  // Nothing to show: fall back to the action's short name, so a node is never blank.
-  const auto slash = action.find('/');
+  // Nothing to show: fall back to the action's own name, so a node is never blank.
+  const auto slash = action.rfind('/');
   return slash == std::string::npos ? action : action.substr(slash + 1);
 }
 
@@ -518,7 +518,10 @@ void NInstanceTree::Adopt(const json & nodes)
 
 std::string NInstanceTree::GroupOf(const std::string & action)
 {
-  const auto pos = action.find('/');
+  // Everything before the key's **last** slash, which is where a key's group ends: the namespace stays
+  // part of it (`ndmspc/ngnt` for `ndmspc/ngnt/open`), so a family is not confused with the namespace it
+  // lives in and a control tool (`ndmspc/session`) is not taken for a step of the families beside it.
+  const auto pos = action.rfind('/');
   return pos == std::string::npos ? std::string() : action.substr(0, pos);
 }
 

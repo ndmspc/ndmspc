@@ -1,8 +1,8 @@
 ///
 /// toolBrowser.C — a TBrowser-like ROOT file browser, as a tool group.
 ///
-/// Registers: browser/open, browser/browse (the combination) and the internal rbrowser/ls,
-/// rbrowser/draw, rbrowser/sparse, rbrowser/project (hidden helpers the tree drives).
+/// Registers: ndmspc/browser/open, ndmspc/browser/browse (the combination) and the internal ndmspc/rbrowser/ls,
+/// ndmspc/rbrowser/draw, ndmspc/rbrowser/sparse, ndmspc/rbrowser/project (hidden helpers the tree drives).
 ///
 /// URLs:  /api/browser/open, /api/browser/browse, /api/rbrowser/ls, /api/rbrowser/draw,
 ///        /api/rbrowser/sparse, /api/rbrowser/project
@@ -12,15 +12,15 @@
 /// `browse` depends on `open` — so the Explorer shows the group with `open` as the action that starts
 /// it and, under it, the `browse` step:
 ///
-///   open ──▶ browse (the file tree)  ──expand──▶ rbrowser/ls   ──click──▶ rbrowser/draw ──▶ a jsroot pad
+///   open ──▶ browse (the file tree)  ──expand──▶ ndmspc/rbrowser/ls   ──click──▶ ndmspc/rbrowser/draw ──▶ a jsroot pad
 ///
 /// A `THnSparse` is the exception: jsroot cannot draw one, and projecting it needs choices (which
-/// axes, which range). Clicking one opens a **dialog** instead — `rbrowser/sparse` lists the object's
-/// axes in a form, and its submit runs `rbrowser/project`, which projects the chosen 1–3 axes into a
+/// axes, which range). Clicking one opens a **dialog** instead — `ndmspc/rbrowser/sparse` lists the object's
+/// axes in a form, and its submit runs `ndmspc/rbrowser/project`, which projects the chosen 1–3 axes into a
 /// `TH1`/`TH2`/`TH3` and draws that. The dialog is the generic `payload.dialog` envelope a tool
 /// declares and the UI renders, so nothing here needs a THnSparse-specific widget:
 ///
-///   ──click──▶ rbrowser/sparse ──▶ (dialog: use/min/max/rebin per axis) ──submit──▶ rbrowser/project ──▶ a jsroot pad
+///   ──click──▶ ndmspc/rbrowser/sparse ──▶ (dialog: use/min/max/rebin per axis) ──submit──▶ ndmspc/rbrowser/project ──▶ a jsroot pad
 ///
 /// `browse`'s form is the file tree: its `key` field is a `format: "tree"` whose nodes come from the
 /// file, so the browse step is where you browse and draw — expanding a folder loads its children,
@@ -83,7 +83,7 @@ const char * kOpenKey   = "open";
 const char * kBrowseKey = "browse";
 /// The internal helper group. It declares no `dependsOn`, so the server keeps no combination node for
 /// it: expanding and drawing are the tree's own doing, not steps of the analysis.
-const char * kInternals = "rbrowser";
+const char * kInternals = "ndmspc/rbrowser";
 /// How many curves a named overlay canvas keeps; projecting one more drops the oldest (a canvas of many
 /// curves is memory, and an unreadable picture). The deployment may set `NDMSPC_BROWSER_MAX_CURVES`;
 /// anything that is not a positive number falls back to 10.
@@ -519,7 +519,7 @@ void StoreExpanded(Ndmspc::NRouteContext & ctx, const std::set<std::string> & ex
   ctx.State()["browser"]["expanded"] = arr;
 }
 
-/// Publish the file into `browser/open`, so the open step's form starts on the file that was opened.
+/// Publish the file into `ndmspc/browser/open`, so the open step's form starts on the file that was opened.
 void PublishOpenSchema(Ndmspc::NRouteContext & ctx, const std::string & file)
 {
   json & route  = ctx.Workspace()[kOpenKey];
@@ -530,9 +530,9 @@ void PublishOpenSchema(Ndmspc::NRouteContext & ctx, const std::string & file)
   ctx.WsOut()["workspace"][kOpenKey] = route;
 }
 
-/// Publish the tree into `browser/browse`'s `key` field, so the browse step's form is the file tree — a
-/// `format: "tree"` field whose nodes come from the file. Expanding a node runs `rbrowser/ls`, clicking
-/// one runs `rbrowser/draw` (the node's own action), so browsing and drawing happen in the step itself.
+/// Publish the tree into `ndmspc/browser/browse`'s `key` field, so the browse step's form is the file tree — a
+/// `format: "tree"` field whose nodes come from the file. Expanding a node runs `ndmspc/rbrowser/ls`, clicking
+/// one runs `ndmspc/rbrowser/draw` (the node's own action), so browsing and drawing happen in the step itself.
 /// `selected` is the key the field starts on ("" for none).
 void PublishTreeSchema(Ndmspc::NRouteContext & ctx, const json & tree, const std::string & selected)
 {
@@ -595,7 +595,7 @@ TFile * RequireOpenFile(Ndmspc::NRouteContext & ctx)
 {
   TFile * file = OpenFileOf(ctx);
   if (file == nullptr || file->IsZombie()) {
-    ctx.Result("No ROOT file is open; run browser/open first");
+    ctx.Result("No ROOT file is open; run ndmspc/browser/open first");
     return nullptr;
   }
   return file;
@@ -606,7 +606,9 @@ TFile * RequireOpenFile(Ndmspc::NRouteContext & ctx)
 void toolBrowser()
 {
   auto &      handlers = *(Ndmspc::gNdmspcHttpHandlers);
-  std::string group    = "browser";
+  std::string group    = "ndmspc/browser";
+  /** What the family is called where a user reads it (the room's group picker, Help). */
+  const char * groupLabel = "Root browser";
 
   // ===========================================================================
   //  MCP tool metadata. Descriptions live here in the macro, not in C++, so
@@ -642,31 +644,77 @@ void toolBrowser()
       .label       = "{{ key }}",
       .runButton   = false, // the tree is how it works: clicking an object draws it, so there is no Run
       // The tour of browsing, named by what it does — that name and description are how a client offers
-      // it. It opens the sample file, then draws a few of its objects — a 1D histogram, a 2D one, then a
-      // profile — looking at each in the pads between clicks. Each object step names what to click, so
-      // the client shows the tree and points the user at that node; the drawing moves the tour on, and
-      // the tour ends on the pads.
+      // it. It opens the sample file, then draws a couple of its objects — a 1D histogram and a 2D one —
+      // and a branch of the ntuple, looking at each in the pads between clicks. The open step is *shown*
+      // rather than run past: its form carries the file name, and the user presses Save & Run. Each object
+      // step names what to click, so the client shows the tree and points at that node; the drawing moves
+      // the tour on, and the tour ends where the user takes over with a file of their own.
       .tutorial    = json{{"name", "Browse hsimple.root file"},
                           {"description",
-                           "Open the hsimple.root sample and draw a few of its objects — a 1D histogram, "
-                           "a 2D one, a profile, and a branch of the ntuple — looking at each in the "
-                           "pads."},
+                           "Open the hsimple.root sample and draw a couple of its objects — a 1D histogram, "
+                           "a 2D one, and a branch of the ntuple — looking at each in the pads."},
                           {"steps",
                            json::array({
                                json{{"show", "group"}, {"body", "Choose the browser tool."}},
-                               json{{"show", "sessionNew"}, {"body", "Start a new session."}},
-                               json{{"show", "sessionName"}, {"body", "Name the session."}},
-                               json{{"action", group + "/open"},
-                                    {"params", {{"file", "https://root.cern/js/files/hsimple.root"}}}},
+                               json{{"show", "sessionNew"},
+                                    {"body", "Fill in the first step and run it — that starts the session."}},
+                               // The open step, told one piece at a time: the step itself, the name it goes
+                               // by, the file argument (theirs to change), and the button - which the user
+                               // presses, so that last card carries no Next and follows the run. Only the
+                               // first names the action: the cards describing the step it opened stay on it,
+                               // because the tour carries the step forward from card to card.
+                               json{{"show", "stepBlock"},
+                                    {"action", group + "/open"},
+                                    {"params", {{"file", "https://root.cern/js/files/hsimple.root"}}},
+                                    {"body", "This is a step: one action of the session, with the settings "
+                                             "it runs with below it."}},
+                               json{{"show", "stepIdentifier"},
+                                    {"body", "This is the step's own identifier — not a file name, but a name "
+                                             "made of the OPEN step's own properties. Another file is another "
+                                             "session, started from the session row above."}},
+                               json{{"show", "stepName"},
+                                    {"body", "A step is named after the action it runs — OPEN."}},
+                               json{{"show", "field:file"},
+                                    {"body", "What it takes: the file to open. This is the hsimple.root "
+                                             "sample — put any path or URL you like here."}},
+                               json{{"show", "saveAndRun"},
+                                    {"body", "And this runs it, with what the step was given."}},
+                               // The step the run created, framed whole before the tour goes into its tree:
+                               // what the room did with the file, and that the tree is the file's own.
+                               json{{"show", "browseStep"},
+                                    {"action", group + "/browse"},
+                                    {"body", "The file is open, and this step was added for it: the tree "
+                                             "below was built from the file itself and every object in it "
+                                             "can be clicked."}},
                                json{{"action", group + "/browse"}, {"click", "hpx"}},
                                json{{"show", "pads"}, {"body", "Now draw hpxpy. Click Next."}},
                                json{{"action", group + "/browse"}, {"click", "hpxpy"}},
-                               json{{"show", "pads"}, {"body", "Now draw hprof. Click Next."}},
-                               json{{"action", group + "/browse"}, {"click", "hprof"}},
                                json{{"show", "pads"}, {"body", "Now expand the ntuple. Click Next."}},
                                json{{"action", group + "/browse"}, {"expand", "ntuple"}},
                                json{{"action", group + "/browse"}, {"click", "ntuple/px"}},
                                json{{"show", "pads"}},
+                               // The user takes over here: a new step of their own, on a file the tour names so
+                               // that it can go on with it - the sample graph.root, graphs and canvases. The
+                               // step it opens is the second root, so the tour names the action it belongs to.
+                               json{{"show", "ownFile"},
+                                    {"body", "Your turn: a file of your own. The tour goes on with the sample "
+                                             "graph.root (https://root.cern/js/files/graph.root), which the "
+                                             "next card puts in the form for you."}},
+                               json{{"show", "stepBlock"},
+                                    {"action", group + "/open"},
+                                    {"params", {{"file", "https://root.cern/js/files/graph.root"}}},
+                                    {"body", "The step is yours, and its file is already in the form — press "
+                                             "Save & Run."}},
+                               json{{"show", "saveAndRun"},
+                                    {"body", "Run it, and the room opens the file as your own step."}},
+                               json{{"show", "browseStep"},
+                                    {"action", group + "/browse"},
+                                    {"body", "graph.root's own tree: graphs of several kinds, and the canvases "
+                                             "that go with them."}},
+                               json{{"action", group + "/browse"}, {"click", "Graph"}},
+                               json{{"show", "pads"}, {"body", "A graph from your file. Click Next."}},
+                               json{{"action", group + "/browse"}, {"click", "c1"}},
+                               json{{"show", "pads"}, {"body", "And its canvas — the tour ends here."}},
                            })}},
   });
 
@@ -720,13 +768,20 @@ void toolBrowser()
                          {{"type", "string"}, {"description", "jsroot draw options, e.g. 'colz'."}}}}}},
   });
 
+  // The family is named once for every tool in it: a step added to this macro later is offered under the
+  // same words rather than repeating the label on each registration. The internal helpers keep none —
+  // they are hidden, and the tree drives them rather than a user.
+  for (auto & entry : *(Ndmspc::gNdmspcMcpTools)) {
+    if (entry.first.rfind(group + "/", 0) == 0) entry.second.groupLabel = groupLabel;
+  }
+
   // ===========================================================================
-  //  /api/browser/open — open, report or close the file
+  //  /api/ndmspc/browser/open — open, report or close the file
   // ===========================================================================
   handlers[group + "/open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                  std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-    wsOut["group"] = "browser";
+    wsOut["group"] = "ndmspc/browser";
     auto * server  = ctx.Server();
     TFile * file   = OpenFileOf(ctx);
 
@@ -744,7 +799,7 @@ void toolBrowser()
     if (ctx.IsPost()) {
       const std::string filename = ctx.GetString("file");
       if (filename.empty()) {
-        ctx.Result("Missing 'file' parameter for browser/open");
+        ctx.Result("Missing 'file' parameter for ndmspc/browser/open");
         return;
       }
 
@@ -782,7 +837,7 @@ void toolBrowser()
       return;
     }
 
-    httpOut["error"] = "Unsupported HTTP method for browser/open";
+    httpOut["error"] = "Unsupported HTTP method for ndmspc/browser/open";
   };
 
   // ===========================================================================
@@ -791,7 +846,7 @@ void toolBrowser()
   handlers[group + "/browse"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                    std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-    wsOut["group"] = "browser";
+    wsOut["group"] = "ndmspc/browser";
     TFile *        file = RequireOpenFile(ctx);
     if (file == nullptr) return;
 
@@ -806,7 +861,7 @@ void toolBrowser()
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
          std::map<std::string, TObject *> & objects) {
         Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-        wsOut["group"] = "browser";
+        wsOut["group"] = "ndmspc/browser";
         TFile * file   = RequireOpenFile(ctx);
         if (file == nullptr) return;
 
@@ -831,7 +886,7 @@ void toolBrowser()
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
          std::map<std::string, TObject *> & objects) {
         Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-        wsOut["group"] = "browser";
+        wsOut["group"] = "ndmspc/browser";
         TFile * file   = RequireOpenFile(ctx);
         if (file == nullptr) return;
 
@@ -890,7 +945,7 @@ void toolBrowser()
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
          std::map<std::string, TObject *> & objects) {
         Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-        wsOut["group"] = "browser";
+        wsOut["group"] = "ndmspc/browser";
         TFile * file   = RequireOpenFile(ctx);
         if (file == nullptr) return;
 
@@ -906,7 +961,7 @@ void toolBrowser()
           return;
         }
 
-        // The dialog lists the axes and projects the chosen ones; its submit runs rbrowser/project. A
+        // The dialog lists the axes and projects the chosen ones; its submit runs ndmspc/rbrowser/project. A
         // configuration kept for this axis signature (this object, or another with the same axes) — the
         // axes, the draw options and the SAME choice — is what it opens on.
         ctx.Dialog("Project " + StripCycle(sparse->GetName()),
@@ -926,7 +981,7 @@ void toolBrowser()
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
          std::map<std::string, TObject *> & objects) {
         Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-        wsOut["group"] = "browser";
+        wsOut["group"] = "ndmspc/browser";
         TFile * file   = RequireOpenFile(ctx);
         if (file == nullptr) return;
 

@@ -268,7 +268,7 @@ void toolSlurm()
 {
   auto &handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
-  Ndmspc::RegisterMcpTool("slurm/submit", {
+  Ndmspc::RegisterMcpTool("ndmspc/slurm/submit", {
       .description = "Submit a Slurm batch job (runs ndmspc-run unless 'command'/'script' is given).",
       .methods     = {"POST"},
       .inputSchema = {{"properties",
@@ -280,11 +280,16 @@ void toolSlurm()
                                                       {"jobName", {{"type", "string"}}},
                                                       {"extra", {{"type", "string"}}}}}}}}}}},
   });
-  Ndmspc::RegisterMcpTool("slurm/jobs", "List the Slurm queue.");
-  Ndmspc::RegisterMcpTool("slurm/job", "Inspect (GET) or cancel (DELETE) one Slurm job.");
-  Ndmspc::RegisterMcpTool("slurm/nodes", "Show the Slurm partitions/nodes.");
+  Ndmspc::RegisterMcpTool("ndmspc/slurm/jobs", "List the Slurm queue.");
+  Ndmspc::RegisterMcpTool("ndmspc/slurm/job", "Inspect (GET) or cancel (DELETE) one Slurm job.");
+  Ndmspc::RegisterMcpTool("ndmspc/slurm/nodes", "Show the Slurm partitions/nodes.");
 
-  handlers["slurm/submit"] = [](std::string method, json &in, json &out, json &wsOut,
+  // The family is named once, for every tool in it.
+  for (auto & entry : *(Ndmspc::gNdmspcMcpTools)) {
+    if (entry.first.rfind("ndmspc/slurm/", 0) == 0) entry.second.groupLabel = "Slurm";
+  }
+
+  handlers["ndmspc/slurm/submit"] = [](std::string method, json &in, json &out, json &wsOut,
                                 std::map<std::string, TObject *> &objects) {
     Ndmspc::NRouteContext ctx(method, in, out, wsOut, objects);
     // Side-effecting actions must never be replayed, or a room restore would
@@ -361,7 +366,7 @@ void toolSlurm()
     ctx.Success();
   };
 
-  handlers["slurm/jobs"] = [](std::string method, json &in, json &out, json &wsOut,
+  handlers["ndmspc/slurm/jobs"] = [](std::string method, json &in, json &out, json &wsOut,
                               std::map<std::string, TObject *> &objects) {
     Ndmspc::NRouteContext ctx(method, in, out, wsOut, objects);
     if (ctx.Server()) ctx.Server()->SetUseHistory(false);
@@ -373,7 +378,7 @@ void toolSlurm()
     ctx.Success();
   };
 
-  handlers["slurm/job"] = [](std::string method, json &in, json &out, json &wsOut,
+  handlers["ndmspc/slurm/job"] = [](std::string method, json &in, json &out, json &wsOut,
                              std::map<std::string, TObject *> &objects) {
     Ndmspc::NRouteContext ctx(method, in, out, wsOut, objects);
     if (ctx.Server()) ctx.Server()->SetUseHistory(false);
@@ -415,7 +420,7 @@ void toolSlurm()
     ctx.Success();
   };
 
-  handlers["slurm/nodes"] = [](std::string method, json &in, json &out, json &wsOut,
+  handlers["ndmspc/slurm/nodes"] = [](std::string method, json &in, json &out, json &wsOut,
                                std::map<std::string, TObject *> &objects) {
     Ndmspc::NRouteContext ctx(method, in, out, wsOut, objects);
     if (ctx.Server()) ctx.Server()->SetUseHistory(false);

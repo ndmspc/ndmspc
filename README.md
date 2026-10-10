@@ -121,24 +121,15 @@ pod stops reporting, and it is kept on the room's own Service, so a router that 
 restarted (a rollout) resumes each room's remaining time instead of handing every
 room a fresh TTL.
 
-A view does not have to poll for that list. A client opens
+A view can also watch that list. A client opens
 `/ws/root.websocket?rooms=1`, asks `room/list` over the socket — which is what
 subscribes it — and the router pushes the list whenever it changes; HTTP
-`room/list` stays as it is for scripts, and for a view whose socket is down. Both
-the page and `ndmspc-room-tui` work this way.
+`room/list` stays as it is for scripts, and for a view whose socket is down.
+Pushing is off by default (`NDMSPC_ROOM_WATCH_INTERVAL=0`).
 
 The same actions are exposed as MCP tools (`room_open`, `room_list`,
 `room_status`, `room_close`, `room_backup`, `room_restore`) through `ndmspc-mcp` or
 `POST /api/mcp`.
-
-`ndmspc-room-tui` drives them from a terminal — the same binary also runs a single action
-and prints JSON when given `--list`, `--open`, `--status`, `--close`, `--backup <file>` or
-`--restore <file>`:
-
-```bash
-ndmspc-room-tui --url "$BASE"          # interactive room UI
-ndmspc-room-tui --url "$BASE" --list   # scripted
-```
 
 Opening a room (`room/open`) also replays the session it had before it scaled to zero — the
 same file, navigator and drill-down — so an idle room comes back as it was left rather than

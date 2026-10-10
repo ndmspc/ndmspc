@@ -890,8 +890,9 @@ TEST(NRoomAccessTest, TheSessionChannelUrlCarriesTheRoomsOwnToken)
 {
   // The room-to-router session channel is internal, so a room authenticates as itself there
   // rather than as a user: the router checks this token against the room the request names.
-  EXPECT_EQ(NHttpServer::RoomStateUrl("http://router.test", ""), "http://router.test/api/room/state");
-  EXPECT_EQ(NHttpServer::RoomStateUrl("http://router.test", "abc"), "http://router.test/api/room/state?token=abc");
+  EXPECT_EQ(NHttpServer::RoomStateUrl("http://router.test", ""), "http://router.test/api/ndmspc/room/state");
+  EXPECT_EQ(NHttpServer::RoomStateUrl("http://router.test", "abc"),
+            "http://router.test/api/ndmspc/room/state?token=abc");
 }
 
 TEST(NRoomAccessTest, AServerDispatchedRequestIsNotAskedForATokenAgain)
@@ -907,7 +908,7 @@ TEST(NRoomAccessTest, AServerDispatchedRequestIsNotAskedForATokenAgain)
     auto arg = std::make_shared<THttpCallArg>();
     arg->SetMethod("POST");
     arg->SetPathName("api");
-    arg->SetFileName("ngnt/open");
+    arg->SetFileName("ndmspc/ngnt/open");
     arg->SetPostData("{}");
     if (asServer) server.ProcessRequestAs(arg, Ndmspc::NRequestIdentity());
     else server.ProcessRequest(arg);
@@ -1755,8 +1756,8 @@ TEST(NRoomRouterActionsTest, AConfigCarriesTheWorkAndNothingAboutTheRoom)
        {{"v", 1},
         {"file", "x.root"},
         {"actions",
-         json::array({json::object({{"name", "ngnt/open"}, {"in", {{"file", "x.root"}}}}),
-                      json::object({{"name", "ngnt/reshape"},
+         json::array({json::object({{"name", "ndmspc/ngnt/open"}, {"in", {{"file", "x.root"}}}}),
+                      json::object({{"name", "ndmspc/ngnt/reshape"},
                                     {"in",
                                      {{"binningName", "default"},
                                       {"levels", levels},
@@ -1783,9 +1784,9 @@ TEST(NRoomRouterActionsTest, AConfigCarriesTheWorkAndNothingAboutTheRoom)
   }
 
   ASSERT_EQ(config["steps"].size(), 2u);
-  EXPECT_EQ(config["steps"][0]["action"], "ngnt/open");
+  EXPECT_EQ(config["steps"][0]["action"], "ndmspc/ngnt/open");
   EXPECT_EQ(config["steps"][0]["params"]["file"], "x.root");
-  EXPECT_EQ(config["steps"][1]["action"], "ngnt/reshape");
+  EXPECT_EQ(config["steps"][1]["action"], "ndmspc/ngnt/reshape");
   EXPECT_EQ(config["steps"][1]["params"]["levels"], levels);
   EXPECT_FALSE(config["steps"][1]["params"].contains("_identity"));
 
@@ -2805,10 +2806,10 @@ TEST(NRoomRouterActionsTest, TheListReportsTheImageTagsARoomMayBeRolledOnto)
                                                  json::array({"v1.4.0", "v1.3.2"}));
 
   const json list = test.Call("list", "GET");
-  // The advertised tags, with the deployment's own current tag added - and not duplicated when it is
-  // already among them.
+  // The deployment's own tag comes first - it is the one an update moves a room onto, and the one the
+  // update dialog offers at the top - then the tags the skeleton advertises, each only once.
   ASSERT_TRUE(list["payload"].contains("imageTags"));
-  EXPECT_EQ(list["payload"]["imageTags"], json::array({"v1.4.0", "v1.3.2", "v1.5.0"}));
+  EXPECT_EQ(list["payload"]["imageTags"], json::array({"v1.5.0", "v1.4.0", "v1.3.2"}));
   EXPECT_EQ(list["payload"]["currentTag"], "v1.5.0");
 }
 
@@ -3199,4 +3200,154 @@ TEST(NRoomRouterActionsTest, ARoomsDeclaredResourcesTravelInTheListAndTheStatus)
   EXPECT_EQ(status["result"], "success");
   EXPECT_EQ(status["payload"]["resources"]["requests"]["cpu"], "500m");
   EXPECT_EQ(status["payload"]["resources"]["limits"]["memory"], "2Gi");
+}
+
+// ---------------------------------------------------------------------------
+// The rooms-list fan-out (NdmspcRoomFanOut)
+// ---------------------------------------------------------------------------
+//
+// What makes a watch tick cheap: the list - and the cluster read behind it - is built once per distinct
+// caller, not once per watcher, and only what changed is sent. Exercised directly, without sockets.
+
+TEST(NdmspcRoomFanOutTest, BuildsOneListPerCallerAndSendsItToEachWatcher)
+{
+  const NRequestIdentity alice = NRequestIdentity::FromAssertion("alice");
+  const NRequestIdentity bob   = NRequestIdentity::FromAssertion("bob");
+
+  const std::map<long, NRequestIdentity> watchers{{1, alice}, {2, alice}, {3, bob}};
+  const std::vector<ULong_t>             connected{1, 2, 3};
+
+  int                         built = 0;
+  std::map<long, std::string> sent;
+  const auto                  digests = Ndmspc::NdmspcRoomFanOut(
+      "rooms", watchers, connected, {},
+      [&built](const NRequestIdentity & identity) {
+        ++built;
+        return json{{"rooms", json::array({json{{"owner", identity.Owner()}}})}};
+      },
+      [&sent](long wsId, const std::string & text) { sent[wsId] = text; });
+
+  EXPECT_EQ(built, 2) << "one list per distinct caller, not one per watcher";
+  EXPECT_EQ(digests.size(), 3u);
+  ASSERT_EQ(sent.size(), 3u);
+  EXPECT_EQ(sent[1], sent[2]) << "the same caller's watchers get the same list";
+  EXPECT_NE(sent[1], sent[3]) << "a different caller gets its own list";
+  EXPECT_NE(sent[1].find("\"event\":\"rooms\""), std::string::npos) << "the frame a view expects";
+}
+
+TEST(NdmspcRoomFanOutTest, SendsOnlyWhatChangedSinceTheLastPush)
+{
+  const NRequestIdentity                 alice = NRequestIdentity::FromAssertion("alice");
+  const std::map<long, NRequestIdentity> watchers{{1, alice}};
+  const std::vector<ULong_t>             connected{1};
+
+  std::map<long, std::string> sent;
+  const auto                  record = [&sent](long wsId, const std::string & text) { sent[wsId] = text; };
+  const auto                  same   = [](const NRequestIdentity &) { return json{{"n", 1}}; };
+
+  const auto first = Ndmspc::NdmspcRoomFanOut("rooms", watchers, connected, {}, same, record);
+  ASSERT_EQ(sent.size(), 1u) << "nothing was sent before, so the list goes out";
+
+  sent.clear();
+  Ndmspc::NdmspcRoomFanOut("rooms", watchers, connected, first, same, record);
+  EXPECT_TRUE(sent.empty()) << "the same list again is not sent twice";
+
+  sent.clear();
+  const auto changed = [](const NRequestIdentity &) { return json{{"n", 2}}; };
+  Ndmspc::NdmspcRoomFanOut("rooms", watchers, connected, first, changed, record);
+  EXPECT_EQ(sent.size(), 1u) << "a changed list goes out again";
+}
+
+TEST(NdmspcRoomFanOutTest, ForgetsAGoneConnectionAndKeepsOneWhoseReadFailed)
+{
+  const NRequestIdentity                 alice = NRequestIdentity::FromAssertion("alice");
+  const std::map<long, NRequestIdentity> watchers{{1, alice}, {2, alice}};
+
+  std::map<long, std::string> sent;
+  const auto                  record = [&sent](long wsId, const std::string & text) { sent[wsId] = text; };
+
+  // Only connection 1 is still there.
+  const auto digests = Ndmspc::NdmspcRoomFanOut(
+      "rooms", watchers, {1}, {}, [](const NRequestIdentity &) { return json{{"ok", true}}; }, record);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(digests.count(2), 0u) << "a gone connection is left out, so the router drops it";
+
+  // A read that failed (a null list) keeps the watcher, and its copy, rather than forgetting it.
+  sent.clear();
+  const auto kept = Ndmspc::NdmspcRoomFanOut("rooms", watchers, {1}, digests,
+                                             [](const NRequestIdentity &) { return json(); }, record);
+  EXPECT_TRUE(sent.empty());
+  EXPECT_EQ(kept.count(1), 1u) << "a failed read does not forget the watcher";
+}
+
+TEST(NdmspcRoomFanOutTest, APushCarriesTheTopicAsItsEvent)
+{
+  const NRequestIdentity                 alice = NRequestIdentity::FromAssertion("alice");
+  const std::map<long, NRequestIdentity> watchers{{7, alice}};
+
+  std::map<long, std::string> sent;
+  // A room's session is pushed under `room`, so a client can tell it from the list (`rooms`).
+  Ndmspc::NdmspcRoomFanOut("room", watchers, {7}, {},
+                           [](const NRequestIdentity &) { return json{{"result", "success"}}; },
+                           [&sent](long wsId, const std::string & text) { sent[wsId] = text; });
+
+  ASSERT_EQ(sent.size(), 1u);
+  const json frame = json::parse(sent[7]);
+  EXPECT_EQ(frame["event"], "room");
+  EXPECT_EQ(frame["payload"]["result"], "success");
+}
+
+// ---------------------------------------------------------------------------
+// What a socket watches (ndmspc/room/watch)
+// ---------------------------------------------------------------------------
+
+/// @brief A router whose pushes are on, so a watch can be taken (`Config` leaves the interval off).
+NRoomConfig WatchingConfig(long intervalSec = 2)
+{
+  NRoomConfig cfg      = Config();
+  cfg.watchIntervalSec = intervalSec;
+  return cfg;
+}
+
+TEST(NRoomRouterWatchTest, AWatchTakesTheTopicsItKnowsAndSaysSo)
+{
+  NRoomRouter router(WatchingConfig(), std::make_shared<FakeCluster>());
+
+  json in{{"_ws", 7}, {"topics", json::array({"rooms", "room/alpha", "nonsense", "room/"})}};
+  in["owner"] = "alice"; // an asserted caller, as an anonymous deployment sends
+  json out;
+  router.HandleWatch("POST", in, out);
+
+  EXPECT_EQ(out["result"], "success");
+  // What comes back is what the socket watches: the two real topics, and neither an unknown one nor a
+  // room topic that names no room.
+  EXPECT_EQ(out["payload"]["topics"], json::array({"rooms", "room/alpha"}));
+}
+
+TEST(NRoomRouterWatchTest, AWatchWithNoSocketOrNoPushesIsRefused)
+{
+  const auto cluster = std::make_shared<FakeCluster>();
+
+  NRoomRouter router(WatchingConfig(), cluster);
+  json        out;
+
+  // Nothing to push to: a watch is asked for over a websocket.
+  json noSocket{{"topics", json::array({"rooms"})}};
+  router.HandleWatch("POST", noSocket, out);
+  EXPECT_EQ(out["result"], "failure");
+
+  // And a socket asking by the wrong method.
+  json byGet{{"_ws", 7}, {"topics", json::array({"rooms"})}};
+  out = json::object();
+  router.HandleWatch("GET", byGet, out);
+  EXPECT_EQ(out["result"], "failure");
+
+  // A router that serves no pushes says so rather than pretending to watch - the interval is off by
+  // default, so a deployment has to ask for pushes at all.
+  NRoomRouter quiet(Config(), cluster);
+  json        quietIn{{"_ws", 7}, {"topics", json::array({"rooms"})}};
+  out = json::object();
+  quiet.HandleWatch("POST", quietIn, out);
+  EXPECT_EQ(out["result"], "failure");
+  EXPECT_EQ(out.value("code", std::string()), "watching_off");
 }

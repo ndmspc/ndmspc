@@ -122,7 +122,7 @@ TEST_F(NRoomClientTest, ListSendsAToolsCallForRoomListWithGet)
   const json request = fake->Request();
   EXPECT_EQ(request["jsonrpc"], "2.0");
   EXPECT_EQ(request["method"], "tools/call");
-  EXPECT_EQ(request["params"]["name"], "room_list");
+  EXPECT_EQ(request["params"]["name"], "ndmspc_room_list");
   EXPECT_EQ(request["params"]["arguments"]["method"], "GET");
   // room_list takes no room argument.
   EXPECT_FALSE(request["params"]["arguments"].contains("room"));
@@ -144,7 +144,7 @@ TEST_F(NRoomClientTest, OpenSendsPostWithTheRoomInTheBody)
 
   ASSERT_TRUE(result.ok) << result.error;
   const json request = fake->Request();
-  EXPECT_EQ(request["params"]["name"], "room_open");
+  EXPECT_EQ(request["params"]["name"], "ndmspc_room_open");
   EXPECT_EQ(request["params"]["arguments"]["method"], "POST");
   EXPECT_EQ(request["params"]["arguments"]["room"], "abcd123");
   EXPECT_EQ(result.payload["url"], "?room=abcd123");
@@ -155,12 +155,12 @@ TEST_F(NRoomClientTest, StatusUsesGetAndCloseUsesDelete)
 {
   fake->responseBody = McpEnvelope({{"result", "success"}, {"payload", {{"room", "r1"}}}});
   ASSERT_TRUE(Client().Status("r1").ok);
-  EXPECT_EQ(fake->Request()["params"]["name"], "room_status");
+  EXPECT_EQ(fake->Request()["params"]["name"], "ndmspc_room_status");
   EXPECT_EQ(fake->Request()["params"]["arguments"]["method"], "GET");
   EXPECT_EQ(fake->Request()["params"]["arguments"]["room"], "r1");
 
   ASSERT_TRUE(Client().Close("r1").ok);
-  EXPECT_EQ(fake->Request()["params"]["name"], "room_close");
+  EXPECT_EQ(fake->Request()["params"]["name"], "ndmspc_room_close");
   EXPECT_EQ(fake->Request()["params"]["arguments"]["method"], "DELETE");
 }
 
@@ -350,7 +350,7 @@ TEST_F(NRoomClientTest, InitializePerformsTheMcpHandshake)
   const json request = fake->Request();
   EXPECT_EQ(request["method"], "initialize");
   EXPECT_EQ(request["params"]["protocolVersion"], "2025-06-18");
-  EXPECT_EQ(request["params"]["clientInfo"]["name"], "ndmspc-room-tui");
+  EXPECT_EQ(request["params"]["clientInfo"]["name"], "ndmspc-room-client");
 }
 
 TEST_F(NRoomClientTest, BearerTokenIsSentOnlyWhenSupplied)
@@ -375,7 +375,7 @@ TEST_F(NRoomClientTest, BackupSendsAToolsCallAndHandsBackTheDocument)
   EXPECT_EQ(result.payload, document);
 
   const json request = fake->Request();
-  EXPECT_EQ(request["params"]["name"], "room_backup");
+  EXPECT_EQ(request["params"]["name"], "ndmspc_room_backup");
   EXPECT_EQ(request["params"]["arguments"]["method"], "GET");
   EXPECT_FALSE(request["params"]["arguments"].contains("room"));
 }
@@ -451,7 +451,7 @@ TEST_F(NRoomClientTest, RestoreCarriesTheDocumentAndSendsPost)
   EXPECT_TRUE(result.payload["failed"].empty());
 
   const json request = fake->Request();
-  EXPECT_EQ(request["params"]["name"], "room_restore");
+  EXPECT_EQ(request["params"]["name"], "ndmspc_room_restore");
   EXPECT_EQ(request["params"]["arguments"]["method"], "POST");
   EXPECT_EQ(request["params"]["arguments"]["document"], document);
 }
@@ -483,7 +483,7 @@ TEST_F(NRoomClientTest, BackupCanNameOneRoom)
 
   ASSERT_TRUE(result.ok) << result.error;
   const json request = fake->Request();
-  EXPECT_EQ(request["params"]["name"], "room_backup");
+  EXPECT_EQ(request["params"]["name"], "ndmspc_room_backup");
   EXPECT_EQ(request["params"]["arguments"]["method"], "GET");
   // Naming the room is what asks for a document holding that room alone.
   EXPECT_EQ(request["params"]["arguments"]["room"], "alpha");
@@ -501,7 +501,7 @@ TEST_F(NRoomClientTest, ConfigAsksForOneRoomsConfiguration)
   EXPECT_EQ(result.payload["v"], 1);
 
   const json request = fake->Request();
-  EXPECT_EQ(request["params"]["name"], "room_config");
+  EXPECT_EQ(request["params"]["name"], "ndmspc_room_config");
   EXPECT_EQ(request["params"]["arguments"]["method"], "GET");
   EXPECT_EQ(request["params"]["arguments"]["room"], "alpha");
 }
@@ -518,7 +518,7 @@ TEST_F(NRoomClientTest, ImportCarriesTheConfigAndTheSize)
   EXPECT_EQ(result.payload["room"], "fresh");
 
   const json request = fake->Request();
-  EXPECT_EQ(request["params"]["name"], "room_import");
+  EXPECT_EQ(request["params"]["name"], "ndmspc_room_import");
   EXPECT_EQ(request["params"]["arguments"]["method"], "POST");
   EXPECT_EQ(request["params"]["arguments"]["room"], "fresh");
   EXPECT_EQ(request["params"]["arguments"]["config"], config);

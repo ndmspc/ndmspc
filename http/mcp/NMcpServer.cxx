@@ -10,15 +10,20 @@
 #include <THttpCallArg.h>
 
 #include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NInstanceTree.h"
 #include "ndmspc/ndmspc.h"
 
 namespace Ndmspc {
 namespace {
 
-/// @brief Return the part of a handler key after the group prefix ("ngnt/open" -> "open").
+/// @brief The action's own name: the last segment of a handler key (`ndmspc/ngnt/open` -> `open`).
+///
+/// The workspace keys a schema by the action alone - "what this group calls it" - so the split is on the
+/// **last** slash: a key carries its namespace and group before that (`ndmspc/ngnt/open`), and splitting
+/// on the first one would look for a workspace entry called `ngnt/open` and find nothing.
 std::string ShortKey(const std::string & handlerKey)
 {
-  const auto pos = handlerKey.find('/');
+  const auto pos = handlerKey.rfind('/');
   return pos == std::string::npos ? handlerKey : handlerKey.substr(pos + 1);
 }
 
@@ -212,7 +217,7 @@ json NMcpServer::BuildTools() const
     // Accept arguments that are not declared here. The inspector schema is populated
     // lazily (built from the workspace on first use), so before an action has run its
     // properties are unknown; without this, clients that validate arguments against the
-    // schema drop every undeclared parameter (e.g. 'file' for ngnt/open). A macro may
+    // schema drop every undeclared parameter (e.g. 'file' for ndmspc/ngnt/open). A macro may
     // still set additionalProperties explicitly to tighten its tool.
     if (!inputSchema.contains("additionalProperties")) inputSchema["additionalProperties"] = true;
 
@@ -254,6 +259,22 @@ json NMcpServer::BuildTools() const
     if (info != nullptr && info->tutorial.is_object() && info->tutorial.contains("steps") &&
         info->tutorial["steps"].is_array() && !info->tutorial["steps"].empty()) {
       tool["_meta"]["ndmspc.io/tutorial"] = info->tutorial;
+    }
+    // What a client needs to name the group in words, to group the tools, to call the tool by its own key
+    // (the MCP name flattens `/` to `_`, which cannot be undone when the key has a subgroup), and to find
+    // a platform control tool by role rather than by a name it would otherwise have to know.
+    if (info != nullptr) {
+      // The group is published for every tool, and it is a key's own (`ndmspc/browser` for
+      // `ndmspc/browser/open`) - which the tool name spells `ndmspc_browser`. A client left to guess from
+      // the name would ask for the session of a group the server does not have.
+      const std::string group = Ndmspc::NInstanceTree::GroupOf(key);
+      if (!group.empty()) tool["_meta"]["ndmspc.io/group"] = group;
+      if (!info->groupLabel.empty()) tool["_meta"]["ndmspc.io/groupLabel"] = info->groupLabel;
+      if (!info->action.empty()) tool["_meta"]["ndmspc.io/action"] = info->action;
+      if (!info->control.empty()) tool["_meta"]["ndmspc.io/control"] = info->control;
+      // And whether a client should offer it at all: a tool that is only called on the room's behalf is
+      // published like any other, and this says not to list it for browsing.
+      if (!info->explorer) tool["_meta"]["ndmspc.io/explorer"] = false;
     }
     tools.push_back(tool);
   }

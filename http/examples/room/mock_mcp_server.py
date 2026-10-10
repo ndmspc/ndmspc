@@ -6,8 +6,8 @@ Kubernetes (it exits unless
 KUBERNETES_SERVICE_HOST is set), because a room is a Knative Service. That makes the
 real router untestable on a workstation, so this mock answers ``POST /api/mcp`` with
 the same JSON-RPC and handler envelopes the router produces, for the room actions, and keeps
-its rooms in memory. Alongside list/open/status/close it answers `room_backup` and
-`room_restore`, so exporting and restoring a room set can be exercised without a cluster.
+its rooms in memory. Alongside list/open/status/close it answers `ndmspc_room_backup` and
+`ndmspc_room_restore`, so exporting and restoring a room set can be exercised without a cluster.
 
 It mirrors NRoomRouter.cxx / NMcpServer.cxx:
 
@@ -22,8 +22,8 @@ It mirrors NRoomRouter.cxx / NMcpServer.cxx:
   same message the router uses;
 * a room's resource name is ``ndmspc-room-`` plus a DNS-1123 slug of the room id;
 * a room carries access tokens (``access``: a read-write and a read-only one), which the router
-  mints when it creates the room and reports in ``room_open``, ``room_status``, ``room_list`` and
-  the backup document, with ``room_open``'s ``url`` carrying the read-write one. They are derived
+  mints when it creates the room and reports in ``ndmspc_room_open``, ``ndmspc_room_status``, ``ndmspc_room_list`` and
+  the backup document, with ``ndmspc_room_open``'s ``url`` carrying the read-write one. They are derived
   here rather than minted, so a demo run is reproducible; nothing enforces them, because the mock
   serves the router, not a room (a room is what refuses traffic without its token).
 * a room belongs to whoever creates it (``owner``), and its owner is reported with it. A caller
@@ -32,7 +32,7 @@ It mirrors NRoomRouter.cxx / NMcpServer.cxx:
   script does. The mock has no authentication, so it only ever sees an asserted owner; the router
   prefers a verified identity over one (see NRequestIdentity).
 
-A room is created in the background by the real router: ``room_open`` with ``wait=false``
+A room is created in the background by the real router: ``ndmspc_room_open`` with ``wait=false``
 registers it straight away with ``state=preparing`` and finishes the work off the request path.
 The mock models that too - a room opened with ``wait=false`` shows up as ``preparing`` with a
 phase, and becomes ready after ``PREPARE`` seconds - so the client's preparing rows and its wait
@@ -42,13 +42,13 @@ Environment:
   PORT     port to listen on (default 8090)
   HOST     address to bind (default 127.0.0.1)
   SEED     comma-separated room ids to pre-register (default "demo")
-  TTL      idle TTL in seconds reported by room/list (default 86400, the router's own default)
+  TTL      idle TTL in seconds reported by ndmspc/room/list (default 86400, the router's own default)
   PREPARE  seconds a room opened with wait=false stays preparing (default 2, 0 = ready at once)
   FAIL     1 makes every room action fail, to exercise the client's error path
   ADMINS   comma-separated owners who may see every room (default "": then nobody is an admin)
   NO_ROOM_CAPACITY  1 makes every *new* room wait the way the real router reports a pod the
            cluster cannot schedule: state=pending, code=no_capacity, with the scheduler's message.
-           The room is kept (it comes up once there is room for it), so room_open succeeds.
+           The room is kept (it comes up once there is room for it), so ndmspc_room_open succeeds.
 """
 
 import hashlib
@@ -75,11 +75,11 @@ CAPACITY_ERROR = (
 # faithful to the real router.
 TOOLS = [
     {
-        "name": "room_open",
+        "name": "ndmspc_room_open",
         "description": "Ensure a room exists (one Knative Service per room) and return the URL that "
         "serves it. POST/GET with 'room' in the body. With wait=false the call returns "
         "at once with state=preparing and the room is created in the background - poll "
-        "room/status or room/list for the outcome.",
+        "ndmspc/room/status or ndmspc/room/list for the outcome.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -95,7 +95,7 @@ TOOLS = [
         },
     },
     {
-        "name": "room_status",
+        "name": "ndmspc_room_status",
         "description": "Report whether a room is known to the router, its current revision, and - while "
         "it is being created - where that creation is (state=preparing with "
         "phase=service|ready|route|restore), or state=failed with the reason. A room the "
@@ -111,7 +111,7 @@ TOOLS = [
         },
     },
     {
-        "name": "room_list",
+        "name": "ndmspc_room_list",
         "description": "List the rooms the router is currently tracking (with their last-seen time). A "
         "room whose creation is still running is listed as well, with state=preparing and "
         "the phase it has reached; one waiting for cluster resources is listed with "
@@ -124,7 +124,7 @@ TOOLS = [
         },
     },
     {
-        "name": "room_close",
+        "name": "ndmspc_room_close",
         "description": "Delete a room's HTTPRoute and Knative Service immediately.",
         "inputSchema": {
             "type": "object",
@@ -136,7 +136,7 @@ TOOLS = [
         },
     },
     {
-        "name": "room_backup",
+        "name": "ndmspc_room_backup",
         "description": "Export every tracked room and its session as one JSON document.",
         "inputSchema": {
             "type": "object",
@@ -145,12 +145,12 @@ TOOLS = [
         },
     },
     {
-        "name": "room_restore",
-        "description": "Ensure every room named in a document from room_backup and replay its session.",
+        "name": "ndmspc_room_restore",
+        "description": "Ensure every room named in a document from ndmspc_room_backup and replay its session.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "document": {"type": "object", "description": "A document produced by room_backup."},
+                "document": {"type": "object", "description": "A document produced by ndmspc_room_backup."},
                 "method": {"type": "string", "enum": ["POST"], "default": "POST"},
             },
             "additionalProperties": True,
@@ -161,11 +161,11 @@ TOOLS = [
 
 def slug(room_id):
     """Approximate NdmspcRoomSlug: a DNS-1123 label, with an FNV-1a fallback."""
-    text = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9-]+", "-", room_id.lower())).strip("-")[:63].strip("-")
+    text = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9-]+", "-", ndmspc_room_id.lower())).strip("-")[:63].strip("-")
     if text:
         return text
     digest = 0xCBF29CE484222325
-    for byte in room_id.encode():
+    for byte in ndmspc_room_id.encode():
         digest ^= byte
         digest = (digest * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
     return "r%016x" % digest
@@ -205,12 +205,12 @@ def may_see(room, owner, admins):
     return (room.get("owner") or "").lower() == owner.lower()
 
 
-def qualify(owner, room_id):
+def qualify(owner, ndmspc_room_id):
     """The id a room gets when its creator is known: their name in front of it."""
-    return "%s-%s" % (owner, room_id) if owner else room_id
+    return "%s-%s" % (owner, ndmspc_room_id) if owner else ndmspc_room_id
 
 
-def resolve(server, room_id, owner):
+def resolve(server, ndmspc_room_id, owner):
     """The room a request names.
 
     The router's rule (NRoomRouter::Resolve): an id that already names a room is that room, so a link
@@ -221,13 +221,13 @@ def resolve(server, room_id, owner):
     entry = server.rooms.find(room_id)
     if entry is not None:
         return entry["room"]
-    return qualify(owner, room_id)
+    return qualify(owner, ndmspc_room_id)
 
 
 def not_owner_message(room_id, owner):
     """The refusal's message, which says whose the room is - or that it is nobody's."""
     if not owner:
-        return "Room '%s' has no owner, so it is not yours to use" % room_id
+        return "Room '%s' has no owner, so it is not yours to use" % ndmspc_room_id
     return "Room '%s' belongs to %s" % (room_id, owner)
 
 
@@ -240,7 +240,7 @@ class Rooms:
         # the way the router reports a pod the scheduler refuses.
         self.capacity = capacity
         # Sessions, kept apart from the room entries just as the real router keeps them out of
-        # room/list. A real deployment gets these from the room reporting its own session; the
+        # ndmspc/room/list. A real deployment gets these from the room reporting its own session; the
         # mock stands in for that, which is enough to exercise backup/restore.
         self.snapshots = {}
         # How long a room opened with wait=false stays preparing. The router does that work in the
@@ -248,7 +248,7 @@ class Rooms:
         # rows or the client's wait for the room.
         self.prepare_seconds = prepare_seconds
 
-    def _pending(self, room_id, existing):
+    def _pending(self, ndmspc_room_id, existing):
         """The entry a room gets while the scheduler cannot place its pod.
 
         Pending, not failed: the room keeps the tokens and the links it was opened with, and would
@@ -256,7 +256,7 @@ class Rooms:
         """
         return {
             "name": self.name(room_id),
-            "room": room_id,
+            "room": ndmspc_room_id,
             "revision": (existing or {}).get("revision", ""),
             "lastSeen": int(time.time()),
             "preparing": False,
@@ -298,24 +298,24 @@ class Rooms:
             else:
                 entry["phase"] = "service"
 
-    def name(self, room_id):
+    def name(self, ndmspc_room_id):
         return PREFIX + slug(room_id)
 
-    def session(self, room_id):
+    def session(self, ndmspc_room_id):
         return {
             "v": 1,
-            "room": room_id,
+            "room": ndmspc_room_id,
             "file": "NBinnings01Gaus.root",
-            "actions": [{"name": "ngnt/open", "in": {"file": "NBinnings01Gaus.root"}}],
+            "actions": [{"name": "ndmspc/ngnt/open", "in": {"file": "NBinnings01Gaus.root"}}],
         }
 
-    def open(self, room_id, wait=True, owner=""):
+    def open(self, ndmspc_room_id, wait=True, owner=""):
         self._advance()
         name = self.name(room_id)
         existing = self.rooms.get(name)
         # A room belongs to whoever creates it: an existing room keeps the owner it has, and one
         # created by a caller that identified itself to nobody has none.
-        room_owner = (existing.get("owner") or "") if existing else owner
+        ndmspc_room_owner = (existing.get("owner") or "") if existing else owner
 
         # No room for another pod: the router registers the room and reports it pending a moment
         # later, with the scheduler's own message, so the mock does the same (immediately when there
@@ -330,7 +330,7 @@ class Rooms:
         if (not wait or not self.capacity) and self.prepare_seconds > 0:
             entry = {
                 "name": name,
-                "room": room_id,
+                "room": ndmspc_room_id,
                 "revision": (existing or {}).get("revision", ""),
                 "lastSeen": int(time.time()),
                 "ready": False,
@@ -342,7 +342,7 @@ class Rooms:
                 "startedAt": int(time.time()),
                 # Minted once and kept: the links a client was handed have to keep working.
                 "access": (existing or {}).get("access", access_for(room_id)),
-                "owner": room_owner,
+                "owner": ndmspc_room_owner,
             }
             if not self.capacity:
                 entry["no_capacity"] = True
@@ -351,7 +351,7 @@ class Rooms:
 
         entry = {
             "name": name,
-            "room": room_id,
+            "room": ndmspc_room_id,
             "revision": (existing or {}).get("revision") or name + "-00001",
             "lastSeen": int(time.time()),
             "ready": True,
@@ -360,17 +360,17 @@ class Rooms:
             "active": True,
             "state": "ready",
             "access": (existing or {}).get("access", access_for(room_id)),
-            "owner": room_owner,
+            "owner": ndmspc_room_owner,
         }
         self.rooms[name] = entry
         self.snapshots.setdefault(name, self.session(room_id))
         return entry
 
-    def seed(self, room_id):
+    def seed(self, ndmspc_room_id):
         name = self.name(room_id)
         self.rooms[name] = {
             "name": name,
-            "room": room_id,
+            "room": ndmspc_room_id,
             "revision": name + "-00001",
             "lastSeen": int(time.time()),
             "ready": True,
@@ -381,11 +381,11 @@ class Rooms:
             "owner": "",  # a seeded room is one nobody created here: it belongs to nobody
         }
 
-    def status(self, room_id):
+    def status(self, ndmspc_room_id):
         self._advance()
         name = self.name(room_id)
         entry = self.rooms.get(name)
-        payload = {"room": room_id, "name": name, "param": PARAM, "tracked": entry is not None}
+        payload = {"room": ndmspc_room_id, "name": name, "param": PARAM, "tracked": entry is not None}
         payload["exists"] = entry is not None
         if entry is not None:
             payload["revision"] = entry["revision"]
@@ -405,11 +405,11 @@ class Rooms:
                 payload["code"] = entry["code"]
         return payload
 
-    def close(self, room_id):
+    def close(self, ndmspc_room_id):
         name = self.name(room_id)
         self.rooms.pop(name, None)
         self.snapshots.pop(name, None)
-        return {"room": room_id, "name": name}
+        return {"room": ndmspc_room_id, "name": name}
 
     def backup(self, ttl, owner="", admins=()):
         """The document the router exports: the rooms the caller may see, plus their sessions."""
@@ -442,13 +442,13 @@ class Rooms:
         """Additive, like the router: ensure each room, replay its session, delete nothing."""
         restored, failed = [], []
         for entry in document.get("rooms", []):
-            room_id = entry.get("room", "")
-            if not room_id:
+            ndmspc_room_id = entry.get("room", "")
+            if not ndmspc_room_id:
                 continue
             existing = self.find(room_id)
             if existing is not None and not may_see(existing, owner, admins):
                 # Someone else's room is not this caller's to restore, and is left untouched.
-                failed.append({"room": room_id, "name": self.name(room_id), "code": "not_owner",
+                failed.append({"room": ndmspc_room_id, "name": self.name(room_id), "code": "not_owner",
                                "error": "Room '%s' belongs to %s" % (room_id, existing.get("owner") or "nobody")})
                 continue
             # The document's owner comes back with it, as the router does it; a document without one
@@ -461,7 +461,7 @@ class Rooms:
                 self.rooms[room["name"]]["access"] = entry["access"]
             if "snapshot" in entry:
                 self.snapshots[room["name"]] = entry["snapshot"]
-            restored.append({"room": room_id, "name": room["name"], "revision": room["revision"],
+            restored.append({"room": ndmspc_room_id, "name": room["name"], "revision": room["revision"],
                              "session": "restored"})
         return {"restored": restored, "failed": failed}
 
@@ -469,7 +469,7 @@ class Rooms:
         self._advance()
         return [self.rooms[key] for key in sorted(self.rooms)]
 
-    def find(self, room_id):
+    def find(self, ndmspc_room_id):
         """The entry of one room, or None when the router is not tracking it."""
         return self.rooms.get(self.name(room_id))
 
@@ -477,7 +477,7 @@ class Rooms:
 def call_tool(server, tool, arguments):
     """Reproduce one room handler from httpRoom.C."""
     method = arguments.get("method", "POST")
-    room_id = arguments.get("room", "")
+    ndmspc_room_id = arguments.get("room", "")
     admins = getattr(server, "admins", [])
     owner = asserted_owner(arguments)
 
@@ -497,22 +497,22 @@ def call_tool(server, tool, arguments):
     if server.fail:
         return failure("mock: forced failure (FAIL=1)")
 
-    if tool == "room_list":
+    if tool == "ndmspc_room_list":
         if "GET" not in method:
-            return failure("Unsupported HTTP method for room/list")
+            return failure("Unsupported HTTP method for ndmspc/room/list")
         visible = [room for room in server.rooms.entries() if may_see(room, owner, admins)]
         return {"result": "success",
                 "payload": {"rooms": visible, "ttl": server.ttl, "admin": bool(owner) and owner.lower() in admins}}
 
     # Backup and restore carry no room id: they act on the set the caller may see.
-    if tool == "room_backup":
+    if tool == "ndmspc_room_backup":
         if "GET" not in method and "POST" not in method:
-            return failure("Unsupported HTTP method for room/backup")
+            return failure("Unsupported HTTP method for ndmspc/room/backup")
         return {"result": "success", "payload": server.rooms.backup(server.ttl, owner, admins)}
 
-    if tool == "room_restore":
+    if tool == "ndmspc_room_restore":
         if "POST" not in method:
-            return failure("Unsupported HTTP method for room/restore")
+            return failure("Unsupported HTTP method for ndmspc/room/restore")
         document = arguments.get("document")
         if not isinstance(document, dict) or not isinstance(document.get("rooms"), list):
             return failure("Missing 'rooms' array in the restore document")
@@ -529,21 +529,21 @@ def call_tool(server, tool, arguments):
                 )
         return {"result": "success", "payload": server.rooms.restore(document, owner, admins)}
 
-    if not room_id:
+    if not ndmspc_room_id:
         return failure('Missing room id (send it in the body as {"room": "<id>"})')
 
     # An id that already names a room is that room; a new one is the caller's own, named after them.
-    resolved = resolve(server, room_id, owner)
+    resolved = resolve(server, ndmspc_room_id, owner)
 
-    if tool == "room_open":
+    if tool == "ndmspc_room_open":
         if "GET" not in method and "POST" not in method:
-            return failure("Unsupported HTTP method for room/open")
-        # room/open is also how a client obtains a room's link, so a room that belongs to someone
+            return failure("Unsupported HTTP method for ndmspc/room/open")
+        # ndmspc/room/open is also how a client obtains a room's link, so a room that belongs to someone
         # else is refused rather than handed over.
         refusal = not_ours(resolved)
         if refusal:
             return refusal
-        # room/open is ensure: an existing room is not an error, and `created` says which happened.
+        # ndmspc/room/open is ensure: an existing room is not an error, and `created` says which happened.
         created = server.rooms.find(resolved) is None
         # The router's wait flag. A string is accepted too: the flag travels as JSON, but a
         # hand-written request may send "wait=false".
@@ -576,17 +576,17 @@ def call_tool(server, tool, arguments):
             payload["code"] = entry.get("code", "")
         return {"result": "success", "payload": payload}
 
-    if tool == "room_status":
+    if tool == "ndmspc_room_status":
         if "GET" not in method:
-            return failure("Unsupported HTTP method for room/status")
+            return failure("Unsupported HTTP method for ndmspc/room/status")
         refusal = not_ours(resolved)
         if refusal:
             return refusal
         return {"result": "success", "payload": server.rooms.status(resolved)}
 
-    if tool == "room_close":
+    if tool == "ndmspc_room_close":
         if "DELETE" not in method:
-            return failure("Unsupported HTTP method for room/close")
+            return failure("Unsupported HTTP method for ndmspc/room/close")
         refusal = not_ours(resolved)
         if refusal:
             return refusal
@@ -718,7 +718,7 @@ def main():
     server.admins = [item.strip().lower() for item in os.environ.get("ADMINS", "").split(",") if item.strip()]
     server.ttl = ttl
     server.fail = fail
-    for room_id in seed:
+    for ndmspc_room_id in seed:
         server.rooms.seed(room_id)
 
     print(

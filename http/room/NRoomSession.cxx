@@ -25,8 +25,8 @@ bool DeclaresSession(const std::string & routeName)
   return it != gNdmspcMcpTools->end() && it->second.session;
 }
 
-/// @brief The route of the action that opens a session (a group's `open`, e.g. "ngnt/open" or
-///        "browser/open"), by declaration rather than by name: the first session-defining action that
+/// @brief The route of the action that opens a session (a group's `open`, e.g. "ndmspc/ngnt/open" or
+///        "ndmspc/browser/open"), by declaration rather than by name: the first session-defining action that
 ///        needs nothing to have run first. "" when no tool is loaded - the router has none, which is
 ///        why a caller that holds a snapshot passes the route itself.
 std::string SessionOpenRoute()
@@ -111,7 +111,9 @@ bool ReadPoint(NHttpRequest & http, const std::string & base, json & point, std:
                const std::string & token = std::string())
 {
   json stateDoc;
-  if (!GetJson(http, base + "/api/state", stateDoc, error, token)) return false;
+  // The state tool's own route, namespace and all: the drill-down point rides in the inspector schema
+  // it answers with.
+  if (!GetJson(http, base + "/api/ndmspc/state", stateDoc, error, token)) return false;
 
   const json spectra = Member(Member(Member(stateDoc, "payload"), "metadata"), "spectra");
   point              = Member(spectra, "point");
@@ -286,7 +288,7 @@ bool NRoomSession::RestoreInPlace(const json & snapshot, const Dispatch & dispat
     dispatch("PATCH", kPointRoute, body, patchError);
 
     std::string readError;
-    const json  stateDoc = dispatch("GET", "state", json::object(), readError);
+    const json  stateDoc = dispatch("GET", "ndmspc/state", json::object(), readError);
     if (!readError.empty()) {
       error = "cannot confirm the restored state point: " + readError;
       return false;

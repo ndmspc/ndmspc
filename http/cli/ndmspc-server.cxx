@@ -176,6 +176,21 @@ int main(int argc, char ** argv)
   argv = app.ensure_utf8(argv);
 
   app.add_option("-p,--port", port, "Server port (default: 8080)");
+  // How many connections the HTTP engine serves at once, including the websockets - each of which holds
+  // one for as long as it is open. This is therefore the real ceiling on concurrent clients, and the
+  // engine's own default is 10: a router whose threads are all held by watchers starts refusing
+  // connections, and a refused client waits for a thread that never frees (the page looks frozen, and a
+  // plain /api request with it). 128 leaves headroom under a room's own connection ceiling
+  // (NDMSPC_ROOM_MAX_CONNECTIONS, 100 by default).
+  int httpThreads = 128;
+  if (const char * threadsEnv = std::getenv("NDMSPC_HTTP_THREADS"); threadsEnv != nullptr && *threadsEnv != '\0') {
+    const int parsed = std::atoi(threadsEnv);
+    if (parsed > 0) httpThreads = parsed;
+  }
+  app.add_option("--http-threads", httpThreads,
+                 "Connections served at once, websockets included (default: 128; "
+                 "NDMSPC_HTTP_THREADS overrides)")
+      ->default_val(httpThreads);
   std::string macroFilename;
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: auto-load "
@@ -211,13 +226,13 @@ int main(int argc, char ** argv)
                  "(--ws false or NDMSPC_WS=0 serves no websocket at all)")
       ->default_val(withWs ? "true" : "false");
   // Room router: off unless asked for. It registers the framework's NRoomRouter, which serves
-  // /api/room/* and creates one Knative Service per room.
+  // /api/ndmspc/room/* and creates one Knative Service per room.
   bool withRooms = false;
   if (const char * roomsEnv = std::getenv("NDMSPC_ROOMS"); roomsEnv != nullptr && *roomsEnv != '\0') {
     withRooms = Ndmspc::NUtils::ParseBoolEnv(roomsEnv);
   }
   app.add_option("--rooms", withRooms,
-                 "Also serve the room router (NRoomRouter): /api/room/*, one Knative Service "
+                 "Also serve the room router (NRoomRouter): /api/ndmspc/room/*, one Knative Service "
                  "per room, and the room websocket policy; disabled by default (--rooms true "
                  "or NDMSPC_ROOMS=1). A router serves rooms only, so no macro is loaded. "
                  "Kubernetes only: the server exits at startup when KUBERNETES_SERVICE_HOST is unset")
@@ -226,7 +241,7 @@ int main(int argc, char ** argv)
   AddX509Options(&app, x509Config);
 
   app.callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp,
-                &withRooms, &withWs, &oidcConfig, &x509Config]() {
+                &withRooms, &withWs, &oidcConfig, &x509Config, &httpThreads]() {
     gROOT->SetBatch(batch);
     PrepareOidcConfig(oidcConfig, x509Config);
 
@@ -270,7 +285,7 @@ int main(int argc, char ** argv)
     }
 
     // The directory holding the installed macros, for the default -m list below. A server started
-    // with rooms loads no macro at all (the room router serves /api/room/* only), so it is resolved
+    // with rooms loads no macro at all (the room router serves /api/ndmspc/room/* only), so it is resolved
     // - and the defaults applied - only when this is not a router.
     const char * envMacros = gSystem->Getenv("NDMSPC_DIR");
     std::string  ndmspcMacrosDir = (envMacros && *envMacros) ? envMacros : "";
@@ -306,7 +321,7 @@ int main(int argc, char ** argv)
     Ndmspc::gNdmspcMcpTools = &mcpTools;
 
     // The server's own base actions (health, state) are framework code, not a macro: register them
-    // here so they exist whatever -m says. A room router serves /api/room/* only, so it gets none.
+    // here so they exist whatever -m says. A room router serves /api/ndmspc/room/* only, so it gets none.
     if (!withRooms) Ndmspc::RegisterBaseActions();
 
     // A router serves rooms, not tools, so it loads no macro at all - not even one named on the
@@ -315,7 +330,7 @@ int main(int argc, char ** argv)
     std::vector<std::string> macros;
     if (withRooms) {
       if (!macroFilename.empty()) {
-        NLogWarning("--rooms: ignoring the macro list '%s'; the room router serves only /api/room/*",
+        NLogWarning("--rooms: ignoring the macro list '%s'; the room router serves only /api/ndmspc/room/*",
                     macroFilename.c_str());
       }
       NLogInfo("Rooms enabled: serving the room actions only (no tool macro is loaded)");
@@ -348,7 +363,7 @@ int main(int argc, char ** argv)
       // the handler map is handed to the server, so nothing races with the engine start below.
       if (!Ndmspc::NRoomRouter::Instance().Register(serv)) exit(1); // it logged why
       const Ndmspc::NRoomConfig roomCfg = Ndmspc::NRoomConfig::FromEnv();
-      NLogInfo("Rooms enabled: serving /api/room/* from the room router in namespace '%s' "
+      NLogInfo("Rooms enabled: serving /api/ndmspc/room/* from the room router in namespace '%s' "
                "(one Knative Service per room, named '%s<id>')",
                roomCfg.ns.c_str(), roomCfg.prefix.c_str());
     }
@@ -364,13 +379,16 @@ int main(int argc, char ** argv)
       // verifies client certificates, extracts the subject as the username, and
       // forwards HTTP + WebSocket traffic here.
       const std::string internalBase = TString::Format("http://127.0.0.1:%d", x509Config.internalPort).Data();
-      serv->StartEngine(TString::Format("http:127.0.0.1:%d?top=ndmspc", x509Config.internalPort).Data());
+      serv->StartEngine(TString::Format("http:127.0.0.1:%d?top=ndmspc&thrds=%d", x509Config.internalPort,
+                                        httpThreads)
+                            .Data());
       EnsureServerRunning(serv, x509Config.internalPort);
       if (serv->IsTerminated()) {
         NLogError("Server is zombie, exiting ...");
         exit(1);
       }
-      NLogInfo("Internal ROOT engine listening on loopback port %d", x509Config.internalPort);
+      NLogInfo("Internal ROOT engine listening on loopback port %d (%d connection threads)", x509Config.internalPort,
+               httpThreads);
 
       Ndmspc::NX509Authenticator frontDoor(x509Config);
       // The front door verifies the client certificate itself and forwards what it found in the
@@ -392,7 +410,11 @@ int main(int argc, char ** argv)
       return;
     }
 
-    serv->StartEngine(TString::Format("http:%d?top=ndmspc", port).Data());
+    // Said out loud, because the limit is otherwise invisible until it is hit: a websocket holds one of
+    // these for as long as it is open, and a client that cannot get one waits rather than failing.
+    NLogInfo("HTTP engine: serving up to %d connections at once, websockets included (--http-threads)",
+             httpThreads);
+    serv->StartEngine(TString::Format("http:%d?top=ndmspc&thrds=%d", port, httpThreads).Data());
     EnsureServerRunning(serv, port);
 
     if (serv->IsTerminated()) {

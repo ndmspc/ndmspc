@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -71,7 +72,7 @@ extern NdmspcWsConnectFilter gNdmspcWsConnectFilter;
  * in C++:
  *
  * \code
- *   Ndmspc::RegisterMcpTool("ngnt/open", {
+ *   Ndmspc::RegisterMcpTool("ndmspc/ngnt/open", {
  *       .description = "Open or close an NGnTree ROOT file.",
  *       .methods     = {"GET", "POST", "DELETE"},
  *   });
@@ -84,9 +85,9 @@ extern NdmspcWsConnectFilter gNdmspcWsConnectFilter;
  * sequences them (lower first):
  *
  * \code
- *   Ndmspc::RegisterMcpTool("ngnt/reshape", {
+ *   Ndmspc::RegisterMcpTool("ndmspc/ngnt/reshape", {
  *       .description = "Reshape the opened tree.",
- *       .dependsOn   = {"ngnt/open"},
+ *       .dependsOn   = {"ndmspc/ngnt/open"},
  *       .order       = 2,
  *       .label       = "{{ binningName }} ({{ levels }})",
  *   });
@@ -102,7 +103,7 @@ struct NMcpToolInfo {
   std::vector<std::string> methods{};      ///< Allowed HTTP verbs; empty = all four
   bool                     hidden{false};  ///< Exclude this action from MCP entirely
   json                     inputSchema{};  ///< Optional extra input-schema properties merged in
-  std::vector<std::string> dependsOn{};    ///< Actions that must have run first (e.g. "ngnt/open")
+  std::vector<std::string> dependsOn{};    ///< Actions that must have run first (e.g. "ndmspc/ngnt/open")
   int                      order{0};       ///< Tie-break among ready tools (lower first; 0 = default)
   std::string              label{};        ///< Node name template, e.g. "{{ binningName }} ({{ levels }})"
   /// Whether this action defines session state and is replayed when an idle room is restored (its
@@ -118,22 +119,104 @@ struct NMcpToolInfo {
   /// each naming an action to open (with the arguments to fill its form with), so the user presses
   /// Save & Run at each. A client lists the tour by its name and description, so where a tour is offered
   /// it is offered by what it does rather than by the tool's own name; a tool that needs no tour simply
-  /// declares none. A step is `{"action": "browser/open", "params": { … }}`; `params` is optional.
+  /// declares none. A step is `{"action": "ndmspc/browser/open", "params": { … }}`; `params` is optional.
   json                     tutorial{};
+  /// How this tool's **group** is named for a reader, when its prefix is not the words to show
+  /// (`ndmspc_ngnt` reads as "NGNT explorer"). Published as `_meta["ndmspc.io/groupLabel"]`; empty says
+  /// the prefix reads fine as it is.
+  std::string              groupLabel{};
+  /// This tool's own key, filled in by {@link RegisterMcpTool} and published as
+  /// `_meta["ndmspc.io/action"]`. The MCP name flattens the key's `/` to `_`, so a client that needs the
+  /// key back (to match a `dependsOn`, to name a step in the combination tree) reads it instead of
+  /// rebuilding `group/action` — which would be wrong for a key with a subgroup.
+  std::string              action{};
+  /// The role of a platform **control** tool: `"session"`, `"group"`, `"state"`, `"heartbeat"`,
+  /// `"health"`. Declared by the tool, so a client can find "the tool that opens a session" by role
+  /// rather than by a name it would have to know — and so such a tool's two-part key (`ndmspc/session`)
+  /// is legal under the naming rule. Empty for every ordinary tool.
+  std::string              control{};
+  /// Whether a client **offers** this tool to a person: a tool that is only ever called on the room's
+  /// behalf — the drawing action a click runs, a helper another action dispatches — says so here, and a
+  /// client keeps it out of the tools it lists for browsing. It stays registered, callable over MCP and
+  /// in the room's own tool lists; only the offering is suppressed. Published as
+  /// `_meta["ndmspc.io/explorer"]: false`; absent means offered, which is what almost every tool is.
+  bool                     explorer{true};
 };
 
-/// @brief Map of handler action (e.g. "ngnt/open") to its MCP metadata.
+/// @brief Map of handler action (e.g. "ndmspc/ngnt/open") to its MCP metadata.
 using NMcpToolMap = std::map<std::string, NMcpToolInfo>;
 
 /// @brief Global pointer to the MCP metadata map, set by the CLI before macros load.
 extern NMcpToolMap * gNdmspcMcpTools;
 
+/// @brief Why a tool key does not follow the naming rule, phrased for a log line (`""` when it does).
+///
+/// The rule: a key is `namespace/group/action`, with **at most one** subgroup between the group and the
+/// action (`namespace/group/subgroup/action`), and the platform's own control tools are
+/// `ndmspc/<name>`. `ndmspc` is the platform's namespace; a plugin registers under its own, which is what
+/// keeps a third-party tool from colliding with a built-in one (see the naming section in
+/// `http/README.md`).
+///
+/// @param action The key being registered.
+/// @param control Whether the tool declares a control role (see `NMcpToolInfo::control`).
+/// @return An empty string when the key conforms, else the broken clause.
+inline std::string McpKeyRuleBroken(const std::string & action, bool control)
+{
+  std::vector<std::string> parts;
+  std::string              part;
+  for (const char c : action) {
+    if (c == '/') {
+      parts.push_back(part);
+      part.clear();
+      continue;
+    }
+    part.push_back(c);
+  }
+  parts.push_back(part);
+
+  for (const auto & one : parts) {
+    if (one.empty()) return "a part is empty";
+  }
+  if (parts.size() < 2) return "a key is at least namespace/name";
+  if (control) {
+    if (parts.size() != 2) return "a control tool is namespace/name";
+    if (parts[0] != "ndmspc") return "a control tool lives in the ndmspc namespace";
+    return "";
+  }
+  if (parts.size() < 3) return "a tool is namespace/group/action";
+  if (parts.size() > 4) return "at most one subgroup (namespace/group/subgroup/action)";
+  return "";
+}
+
 /// @brief Register (or replace) the MCP metadata for a handler action.
+///
+/// The key must follow the naming rule: one that does not is **not registered** and this throws, so the
+/// macro that declared it fails to load rather than the server coming up with a half-named tool set (see
+/// {@link McpKeyRuleBroken}).
+///
+/// Registering a key twice is a reload rather than a naming mistake, so the later registration wins with
+/// a warning — a silent overwrite is how a plugin shadowed a built-in.
+///
 /// @note No-op when gNdmspcMcpTools is null, so macros loaded outside a wired CLI
 ///       (e.g. by ndmspc-run) do not crash.
 inline void RegisterMcpTool(const std::string & action, NMcpToolInfo info)
 {
-  if (gNdmspcMcpTools != nullptr) (*gNdmspcMcpTools)[action] = std::move(info);
+  if (gNdmspcMcpTools == nullptr) return;
+
+  const std::string broken = McpKeyRuleBroken(action, !info.control.empty());
+  if (!broken.empty()) {
+    const std::string message = "MCP tool '" + action + "' breaks the naming rule: " + broken +
+                                " (a key is namespace/group/action, e.g. ndmspc/ngnt/open)";
+    NLogError("%s", message.c_str());
+    throw std::runtime_error(message);
+  }
+  if (gNdmspcMcpTools->find(action) != gNdmspcMcpTools->end()) {
+    NLogWarning("MCP tool '%s' is registered twice: the later registration wins", action.c_str());
+  }
+
+  // The key travels with the tool, so a client reads it rather than rebuilding it from the MCP name.
+  info.action                = action;
+  (*gNdmspcMcpTools)[action] = std::move(info);
 }
 
 /// @brief Convenience overload for the common case of a description only.
@@ -274,6 +357,11 @@ class NHttpServer : public THttpServer {
   void         ClearHistory() { fWorkspace.Clear(); }
   /// @brief Clear the workspace history and remove all remaining input objects.
   void         ResetServer();
+
+  /// Whether a {@link ResetServer} is already running. Clearing the history replays the history's DELETE
+  /// handlers, and a control tool's DELETE (the state action) resets the server itself: without this the
+  /// reset would re-enter itself until the stack ran out.
+  bool fResetting{false};
 
   /**
    * @brief Destructor stops background heartbeat thread if running.
@@ -433,7 +521,7 @@ class NHttpServer : public THttpServer {
    *
    * A client that has just connected has to be told what the room already holds — the combination
    * tree and the workspace schema (whose `default`s the forms start from) — or its view would be
-   * empty until the next action, even though the room has combinations. The shape is the `ngnt`
+   * empty until the next action, even though the room has combinations. The shape is the `ndmspc/ngnt`
    * frame the dispatch broadcast uses, so a client reads it with the same handler.
    *
    * @return The frame, or a frame carrying an empty tree/schema when nothing has run yet.
@@ -671,7 +759,7 @@ class NHttpServer : public THttpServer {
    * actions that ran successfully - is what says whether a prerequisite is met, so this needs no
    * state of its own.
    *
-   * @param action The handler action about to run (e.g. "ngnt/reshape").
+   * @param action The handler action about to run (e.g. "ndmspc/ngnt/reshape").
    * @return The unmet prerequisite's action, or "" when all are met (or none is declared).
    */
   std::string UnmetPrerequisite(const std::string & action) const;

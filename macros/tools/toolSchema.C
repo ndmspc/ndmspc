@@ -1,6 +1,6 @@
 /// toolSchema.C — a worked example of every schema option a tool can declare.
 ///
-/// This macro is documentation you can run. It registers one tool, `schema/probe`, whose form uses
+/// This macro is documentation you can run. It registers one tool, `ndmspc/schema/probe`, whose form uses
 /// every field kind the UI knows how to draw, and whose handler echoes back what it was given — so a
 /// tool author can read it, copy the parts they need, and see the form that the server and the UI
 /// agree on.
@@ -17,12 +17,12 @@
 ///
 ///   ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolSchema.C"
 ///
-/// Then open a room's **Explorer**: `schema/start` is offered as the way to begin a combination, and
-/// once it has run, `schema/probe` is offered under it — its form is every field kind a tool may
+/// Then open a room's **Explorer**: `ndmspc/schema/start` is offered as the way to begin a combination, and
+/// once it has run, `ndmspc/schema/probe` is offered under it — its form is every field kind a tool may
 /// declare, which is what this example is for. Both actions also appear in the **Tools** panel.
 ///
-/// The two steps are what make the group a *combination*: `schema/probe` declares
-/// `dependsOn = {"schema/start"}`, and a group with any dependency is a pipeline — its tree, its
+/// The two steps are what make the group a *combination*: `ndmspc/schema/probe` declares
+/// `dependsOn = {"ndmspc/schema/start"}`, and a group with any dependency is a pipeline — its tree, its
 /// inspector forms and its pads. A group with no `dependsOn` anywhere stays a set of plain tools and
 /// appears only in the Tools panel.
 
@@ -100,7 +100,9 @@ json BuildSchemaExample()
 void toolSchema()
 {
   auto &      handlers = *(Ndmspc::gNdmspcHttpHandlers);
-  std::string group    = "schema";
+  std::string group    = "ndmspc/schema";
+  /** What the family is called where a user reads it (the room's group picker, Help). */
+  const char * groupLabel = "Schema";
 
   // ---------------------------------------------------------------------------
   //  The root of the chain. It declares no `dependsOn`, so it is what starts a
@@ -157,6 +159,11 @@ void toolSchema()
       .order       = 2,
   });
 
+  // The family is named once, for every tool in it.
+  for (auto & entry : *(Ndmspc::gNdmspcMcpTools)) {
+    if (entry.first.rfind(group + "/", 0) == 0) entry.second.groupLabel = groupLabel;
+  }
+
   // ---------------------------------------------------------------------------
   //  The handler: publish the live schema, then echo what arrived. A tool with
   //  nothing live to say can leave the workspace half out — its declaration is
@@ -165,7 +172,7 @@ void toolSchema()
   handlers[group + "/start"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                   std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-    wsOut["group"] = "schema";
+    wsOut["group"] = "ndmspc/schema";
 
     ctx.Workspace()["start"]    = BuildStartExample();
     wsOut["workspace"]["start"] = ctx.Workspace()["start"];
@@ -182,7 +189,7 @@ void toolSchema()
   handlers[group + "/probe"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                   std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-    wsOut["group"] = "schema";
+    wsOut["group"] = "ndmspc/schema";
 
     ctx.Workspace()["probe"]    = BuildSchemaExample();
     wsOut["workspace"]["probe"] = ctx.Workspace()["probe"];

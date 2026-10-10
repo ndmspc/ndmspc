@@ -287,12 +287,16 @@ void toolForm()
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
-  // MCP tool metadata (see toolNgnt.C for the convention)
-  Ndmspc::RegisterMcpTool("form",
-                          "Submit a questionnaire response; it is appended to the CSV file "
-                          "(NDMSPC_FORM_CSV_PATH).");
+  // MCP tool metadata (see toolNgnt.C for the convention). The key follows the naming rule: the platform's
+  // namespace, a family, an action — a bare `form` is not a key the server will load.
+  Ndmspc::RegisterMcpTool("ndmspc/form/submit",
+                          {
+                              .description = "Submit a questionnaire response; it is appended to the CSV file "
+                                             "(NDMSPC_FORM_CSV_PATH).",
+                              .groupLabel  = "Form example",
+                          });
 
-  handlers["form"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+  handlers["ndmspc/form/submit"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
     if (method.find("GET") != std::string::npos) {
       httpOut["result"] = "success";

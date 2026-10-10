@@ -55,7 +55,7 @@ TEST(NRouteContextShow, AppendsOneEnvelopePerCall)
 TEST(NRouteContextShow, CarriesOptionsAndHandlers)
 {
   Ctx  c;
-  json click = json::array({NRouteContext::Action("ngnt/map", "PATCH", json{{"level", 1}})});
+  json click = json::array({NRouteContext::Action("ndmspc/ngnt/map", "PATCH", json{{"level", 1}})});
   c.ctx.Show(json{{"_typename", "TH1D"}}, "jsroot", "pad1", "h1", json{{"drawOpts", "colz"}},
              json{{"click", click}});
 
@@ -64,7 +64,7 @@ TEST(NRouteContextShow, CarriesOptionsAndHandlers)
   EXPECT_EQ(written[0]["options"]["drawOpts"], "colz");
   EXPECT_EQ(written[0]["handlers"]["click"][0]["type"], "http");
   EXPECT_EQ(written[0]["handlers"]["click"][0]["method"], "PATCH");
-  EXPECT_EQ(written[0]["handlers"]["click"][0]["path"], "ngnt/map");
+  EXPECT_EQ(written[0]["handlers"]["click"][0]["path"], "ndmspc/ngnt/map");
   EXPECT_EQ(written[0]["handlers"]["click"][0]["contentType"], "application/json");
   EXPECT_EQ(written[0]["handlers"]["click"][0]["payload"]["level"], 1);
 }
@@ -87,11 +87,11 @@ TEST(NRouteContextShow, DefaultsToTheFirstPadAndTheJsonKind)
 
 TEST(NRouteContextShow, ActionIsTheShapeTheUiCarriesOut)
 {
-  const json action = NRouteContext::Action("ngnt/spectra", "GET", json{{"point", json::array({1})}},
+  const json action = NRouteContext::Action("ndmspc/ngnt/spectra", "GET", json{{"point", json::array({1})}},
                                             "application/json");
   EXPECT_EQ(action["type"], "http");
   EXPECT_EQ(action["method"], "GET");
-  EXPECT_EQ(action["path"], "ngnt/spectra");
+  EXPECT_EQ(action["path"], "ndmspc/ngnt/spectra");
   EXPECT_EQ(action["payload"]["point"][0], 1);
 }
 

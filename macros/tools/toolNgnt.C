@@ -2,7 +2,7 @@
 /// toolNgnt.C — All-in-one tool macro registering the standard NGnTree actions
 ///              under the "ngnt" group prefix (served as HTTP API, WebSocket and MCP tools).
 ///
-/// Registers: ngnt/open, ngnt/reshape, ngnt/map, ngnt/spectra, ngnt/point
+/// Registers: ndmspc/ngnt/open, ndmspc/ngnt/reshape, ndmspc/ngnt/map, ndmspc/ngnt/spectra, ndmspc/ngnt/point
 ///
 /// URLs:  /api/ngnt/open, /api/ngnt/reshape, /api/ngnt/map, /api/ngnt/spectra, /api/ngnt/point
 ///
@@ -173,7 +173,7 @@ json BuildSpectraClickAction(const std::vector<int> & point, int level, const st
   // combination - the server creates no node for a `transient` POST (see NHttpServer::Dispatch), so a
   // click shows spectra on their pad and the tree stays as it was. A plain POST would leave a `spectra`
   // node behind on every click; a PATCH would target a node that does not exist yet and be refused
-  // ("no ngnt/spectra node; run it first"). The node path names the map the click came from.
+  // ("no ndmspc/ngnt/spectra node; run it first"). The node path names the map the click came from.
   action["method"]               = "POST";
   action["path"]                 = group.empty() ? "spectra" : group + "/spectra";
   action["contentType"]          = "application/json";
@@ -264,11 +264,11 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
       const std::string slice = DrillLabel(at, walk);
       if (!slice.empty()) proj->SetTitle(slice.c_str());
       json clicks = json::array();
-      clicks.push_back(BuildMapClickAction(drill, level, "ngnt", drawnAt));
+      clicks.push_back(BuildMapClickAction(drill, level, "ndmspc/ngnt", drawnAt));
       // One level above the last is where drilling stops, so a spectra makes sense there: the click also
       // draws the spectra for that point. That is a *transient* POST - it shows on the spectra pad and
       // adds nothing to the combination (see BuildSpectraClickAction).
-      if (level + 2 == nLevels) clicks.push_back(BuildSpectraClickAction(drill, level, "ngnt", drawnAt));
+      if (level + 2 == nLevels) clicks.push_back(BuildSpectraClickAction(drill, level, "ndmspc/ngnt", drawnAt));
       // The first layer carries `replace` for a fresh map, so the pad drops what it held (a map from
       // another combination included); a drill appends its layers to what is there.
       // The tab keeps the layer's own label: it is what identifies the tab, so anything that changes
@@ -543,7 +543,11 @@ json BuildSpectraSchema(Ndmspc::NGnTree * ngnt, const std::vector<std::string> &
 void toolNgnt()
 {
   auto &      handlers = *(Ndmspc::gNdmspcHttpHandlers);
-  std::string group    = "ngnt";
+  // The family's key prefix: `ndmspc` is the platform's namespace, `ngnt` the family (see the naming
+  // rule in `http/README.md`), so the keys are `ndmspc/ngnt/open`, `ndmspc/ngnt/reshape`, …
+  std::string group    = "ndmspc/ngnt";
+  /** What the group is called where a user reads it (the room's group picker, Help). */
+  const char * groupLabel = "NGNT explorer";
 
   // ===========================================================================
   //  MCP tool metadata
@@ -662,14 +666,20 @@ void toolNgnt()
           .order       = 5,
       });
 
+  // Every tool of this family is named the same way where a user reads it: said once, so a tool added to
+  // this macro later is offered under it too rather than repeating the label on each registration.
+  for (auto & entry : *(Ndmspc::gNdmspcMcpTools)) {
+    if (entry.first.rfind(group + "/", 0) == 0) entry.second.groupLabel = groupLabel;
+  }
+
   // ===========================================================================
-  //  /api/ngnt/open — Open/close NGnTree files
+  //  /api/ndmspc/ngnt/open — Open/close NGnTree files
   // ===========================================================================
 
   handlers[group + "/open"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                                  std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
-    wsOut["group"] = "ngnt";
+    wsOut["group"] = "ndmspc/ngnt";
     auto * server  = ctx.Server();
     auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
 
@@ -770,7 +780,7 @@ void toolNgnt()
                                     std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
-    wsOut["group"] = "ngnt";
+    wsOut["group"] = "ndmspc/ngnt";
     auto * server  = ctx.Server();
     auto * ngnt    = ctx.GetObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) {
@@ -861,7 +871,7 @@ void toolNgnt()
                                 std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
-    wsOut["group"] = "ngnt";
+    wsOut["group"] = "ndmspc/ngnt";
     auto * server  = ctx.Server();
     auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) return;
@@ -1028,7 +1038,7 @@ void toolNgnt()
                                     std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
-    wsOut["group"] = "ngnt";
+    wsOut["group"] = "ndmspc/ngnt";
     auto * server  = ctx.Server();
     auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) return;
@@ -1214,7 +1224,7 @@ void toolNgnt()
                                   std::map<std::string, TObject *> & objects) {
     Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
 
-    wsOut["group"] = "ngnt";
+    wsOut["group"] = "ndmspc/ngnt";
     auto * ngnt    = ctx.RequireObject<Ndmspc::NGnTree>(ctx.ObjectName("ngnt"));
     if (!ngnt || ngnt->IsZombie()) return;
     auto * nav = ctx.RequireObject<Ndmspc::NGnNavigator>(ctx.ObjectName("navigator"));
@@ -1228,7 +1238,7 @@ void toolNgnt()
       clickAction["type"]        = "http";
       clickAction["method"]      = "GET";
       clickAction["contentType"] = "application/json";
-      clickAction["path"]        = "ngnt/point";
+      clickAction["path"]        = "ndmspc/ngnt/point";
       clickAction["payload"]     = json::object();
 
       // A point's projection goes to the first pad, the way the map does.

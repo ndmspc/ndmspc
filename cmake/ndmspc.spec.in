@@ -109,6 +109,8 @@ cd build
 cmake ../ \
 -DCMAKE_INSTALL_PREFIX=/usr \
 -DCMAKE_BUILD_TYPE=Release \
+-DPROJECT_VERSION=@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@ \
+-DPROJECT_VERSION_RELEASE=@PROJECT_VERSION_RELEASE@ \
 -DBUILD_DOCUMENTATION=OFF \
 -DWITH_TEST=OFF \
 %if %{with_ui}
@@ -193,7 +195,6 @@ done
 %{_bindir}/ndmspc-worker
 %{_bindir}/ndmspc-ws-client
 %{_bindir}/ndmspc-mcp
-%{_bindir}/ndmspc-room-tui
 %if %{with_ai}
 %{_bindir}/ndmspc-chat
 %endif
