@@ -70,7 +70,7 @@ public:
   const std::vector<NHistoryEntry*>& GetEntries() const { return fEntries; }
   /**
    * @brief Whether the history holds a successfully-run action by this name.
-   * @param name The action's full route name (e.g. "ngnt/open").
+   * @param name The action's full route name (e.g. "ndmspc/ngnt/open").
    * @return True when such an entry is present.
    */
   bool HasEntry(const std::string& name) const;

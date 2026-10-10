@@ -14,7 +14,7 @@ namespace Ndmspc {
 
 /**
  * @struct NRoomInfo
- * @brief One room as reported by the router's room/list action.
+ * @brief One room as reported by the router's ndmspc/room/list action.
  */
 struct NRoomInfo {
   std::string name;            ///< Kubernetes resource name (prefix + slug of the room id)
@@ -89,7 +89,7 @@ struct NRoomResult {
 
 /**
  * @struct NRoomListResult
- * @brief Outcome of the room/list action.
+ * @brief Outcome of the ndmspc/room/list action.
  */
 struct NRoomListResult {
   bool                   ok{false}; ///< True when the router reported success
@@ -177,7 +177,7 @@ class NRoomHttpClientImpl : public IRoomHttpClient {
  *
  * The router is the ngnt server with the room macro loaded
  * (Ndmspc::NRoomRouter). Its four room actions are exposed as the MCP tools
- * `room_list`, `room_open`, `room_status` and `room_close`, which dispatch to the
+ * `ndmspc_room_list`, `ndmspc_room_open`, `ndmspc_room_status` and `room_close`, which dispatch to the
  * same handlers as the /api/room routes. Going through MCP tools/call keeps every room
  * operation on one interface instead of a second, REST-shaped one.
  *
@@ -233,14 +233,14 @@ class NRoomClient {
   NRoomListResult List();
 
   /**
-   * @brief A `room_list` payload in the shape {@link List} returns.
+   * @brief A `ndmspc_room_list` payload in the shape {@link List} returns.
    *
    * The router pushes the same payload down the websocket (a watcher asks for the list over the
    * socket and is sent it whenever it changes), and a pushed list has to be read exactly as an
    * answered one: a field the router leaves out when it is empty must mean the same thing either
    * way, or a view that watched and a view that polled would disagree about the same room.
    *
-   * @param payload The payload of a `room_list` answer, or of a pushed `rooms` event.
+   * @param payload The payload of a `ndmspc_room_list` answer, or of a pushed `rooms` event.
    * @return The rooms, the idle TTL and whether the caller is an admin; `ok` is false when the
    *         payload is not a room list.
    */
@@ -267,7 +267,7 @@ class NRoomClient {
   /**
    * @brief Roll a room onto a chosen image tag: a newer one to upgrade, an older one to revert.
    *
-   * `tag` is one of the tags `room_list` reports as `imageTags` (or the deployment's current tag,
+   * `tag` is one of the tags `ndmspc_room_list` reports as `imageTags` (or the deployment's current tag,
    * `currentTag`); empty rolls onto the deployment's current tag. Alternatively `image` is a full
    * reference this room has run before (one of the images `Status` reports as `versions`) - the way to
    * roll back to a version the tag list does not reach. A room somebody is in is refused with
@@ -363,7 +363,7 @@ class NRoomClient {
   private:
   /**
    * @brief Invoke one room tool through MCP tools/call.
-   * @param tool MCP tool name (e.g. "room_list").
+   * @param tool MCP tool name (e.g. "ndmspc_ndmspc_room_list").
    * @param method HTTP verb the handler expects ("GET", "POST" or "DELETE").
    * @param roomId Room id; omitted from the arguments when empty.
    * @param extra Extra arguments merged in beside "method" and "room" (e.g. the restore document).

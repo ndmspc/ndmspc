@@ -30,18 +30,18 @@ struct SessionTools {
     Ndmspc::NMcpToolInfo open;
     open.session      = true;
     open.order        = 1;
-    tools["ngnt/open"] = open;
+    tools["ndmspc/ngnt/open"] = open;
 
     Ndmspc::NMcpToolInfo reshape;
     reshape.session    = true;
-    reshape.dependsOn  = {"ngnt/open"};
+    reshape.dependsOn  = {"ndmspc/ngnt/open"};
     reshape.order      = 2;
-    tools["ngnt/reshape"] = reshape;
+    tools["ndmspc/ngnt/reshape"] = reshape;
 
     Ndmspc::NMcpToolInfo browser;
     browser.session       = true;
     browser.order         = 9;
-    tools["browser/open"] = browser;
+    tools["ndmspc/browser/open"] = browser;
 
     Ndmspc::gNdmspcMcpTools = &tools;
   }
@@ -140,29 +140,29 @@ json SnapshotOf(const std::vector<std::pair<std::string, json>> & actions)
 void PrimeActiveRoom(FakeHttpRequest & fake, const std::string & point = "[0,1]")
 {
   const std::string history =
-      R"([{"name":"ngnt/open","method":"POST","payload":{"in":{"file":"NBinnings01Gaus.root"}}},)"
-      R"({"name":"ngnt/reshape","method":"POST","payload":{"in":{"binningName":"b0","levels":[[0,1,2]]}}},)"
-      R"({"name":"ngnt/map","method":"POST","payload":{"in":{"mappingPad":"pad3"}}}])";
+      R"([{"name":"ndmspc/ngnt/open","method":"POST","payload":{"in":{"file":"NBinnings01Gaus.root"}}},)"
+      R"({"name":"ndmspc/ngnt/reshape","method":"POST","payload":{"in":{"binningName":"b0","levels":[[0,1,2]]}}},)"
+      R"({"name":"ndmspc/ngnt/map","method":"POST","payload":{"in":{"mappingPad":"pad3"}}}])";
 
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open", OpenSuccess());
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open", OpenSuccess());
   fake.Respond("GET", std::string(kBase) + "/api/", RootWithHistory(history));
-  fake.Respond("GET", std::string(kBase) + "/api/state", StateWithPoint(point));
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/state", StateWithPoint(point));
 }
 
 // --- which actions are worth replaying -------------------------------------------
 
 TEST(NRoomSessionReplayTest, OnlyStateDefiningActionsAreReplayed)
 {
-  EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("ngnt/open"));
-  EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("ngnt/reshape"));
+  EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("ndmspc/ngnt/open"));
+  EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("ndmspc/ngnt/reshape"));
   // A group declares this itself (NMcpToolInfo::session), so the session names no tool: a browser's
   // open is replayed without a change in NRoomSession.
-  EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("browser/open"));
+  EXPECT_TRUE(Ndmspc::NRoomSession::IsReplayable("ndmspc/browser/open"));
   // These render or read; replaying them would recompute histograms for nothing.
-  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ngnt/map"));
-  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ngnt/spectra"));
-  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ngnt/point"));
-  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("room/open"));
+  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ndmspc/ngnt/map"));
+  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ndmspc/ngnt/spectra"));
+  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ndmspc/ngnt/point"));
+  EXPECT_FALSE(Ndmspc::NRoomSession::IsReplayable("ndmspc/room/open"));
 }
 
 // --- probing a room --------------------------------------------------------------
@@ -182,7 +182,7 @@ TEST(NRoomSessionProbeTest, ReportsActiveWithTheOpenedFile)
 TEST(NRoomSessionProbeTest, ReportsEmptyWhenNothingIsOpen)
 {
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open", OpenEmpty());
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open", OpenEmpty());
 
   std::string file;
   std::string error;
@@ -203,7 +203,7 @@ TEST(NRoomSessionProbeTest, ReportsUnreachableOnTransportFailure)
 TEST(NRoomSessionProbeTest, ReportsUnreachableOnAnErrorStatus)
 {
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open", R"({"error":"boom"})", 500);
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open", R"({"error":"boom"})", 500);
 
   std::string file;
   std::string error;
@@ -218,7 +218,7 @@ TEST(NRoomSessionProbeTest, ReportsRefusedWhenTheRoomWantsACredentialItDidNotGet
   // status). That is not a room with nothing open, and saying so is what keeps a capture that
   // cannot happen from looking like an empty room.
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open",
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open",
                R"({"error":{"code":"authentication_required","message":"Missing Authorization header","retryable":false}})");
 
   std::string file;
@@ -231,7 +231,7 @@ TEST(NRoomSessionProbeTest, ReportsRefusedWhenTheRoomsOwnGateTurnsTheTokenAway)
 {
   // The room's own access gate uses the other envelope: a failure result with the code beside it.
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open",
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open",
                R"({"result":"failure","error":"this room does not accept that access token","code":"invalid_access_token"})");
 
   std::string file;
@@ -245,7 +245,7 @@ TEST(NRoomSessionProbeTest, ReportsRefusedWhenTheRoomsOwnGateTurnsTheTokenAway)
 TEST(NRoomSessionCaptureTest, CapturesNothingFromAnEmptyRoom)
 {
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open", OpenEmpty());
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open", OpenEmpty());
   fake.Respond("GET", std::string(kBase) + "/api/", RootWithHistory("[]"));
 
   std::string error;
@@ -261,7 +261,7 @@ TEST(NRoomSessionCaptureTest, CapturesNothingFromAnEmptyRoom)
 TEST(NRoomSessionCaptureTest, ReportsARefusedRoomRatherThanAnEmptyOne)
 {
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open",
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open",
                R"({"error":{"code":"authentication_required","message":"Missing Authorization header","retryable":false}})");
 
   std::string                 error;
@@ -289,9 +289,9 @@ TEST(NRoomSessionCaptureTest, CapturesTheFileTheReplayableActionsAndThePoint)
 
   ASSERT_TRUE(snapshot["actions"].is_array());
   ASSERT_EQ(snapshot["actions"].size(), 2u); // ngnt/map is excluded
-  EXPECT_EQ(snapshot["actions"][0]["name"], "ngnt/open");
+  EXPECT_EQ(snapshot["actions"][0]["name"], "ndmspc/ngnt/open");
   EXPECT_EQ(snapshot["actions"][0]["in"]["file"], "NBinnings01Gaus.root");
-  EXPECT_EQ(snapshot["actions"][1]["name"], "ngnt/reshape");
+  EXPECT_EQ(snapshot["actions"][1]["name"], "ndmspc/ngnt/reshape");
   EXPECT_EQ(snapshot["actions"][1]["in"]["binningName"], "b0");
 
   ASSERT_TRUE(snapshot.contains("point"));
@@ -301,13 +301,13 @@ TEST(NRoomSessionCaptureTest, CapturesTheFileTheReplayableActionsAndThePoint)
 TEST(NRoomSessionCaptureTest, KeepsTheServersQueryInjectionOutOfTheSnapshot)
 {
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open", OpenSuccess());
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open", OpenSuccess());
   // A request made through the gateway arrives with the room parameter in its query
   // string, which the server folds into the body as "_query".
   fake.Respond("GET", std::string(kBase) + "/api/",
-               RootWithHistory(R"([{"name":"ngnt/open","payload":{"in":{"_query":"room=test",)"
+               RootWithHistory(R"([{"name":"ndmspc/ngnt/open","payload":{"in":{"_query":"room=test",)"
                                R"("file":"NBinnings01Gaus.root"}}}])"));
-  fake.Respond("GET", std::string(kBase) + "/api/state", StateWithPoint("[]"));
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/state", StateWithPoint("[]"));
 
   std::string error;
   const json  snapshot = Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error);
@@ -327,9 +327,9 @@ TEST(NRoomSessionCaptureTest, ReadsTheRoomsOwnEndpoints)
   Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error);
 
   const std::vector<std::string> expected = {
-      std::string("GET ") + kBase + "/api/ngnt/open",
+      std::string("GET ") + kBase + "/api/ndmspc/ngnt/open",
       std::string("GET ") + kBase + "/api/",
-      std::string("GET ") + kBase + "/api/state",
+      std::string("GET ") + kBase + "/api/ndmspc/state",
   };
   EXPECT_EQ(fake.Sequence(), expected);
 }
@@ -337,26 +337,26 @@ TEST(NRoomSessionCaptureTest, ReadsTheRoomsOwnEndpoints)
 TEST(NRoomSessionCaptureTest, ReopensTheFileWhenTheHistoryIsEmpty)
 {
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open", OpenSuccess());
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open", OpenSuccess());
   fake.Respond("GET", std::string(kBase) + "/api/", RootWithHistory("[]"));
-  fake.Respond("GET", std::string(kBase) + "/api/state", Ok());
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/state", Ok());
 
   std::string error;
   const json  snapshot = Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error);
 
   ASSERT_TRUE(snapshot.is_object()) << error;
   ASSERT_EQ(snapshot["actions"].size(), 1u);
-  EXPECT_EQ(snapshot["actions"][0]["name"], "ngnt/open");
+  EXPECT_EQ(snapshot["actions"][0]["name"], "ndmspc/ngnt/open");
   EXPECT_EQ(snapshot["actions"][0]["in"]["file"], "NBinnings01Gaus.root");
 }
 
 TEST(NRoomSessionCaptureTest, KeepsTheSessionWhenTheStatePointIsUnavailable)
 {
   FakeHttpRequest fake;
-  fake.Respond("GET", std::string(kBase) + "/api/ngnt/open", OpenSuccess());
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/ngnt/open", OpenSuccess());
   fake.Respond("GET", std::string(kBase) + "/api/",
-               RootWithHistory(R"([{"name":"ngnt/open","payload":{"in":{"file":"NBinnings01Gaus.root"}}}])"));
-  fake.Respond("GET", std::string(kBase) + "/api/state", R"({"error":"boom"})", 500);
+               RootWithHistory(R"([{"name":"ndmspc/ngnt/open","payload":{"in":{"file":"NBinnings01Gaus.root"}}}])"));
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/state", R"({"error":"boom"})", 500);
 
   std::string error;
   const json  snapshot = Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error);
@@ -382,9 +382,9 @@ TEST(NRoomSessionRestoreTest, ReplaysTheActionsInOrderThenThePoint)
 {
   FakeHttpRequest fake;
   PrimeActiveRoom(fake);
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/open", Ok());
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/reshape", Ok());
-  fake.Respond("PATCH", std::string(kBase) + "/api/ngnt/map", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/open", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/reshape", Ok());
+  fake.Respond("PATCH", std::string(kBase) + "/api/ndmspc/ngnt/map", Ok());
 
   std::string error;
   const json  snapshot = Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error);
@@ -394,10 +394,10 @@ TEST(NRoomSessionRestoreTest, ReplaysTheActionsInOrderThenThePoint)
   ASSERT_TRUE(Ndmspc::NRoomSession::Restore(fake, kBase, snapshot, error)) << error;
 
   const std::vector<std::string> expected = {
-      std::string("POST ") + kBase + "/api/ngnt/open",
-      std::string("POST ") + kBase + "/api/ngnt/reshape",
-      std::string("PATCH ") + kBase + "/api/ngnt/map",
-      std::string("GET ") + kBase + "/api/state", // the restored point is read back
+      std::string("POST ") + kBase + "/api/ndmspc/ngnt/open",
+      std::string("POST ") + kBase + "/api/ndmspc/ngnt/reshape",
+      std::string("PATCH ") + kBase + "/api/ndmspc/ngnt/map",
+      std::string("GET ") + kBase + "/api/ndmspc/state", // the restored point is read back
   };
   ASSERT_EQ(fake.Sequence(), expected);
   EXPECT_EQ(fake.calls[0].body, R"({"file":"NBinnings01Gaus.root"})");
@@ -409,8 +409,8 @@ TEST(NRoomSessionRestoreTest, DoesNotPatchWhenThereIsNoPoint)
 {
   FakeHttpRequest fake;
   PrimeActiveRoom(fake, "[]");
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/open", Ok());
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/reshape", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/open", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/reshape", Ok());
 
   std::string error;
   const json  snapshot = Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error);
@@ -425,11 +425,11 @@ TEST(NRoomSessionRestoreTest, AcceptsAPointWhosePatchRepliedWithAnError)
 {
   FakeHttpRequest fake;
   PrimeActiveRoom(fake);
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/open", Ok());
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/reshape", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/open", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/reshape", Ok());
   // What a freshly started room really answers: the point is stored, but rendering the
   // projection fails because nothing has been mapped yet.
-  fake.Respond("PATCH", std::string(kBase) + "/api/ngnt/map",
+  fake.Respond("PATCH", std::string(kBase) + "/api/ndmspc/ngnt/map",
                R"({"error":"No entry and no projection found, nothing sent to websocket","result":null})");
 
   std::string error;
@@ -437,7 +437,7 @@ TEST(NRoomSessionRestoreTest, AcceptsAPointWhosePatchRepliedWithAnError)
   ASSERT_TRUE(snapshot.is_object()) << error;
 
   // The readback still reports the point, so the restore counts as successful.
-  fake.Respond("GET", std::string(kBase) + "/api/state", StateWithPoint("[0,1]"));
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/state", StateWithPoint("[0,1]"));
   EXPECT_TRUE(Ndmspc::NRoomSession::Restore(fake, kBase, snapshot, error)) << error;
 }
 
@@ -445,15 +445,15 @@ TEST(NRoomSessionRestoreTest, FailsWhenTheRoomDoesNotKeepThePoint)
 {
   FakeHttpRequest fake;
   PrimeActiveRoom(fake);
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/open", Ok());
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/reshape", Ok());
-  fake.Respond("PATCH", std::string(kBase) + "/api/ngnt/map", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/open", Ok());
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/reshape", Ok());
+  fake.Respond("PATCH", std::string(kBase) + "/api/ndmspc/ngnt/map", Ok());
 
   std::string error;
   const json  snapshot = Ndmspc::NRoomSession::Capture(fake, kBase, "sess1", error);
   ASSERT_TRUE(snapshot.is_object()) << error;
 
-  fake.Respond("GET", std::string(kBase) + "/api/state", StateWithPoint("[]"));
+  fake.Respond("GET", std::string(kBase) + "/api/ndmspc/state", StateWithPoint("[]"));
   EXPECT_FALSE(Ndmspc::NRoomSession::Restore(fake, kBase, snapshot, error));
   EXPECT_NE(error.find("did not keep the state point"), std::string::npos);
 }
@@ -461,10 +461,10 @@ TEST(NRoomSessionRestoreTest, FailsWhenTheRoomDoesNotKeepThePoint)
 TEST(NRoomSessionRestoreTest, StopsAtTheFirstFailingStep)
 {
   FakeHttpRequest fake;
-  fake.Respond("POST", std::string(kBase) + "/api/ngnt/open", R"({"result":"failure","error":"cannot open file"})");
+  fake.Respond("POST", std::string(kBase) + "/api/ndmspc/ngnt/open", R"({"result":"failure","error":"cannot open file"})");
 
   const json snapshot =
-      SnapshotOf({{"ngnt/open", {{"file", "missing.root"}}}, {"ngnt/reshape", {{"binningName", "b0"}}}});
+      SnapshotOf({{"ndmspc/ngnt/open", {{"file", "missing.root"}}}, {"ndmspc/ngnt/reshape", {{"binningName", "b0"}}}});
 
   std::string error;
   EXPECT_FALSE(Ndmspc::NRoomSession::Restore(fake, kBase, snapshot, error));
@@ -474,9 +474,9 @@ TEST(NRoomSessionRestoreTest, StopsAtTheFirstFailingStep)
 
 TEST(NRoomSessionRestoreTest, ReplaysWhatTheSnapshotNamesAndLetsTheRoomRefuseTheRest)
 {
-  FakeHttpRequest fake; // no canned reply for POST /api/room/close: the room answers 404
+  FakeHttpRequest fake; // no canned reply for POST /api/ndmspc/room/close: the room answers 404
 
-  const json snapshot = SnapshotOf({{"room/close", json::object()}});
+  const json snapshot = SnapshotOf({{"ndmspc/room/close", json::object()}});
 
   std::string error;
   EXPECT_FALSE(Ndmspc::NRoomSession::Restore(fake, kBase, snapshot, error));
@@ -501,7 +501,7 @@ TEST(NRoomSessionRestoreTest, ReportsATransportFailure)
   FakeHttpRequest fake;
   fake.throwOnRequest = true;
 
-  const json snapshot = SnapshotOf({{"ngnt/open", {{"file", "f.root"}}}});
+  const json snapshot = SnapshotOf({{"ndmspc/ngnt/open", {{"file", "f.root"}}}});
 
   std::string error;
   EXPECT_FALSE(Ndmspc::NRoomSession::Restore(fake, kBase, snapshot, error));
@@ -587,9 +587,9 @@ TEST(NRoomSessionBuildTest, RefusesToBuildASnapshotWithoutAFile)
 TEST(NRoomSessionBuildTest, KeepsOnlyTheReplayableActionsInOrder)
 {
   const json history = json::parse(
-      R"([{"name":"ngnt/open","payload":{"in":{"file":"f.root"}}},)"
-      R"({"name":"ngnt/map","payload":{"in":{"mappingPad":"pad3"}}},)"
-      R"({"name":"ngnt/reshape","payload":{"in":{"binningName":"b0"}}}])");
+      R"([{"name":"ndmspc/ngnt/open","payload":{"in":{"file":"f.root"}}},)"
+      R"({"name":"ndmspc/ngnt/map","payload":{"in":{"mappingPad":"pad3"}}},)"
+      R"({"name":"ndmspc/ngnt/reshape","payload":{"in":{"binningName":"b0"}}}])");
 
   const json snapshot = Ndmspc::NRoomSession::Build("sess1", "f.root", history, json());
 
@@ -597,8 +597,8 @@ TEST(NRoomSessionBuildTest, KeepsOnlyTheReplayableActionsInOrder)
   EXPECT_EQ(snapshot["room"], "sess1");
   EXPECT_EQ(snapshot["file"], "f.root");
   ASSERT_EQ(snapshot["actions"].size(), 2u);
-  EXPECT_EQ(snapshot["actions"][0]["name"], "ngnt/open");
-  EXPECT_EQ(snapshot["actions"][1]["name"], "ngnt/reshape");
+  EXPECT_EQ(snapshot["actions"][0]["name"], "ndmspc/ngnt/open");
+  EXPECT_EQ(snapshot["actions"][1]["name"], "ndmspc/ngnt/reshape");
 }
 
 TEST(NRoomSessionBuildTest, ReopensTheFileWhenThereIsNoHistory)
@@ -607,7 +607,7 @@ TEST(NRoomSessionBuildTest, ReopensTheFileWhenThereIsNoHistory)
 
   ASSERT_TRUE(snapshot.is_object());
   ASSERT_EQ(snapshot["actions"].size(), 1u);
-  EXPECT_EQ(snapshot["actions"][0]["name"], "ngnt/open");
+  EXPECT_EQ(snapshot["actions"][0]["name"], "ndmspc/ngnt/open");
   EXPECT_EQ(snapshot["actions"][0]["in"]["file"], "f.root");
 }
 
@@ -625,31 +625,31 @@ TEST(NRoomSessionBuildTest, OmitsAnEmptyStatePoint)
 TEST(NRoomSessionRestoreInPlaceTest, ReplaysTheActionsAndVerifiesThePoint)
 {
   FakeRoom room;
-  room.Reply("POST", "ngnt/open", {{"result", "success"}});
-  room.Reply("POST", "ngnt/reshape", {{"result", "success"}});
-  room.Reply("PATCH", "ngnt/map", {{"result", "success"}});
-  room.Reply("GET", "state", json::parse(StateWithPoint("[0,1]")));
+  room.Reply("POST", "ndmspc/ngnt/open", {{"result", "success"}});
+  room.Reply("POST", "ndmspc/ngnt/reshape", {{"result", "success"}});
+  room.Reply("PATCH", "ndmspc/ngnt/map", {{"result", "success"}});
+  room.Reply("GET", "ndmspc/state", json::parse(StateWithPoint("[0,1]")));
 
-  json snapshot = SnapshotOf({{"ngnt/open", {{"file", "f.root"}}}, {"ngnt/reshape", {{"binningName", "b0"}}}});
+  json snapshot = SnapshotOf({{"ndmspc/ngnt/open", {{"file", "f.root"}}}, {"ndmspc/ngnt/reshape", {{"binningName", "b0"}}}});
   snapshot["point"] = json::parse("[0,1]");
 
   std::string error;
   EXPECT_TRUE(Ndmspc::NRoomSession::RestoreInPlace(snapshot, room.Dispatcher(), error)) << error;
 
-  const std::vector<std::string> expected = {"POST ngnt/open", "POST ngnt/reshape", "PATCH ngnt/map", "GET state"};
+  const std::vector<std::string> expected = {"POST ndmspc/ngnt/open", "POST ndmspc/ngnt/reshape", "PATCH ndmspc/ngnt/map", "GET ndmspc/state"};
   EXPECT_EQ(room.calls, expected);
 }
 
 TEST(NRoomSessionRestoreInPlaceTest, AcceptsAPointWhosePatchReportedAnError)
 {
   FakeRoom room;
-  room.Reply("POST", "ngnt/open", {{"result", "success"}});
+  room.Reply("POST", "ndmspc/ngnt/open", {{"result", "success"}});
   // What a freshly started room really answers: the point is stored, but rendering the
   // projection fails because nothing has been mapped yet.
-  room.Fail("PATCH", "ngnt/map", "No entry and no projection found, nothing sent to websocket");
-  room.Reply("GET", "state", json::parse(StateWithPoint("[1]")));
+  room.Fail("PATCH", "ndmspc/ngnt/map", "No entry and no projection found, nothing sent to websocket");
+  room.Reply("GET", "ndmspc/state", json::parse(StateWithPoint("[1]")));
 
-  json snapshot = SnapshotOf({{"ngnt/open", {{"file", "f.root"}}}});
+  json snapshot = SnapshotOf({{"ndmspc/ngnt/open", {{"file", "f.root"}}}});
   snapshot["point"] = json::parse("[1]");
 
   std::string error;
@@ -659,11 +659,11 @@ TEST(NRoomSessionRestoreInPlaceTest, AcceptsAPointWhosePatchReportedAnError)
 TEST(NRoomSessionRestoreInPlaceTest, FailsWhenThePointWasNotKept)
 {
   FakeRoom room;
-  room.Reply("POST", "ngnt/open", {{"result", "success"}});
-  room.Reply("PATCH", "ngnt/map", {{"result", "success"}});
-  room.Reply("GET", "state", json::parse(StateWithPoint("[]")));
+  room.Reply("POST", "ndmspc/ngnt/open", {{"result", "success"}});
+  room.Reply("PATCH", "ndmspc/ngnt/map", {{"result", "success"}});
+  room.Reply("GET", "ndmspc/state", json::parse(StateWithPoint("[]")));
 
-  json snapshot = SnapshotOf({{"ngnt/open", {{"file", "f.root"}}}});
+  json snapshot = SnapshotOf({{"ndmspc/ngnt/open", {{"file", "f.root"}}}});
   snapshot["point"] = json::parse("[1]");
 
   std::string error;
@@ -674,9 +674,9 @@ TEST(NRoomSessionRestoreInPlaceTest, FailsWhenThePointWasNotKept)
 TEST(NRoomSessionRestoreInPlaceTest, StopsAtAFailingAction)
 {
   FakeRoom room;
-  room.Fail("POST", "ngnt/open", "ngnt/open failed: cannot open file");
+  room.Fail("POST", "ndmspc/ngnt/open", "ndmspc/ngnt/open failed: cannot open file");
 
-  json snapshot = SnapshotOf({{"ngnt/open", {{"file", "missing.root"}}}, {"ngnt/reshape", {{"binningName", "b0"}}}});
+  json snapshot = SnapshotOf({{"ndmspc/ngnt/open", {{"file", "missing.root"}}}, {"ndmspc/ngnt/reshape", {{"binningName", "b0"}}}});
 
   std::string error;
   EXPECT_FALSE(Ndmspc::NRoomSession::RestoreInPlace(snapshot, room.Dispatcher(), error));
@@ -687,9 +687,9 @@ TEST(NRoomSessionRestoreInPlaceTest, StopsAtAFailingAction)
 TEST(NRoomSessionRestoreInPlaceTest, ReplaysWhatTheSnapshotNamesAndLetsTheRoomRefuseTheRest)
 {
   FakeRoom room;
-  room.Fail("POST", "room/close", "unknown action: room/close");
+  room.Fail("POST", "ndmspc/room/close", "unknown action: room/close");
 
-  const json snapshot = SnapshotOf({{"room/close", json::object()}});
+  const json snapshot = SnapshotOf({{"ndmspc/room/close", json::object()}});
 
   std::string error;
   EXPECT_FALSE(Ndmspc::NRoomSession::RestoreInPlace(snapshot, room.Dispatcher(), error));

@@ -69,8 +69,8 @@ TEST(NMcpServerTest, InitializeReturnsCapabilitiesAndServerInfo)
 TEST(NMcpServerTest, ToolsListMirrorsRegisteredHandlersAndSkipsExcluded)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"]    = EchoHandler;
-  handlers["ngnt/reshape"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"]    = EchoHandler;
+  handlers["ndmspc/ngnt/reshape"] = EchoHandler;
   handlers["debug"]        = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
@@ -79,8 +79,8 @@ TEST(NMcpServerTest, ToolsListMirrorsRegisteredHandlersAndSkipsExcluded)
   json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", json::object()}});
   const json names = ToolNames(response["result"]);
 
-  EXPECT_NE(std::find(names.begin(), names.end(), "ngnt_open"), names.end());
-  EXPECT_NE(std::find(names.begin(), names.end(), "ngnt_reshape"), names.end());
+  EXPECT_NE(std::find(names.begin(), names.end(), "ndmspc_ngnt_open"), names.end());
+  EXPECT_NE(std::find(names.begin(), names.end(), "ndmspc_ngnt_reshape"), names.end());
   EXPECT_EQ(std::find(names.begin(), names.end(), "debug"), names.end());
 
   delete serv;
@@ -89,7 +89,7 @@ TEST(NMcpServerTest, ToolsListMirrorsRegisteredHandlersAndSkipsExcluded)
 TEST(NMcpServerTest, ToolsListUsesInspectorSchemaAndAddsMethod)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
   serv->GetInspectorWorkspace()["open"] = Ndmspc::NSchemaBuilder().String("file").Default("test.root").Build();
@@ -98,7 +98,7 @@ TEST(NMcpServerTest, ToolsListUsesInspectorSchemaAndAddsMethod)
   json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", json::object()}});
 
   const json & tool = response["result"]["tools"][0];
-  EXPECT_EQ(tool["name"], "ngnt_open");
+  EXPECT_EQ(tool["name"], "ndmspc_ngnt_open");
   EXPECT_EQ(tool["inputSchema"]["type"], "object");
   EXPECT_EQ(tool["inputSchema"]["properties"]["file"]["type"], "string");
   EXPECT_EQ(tool["inputSchema"]["properties"]["file"]["default"], "test.root");
@@ -110,7 +110,7 @@ TEST(NMcpServerTest, ToolsListUsesInspectorSchemaAndAddsMethod)
 TEST(NMcpServerTest, ToolsCallRoutesThroughServerAndEchoesArguments)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
   Ndmspc::NMcpServer mcp(serv);
@@ -118,7 +118,7 @@ TEST(NMcpServerTest, ToolsCallRoutesThroughServerAndEchoesArguments)
   json response = mcp.Handle({{"jsonrpc", "2.0"},
                               {"id", 3},
                               {"method", "tools/call"},
-                              {"params", {{"name", "ngnt_open"}, {"arguments", {{"file", "a.root"}}}}}});
+                              {"params", {{"name", "ndmspc_ngnt_open"}, {"arguments", {{"file", "a.root"}}}}}});
 
   ASSERT_TRUE(response.contains("result"));
   EXPECT_FALSE(response["result"]["isError"].get<bool>());
@@ -132,7 +132,7 @@ TEST(NMcpServerTest, ToolsCallRoutesThroughServerAndEchoesArguments)
 TEST(NMcpServerTest, ToolsCallHonoursMethodArgument)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
   Ndmspc::NMcpServer mcp(serv);
@@ -140,7 +140,7 @@ TEST(NMcpServerTest, ToolsCallHonoursMethodArgument)
   json response = mcp.Handle({{"jsonrpc", "2.0"},
                               {"id", 4},
                               {"method", "tools/call"},
-                              {"params", {{"name", "ngnt_open"}, {"arguments", {{"method", "GET"}}}}}});
+                              {"params", {{"name", "ndmspc_ngnt_open"}, {"arguments", {{"method", "GET"}}}}}});
 
   EXPECT_EQ(response["result"]["structuredContent"]["echo"]["method"], "GET");
   EXPECT_FALSE(response["result"]["structuredContent"]["echo"]["in"].contains("method"));
@@ -151,7 +151,7 @@ TEST(NMcpServerTest, ToolsCallHonoursMethodArgument)
 TEST(NMcpServerTest, FailingToolSetsIsError)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = FailingHandler;
+  handlers["ndmspc/ngnt/open"] = FailingHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
   Ndmspc::NMcpServer mcp(serv);
@@ -159,7 +159,7 @@ TEST(NMcpServerTest, FailingToolSetsIsError)
   json response = mcp.Handle({{"jsonrpc", "2.0"},
                               {"id", 5},
                               {"method", "tools/call"},
-                              {"params", {{"name", "ngnt_open"}, {"arguments", json::object()}}}});
+                              {"params", {{"name", "ndmspc_ngnt_open"}, {"arguments", json::object()}}}});
 
   EXPECT_TRUE(response["result"]["isError"].get<bool>());
   EXPECT_EQ(response["result"]["structuredContent"]["error"], "boom");
@@ -221,12 +221,12 @@ TEST(NMcpServerTest, NotificationsProduceNoResponse)
 TEST(NMcpServerTest, MetadataFromRegistryDrivesToolFields)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
 
   Ndmspc::NMcpToolMap tools;
-  tools["ngnt/open"] = {
+  tools["ndmspc/ngnt/open"] = {
       .description = "Custom description from the macro.",
       .title       = "Open tree",
       .methods     = {"GET", "DELETE"},
@@ -238,7 +238,7 @@ TEST(NMcpServerTest, MetadataFromRegistryDrivesToolFields)
   json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 10}, {"method", "tools/list"}, {"params", json::object()}});
 
   const json & tool = response["result"]["tools"][0];
-  EXPECT_EQ(tool["name"], "ngnt_open");
+  EXPECT_EQ(tool["name"], "ndmspc_ngnt_open");
   EXPECT_EQ(tool["description"], "Custom description from the macro.");
   EXPECT_EQ(tool["title"], "Open tree");
   EXPECT_EQ(tool["inputSchema"]["properties"]["method"]["enum"], json::array({"GET", "DELETE"}));
@@ -252,12 +252,12 @@ TEST(NMcpServerTest, MetadataFromRegistryDrivesToolFields)
 TEST(NMcpServerTest, HiddenActionIsNotListedNorCallable)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
 
   Ndmspc::NMcpToolMap tools;
-  tools["ngnt/open"]      = Ndmspc::NMcpToolInfo{.hidden = true};
+  tools["ndmspc/ngnt/open"]      = Ndmspc::NMcpToolInfo{.hidden = true};
   Ndmspc::gNdmspcMcpTools = &tools;
 
   Ndmspc::NMcpServer mcp(serv);
@@ -265,7 +265,7 @@ TEST(NMcpServerTest, HiddenActionIsNotListedNorCallable)
   EXPECT_TRUE(listed["result"]["tools"].empty());
 
   json called =
-      mcp.Handle({{"jsonrpc", "2.0"}, {"id", 12}, {"method", "tools/call"}, {"params", {{"name", "ngnt_open"}}}});
+      mcp.Handle({{"jsonrpc", "2.0"}, {"id", 12}, {"method", "tools/call"}, {"params", {{"name", "ndmspc_ngnt_open"}}}});
   EXPECT_EQ(called["error"]["code"], -32602);
 
   Ndmspc::gNdmspcMcpTools = nullptr;
@@ -275,13 +275,13 @@ TEST(NMcpServerTest, HiddenActionIsNotListedNorCallable)
 TEST(NMcpServerTest, GenericDescriptionFallbackWithoutMetadata)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
   Ndmspc::NMcpServer mcp(serv);
 
   json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 13}, {"method", "tools/list"}, {"params", json::object()}});
-  EXPECT_EQ(response["result"]["tools"][0]["description"], "NGnTree action 'ngnt/open'.");
+  EXPECT_EQ(response["result"]["tools"][0]["description"], "NGnTree action 'ndmspc/ngnt/open'.");
 
   delete serv;
 }
@@ -336,7 +336,7 @@ TEST(NMcpServerTest, EnabledMcpEndpointAnswersRequests)
 TEST(NMcpServerTest, InputSchemaAllowsUndeclaredArgumentsWhenNoInspectorSchema)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
   Ndmspc::NMcpServer mcp(serv);
@@ -351,12 +351,12 @@ TEST(NMcpServerTest, InputSchemaAllowsUndeclaredArgumentsWhenNoInspectorSchema)
 TEST(NMcpServerTest, MacroInputSchemaPropertiesAreMerged)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
 
   Ndmspc::NMcpToolMap tools;
-  tools["ngnt/open"] = {
+  tools["ndmspc/ngnt/open"] = {
       .description = "d",
       .inputSchema = {{"properties", {{"file", {{"type", "string"}}}}}},
   };
@@ -374,7 +374,7 @@ TEST(NMcpServerTest, MacroInputSchemaPropertiesAreMerged)
 TEST(NMcpServerTest, AToolCallRunsAsTheCallerThatReachedTheEndpoint)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"] = EchoHandler;
 
   auto *             serv = MakeServer(std::move(handlers));
   Ndmspc::NMcpServer mcp(serv);
@@ -391,7 +391,7 @@ TEST(NMcpServerTest, AToolCallRunsAsTheCallerThatReachedTheEndpoint)
   json request = {{"jsonrpc", "2.0"},
                   {"id", 22},
                   {"method", "tools/call"},
-                  {"params", {{"name", "ngnt_open"}, {"arguments", {{"file", "x.root"}}}}}};
+                  {"params", {{"name", "ndmspc_ngnt_open"}, {"arguments", {{"file", "x.root"}}}}}};
   const json response = mcp.Handle(request);
   const json & in     = response["result"]["structuredContent"]["echo"]["in"];
   EXPECT_EQ(in["file"], "x.root");
@@ -404,7 +404,7 @@ TEST(NMcpServerTest, AToolCallRunsAsTheCallerThatReachedTheEndpoint)
   json spoofed = {{"jsonrpc", "2.0"},
                   {"id", 23},
                   {"method", "tools/call"},
-                  {"params", {{"name", "ngnt_open"},
+                  {"params", {{"name", "ndmspc_ngnt_open"},
                               {"arguments", {{"_identity", {{"user", "root"}, {"verified", true}}}}}}}};
   const json spoofedResponse = mcp.Handle(spoofed);
   EXPECT_EQ(spoofedResponse["result"]["structuredContent"]["echo"]["in"]["_identity"]["user"], "alice");
@@ -418,27 +418,27 @@ TEST(NMcpServerTest, AToolCallRunsAsTheCallerThatReachedTheEndpoint)
 TEST(NMcpServerTest, ToolsListOrdersByDependency)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/map"]     = EchoHandler;
-  handlers["ngnt/open"]    = EchoHandler;
-  handlers["ngnt/point"]   = EchoHandler;
-  handlers["ngnt/reshape"] = EchoHandler;
-  handlers["ngnt/spectra"] = EchoHandler;
+  handlers["ndmspc/ngnt/map"]     = EchoHandler;
+  handlers["ndmspc/ngnt/open"]    = EchoHandler;
+  handlers["ndmspc/ngnt/point"]   = EchoHandler;
+  handlers["ndmspc/ngnt/reshape"] = EchoHandler;
+  handlers["ndmspc/ngnt/spectra"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
 
   Ndmspc::NMcpToolMap tools;
-  tools["ngnt/open"]    = {.order = 1};
-  tools["ngnt/reshape"] = {.dependsOn = {"ngnt/open"}, .order = 2};
-  tools["ngnt/map"]     = {.dependsOn = {"ngnt/reshape"}, .order = 3};
-  tools["ngnt/spectra"] = {.dependsOn = {"ngnt/map"}, .order = 4};
-  tools["ngnt/point"]   = {.dependsOn = {"ngnt/map"}, .order = 5};
+  tools["ndmspc/ngnt/open"]    = {.order = 1};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}, .order = 2};
+  tools["ndmspc/ngnt/map"]     = {.dependsOn = {"ndmspc/ngnt/reshape"}, .order = 3};
+  tools["ndmspc/ngnt/spectra"] = {.dependsOn = {"ndmspc/ngnt/map"}, .order = 4};
+  tools["ndmspc/ngnt/point"]   = {.dependsOn = {"ndmspc/ngnt/map"}, .order = 5};
   Ndmspc::gNdmspcMcpTools = &tools;
 
   Ndmspc::NMcpServer mcp(serv);
   json response = mcp.Handle({{"jsonrpc", "2.0"}, {"id", 30}, {"method", "tools/list"}, {"params", json::object()}});
 
   EXPECT_EQ(ToolNames(response["result"]),
-            json::array({"ngnt_open", "ngnt_reshape", "ngnt_map", "ngnt_spectra", "ngnt_point"}));
+            json::array({"ndmspc_ngnt_open", "ndmspc_ngnt_reshape", "ndmspc_ngnt_map", "ndmspc_ngnt_spectra", "ndmspc_ngnt_point"}));
 
   Ndmspc::gNdmspcMcpTools = nullptr;
   delete serv;
@@ -449,13 +449,13 @@ TEST(NMcpServerTest, ToolsListOrdersByDependency)
 TEST(NMcpServerTest, ToolsListExposesDependsOnMeta)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"]    = EchoHandler;
-  handlers["ngnt/reshape"] = EchoHandler;
+  handlers["ndmspc/ngnt/open"]    = EchoHandler;
+  handlers["ndmspc/ngnt/reshape"] = EchoHandler;
 
   auto * serv = MakeServer(std::move(handlers));
 
   Ndmspc::NMcpToolMap tools;
-  tools["ngnt/reshape"] = {.dependsOn = {"ngnt/open"}};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
   Ndmspc::gNdmspcMcpTools = &tools;
 
   Ndmspc::NMcpServer mcp(serv);
@@ -463,10 +463,10 @@ TEST(NMcpServerTest, ToolsListExposesDependsOnMeta)
 
   const json & listed = response["result"]["tools"];
   ASSERT_EQ(listed.size(), 2u);
-  EXPECT_EQ(listed[0]["name"], "ngnt_open"); // no prerequisite, nothing to publish
+  EXPECT_EQ(listed[0]["name"], "ndmspc_ngnt_open"); // no prerequisite, nothing to publish
   EXPECT_FALSE(listed[0].contains("_meta"));
-  EXPECT_EQ(listed[1]["name"], "ngnt_reshape");
-  EXPECT_EQ(listed[1]["_meta"]["ndmspc.io/dependsOn"], json::array({"ngnt/open"}));
+  EXPECT_EQ(listed[1]["name"], "ndmspc_ngnt_reshape");
+  EXPECT_EQ(listed[1]["_meta"]["ndmspc.io/dependsOn"], json::array({"ndmspc/ngnt/open"}));
 
   Ndmspc::gNdmspcMcpTools = nullptr;
   delete serv;

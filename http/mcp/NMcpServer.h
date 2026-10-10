@@ -64,7 +64,7 @@ class NMcpServer {
   /// @brief Execute a tool and build the `tools/call` result payload.
   json CallTool(const std::string & toolName, const json & arguments) const;
 
-  /// @brief Map a handler key (e.g. "ngnt/open") to an MCP-safe tool name ("ngnt_open").
+  /// @brief Map a handler key (e.g. "ndmspc/ngnt/open") to an MCP-safe tool name ("ndmspc_ngnt_open").
   static std::string ToolName(const std::string & handlerKey);
 
   /// @brief Resolve a tool name back to its registered handler key ("" when unknown).
@@ -85,19 +85,19 @@ class NMcpServer {
   private:
   /**
    * @brief Whether a handler action is excluded from the tool list.
-   * @param handlerKey Handler key (e.g. "ngnt/open").
+   * @param handlerKey Handler key (e.g. "ndmspc/ngnt/open").
    * @return True when the action must not be exposed.
    */
   bool                 IsExcluded(const std::string & handlerKey) const;
   /**
    * @brief Build a human-readable description for a handler action.
-   * @param handlerKey Handler key (e.g. "ngnt/open").
+   * @param handlerKey Handler key (e.g. "ndmspc/ngnt/open").
    * @return The tool description.
    */
   std::string          Describe(const std::string & handlerKey) const;
   /**
    * @brief Look up the declared MCP metadata for a handler action.
-   * @param handlerKey Handler key (e.g. "ngnt/open").
+   * @param handlerKey Handler key (e.g. "ndmspc/ngnt/open").
    * @return Pointer to the tool info, or nullptr when none is registered.
    */
   const NMcpToolInfo * LookupToolInfo(const std::string & handlerKey) const;

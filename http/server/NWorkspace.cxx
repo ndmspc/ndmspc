@@ -8,13 +8,16 @@
 
 namespace {
 
-/// @brief The group a route belongs to: the part before its first '/', or the whole name.
+/// @brief The group a route belongs to: everything before its **last** '/', or the whole name.
 ///
 /// Each tool group is its own chain of steps, so a re-run invalidates the steps that followed it
-/// **in its own group** - not another group's, whose session (and open file) is its own.
+/// **in its own group** - not another group's, whose session (and open file) is its own. The split is
+/// on the last slash because a key carries its namespace and group before it: splitting on the first
+/// would put every family of a namespace in one group (`ndmspc`), which is the opposite of what this
+/// scoping is for - one group's re-run would tear down another's steps.
 std::string RouteGroup(const std::string & name)
 {
-  const auto slash = name.find('/');
+  const auto slash = name.rfind('/');
   return slash == std::string::npos ? name : name.substr(0, slash);
 }
 
@@ -66,28 +69,36 @@ bool NWorkspace::RemoveEntry(int index)
   }
 
   NHistoryEntry * entry = fEntries.at(index);
+  const std::string name = entry->GetName();
   json              in    = entry->GetPayloadIn();
   json              out;
   json              wsOut;
-  NLogTrace("Removing workspace entry: %s", entry->GetName());
+  NLogTrace("Removing workspace entry: %s", name.c_str());
   NLogTrace("Config: %s", in.dump().c_str());
-  NLogTrace("Invoking HTTP handler for DELETE on entry: %s", entry->GetName());
-  const auto handlerFn = fServer->FindHttpHandler(entry->GetName());
+  NLogTrace("Invoking HTTP handler for DELETE on entry: %s", name.c_str());
+  const auto handlerFn = fServer->FindHttpHandler(name);
   if (handlerFn) handlerFn("DELETE", in, out, wsOut, fServer->GetObjectsMap());
 
-  // if (fWorkspace.contains(entry->GetName())) fWorkspace.erase(entry->GetName());
-  delete entry;
-  fEntries.erase(fEntries.begin() + index);
+  // The handler may have taken this entry away itself, and more than it: a control tool resets the
+  // whole history (the state action's DELETE). So the entry is looked up again rather than freed
+  // through the pointer and the index read before the handler, which are stale by now - freeing a
+  // pointer the reset already freed is what a double free is.
+  if (std::find(fEntries.begin(), fEntries.end(), entry) != fEntries.end()) {
+    delete entry;
+    fEntries.erase(std::find(fEntries.begin(), fEntries.end(), entry));
+  }
 
   // Remove schemas for entries that have been deleted. History entries use
-  // full route names ("ngnt/open"), while workspace keys use the route name
+  // full route names ("ndmspc/ngnt/open"), while workspace keys use the route name
   // relative to that group ("open").
   std::vector<std::string> orphanedKeys;
   for (auto it = fWorkspace.begin(); it != fWorkspace.end(); ++it) {
     bool hasEntry = false;
     for (const auto & e : fEntries) {
       std::string entryKey = e->GetName();
-      const auto  slashPos = entryKey.find('/');
+      // The key a workspace entry is held under: the action alone, the last segment of the route
+      // (`ndmspc/ngnt/open` -> `open`), which is the same reduction the MCP server makes of a key.
+      const auto  slashPos = entryKey.rfind('/');
       if (slashPos != std::string::npos) entryKey = entryKey.substr(slashPos + 1);
 
       if (it.key() == entryKey) {
@@ -167,17 +178,10 @@ json NWorkspace::GetInspectorSchema() const
   // inspector wrapper
   json inspector = json::object();
 
-  // Determine group prefix from first entry (if any)
-  std::string group;
-  if (!fEntries.empty()) {
-    std::string nameStr = fEntries[0]->GetName();
-    auto        pos     = nameStr.find('/');
-    if (pos != std::string::npos)
-      group = nameStr.substr(0, pos);
-    else
-      group = nameStr;
-  }
-  inspector["group"] = group.empty() ? "" : group;
+  // The group the schema is published under: the group of the first entry's route, by the one
+  // definition of what a key's group is (see RouteGroup) rather than a second, older guess at it.
+  const std::string group = fEntries.empty() ? std::string() : RouteGroup(fEntries[0]->GetName());
+  inspector["group"] = group;
 
   // Properties: build OpenAPI/JSON-Schema style properties from fWorkspace
   inspector["properties"] = json::object();

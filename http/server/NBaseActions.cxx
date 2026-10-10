@@ -22,28 +22,36 @@ bool RegisterBaseActions()
   auto & handlers = *(gNdmspcHttpHandlers);
 
   // MCP tool metadata (see toolNgnt.C for the convention)
-  Ndmspc::RegisterMcpTool("health", {
+  Ndmspc::RegisterMcpTool("ndmspc/health", {
       .description = "Server health and workspace snapshot (GET prints the server, POST/PATCH return the workspace).",
       .methods     = {"GET", "POST", "PATCH", "DELETE"},
+      .control     = "health",
+      .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
-  Ndmspc::RegisterMcpTool("heartbeat", {
+  Ndmspc::RegisterMcpTool("ndmspc/heartbeat", {
       .description = "The server's heartbeat interval: GET reports it, POST sets it (milliseconds), so "
                      "a view can ask for finer readings while something long is running and put the "
                      "deployment's own back afterwards.",
       .methods     = {"GET", "POST"},
       .inputSchema = {{"properties", {{"intervalMs", {{"type", "integer"}}}}}},
+      .control     = "heartbeat",
+      .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
-  Ndmspc::RegisterMcpTool("state", {
+  Ndmspc::RegisterMcpTool("ndmspc/state", {
       .description = "Inspect or reset server state: GET returns the workspace inspector schema, PATCH updates "
                      "the heartbeat, DELETE resets the server.",
       .methods     = {"GET", "PATCH", "DELETE"},
+      .control     = "state",
+      .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
-  Ndmspc::RegisterMcpTool("group", {
+  Ndmspc::RegisterMcpTool("ndmspc/group", {
       .description = "The tool group the room is looking at: GET reports it, PATCH sets it for every client.",
       .methods     = {"GET", "PATCH", "POST"},
+      .control     = "group",
+      .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
 
-  handlers["health"] = [](std::string method, json & /*httpIn*/, json & httpOut, json & wsOut,
+  handlers["ndmspc/health"] = [](std::string method, json & /*httpIn*/, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
     auto server = Ndmspc::gNHttpServer;
 
@@ -71,7 +79,7 @@ bool RegisterBaseActions()
     }
   };
 
-  handlers["heartbeat"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
+  handlers["ndmspc/heartbeat"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     auto server = Ndmspc::gNHttpServer;
     if (server == nullptr) {
@@ -101,7 +109,7 @@ bool RegisterBaseActions()
     httpOut["payload"]["defaultIntervalMs"]  = server->GetHeartbeatDefaultMs();
   };
 
-  handlers["state"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
+  handlers["ndmspc/state"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
                          std::map<std::string, TObject *> & /*inputs*/) {
     auto server = Ndmspc::gNHttpServer;
 
@@ -161,7 +169,7 @@ bool RegisterBaseActions()
     }
   };
 
-  handlers["group"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+  handlers["ndmspc/group"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                          std::map<std::string, TObject *> & /*inputs*/) {
     auto server = Ndmspc::gNHttpServer;
 
@@ -195,14 +203,16 @@ bool RegisterBaseActions()
     }
   };
 
-  Ndmspc::RegisterMcpTool("session", {
+  Ndmspc::RegisterMcpTool("ndmspc/session", {
       .description = "The room's sessions: GET lists them and the one the room is on, PATCH makes one "
                      "the room's (and renames it when given a `name`), or starts a fresh one for a "
                      "group with `new` - whose first step then fills it.",
       .methods     = {"GET", "PATCH", "POST"},
+      .control     = "session",
+      .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
 
-  handlers["session"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+  handlers["ndmspc/session"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                            std::map<std::string, TObject *> & /*inputs*/) {
     auto server = Ndmspc::gNHttpServer;
 

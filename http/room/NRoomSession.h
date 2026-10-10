@@ -48,7 +48,7 @@ class NRoomSession {
   static constexpr std::size_t kMaxEncodedBytes = 64 * 1024;
 
   /// @brief The route whose PATCH carries the drill-down state point.
-  static constexpr const char * kPointRoute = "ngnt/map";
+  static constexpr const char * kPointRoute = "ndmspc/ngnt/map";
 
   /// @brief What a room currently holds.
   enum class State {
@@ -66,7 +66,7 @@ class NRoomSession {
    * @param file Filled with the opened file name when the room is Active.
    * @param error Filled when the room is Unreachable or Refused.
    * @param token The room's read-write access token, when it has one.
-   * @param route The session action to ask (a tool's `open`, e.g. "ngnt/open"). Empty takes the first
+   * @param route The session action to ask (a tool's `open`, e.g. "ndmspc/ngnt/open"). Empty takes the first
    *              one whose tool declares itself session-defining (see NMcpToolInfo::session) - which a
    *              caller with no tools loaded (the router) cannot do, so it passes the one its stored
    *              snapshot names.
@@ -114,7 +114,7 @@ class NRoomSession {
    *
    * @param method HTTP verb to run ("POST" for the actions, "PATCH" for the state point,
    *               "GET" for the state read back).
-   * @param route Route key, e.g. "ngnt/open" or "state".
+   * @param route Route key, e.g. "ndmspc/ngnt/open" or "state".
    * @param body Request body.
    * @param error Filled when the action failed.
    * @return The action's response, or a null json when there was none.
@@ -159,7 +159,7 @@ class NRoomSession {
    * change here. A caller with no tools loaded (the router) has nothing to consult, which is why
    * {@link RestoreInPlace} replays a snapshot as it stands rather than asking again.
    *
-   * @param routeName Full route key, e.g. "ngnt/reshape".
+   * @param routeName Full route key, e.g. "ndmspc/ngnt/reshape".
    * @return True for the actions Build() keeps.
    */
   static bool IsReplayable(const std::string & routeName);

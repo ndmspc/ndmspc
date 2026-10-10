@@ -9,6 +9,7 @@ message(STATUS "Project version: ${PROJECT_VERSION}-${PROJECT_VERSION_RELEASE}")
 
 option(WITH_HTTP "Compile with HTTP part" ON)
 option(WITH_UI "Compile with UI part" OFF)
+option(WITH_TUI "Compile the terminal UIs (http/tui)" OFF)
 option(WITH_HEP "Compile with HEP part" ON)
 # option(WITH_PARQUET "Compile with Parquet support" OFF)
 option(WITH_TAXI "Compile with Taxi support" OFF)

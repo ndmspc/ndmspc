@@ -2,6 +2,7 @@
 #define Ndmspc_NRoomRouter_H
 
 #include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
 #include <thread>
@@ -27,9 +28,9 @@ namespace Ndmspc {
  *   NDMSPC_ROOM_READY_TIMEOUT  how long to wait for a room to be Ready (default: 45s)
  *   NDMSPC_ROOM_MAX_PREPARING  rooms being created at the same time  (default: 4, 0 = no limit)
  *   NDMSPC_ROOM_AUTO_UPDATE    roll every idle room onto the current image when the router starts
- *                              (default: false); when off, rooms move only via room/upgrade
- *   NDMSPC_ROOM_WATCH_INTERVAL how often the rooms list is pushed to a watcher (default: 2s, 0 = off)
- *   NDMSPC_ROOM_WAIT           default for room/open's wait flag     (default: true)
+ *                              (default: false); when off, rooms move only via ndmspc/room/upgrade
+ *   NDMSPC_ROOM_WATCH_INTERVAL how often the rooms list is pushed to a watcher (default: 0 - off, so a deployment opts in)
+ *   NDMSPC_ROOM_WAIT           default for ndmspc/room/open's wait flag     (default: true)
  *   NDMSPC_ROOM_ADMINS         users who may see and act on every room, by email or user name
  *                              (default: empty - then nobody is an admin)
  *   NDMSPC_ROOM_TOKEN_FILE     ServiceAccount token                  (default: in-cluster path)
@@ -43,13 +44,18 @@ struct NRoomConfig {
   std::string prefix{"ndmspc-room-"};           ///< Room resource name prefix
   std::string param{"room"};                    ///< Query parameter that identifies a room
   std::string skeleton{"ndmspc-room-skeleton"}; ///< Skeleton ConfigMap name
+  /**
+   * This router's own Knative Service: its Revisions are the images this deployment has rolled, one per
+   * deploy, so its history is the tag history a room can be moved along (`ImageTags` reads it).
+   */
+  std::string service{"ndmspc-router"};
   std::string urlBase;                          ///< External base URL for the room links
   long        idleTtlSec{86400};                ///< Idle time before an unused room is swept, in seconds
   long        readyTimeoutSec{45};              ///< How long to wait for a room to become Ready, in seconds
   int         maxPreparing{4};                  ///< Rooms prepared at the same time (0 = no limit)
   bool        autoUpdate{false};                ///< Roll idle rooms onto the current image on start
-  long        watchIntervalSec{2};    ///< How often the rooms list is pushed to a watcher, in seconds (0 = never)
-  bool        waitDefault{true};      ///< Default for room/open's wait flag
+  long        watchIntervalSec{0};    ///< How often the rooms list is pushed to a watcher, in seconds (0 = never, the default: a deployment opts in)
+  bool        waitDefault{true};      ///< Default for ndmspc/room/open's wait flag
   std::vector<std::string> admins;    ///< Users who may see and act on every room
   std::string              apiServer; ///< In-cluster API server ("" = not in a cluster)
   std::string              tokenFile; ///< ServiceAccount token
@@ -68,7 +74,7 @@ struct NRoomConfig {
 /**
  * @brief One room as the router tracks it.
  *
- * A room is registered as soon as its creation starts (so room/list and room/status can report it
+ * A room is registered as soon as its creation starts (so ndmspc/room/list and ndmspc/room/status can report it
  * while it is being prepared), not only once it is ready.
  */
 struct NRoomState {
@@ -101,7 +107,7 @@ struct NRoomState {
   long        finishedAt{0};    ///< Epoch seconds it ended (0 while it runs)
   std::string session;          ///< "restored" | "live" | "" - what the session replay did
   int         generation{0};    ///< Bumped by every request, so a superseded worker stops
-  bool        cancel{false};    ///< Set by room/close, so a worker stops at its next step
+  bool        cancel{false};    ///< Set by ndmspc/room/close, so a worker stops at its next step
 };
 
 /**
@@ -154,24 +160,24 @@ class NRoomClusterClient : public IRoomCluster {
  * Registered in the same handler map the macros use (`gNdmspcHttpHandlers`, plus their MCP metadata
  * in `gNdmspcMcpTools`), so they are served both as `/api/<action>` and as MCP tools:
  *
- *   room/open     GET/POST  ensure a room: by default it waits for the room and returns its URL;
+ *   ndmspc/room/open     GET/POST  ensure a room: by default it waits for the room and returns its URL;
  *                           wait=false returns at once with state=preparing and the work continues
- *                           in the background - poll room/status or room/list
- *   room/status   GET       whether a room is known, its revision, and - while it is being created -
+ *                           in the background - poll ndmspc/room/status or ndmspc/room/list
+ *   ndmspc/room/status   GET       whether a room is known, its revision, and - while it is being created -
  *                           the phase that creation has reached; also `versions`, the images this room
  *                           has actually run (its Knative revisions), newest first
- *   room/upgrade  POST      roll one room onto a chosen image tag (one the skeleton advertises, or
+ *   ndmspc/room/upgrade  POST      roll one room onto a chosen image tag (one the skeleton advertises, or
  *                           the deployment's current tag) or onto an explicit `image` this room has
  *                           run before; refused while the room is in use unless force=true (see
  *                           "Room image")
- *   room/list     GET       the rooms being tracked (including those still preparing, and those
+ *   ndmspc/room/list     GET       the rooms being tracked (including those still preparing, and those
  *                           whose creation failed)
- *   room/close    DELETE    delete a room's HTTPRoute and Knative Service (a creation still running
+ *   ndmspc/room/close    DELETE    delete a room's HTTPRoute and Knative Service (a creation still running
  *                           is cancelled)
- *   room/state    GET/POST  internal: a room reports its session here and fetches it back when it
+ *   ndmspc/room/state    GET/POST  internal: a room reports its session here and fetches it back when it
  *                           wakes (hidden from the MCP tool list)
- *   room/backup   GET       export every tracked room and its session as one JSON document
- *   room/restore  POST      ensure every room in such a document and replay its session (additive)
+ *   ndmspc/room/backup   GET       export every tracked room and its session as one JSON document
+ *   ndmspc/room/restore  POST      ensure every room in such a document and replay its session (additive)
  *
  * ### Creating a room, in the background
  * Creating a room means creating a Knative Service, waiting for its first revision, pinning the
@@ -179,8 +185,8 @@ class NRoomClusterClient : public IRoomCluster {
  * ROOT's THttpServer serves one request at a time, so doing that on the request thread would freeze
  * the router for its whole duration. `room/open` therefore takes a `wait` flag: true (the default)
  * keeps the blocking answer, false registers the room and returns at once with `state=preparing`,
- * leaving the work to a background thread. A preparing room is listed by room/list and described by
- * room/status with the `phase` it has reached; NDMSPC_ROOM_MAX_PREPARING bounds how many run at
+ * leaving the work to a background thread. A preparing room is listed by ndmspc/room/list and described by
+ * ndmspc/room/status with the `phase` it has reached; NDMSPC_ROOM_MAX_PREPARING bounds how many run at
  * once. The worker checks between steps whether the room was closed or superseded, so a slow create
  * cannot outlive the room it belongs to.
  *
@@ -188,20 +194,20 @@ class NRoomClusterClient : public IRoomCluster {
  * A room is created from the skeleton's `serviceSpec`, but the skeleton's image is only the starting
  * point: the image a room actually runs is pinned per room, kept on its own Service as the annotation
  * `ndmspc.io/room-image` (beside its profile, owner and tokens) and reported as `image` and `imageTag`
- * by room/list and room/status. Re-opening a room therefore keeps the image it already has, and a
+ * by ndmspc/room/list and ndmspc/room/status. Re-opening a room therefore keeps the image it already has, and a
  * skeleton whose image changed (a new release) no longer moves a room: it only changes what the *next*
  * new room is created on.
  *
- * A room moves when it is asked to. room/upgrade takes a `tag` - one the skeleton advertises in its
- * `imageTags` (reported by room/list), or the deployment's current tag, which is the skeleton image's
+ * A room moves when it is asked to. ndmspc/room/upgrade takes a `tag` - one the skeleton advertises in its
+ * `imageTags` (reported by ndmspc/room/list), or the deployment's current tag, which is the skeleton image's
  * own tag - and rolls that one room onto it, reverting to an older tag as readily as upgrading to a
  * newer one. It also takes an explicit `image`: the full reference a room has actually run before,
- * which is what room/status reports as `versions` (the room's Knative revisions, newest first, each
+ * which is what ndmspc/room/status reports as `versions` (the room's Knative revisions, newest first, each
  * with the image it ran). That is the rollback list: the tags a deployment lists may or may not still
  * exist, but an image in a room's own revision history is one it has run, so rolling back to it is
  * always valid - and it is the only way to reach a version whose repository differs from today's
  * skeleton. Rolling replaces the room's revision, so a room somebody is in is refused with
- * `code: in_use` unless the caller passes `force=true`; the roll runs in the background like room/open
+ * `code: in_use` unless the caller passes `force=true`; the roll runs in the background like ndmspc/room/open
  * (non-blocking by default) and repins the room's HTTPRoute to the new revision, so the next wake-up
  * serves the chosen image.
  *
@@ -216,7 +222,7 @@ class NRoomClusterClient : public IRoomCluster {
  * That is what keeps a deployment with no login usable while a deployment with one cannot be lied
  * to. The owner is kept on the room's own Service as the annotation `ndmspc.io/room-owner`, beside
  * its access tokens, so it survives a router restart and an idle room waking up; it is reported as
- * `owner` by room/open, room/status, room/list and room/backup, and a room created before ownership
+ * `owner` by ndmspc/room/open, ndmspc/room/status, ndmspc/room/list and ndmspc/room/backup, and a room created before ownership
  * existed simply has none.
  *
  * Who sees what follows from it. A caller with no identity at all (a script, or the room TUI run
@@ -261,13 +267,13 @@ class NRoomClusterClient : public IRoomCluster {
  *                 ready" - and it is reported as soon as that verdict repeats. This is not a
  *                 failure: the room's Service is kept, and the room is finished (its revision pinned
  *                 to an HTTPRoute, the room marked ready) as soon as the cluster places the pod,
- *                 which the router checks on every room/list and room/status. `code` is no_capacity.
+ *                 which the router checks on every ndmspc/room/list and ndmspc/room/status. `code` is no_capacity.
  *   name_conflict the room's name is already taken by an object the router did not create (it
  *                 carries no `ndmspc.io/room` label), so that object is left untouched instead of
  *                 being overwritten or deleted. Pick another room id, or free the name.
  *   failed        anything else: a failed apply, a container that keeps dying, a timeout. The
  *                 half-created room is then deleted again - its Service and HTTPRoute - so a later
- *                 room/open creates it from scratch instead of patching what failed; its reason and
+ *                 ndmspc/room/open creates it from scratch instead of patching what failed; its reason and
  *                 code stay in the registry for that attempt to report.
  *
  * Reading pods needs get/list on pods (core) in this namespace. Without that permission nothing
@@ -291,7 +297,7 @@ class NRoomRouter {
   public:
   /// @brief Whether a creation replays the room's stored session once the room is up.
   ///
-  /// room/restore answers None: it stores the document's snapshot *after* the room is up and replays
+  /// ndmspc/room/restore answers None: it stores the document's snapshot *after* the room is up and replays
   /// it itself, so a replay here would bring back the older session and make the room look in use.
   enum class Replay { Stored, None };
 
@@ -354,36 +360,34 @@ class NRoomRouter {
   // ---------------------------------------------------------------- the actions
   // The handlers are thin adapters over these, so each action's whole behaviour (method check,
   // request parsing, payload) can be exercised without a server.
-  /// @brief room/open: ensure a room, waiting for it unless `wait` is false.
+  /// @brief ndmspc/room/open: ensure a room, waiting for it unless `wait` is false.
   void HandleOpen(const std::string & method, json & in, json & out);
-  /// @brief room/status: whether a room is known and where its creation has reached.
+  /// @brief ndmspc/room/status: whether a room is known and where its creation has reached.
   void HandleStatus(const std::string & method, json & in, json & out);
-  /// @brief room/upgrade: roll one room onto a chosen image tag (see "Room image").
+  /// @brief ndmspc/room/upgrade: roll one room onto a chosen image tag (see "Room image").
   void HandleUpgrade(const std::string & method, json & in, json & out);
-  /// @brief room/list: the rooms being tracked that the caller may see.
-  ///
-  /// Asked over a websocket, the call also subscribes that connection: the router then pushes the list
-  /// to it when it changes (see NDMSPC_ROOM_WATCH_INTERVAL), so a rooms view that watches does not have
-  /// to poll. Each watcher is answered as the caller it registered as, so it sees its own rooms.
+  /// @brief ndmspc/room/list: the rooms being tracked that the caller may see.
   void HandleList(const std::string & method, json & in, json & out);
-  /// @brief room/capacity: what the cluster has, what the rooms reserve, and what is left.
+  /// @brief ndmspc/room/watch: set the topics the calling socket is pushed (see WatchTopics).
+  void HandleWatch(const std::string & method, json & in, json & out);
+  /// @brief ndmspc/room/capacity: what the cluster has, what the rooms reserve, and what is left.
   void HandleCapacity(const std::string & method, json & in, json & out);
-  /// @brief room/close: delete a room, cancelling a creation still running for it.
+  /// @brief ndmspc/room/close: delete a room, cancelling a creation still running for it.
   void HandleClose(const std::string & method, json & in, json & out);
-  /// @brief room/state: a room reports its session, or fetches it back.
+  /// @brief ndmspc/room/state: a room reports its session, or fetches it back.
   void HandleState(const std::string & method, json & in, json & out);
-  /// @brief room/backup: export the tracked rooms the caller may see and their sessions. A `room` in
+  /// @brief ndmspc/room/backup: export the tracked rooms the caller may see and their sessions. A `room` in
   ///        the request answers with that one room alone, so the same document serves both a single
   ///        room and the whole set.
   void HandleBackup(const std::string & method, json & in, json & out);
-  /// @brief room/config: export **one room's configuration** - the file it opened, the steps that were
+  /// @brief ndmspc/room/config: export **one room's configuration** - the file it opened, the steps that were
   ///        run, the size and what was on screen - and nothing about the room itself: no id, no owner,
-  ///        no links. It is what somebody hands to somebody else, and what room/import takes.
+  ///        no links. It is what somebody hands to somebody else, and what ndmspc/room/import takes.
   void HandleConfig(const std::string & method, json & in, json & out);
-  /// @brief room/restore: ensure every room in a document and replay its session; `replace` deletes
+  /// @brief ndmspc/room/restore: ensure every room in a document and replay its session; `replace` deletes
   ///        the rooms it names first, so the document's session wins over a room that is in use.
   void HandleRestore(const std::string & method, json & in, json & out);
-  /// @brief room/import: replace one room with the one a config (or a document holding one room)
+  /// @brief ndmspc/room/import: replace one room with the one a config (or a document holding one room)
   ///        describes. The room is deleted if it is there, then created carrying that configuration,
   ///        so what comes back is the configuration's room and nothing of the one that was there.
   void HandleImport(const std::string & method, json & in, json & out);
@@ -405,7 +409,7 @@ class NRoomRouter {
    * reaches the router, so the pod is the router's only witness that somebody is in there - and a room
    * somebody is in is not idle, however long ago it was opened.
    *
-   * Runs on room/open, room/list and room/status, so the TTL is enforced while a view polls rather
+   * Runs on ndmspc/room/open, ndmspc/room/list and ndmspc/room/status, so the TTL is enforced while a view polls rather
    * than only when a room is next opened. Never deletes a room that is being created, waiting for
    * resources, or in use.
    */
@@ -461,16 +465,19 @@ class NRoomRouter {
    */
   static std::string WithTag(const std::string & image, const std::string & tag);
   /**
-   * @brief The image tags a room may be upgraded or reverted to, from the skeleton.
+   * @brief The image tags a room may be upgraded or reverted to: every tag this deployment has rolled.
    *
-   * The skeleton's `imageTags` (what the deployment chooses to offer) with the skeleton image's own
-   * tag added if it is not already there - the deployment's current tag is always a target. Empty when
-   * the skeleton names no tags and no image: there is then nothing to choose between.
+   * The skeleton image's own tag first (the deployment's current image, which an update targets), then
+   * the tags the deployment has rolled (`deployed`, newest first, from {@link DeployedTags}), then
+   * whatever the skeleton advertises - an alias like `local`, which the current tag may repeat. Deduped,
+   * so the same tag never appears twice. Empty when there is nothing to name: no image, no history, no
+   * advertised tags.
    *
    * @param skeleton The room skeleton JSON.
+   * @param deployed The tags of the deployment's own Revisions, newest first (see {@link DeployedTags}).
    * @return An array of tag strings (possibly empty).
    */
-  static json ImageTags(const json & skeleton);
+  static json ImageTags(const json & skeleton, const json & deployed);
   /**
    * @brief A Kubernetes timestamp (RFC 3339, seconds precision) as epoch seconds.
    * @return The instant, or 0 when the value is not one - so "the cluster did not say" stays
@@ -506,7 +513,7 @@ class NRoomRouter {
    * @brief A Kubernetes CPU quantity in milli-cores: `250m` → 250, `1` → 1000, `1.5` → 1500.
    *
    * Anything it cannot read answers 0 - a request nobody can read is counted as nothing rather than
-   * failing what asks (see room/capacity), the same way an unreadable termination reason is simply
+   * failing what asks (see ndmspc/room/capacity), the same way an unreadable termination reason is simply
    * not reported.
    */
   static long CpuMillis(const std::string & quantity);
@@ -616,14 +623,14 @@ class NRoomRouter {
   static std::string RequestProfile(json & in);
 
   /**
-   * @brief The image tag a room/upgrade asks for: its `tag` member, or that of its query string.
+   * @brief The image tag a ndmspc/room/upgrade asks for: its `tag` member, or that of its query string.
    * @param in The request's input JSON.
    * @return The tag asked for, or "" when the request names none.
    */
   static std::string RequestImageTag(json & in);
 
   /**
-   * @brief The full image a room/upgrade asks for: its `image` member, or that of its query string.
+   * @brief The full image a ndmspc/room/upgrade asks for: its `image` member, or that of its query string.
    *
    * A full reference names a version exactly (see "Room image"), which is how a room rolls back to one
    * of the images in its `versions` even when that image's repository is not the skeleton's.
@@ -699,16 +706,16 @@ class NRoomRouter {
   /// @brief The `code` reported when a single-room request names a room this router does not track.
   static constexpr const char * kUnknownRoom = "unknown_room";
 
-  /// @brief The `code` reported when room/upgrade names a room somebody is in and no force was given.
+  /// @brief The `code` reported when ndmspc/room/upgrade names a room somebody is in and no force was given.
   static constexpr const char * kInUse = "in_use";
 
-  /// @brief The `code` reported when room/open names a profile the skeleton does not define.
+  /// @brief The `code` reported when ndmspc/room/open names a profile the skeleton does not define.
   static constexpr const char * kUnknownProfile = "unknown_profile";
 
-  /// @brief The `code` reported when room/upgrade names a tag the deployment does not offer.
+  /// @brief The `code` reported when ndmspc/room/upgrade names a tag the deployment does not offer.
   static constexpr const char * kUnknownImage = "unknown_image";
 
-  /// @brief The `code` reported when a config handed to room/import cannot be read as one room.
+  /// @brief The `code` reported when a config handed to ndmspc/room/import cannot be read as one room.
   static constexpr const char * kBadConfig = "bad_config";
 
   /**
@@ -813,7 +820,7 @@ class NRoomRouter {
    * @brief The images a room has actually run: its Knative revisions, newest first.
    *
    * A room's Knative Service keeps a Revision per roll, and each Revision carries the image it ran, so
-   * this is the room's own version history - what room/status reports as `versions` and what a rollback
+   * this is the room's own version history - what ndmspc/room/status reports as `versions` and what a rollback
    * picks from. Revisions are subject to Knative's garbage collector (config-gc), so older ones age out.
    *
    * @param name Kubernetes name of the room.
@@ -822,6 +829,19 @@ class NRoomRouter {
    *         cluster cannot be read (a permission or a room that is gone) - never a failure.
    */
   json RoomVersions(const std::string & name, const std::string & currentRevision);
+
+  /**
+   * @brief The tags this deployment has rolled: the Revisions of the router's own Knative Service.
+   *
+   * Every deploy rolls the router, so its Revisions carry one image per deploy — the deployment's tag
+   * history, newest first. A room is independent of the router it sits next to, so this is what a room
+   * can be moved along to: any tag the deployment has run, not only the one it runs now. Read with the
+   * same call a room's own versions come from, so it needs no permission the router does not already
+   * use; Knative's garbage collector prunes old Revisions, so this is "what is still recorded".
+   *
+   * @return An array of tag strings, newest first; empty when the cluster will not say (or offline).
+   */
+  json DeployedTags();
   /// @brief The path of the skeleton ConfigMap.
   std::string SkeletonPath() const;
   /**
@@ -949,26 +969,38 @@ class NRoomRouter {
    */
   bool RoomInUse(const NRoomState & room);
   /**
-   * @brief Registers a connection as a watcher of the rooms list, as the caller it just was.
+   * @brief Sets what a connection watches, replacing whatever it watched before.
    *
-   * The identity is the one that request ran as - verified, or asserted where nothing verified it - so
-   * what the connection is later pushed is the same list room/list would answer it.
+   * The topics it names are the topics it watches: one left out stops being pushed, and its copy is
+   * forgotten, so coming back to it is not mistaken for "already sent". A view asks for this with
+   * `ndmspc/watch` over the socket (see HandleWatch).
    *
-   * @param wsId The connection (0 for a request that did not come over a websocket, which is not a
-   *             watcher).
-   * @param identity The caller.
+   * @param wsId The connection (0 for a request that did not come over a websocket, which watches
+   *             nothing).
+   * @param topics The topics to watch: `rooms`, and `room/<id>` for one room's session.
+   * @param identity The caller the topics are read as.
    */
-  void Watch(long wsId, const NRequestIdentity & identity);
+  void WatchTopics(long wsId, const std::vector<std::string> & topics, const NRequestIdentity & identity);
   /**
    * @brief The rooms list as one caller sees it, or null when there is none to push.
    * @param identity The caller the list is for.
-   * @return The `room/list` payload for that caller.
+   * @return The handler's whole answer - its `out`, the same envelope a reply over the socket carries -
+   *         so a pushed list and an answered one are read by the same client code.
    */
   json RoomsPayload(const NRequestIdentity & identity);
-  /// @brief Pushes the rooms list to every watcher whose copy of it changed.
-  void PublishRooms();
-  /// @brief The watcher loop: PublishRooms() every NDMSPC_ROOM_WATCH_INTERVAL until the router ends.
-  void WatchRooms();
+  /// @brief Pushes every watched topic to the watchers whose copy of it changed.
+  void PublishTopics();
+  /**
+   * @brief Asks the watch thread to publish now, instead of at the next interval.
+   *
+   * Called after a room action, so a create or a delete reaches a watching view at once rather than up
+   * to an interval later. It only raises a flag: the read-and-send happens on the watch thread, which
+   * is where that work belongs - a request must not wait on a cluster read to answer. A no-op when
+   * nothing is watching.
+   */
+  void PublishNow();
+  /// @brief The publish loop: PublishTopics() every NDMSPC_ROOM_WATCH_INTERVAL until the router ends.
+  void PublishLoop();
   /**
    * @brief Adopts the rooms that already exist in the cluster into the registry (once per process).
    *
@@ -981,7 +1013,7 @@ class NRoomRouter {
   /**
    * @brief Rolls one room onto `image` and repins its HTTPRoute to the new revision.
    *
-   * Used by room/upgrade, and by {@link Adopt} when the deployment asks for convergence
+   * Used by ndmspc/room/upgrade, and by {@link Adopt} when the deployment asks for convergence
    * (NDMSPC_ROOM_AUTO_UPDATE): a room that is idle when the router is upgraded would otherwise keep
    * the image it was created with, and this is what brings it onto the current one. It applies the
    * room's Service with the pinned image, waits for the new revision to be ready, and repins the route
@@ -1069,7 +1101,7 @@ class NRoomRouter {
    */
   Abort CheckRunning(const std::string & name, int generation) const;
   /**
-   * @brief Publishes the step a creation is in, for room/list and room/status.
+   * @brief Publishes the step a creation is in, for ndmspc/room/list and ndmspc/room/status.
    * @param name Kubernetes name of the room.
    * @param phase The phase it has reached.
    */
@@ -1097,7 +1129,7 @@ class NRoomRouter {
    */
   void EnsurePending(const std::string & name, const std::string & error, const std::string & code);
   /**
-   * @brief Removes a half-created room after a failure, so the next room/open recreates it.
+   * @brief Removes a half-created room after a failure, so the next ndmspc/room/open recreates it.
    *
    * The router's own objects are its to take back, so a creation that failed leaves the cluster as
    * it found it: no Service waiting to be patched into working, no HTTPRoute pointing at a revision
@@ -1116,7 +1148,7 @@ class NRoomRouter {
    *
    * The counterpart of {@link EnsurePending}: a pending room's Service is left with the cluster, and
    * this is what notices that it can finally serve - pinning the revision's HTTPRoute and marking the
-   * room ready. Runs on the reading actions (room/list, room/status), so a view watching the room
+   * room ready. Runs on the reading actions (room/list, ndmspc/room/status), so a view watching the room
    * sees it come up without anyone having to ask for it again.
    *
    * @param name Kubernetes name of the room.
@@ -1206,12 +1238,36 @@ class NRoomRouter {
   std::mutex                        fAdoptMutex;     ///< Guards the one-time adoption of existing rooms
   std::vector<Worker>               fWorkers;        ///< The background threads still running
   mutable std::mutex                fWorkerMutex;    ///< Guards fWorkers
-  std::map<long, NRequestIdentity>  fWatchers;       ///< Connections that asked for the rooms list
-  std::map<long, std::string>       fPushed;         ///< The last list pushed to each, so only changes are sent
+  std::map<std::string, std::map<long, NRequestIdentity>> fWatchers; ///< topic -> connection -> the caller it watches as
+  std::map<std::string, std::map<long, std::string>>      fPushed;   ///< topic -> connection -> the last payload sent it
   mutable std::mutex                fWatchMutex;     ///< Guards fWatchers and fPushed
   std::thread                       fWatchThread;    ///< Pushes the rooms list to watchers (NDMSPC_ROOM_WATCH_INTERVAL)
-  std::atomic<bool>                 fWatchStop{false}; ///< Asks the watch thread to stop when the router ends
+  std::atomic<bool>                 fWatchStop{false};   ///< Asks the watch thread to stop when the router ends
+  std::atomic<bool>                 fPublishNow{false};  ///< Asks it to publish at once, not at the next tick
 };
+
+/**
+ * @brief The rooms-list fan-out, without sockets: who is sent what, and what to remember.
+ *
+ * Pure but for the two callbacks, so the rules that matter can be tested on their own - the list is
+ * built **once per distinct identity** (the cluster read lives in `build`), only a list that changed
+ * since `previous` reaches `send`, and a watcher whose connection is not in `connected` is left out of
+ * the result, which is what drops it.
+ *
+ * @param event     The event name a push carries (`rooms`, `room`).
+ * @param watchers  What is watched: connection id -> the caller it was subscribed as.
+ * @param connected The connections that are still there.
+ * @param previous  The digest last sent to each connection (see NRoomRouter::fPushed).
+ * @param build     Builds the topic's payload for one caller.
+ * @param send      Hands one connection the frame to send it (the JSON text, already wrapped).
+ * @return The digests to remember: one per connected watcher whose payload was built.
+ */
+std::map<long, std::string> NdmspcRoomFanOut(const std::string &                     event,
+                                             const std::map<long, NRequestIdentity> & watchers,
+                                             const std::vector<ULong_t> &            connected,
+                                             const std::map<long, std::string> &     previous,
+                                             const std::function<json(const NRequestIdentity &)> & build,
+                                             const std::function<void(long, const std::string &)> & send);
 
 } // namespace Ndmspc
 

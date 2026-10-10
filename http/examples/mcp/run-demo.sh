@@ -36,10 +36,10 @@ else
   echo "FAIL: expected 3 responses, got $count"
   fail=1
 fi
-if grep -q '"name":"ngnt_open"' <<<"$stdio_out"; then
-  echo "OK: tools/list exposes ngnt_open"
+if grep -q '"name":"ndmspc_ngnt_open"' <<<"$stdio_out"; then
+  echo "OK: tools/list exposes ndmspc_ngnt_open"
 else
-  echo "FAIL: ngnt_open missing from tools/list"
+  echo "FAIL: ndmspc_ngnt_open missing from tools/list"
   fail=1
 fi
 if grep -q '"isError":false' <<<"$stdio_out"; then
@@ -86,8 +86,8 @@ else
 fi
 
 tools="$(curl -sS "$U" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')"
-if grep -q '"name":"ngnt_reshape"' <<<"$tools"; then
-  echo "OK: tools/list exposes ngnt_reshape"
+if grep -q '"name":"ndmspc_ngnt_reshape"' <<<"$tools"; then
+  echo "OK: tools/list exposes ndmspc_ngnt_reshape"
 else
   echo "FAIL: tools/list: $tools"
   fail=1

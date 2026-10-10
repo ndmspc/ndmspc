@@ -121,7 +121,7 @@ enabled on the server, add `--header "Authorization: Bearer <token>"`. Remove wi
 ## Tools
 
 One tool is created per registered handler, named by replacing `/` with `_`
-(`ngnt/open` → `ngnt_open`). Each tool's `inputSchema` is taken from the workspace
+(`ndmspc/ngnt/open` → `ndmspc_ngnt_open`). Each tool's `inputSchema` is taken from the workspace
 inspector schema and extended with a `method` property (`GET`/`POST`/`PATCH`/`DELETE`,
 default `POST`), since the ngnt actions are verb-sensitive. Internal routes
 (`openapi/inspector`, `inspector/openapi`) are hidden; `health` and `state` are exposed. They come

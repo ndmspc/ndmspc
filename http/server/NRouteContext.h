@@ -178,7 +178,7 @@ public:
    * @param pad Pad to show it in (default "pad1").
    * @param label Tab to show it on (default: whatever the kind is called).
    * @param options Renderer options, e.g. `{{"drawOpts", "colz"}}`.
-   * @param handlers Click/hover actions, e.g. `{{"click", json::array({Action("ngnt/map")})}}`.
+   * @param handlers Click/hover actions, e.g. `{{"click", json::array({Action("ndmspc/ngnt/map")})}}`.
    * @param replace Whether the pad should drop what it was showing first (this object replaces the
    *        pad's previous one).
    */
@@ -223,7 +223,7 @@ public:
    * The UI adds the click's own `args` (the clicked bin, the container) beside `payload` when it
    * carries the action out, so a handler only builds the part it knows.
    *
-   * @param path Handler path (the tool name with `/` instead of `_`, e.g. `ngnt/map`).
+   * @param path Handler path (the tool name with `/` instead of `_`, e.g. `ndmspc/ngnt/map`).
    * @param method HTTP verb.
    * @param payload Request body.
    * @param contentType Request content type.

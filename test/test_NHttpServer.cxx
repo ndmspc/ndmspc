@@ -108,20 +108,20 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
   EXPECT_TRUE(Ndmspc::RegisterBaseActions());
 
   // What the server describes itself with, as handlers and as MCP tools.
-  EXPECT_NE(handlers.find("health"), handlers.end());
-  EXPECT_NE(handlers.find("state"), handlers.end());
+  EXPECT_NE(handlers.find("ndmspc/health"), handlers.end());
+  EXPECT_NE(handlers.find("ndmspc/state"), handlers.end());
   // The room's tool group: GET reports it, PATCH sets it for every client.
-  EXPECT_NE(handlers.find("group"), handlers.end());
+  EXPECT_NE(handlers.find("ndmspc/group"), handlers.end());
   // The room's sessions (one per open file): GET lists them, PATCH makes one active.
-  EXPECT_NE(handlers.find("session"), handlers.end());
+  EXPECT_NE(handlers.find("ndmspc/session"), handlers.end());
   // The heartbeat cadence: GET reports it, POST sets it, so a view can ask for finer readings while
   // something long is running and put the deployment's own back afterwards.
-  EXPECT_NE(handlers.find("heartbeat"), handlers.end());
-  EXPECT_NE(tools.find("health"), tools.end());
-  EXPECT_NE(tools.find("state"), tools.end());
-  EXPECT_NE(tools.find("group"), tools.end());
-  EXPECT_NE(tools.find("session"), tools.end());
-  EXPECT_NE(tools.find("heartbeat"), tools.end());
+  EXPECT_NE(handlers.find("ndmspc/heartbeat"), handlers.end());
+  EXPECT_NE(tools.find("ndmspc/health"), tools.end());
+  EXPECT_NE(tools.find("ndmspc/state"), tools.end());
+  EXPECT_NE(tools.find("ndmspc/group"), tools.end());
+  EXPECT_NE(tools.find("ndmspc/session"), tools.end());
+  EXPECT_NE(tools.find("ndmspc/heartbeat"), tools.end());
 
   // The debug echo helper is gone with the macro it used to live in: a macro that wants one
   // registers its own.
@@ -179,26 +179,26 @@ std::string RequestJson(Ndmspc::NHttpServer * server, const char * method, const
 TEST(NHttpServerToolDependencyTest, ADependentActionIsRefusedUntilItsPrerequisiteRuns)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"]    = SuccessHandler;
-  handlers["ngnt/reshape"] = SuccessHandler;
+  handlers["ndmspc/ngnt/open"]    = SuccessHandler;
+  handlers["ndmspc/ngnt/reshape"] = SuccessHandler;
 
   auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
   server->SetHttpHandlers(handlers);
 
   Ndmspc::NMcpToolMap   tools;
   Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
-  tools["ngnt/open"]             = {}; // a prerequisite must itself be a known tool to be enforced
-  tools["ngnt/reshape"]          = {.dependsOn = {"ngnt/open"}};
+  tools["ndmspc/ngnt/open"]             = {}; // a prerequisite must itself be a known tool to be enforced
+  tools["ndmspc/ngnt/reshape"]          = {.dependsOn = {"ndmspc/ngnt/open"}};
   Ndmspc::gNdmspcMcpTools        = &tools;
 
   // reshape before open: refused, naming the action to run first.
-  const std::string refused = Request(server, "POST", "ngnt/reshape");
+  const std::string refused = Request(server, "POST", "ndmspc/ngnt/reshape");
   EXPECT_NE(refused.find("\"code\":\"prerequisite_required\""), std::string::npos);
-  EXPECT_NE(refused.find("\"required\":\"ngnt/open\""), std::string::npos);
+  EXPECT_NE(refused.find("\"required\":\"ndmspc/ngnt/open\""), std::string::npos);
 
   // open runs, and reshape is admitted once its prerequisite is met.
-  EXPECT_NE(Request(server, "POST", "ngnt/open").find("\"result\":\"success\""), std::string::npos);
-  EXPECT_EQ(Request(server, "POST", "ngnt/reshape").find("prerequisite_required"), std::string::npos);
+  EXPECT_NE(Request(server, "POST", "ndmspc/ngnt/open").find("\"result\":\"success\""), std::string::npos);
+  EXPECT_EQ(Request(server, "POST", "ndmspc/ngnt/reshape").find("prerequisite_required"), std::string::npos);
 
   Ndmspc::gNdmspcMcpTools = previous;
   delete server;
@@ -207,25 +207,25 @@ TEST(NHttpServerToolDependencyTest, ADependentActionIsRefusedUntilItsPrerequisit
 TEST(NHttpServerToolDependencyTest, ClosingThePrerequisiteRevokesItsDependents)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"]    = SuccessHandler;
-  handlers["ngnt/reshape"] = SuccessHandler;
+  handlers["ndmspc/ngnt/open"]    = SuccessHandler;
+  handlers["ndmspc/ngnt/reshape"] = SuccessHandler;
 
   auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
   server->SetHttpHandlers(handlers);
 
   Ndmspc::NMcpToolMap   tools;
   Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
-  tools["ngnt/open"]             = {};
-  tools["ngnt/reshape"]          = {.dependsOn = {"ngnt/open"}};
+  tools["ndmspc/ngnt/open"]             = {};
+  tools["ndmspc/ngnt/reshape"]          = {.dependsOn = {"ndmspc/ngnt/open"}};
   Ndmspc::gNdmspcMcpTools        = &tools;
 
-  EXPECT_NE(Request(server, "POST", "ngnt/open").find("success"), std::string::npos);
-  EXPECT_EQ(Request(server, "POST", "ngnt/reshape").find("prerequisite_required"), std::string::npos);
+  EXPECT_NE(Request(server, "POST", "ndmspc/ngnt/open").find("success"), std::string::npos);
+  EXPECT_EQ(Request(server, "POST", "ndmspc/ngnt/reshape").find("prerequisite_required"), std::string::npos);
 
   // Closing the file (DELETE open) drops the history entries that followed it, so the tools that
   // depended on it are refused again. This is why no separate "satisfied" state is needed.
-  Request(server, "DELETE", "ngnt/open");
-  EXPECT_NE(Request(server, "POST", "ngnt/reshape").find("prerequisite_required"), std::string::npos);
+  Request(server, "DELETE", "ndmspc/ngnt/open");
+  EXPECT_NE(Request(server, "POST", "ndmspc/ngnt/reshape").find("prerequisite_required"), std::string::npos);
 
   Ndmspc::gNdmspcMcpTools = previous;
   delete server;
@@ -234,7 +234,7 @@ TEST(NHttpServerToolDependencyTest, ClosingThePrerequisiteRevokesItsDependents)
 TEST(NHttpServerToolDependencyTest, AnActionWithNoDeclaredPrerequisiteIsNeverGated)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/reshape"] = SuccessHandler;
+  handlers["ndmspc/ngnt/reshape"] = SuccessHandler;
 
   auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
   server->SetHttpHandlers(handlers);
@@ -242,7 +242,7 @@ TEST(NHttpServerToolDependencyTest, AnActionWithNoDeclaredPrerequisiteIsNeverGat
   Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
   Ndmspc::gNdmspcMcpTools        = nullptr; // no tool metadata at all
 
-  EXPECT_NE(Request(server, "POST", "ngnt/reshape").find("\"result\":\"success\""), std::string::npos);
+  EXPECT_NE(Request(server, "POST", "ndmspc/ngnt/reshape").find("\"result\":\"success\""), std::string::npos);
 
   Ndmspc::gNdmspcMcpTools = previous;
   delete server;
@@ -253,36 +253,36 @@ TEST(NHttpServerToolDependencyTest, AnActionWithNoDeclaredPrerequisiteIsNeverGat
 TEST(NHttpServerCombinationTest, PostCreatesNodesAndBranchesUnderAParent)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
-  handlers["ngnt/open"]    = SuccessHandler;
-  handlers["ngnt/reshape"] = SuccessHandler;
+  handlers["ndmspc/ngnt/open"]    = SuccessHandler;
+  handlers["ndmspc/ngnt/reshape"] = SuccessHandler;
 
   auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
   server->SetHttpHandlers(handlers);
 
   Ndmspc::NMcpToolMap   tools;
   Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
-  tools["ngnt/open"]             = {};
-  tools["ngnt/reshape"]          = {.dependsOn = {"ngnt/open"}};
+  tools["ndmspc/ngnt/open"]             = {};
+  tools["ndmspc/ngnt/reshape"]          = {.dependsOn = {"ndmspc/ngnt/open"}};
   Ndmspc::gNdmspcMcpTools        = &tools;
 
   // An `open` is a root node (its action declares no parent).
-  const json open1 = json::parse(RequestJson(server, "POST", "ngnt/open", {{"file", "a.root"}}));
+  const json open1 = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "a.root"}}));
   ASSERT_TRUE(open1.contains("combination")) << open1.dump();
   const std::string i1 = open1["combination"]["id"];
 
   // A reshape attaches to the open that is active.
-  const json reshape1 = json::parse(RequestJson(server, "POST", "ngnt/reshape", {{"binningName", "x"}}));
+  const json reshape1 = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"binningName", "x"}}));
   ASSERT_TRUE(reshape1.contains("combination")) << reshape1.dump();
   const std::string i2 = reshape1["combination"]["id"];
   EXPECT_EQ(reshape1["combination"]["path"], json::array({i1, i2}));
 
   // A second reshape is a second node under the same open, not a replacement.
-  const json        reshape2 = json::parse(RequestJson(server, "POST", "ngnt/reshape", {{"binningName", "y"}}));
+  const json        reshape2 = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"binningName", "y"}}));
   const std::string i3       = reshape2["combination"]["id"];
   ASSERT_NE(i2, i3);
 
   // Two opens coexist as two roots, each keeping its own children.
-  const json        open2 = json::parse(RequestJson(server, "POST", "ngnt/open", {{"file", "b.root"}}));
+  const json        open2 = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "b.root"}}));
   const std::string i4    = open2["combination"]["id"];
 
   const json tree = server->GetCombinations();
@@ -292,7 +292,7 @@ TEST(NHttpServerCombinationTest, PostCreatesNodesAndBranchesUnderAParent)
 
   // A reshape under a reshape is refused: it has to sit under an open.
   const json bad =
-      json::parse(RequestJson(server, "POST", "ngnt/reshape", {{"path", json::array({i2})}, {"binningName", "z"}}));
+      json::parse(RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"path", json::array({i2})}, {"binningName", "z"}}));
   EXPECT_EQ(bad["code"].get<std::string>(), "invalid_combination");
 
   Ndmspc::gNdmspcMcpTools = previous;
@@ -304,16 +304,16 @@ TEST(NHttpServerRoomStateTest, TheSnapshotCarriesTheRoomsNamesAndPadsAndGivesThe
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
   // An open that publishes the file the snapshot's "nothing open" guard reads, and a step that draws, so
   // the room has both the things this is about: a named session and something drawn in it.
-  handlers["browser/open"] = [](std::string, json & in, json & out, json & wsOut,
+  handlers["ndmspc/browser/open"] = [](std::string, json & in, json & out, json & wsOut,
                                 std::map<std::string, TObject *> &) {
     wsOut["workspace"]["open"]["properties"]["file"]["default"] = in.value("file", std::string());
-    wsOut["group"]                                              = "browser";
+    wsOut["group"]                                              = "ndmspc/browser";
     out["result"]                                               = "success";
   };
-  handlers["browser/draw"] = [](std::string, json &, json & out, json & wsOut,
+  handlers["ndmspc/browser/draw"] = [](std::string, json &, json & out, json & wsOut,
                                 std::map<std::string, TObject *> &) {
     wsOut["payload"]["pad"] = json::array({json{{"pad", 0}, {"label", "h"}}});
-    wsOut["group"]          = "browser";
+    wsOut["group"]          = "ndmspc/browser";
     out["result"]           = "success";
   };
 
@@ -333,19 +333,19 @@ TEST(NHttpServerRoomStateTest, TheSnapshotCarriesTheRoomsNamesAndPadsAndGivesThe
   Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
   // The open is what a session of this group is, which is also what makes it replayable: the snapshot
   // replays the actions that define a session, so one that declares none leaves nothing to report.
-  tools["browser/open"]          = {.order = 1, .session = true};
-  tools["browser/draw"]          = {.dependsOn = {"browser/open"}};
+  tools["ndmspc/browser/open"]          = {.order = 1, .session = true};
+  tools["ndmspc/browser/draw"]          = {.dependsOn = {"ndmspc/browser/open"}};
   Ndmspc::gNdmspcMcpTools        = &tools;
 
   // A step that starts a session names it after its group, and drawing in it is remembered with it.
-  const json opened = json::parse(RequestJson(server, "POST", "browser/open", {{"file", "a.root"}}));
+  const json opened = json::parse(RequestJson(server, "POST", "ndmspc/browser/open", {{"file", "a.root"}}));
   ASSERT_TRUE(opened["result"] == "success");
   const std::string session = opened["combination"]["id"].get<std::string>();
 
   const json named = json::parse(
-      RequestJson(server, "PATCH", "session", {{"session", session}, {"name", "calibration"}}));
+      RequestJson(server, "PATCH", "ndmspc/session", {{"session", session}, {"name", "calibration"}}));
   const json drawn =
-      json::parse(RequestJson(server, "POST", "browser/draw", {{"path", json::array({session})}}));
+      json::parse(RequestJson(server, "POST", "ndmspc/browser/draw", {{"path", json::array({session})}}));
   ASSERT_TRUE(named["result"] == "success");
   ASSERT_TRUE(drawn["result"] == "success");
   ASSERT_TRUE(named["payload"]["sessions"][0]["label"] == "calibration");
@@ -373,5 +373,47 @@ TEST(NHttpServerRoomStateTest, TheSnapshotCarriesTheRoomsNamesAndPadsAndGivesThe
   Ndmspc::gNdmspcMcpTools    = previous;
   Ndmspc::gNdmspcHttpHandlers = nullptr;
   delete woken;
+  delete server;
+}
+
+/**
+ * A group's steps are its own: running one group's step again rolls back the steps that followed it
+ * **there**, and leaves another group's alone.
+ *
+ * The keys are namespaced (`ndmspc/ngnt/open` beside `ndmspc/browser/open`), which is what makes the
+ * group the part before the key's **last** slash. Read as the part before the first, every family of the
+ * namespace would be one group - `ndmspc` - and this re-run would tear the browser's step down with it,
+ * closing a file nobody asked it to touch.
+ */
+TEST(NHttpServerGroupTest, RerunningAStepRollsBackItsOwnGroupAndNoOther)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/open"]    = SuccessHandler;
+  handlers["ndmspc/ngnt/reshape"] = SuccessHandler;
+  handlers["ndmspc/browser/open"] = SuccessHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(std::move(handlers));
+
+  ASSERT_NE(Request(server, "POST", "ndmspc/ngnt/open").find("success"), std::string::npos);
+  ASSERT_NE(Request(server, "POST", "ndmspc/ngnt/reshape").find("success"), std::string::npos);
+  ASSERT_NE(Request(server, "POST", "ndmspc/browser/open").find("success"), std::string::npos);
+  // The analysis group starts over: its own later step goes, the browser's run is another group's.
+  ASSERT_NE(Request(server, "POST", "ndmspc/ngnt/open").find("success"), std::string::npos);
+
+  // What ran, in order: the root endpoint answers with the workspace history.
+  const json history = json::parse(Request(server, "GET", ""))["state"]["history"];
+  std::vector<std::string> names;
+  for (const auto & entry : history) {
+    names.push_back(entry["name"].get<std::string>());
+  }
+
+  EXPECT_EQ(std::find(names.begin(), names.end(), "ndmspc/ngnt/reshape"), names.end())
+      << "the re-run analysis group kept its own rolled-back step";
+  EXPECT_NE(std::find(names.begin(), names.end(), "ndmspc/browser/open"), names.end())
+      << "the re-run analysis group took the browser's step with it";
+  ASSERT_FALSE(names.empty());
+  EXPECT_EQ(names.back(), "ndmspc/ngnt/open") << "the re-run is the newest step";
+
   delete server;
 }

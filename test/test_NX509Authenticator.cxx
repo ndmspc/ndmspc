@@ -204,7 +204,7 @@ TEST(X509CaPathTest, VerifiesClientCertificateAgainstHashedCaDirectory)
   client.set_ca_cert_path("", server.caDir);
   client.enable_server_certificate_verification(true);
 
-  auto result = client.Get("/api/state");
+  auto result = client.Get("/api/ndmspc/state");
   ASSERT_TRUE(result) << "mTLS request with a CA-directory-trusted client certificate failed";
   EXPECT_EQ(result->status, 502);
 }
@@ -218,7 +218,7 @@ TEST(X509CaPathTest, RejectsClientWithoutCertificate)
   client.set_ca_cert_path("", server.caDir);
   client.enable_server_certificate_verification(true);
 
-  EXPECT_FALSE(client.Get("/api/state"));
+  EXPECT_FALSE(client.Get("/api/ndmspc/state"));
 }
 
 TEST(X509CaPathTest, RejectsClientCertificateFromUntrustedCa)
@@ -231,7 +231,7 @@ TEST(X509CaPathTest, RejectsClientCertificateFromUntrustedCa)
   client.set_ca_cert_path("", server.caDir);
   client.enable_server_certificate_verification(true);
 
-  EXPECT_FALSE(client.Get("/api/state"));
+  EXPECT_FALSE(client.Get("/api/ndmspc/state"));
 }
 
 TEST(X509ConfigTest, ValidateRejectsUnknownIdentityAttribute)

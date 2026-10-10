@@ -18,10 +18,10 @@ call '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 echo "== tools/list =="
 call '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 
-echo "== tools/call: ngnt_open GET =="
-call '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ngnt_open","arguments":{"method":"GET"}}}'
+echo "== tools/call: ndmspc_ngnt_open GET =="
+call '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ndmspc_ngnt_open","arguments":{"method":"GET"}}}'
 
 if [ -n "$FILE" ]; then
-  echo "== tools/call: ngnt_open POST $FILE =="
-  call "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"ngnt_open\",\"arguments\":{\"method\":\"POST\",\"file\":\"$FILE\"}}}"
+  echo "== tools/call: ndmspc_ngnt_open POST $FILE =="
+  call "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"ndmspc_ngnt_open\",\"arguments\":{\"method\":\"POST\",\"file\":\"$FILE\"}}}"
 fi

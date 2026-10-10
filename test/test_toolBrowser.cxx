@@ -1,11 +1,11 @@
 /**
  * The browser tool, loaded and called the way the server loads and calls it.
  *
- * Covers the browsing loop: `browser/open` publishes the file's tree onto the `browser/browse` step
- * (no pad is filled), `browser/browse` re-publishes it, and the internal `rbrowser/ls` / `rbrowser/draw`
- * — which the tree's nodes drive — expand a folder and draw an object. The internals sit outside the
- * `browser` combination on purpose: the server records a node for every POST of an action in a
- * combination group, and browsing must add no step.
+ * Covers the browsing loop: `ndmspc/browser/open` publishes the file's tree onto the
+ * `ndmspc/browser/browse` step (no pad is filled), `ndmspc/browser/browse` re-publishes it, and the
+ * internal `ndmspc/rbrowser/ls` / `ndmspc/rbrowser/draw` — which the tree's nodes drive — expand a
+ * folder and draw an object. The internals sit in a group of their own on purpose: the server records a
+ * node for every POST of an action in a combination group, and browsing must add no step.
  */
 
 #include <gtest/gtest.h>
@@ -136,8 +136,8 @@ class ToolBrowser : public ::testing::Test {
 
 TEST_F(ToolBrowser, RegistersTheBrowseStepAndItsHiddenInternals)
 {
-  for (const char * key : {"browser/open", "browser/browse", "rbrowser/ls", "rbrowser/draw",
-                           "rbrowser/sparse", "rbrowser/project"}) {
+  for (const char * key : {"ndmspc/browser/open", "ndmspc/browser/browse", "ndmspc/rbrowser/ls", "ndmspc/rbrowser/draw",
+                           "ndmspc/rbrowser/sparse", "ndmspc/rbrowser/project"}) {
     EXPECT_NE(fTool->Handler(key), nullptr) << key << " did not register a handler";
     const Ndmspc::NMcpToolInfo * info = fTool->ToolInfo(key);
     ASSERT_NE(info, nullptr) << key << " registered no metadata";
@@ -145,7 +145,7 @@ TEST_F(ToolBrowser, RegistersTheBrowseStepAndItsHiddenInternals)
   }
 
   // `open` starts the combination; `browse` hangs under it, and its form is the file tree.
-  const Ndmspc::NMcpToolInfo * open = fTool->ToolInfo("browser/open");
+  const Ndmspc::NMcpToolInfo * open = fTool->ToolInfo("ndmspc/browser/open");
   EXPECT_TRUE(open->dependsOn.empty()) << "open is the head of the chain";
   EXPECT_EQ(open->label, "{{ file }}");
   EXPECT_EQ(open->order, 1);
@@ -154,14 +154,14 @@ TEST_F(ToolBrowser, RegistersTheBrowseStepAndItsHiddenInternals)
   // The tool names no pad: the pad view routes what it shows.
   EXPECT_FALSE(open->inputSchema["properties"].contains("pad"));
 
-  const Ndmspc::NMcpToolInfo * browse = fTool->ToolInfo("browser/browse");
+  const Ndmspc::NMcpToolInfo * browse = fTool->ToolInfo("ndmspc/browser/browse");
   ASSERT_EQ(browse->dependsOn.size(), 1u);
-  EXPECT_EQ(browse->dependsOn[0], "browser/open");
+  EXPECT_EQ(browse->dependsOn[0], "ndmspc/browser/open");
   EXPECT_EQ(browse->inputSchema["properties"]["key"].value("format", std::string()), "tree");
   EXPECT_FALSE(browse->inputSchema["properties"].contains("pad"));
 
   // The internals are a plain, hidden group: they add no step, and neither list shows them.
-  for (const char * key : {"rbrowser/ls", "rbrowser/draw", "rbrowser/sparse", "rbrowser/project"}) {
+  for (const char * key : {"ndmspc/rbrowser/ls", "ndmspc/rbrowser/draw", "ndmspc/rbrowser/sparse", "ndmspc/rbrowser/project"}) {
     const Ndmspc::NMcpToolInfo * info = fTool->ToolInfo(key);
     EXPECT_TRUE(info->hidden) << key << " should be hidden";
     EXPECT_TRUE(info->dependsOn.empty()) << key << " should add no step";
@@ -170,7 +170,7 @@ TEST_F(ToolBrowser, RegistersTheBrowseStepAndItsHiddenInternals)
 
 TEST_F(ToolBrowser, OpenPublishesTheFileTreeOntoTheBrowseStep)
 {
-  const auto call = fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  const auto call = fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   ASSERT_EQ(call.reply.value("result", std::string()), "success");
 
   // The tree belongs to the browse step, so `open` fills no pad.
@@ -183,7 +183,7 @@ TEST_F(ToolBrowser, OpenPublishesTheFileTreeOntoTheBrowseStep)
   const json * hpx = FindNode(tree["nodes"], "hpx;1");
   ASSERT_NE(hpx, nullptr) << "the top-level histogram is missing from the tree";
   EXPECT_EQ((*hpx)["detail"], "TH1D");
-  EXPECT_EQ((*hpx)["action"]["path"], "rbrowser/draw");
+  EXPECT_EQ((*hpx)["action"]["path"], "ndmspc/rbrowser/draw");
   EXPECT_EQ((*hpx)["action"]["payload"]["key"], "hpx");
   // The tree's pad must not ride along on the draw action, or the object lands beside the tree.
   EXPECT_FALSE((*hpx)["action"]["payload"].contains("pad"));
@@ -191,13 +191,13 @@ TEST_F(ToolBrowser, OpenPublishesTheFileTreeOntoTheBrowseStep)
   const json * sub = FindNode(tree["nodes"], "sub;1");
   ASSERT_NE(sub, nullptr) << "the folder is missing from the tree";
   EXPECT_EQ((*sub)["expandable"], true);
-  EXPECT_EQ((*sub)["action"]["path"], "rbrowser/ls");
+  EXPECT_EQ((*sub)["action"]["path"], "ndmspc/rbrowser/ls");
 }
 
 TEST_F(ToolBrowser, LsSendsTheTreeWithTheFolderExpanded)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
-  const auto call = fTool->Call("rbrowser/ls", "POST", json{{"key", "sub"}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const auto call = fTool->Call("ndmspc/rbrowser/ls", "POST", json{{"key", "sub"}});
   ASSERT_EQ(call.reply.value("result", std::string()), "success");
   EXPECT_EQ(ToolHarness::Pads(call).size(), 0u);
 
@@ -213,23 +213,23 @@ TEST_F(ToolBrowser, ATreeDrawsAndExpandsToItsBranches)
 {
   // ROOT reports a TNtuple key as a "folder"; it must still be a leaf for drawing and expand to its
   // branches (this is the regression that sent it down the directory path and hid them).
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
-  const auto expanded = fTool->Call("rbrowser/ls", "POST", json{{"key", "ntuple"}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const auto expanded = fTool->Call("ndmspc/rbrowser/ls", "POST", json{{"key", "ntuple"}});
 
   const json * nt =
       FindNode(expanded.ws["workspace"]["browse"]["properties"]["key"]["nodes"], "ntuple;1");
   ASSERT_NE(nt, nullptr) << "the tree is missing from the tree";
-  EXPECT_EQ((*nt)["action"]["path"], "rbrowser/draw");
+  EXPECT_EQ((*nt)["action"]["path"], "ndmspc/rbrowser/draw");
   EXPECT_EQ((*nt)["expandable"], true);
   ASSERT_TRUE((*nt).contains("children"));
   EXPECT_GE((*nt)["children"].size(), 3u);
 
   // A branch draws itself: clicking it projects the branch into a histogram.
   const json & px = (*nt)["children"][0];
-  EXPECT_EQ(px["action"]["path"], "rbrowser/draw");
+  EXPECT_EQ(px["action"]["path"], "ndmspc/rbrowser/draw");
   EXPECT_EQ(px["action"]["payload"]["branch"], "px");
 
-  const auto drawn     = fTool->Call("rbrowser/draw", "POST", px["action"]["payload"]);
+  const auto drawn     = fTool->Call("ndmspc/rbrowser/draw", "POST", px["action"]["payload"]);
   const json drawnPads = ToolHarness::Pads(drawn);
   ASSERT_EQ(drawnPads.size(), 1u);
   EXPECT_EQ(drawnPads[0].value("kind", std::string()), "jsroot");
@@ -240,8 +240,8 @@ TEST_F(ToolBrowser, ATreeDrawsAndExpandsToItsBranches)
 
 TEST_F(ToolBrowser, DrawTurnsAKeyIntoAJsrootEnvelope)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
-  const auto call = fTool->Call("rbrowser/draw", "POST", json{{"key", "hpx"}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const auto call = fTool->Call("ndmspc/rbrowser/draw", "POST", json{{"key", "hpx"}});
   ASSERT_EQ(call.reply.value("result", std::string()), "success");
 
   const json pads = ToolHarness::Pads(call);
@@ -253,7 +253,7 @@ TEST_F(ToolBrowser, DrawTurnsAKeyIntoAJsrootEnvelope)
 
 TEST_F(ToolBrowser, ANodeActionNamesNoPadSoTheViewRoutesIt)
 {
-  const auto   open = fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  const auto   open = fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   const json * hpx =
       FindNode(open.ws["workspace"]["browse"]["properties"]["key"]["nodes"], "hpx;1");
   ASSERT_NE(hpx, nullptr);
@@ -261,7 +261,7 @@ TEST_F(ToolBrowser, ANodeActionNamesNoPadSoTheViewRoutesIt)
   EXPECT_FALSE(payload.contains("pad"));
 
   // Exactly what a click in the browse step's tree would make: the node's own payload.
-  const auto draw      = fTool->Call("rbrowser/draw", "POST", payload);
+  const auto draw      = fTool->Call("ndmspc/rbrowser/draw", "POST", payload);
   const json drawnPads = ToolHarness::Pads(draw);
   ASSERT_EQ(drawnPads.size(), 1u);
   // The tool names no pad, so the pad view decides (fixed pad, or the rotating ones).
@@ -270,40 +270,40 @@ TEST_F(ToolBrowser, ANodeActionNamesNoPadSoTheViewRoutesIt)
 
 TEST_F(ToolBrowser, DrawingWithoutAnOpenFileIsRefused)
 {
-  const auto call = fTool->Call("rbrowser/draw", "POST", json{{"key", "hpx"}});
+  const auto call = fTool->Call("ndmspc/rbrowser/draw", "POST", json{{"key", "hpx"}});
   EXPECT_EQ(ToolHarness::Pads(call).size(), 0u);
   EXPECT_FALSE(call.reply.value("error", std::string()).empty());
 }
 
 TEST_F(ToolBrowser, DeleteClosesTheFile)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   ASSERT_NE(fTool->Objects().find("browserFile"), fTool->Objects().end());
 
-  const auto call = fTool->Call("browser/open", "DELETE");
+  const auto call = fTool->Call("ndmspc/browser/open", "DELETE");
   EXPECT_EQ(call.reply.value("result", std::string()), "success");
   EXPECT_EQ(fTool->Objects().find("browserFile"), fTool->Objects().end());
 }
 
 TEST_F(ToolBrowser, ASparseNodeOpensAProjectionDialog)
 {
-  const auto open = fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  const auto open = fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   const json * hns =
       FindNode(open.ws["workspace"]["browse"]["properties"]["key"]["nodes"], "hns;1");
   ASSERT_NE(hns, nullptr) << "the THnSparse is missing from the tree";
   // jsroot cannot draw a sparse, so the node is a leaf whose click opens the dialog rather than drawing.
   EXPECT_FALSE((*hns).value("expandable", false));
-  EXPECT_EQ((*hns)["action"]["path"], "rbrowser/sparse");
+  EXPECT_EQ((*hns)["action"]["path"], "ndmspc/rbrowser/sparse");
   EXPECT_EQ((*hns)["action"]["payload"]["key"], "hns");
 
-  const auto call = fTool->Call("rbrowser/sparse", "POST", (*hns)["action"]["payload"]);
+  const auto call = fTool->Call("ndmspc/rbrowser/sparse", "POST", (*hns)["action"]["payload"]);
   ASSERT_EQ(call.reply.value("result", std::string()), "success");
   // The dialog is the message: nothing is drawn until the form is submitted.
   EXPECT_EQ(ToolHarness::Pads(call).size(), 0u);
 
   const json & dialog = call.ws["payload"]["dialog"];
   EXPECT_EQ(dialog.value("title", std::string()), "Project hns");
-  EXPECT_EQ(dialog["action"]["path"], "rbrowser/project");
+  EXPECT_EQ(dialog["action"]["path"], "ndmspc/rbrowser/project");
   EXPECT_EQ(dialog["action"]["payload"]["key"], "hns");
   // The fields read name-first, then the axes (a JSON object's keys would come out sorted).
   ASSERT_TRUE(dialog["schema"].contains("order"));
@@ -341,11 +341,11 @@ TEST_F(ToolBrowser, ASparseNodeOpensAProjectionDialog)
 
 TEST_F(ToolBrowser, ProjectingASparseDrawsTheChosenAxes)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // 1D: one axis ticked in the table.
   const auto one =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
   ASSERT_EQ(one.reply.value("result", std::string()), "success");
   const json onePads = ToolHarness::Pads(one);
   ASSERT_EQ(onePads.size(), 1u);
@@ -356,14 +356,14 @@ TEST_F(ToolBrowser, ProjectingASparseDrawsTheChosenAxes)
 
   // 2D: two axes.
   const auto two =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0, 1})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0, 1})}});
   const json twoPads = ToolHarness::Pads(two);
   ASSERT_EQ(twoPads.size(), 1u);
   EXPECT_EQ(twoPads[0]["value"].value("_typename", std::string()).rfind("TH2", 0), 0u);
 
   // 3D: three axes.
   const auto three =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0, 1, 2})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0, 1, 2})}});
   const json threePads = ToolHarness::Pads(three);
   ASSERT_EQ(threePads.size(), 1u);
   EXPECT_EQ(threePads[0]["value"].value("_typename", std::string()).rfind("TH3", 0), 0u);
@@ -371,22 +371,22 @@ TEST_F(ToolBrowser, ProjectingASparseDrawsTheChosenAxes)
 
 TEST_F(ToolBrowser, ProjectingWithoutAnAxisIsRefused)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   const auto call =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({})}});
   EXPECT_EQ(ToolHarness::Pads(call).size(), 0u);
   EXPECT_FALSE(call.reply.value("error", std::string()).empty());
 }
 
 TEST_F(ToolBrowser, ASparseRangeNarrowsTheProjection)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   const json axes = json::array({
       {{"use", true}, {"min", 0.2}, {"max", 1.0}},
       {{"use", false}},
       {{"use", false}},
   });
-  const auto call = fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", axes}});
+  const auto call = fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", axes}});
   const json pads = ToolHarness::Pads(call);
   ASSERT_EQ(pads.size(), 1u);
   // Axis 0 has 20 bins over [0,2]; [0.2,1.0] is a fraction of it.
@@ -396,10 +396,10 @@ TEST_F(ToolBrowser, ASparseRangeNarrowsTheProjection)
 
 TEST_F(ToolBrowser, ASparseRangeOnANonProjectedAxisNarrowsTheProjection)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   const auto full =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
 
   // Axis 1 (pt) is not projected, but a range on it must still carve the sample the mass projection is
   // built from: point b has pt 3, so a [0,2] cut leaves only point a.
@@ -408,7 +408,7 @@ TEST_F(ToolBrowser, ASparseRangeOnANonProjectedAxisNarrowsTheProjection)
       {{"use", false}, {"min", 0.0}, {"max", 2.0}},
       {{"use", false}},
   });
-  const auto cut = fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", axes}});
+  const auto cut = fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", axes}});
 
   const json fullPads = ToolHarness::Pads(full);
   const json cutPads  = ToolHarness::Pads(cut);
@@ -424,13 +424,13 @@ TEST_F(ToolBrowser, ASparseRangeOnANonProjectedAxisNarrowsTheProjection)
 
 TEST_F(ToolBrowser, ASparseRebinCoarsensTheProjection)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   const auto plain =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
   const json axes =
       json::array({{{"use", true}, {"rebin", 2}}, {{"use", false}}, {{"use", false}}});
   const auto rebinned =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", axes}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", axes}});
   const json plainPads = ToolHarness::Pads(plain);
   const json rebinPads = ToolHarness::Pads(rebinned);
   ASSERT_EQ(rebinPads.size(), 1u);
@@ -442,7 +442,7 @@ TEST_F(ToolBrowser, ASparseRebinCoarsensTheProjection)
 
 TEST_F(ToolBrowser, ASparseProjectionConfigurationIsReused)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // Project hns on axis 1 with a range and "same canvas", which keeps that configuration.
   const json axes = json::array({
@@ -450,7 +450,7 @@ TEST_F(ToolBrowser, ASparseProjectionConfigurationIsReused)
       {{"use", true}, {"min", 1.0}, {"max", 3.0}, {"rebin", 2}},
       {{"use", false}},
   });
-  const auto first = fTool->Call("rbrowser/project", "POST",
+  const auto first = fTool->Call("ndmspc/rbrowser/project", "POST",
                                  json{{"key", "hns"}, {"axes", axes}, {"same", true}});
   ASSERT_EQ(first.reply.value("result", std::string()), "success");
   // The default name is the canvas: `projection`.
@@ -459,7 +459,7 @@ TEST_F(ToolBrowser, ASparseProjectionConfigurationIsReused)
   EXPECT_EQ(firstPads[0].value("label", std::string()), "projection");
 
   // Reopening the dialog opens on the saved configuration ...
-  const auto   again = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const auto   again = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   const json & props = again.ws["payload"]["dialog"]["schema"]["properties"];
   const json & rows  = props["axes"]["default"];
   ASSERT_EQ(rows.size(), 3u);
@@ -471,7 +471,7 @@ TEST_F(ToolBrowser, ASparseProjectionConfigurationIsReused)
   EXPECT_EQ(props["same"].value("default", false), true);
 
   // ... and so does a different object with the same axes.
-  const auto   other     = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns2"}});
+  const auto   other     = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns2"}});
   const json & otherRows = other.ws["payload"]["dialog"]["schema"]["properties"]["axes"]["default"];
   ASSERT_EQ(otherRows.size(), 3u);
   EXPECT_EQ(otherRows[1].value("use", false), true);
@@ -480,11 +480,11 @@ TEST_F(ToolBrowser, ASparseProjectionConfigurationIsReused)
 
 TEST_F(ToolBrowser, ASparseSameCanvasOverlaysTheProjections)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // Projections share a canvas by name — `cmp` is that canvas here.
   const auto one =
-      fTool->Call("rbrowser/project", "POST",
+      fTool->Call("ndmspc/rbrowser/project", "POST",
                   json{{"key", "hns"}, {"axes", AxesTable({0})}, {"same", true}, {"name", "cmp"}});
   const json onePads = ToolHarness::Pads(one);
   ASSERT_EQ(onePads.size(), 1u);
@@ -497,7 +497,7 @@ TEST_F(ToolBrowser, ASparseSameCanvasOverlaysTheProjections)
 
   // A second one is overlaid on it by ROOT: one canvas holding both histograms.
   const auto two =
-      fTool->Call("rbrowser/project", "POST",
+      fTool->Call("ndmspc/rbrowser/project", "POST",
                   json{{"key", "hns2"}, {"axes", AxesTable({0})}, {"same", true}, {"name", "cmp"}});
   const json twoPads = ToolHarness::Pads(two);
   ASSERT_EQ(twoPads.size(), 1u);
@@ -510,7 +510,7 @@ TEST_F(ToolBrowser, ASparseSameCanvasOverlaysTheProjections)
   // The same projection again (the same object, axes and options — what a replayed step is) is not
   // drawn twice: the canvas still holds two curves.
   const auto again =
-      fTool->Call("rbrowser/project", "POST",
+      fTool->Call("ndmspc/rbrowser/project", "POST",
                   json{{"key", "hns"}, {"axes", AxesTable({0})}, {"same", true}, {"name", "cmp"}});
   const json againPads = ToolHarness::Pads(again);
   ASSERT_EQ(againPads.size(), 1u);
@@ -524,7 +524,7 @@ TEST_F(ToolBrowser, ASparseSameCanvasOverlaysTheProjections)
       {{"use", false}},
   });
   const auto third =
-      fTool->Call("rbrowser/project", "POST",
+      fTool->Call("ndmspc/rbrowser/project", "POST",
                   json{{"key", "hns"}, {"axes", ranged}, {"same", true}, {"name", "cmp"}});
   const json thirdPads = ToolHarness::Pads(third);
   ASSERT_EQ(thirdPads.size(), 1u);
@@ -533,17 +533,17 @@ TEST_F(ToolBrowser, ASparseSameCanvasOverlaysTheProjections)
 
 TEST_F(ToolBrowser, ASparseNamedCanvasesAreKeptApart)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // Two canvases, by name; each keeps its own curves.
-  fTool->Call("rbrowser/project", "POST",
+  fTool->Call("ndmspc/rbrowser/project", "POST",
               json{{"key", "hns"}, {"axes", AxesTable({0})}, {"same", true}, {"name", "A"}});
-  fTool->Call("rbrowser/project", "POST",
+  fTool->Call("ndmspc/rbrowser/project", "POST",
               json{{"key", "hns2"}, {"axes", AxesTable({0})}, {"same", true}, {"name", "B"}});
 
   // A grows ...
   const auto a = fTool->Call(
-      "rbrowser/project", "POST",
+      "ndmspc/rbrowser/project", "POST",
       json{{"key", "hns2"}, {"axes", AxesTable({0})}, {"same", true}, {"name", "A"}});
   const json aPads = ToolHarness::Pads(a);
   ASSERT_EQ(aPads.size(), 1u);
@@ -552,7 +552,7 @@ TEST_F(ToolBrowser, ASparseNamedCanvasesAreKeptApart)
 
   // ... and B is untouched by it.
   const auto b = fTool->Call(
-      "rbrowser/project", "POST",
+      "ndmspc/rbrowser/project", "POST",
       json{{"key", "hns2"}, {"axes", AxesTable({0})}, {"same", true}, {"name", "B"}});
   const json bPads = ToolHarness::Pads(b);
   ASSERT_EQ(bPads.size(), 1u);
@@ -562,17 +562,17 @@ TEST_F(ToolBrowser, ASparseNamedCanvasesAreKeptApart)
 
 TEST_F(ToolBrowser, ASparseSameCanvasIncludesEarlierProjections)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // One projection drawn on its own (Same canvas off) is still remembered for the file ...
   const auto own =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
   const json ownPads = ToolHarness::Pads(own);
   ASSERT_EQ(ownPads.size(), 1u);
   EXPECT_EQ(ownPads[0].value("label", std::string()), "projection");
 
   // ... so turning Same canvas on shows it together with the next one.
-  const auto both = fTool->Call("rbrowser/project", "POST",
+  const auto both = fTool->Call("ndmspc/rbrowser/project", "POST",
                                 json{{"key", "hns2"}, {"axes", AxesTable({0})}, {"same", true}});
   const json pads = ToolHarness::Pads(both);
   ASSERT_EQ(pads.size(), 1u);
@@ -582,21 +582,21 @@ TEST_F(ToolBrowser, ASparseSameCanvasIncludesEarlierProjections)
 
 TEST_F(ToolBrowser, ASparseSameCanvasOffStartsANewCanvas)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
-  fTool->Call("rbrowser/project", "POST",
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/rbrowser/project", "POST",
               json{{"key", "hns"}, {"axes", AxesTable({0})}, {"same", true}});
 
   // Same canvas off draws the projection as its own object — and starts a new canvas, forgetting the
   // one before it.
   const auto own =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns2"}, {"axes", AxesTable({0})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns2"}, {"axes", AxesTable({0})}});
   const json ownPads = ToolHarness::Pads(own);
   ASSERT_EQ(ownPads.size(), 1u);
   EXPECT_EQ(ownPads[0].value("label", std::string()), "projection");
 
   // The canvas in hand now holds only that one: overlaying the same object again does not bring back
   // the projection the new canvas forgot.
-  const auto after = fTool->Call("rbrowser/project", "POST",
+  const auto after = fTool->Call("ndmspc/rbrowser/project", "POST",
                                  json{{"key", "hns2"}, {"axes", AxesTable({0})}, {"same", true}});
   const json afterPads = ToolHarness::Pads(after);
   ASSERT_EQ(afterPads.size(), 1u);
@@ -605,62 +605,62 @@ TEST_F(ToolBrowser, ASparseSameCanvasOffStartsANewCanvas)
 
 TEST_F(ToolBrowser, ASparseSameChoiceIsRemembered)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // Off to begin with — a projection drawn as its own object starts the canvas.
-  const auto first = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const auto first = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   EXPECT_EQ(first.ws["payload"]["dialog"]["schema"]["properties"]["same"].value("default", true), false);
 
   // Ticked, it stays ticked for the next dialog.
-  fTool->Call("rbrowser/project", "POST",
+  fTool->Call("ndmspc/rbrowser/project", "POST",
               json{{"key", "hns"}, {"axes", AxesTable({0})}, {"same", true}});
-  const auto ticked = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const auto ticked = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   EXPECT_EQ(ticked.ws["payload"]["dialog"]["schema"]["properties"]["same"].value("default", false), true);
 
   // Unticked, it stays unticked — and starts another canvas.
-  fTool->Call("rbrowser/project", "POST",
+  fTool->Call("ndmspc/rbrowser/project", "POST",
               json{{"key", "hns"}, {"axes", AxesTable({0})}, {"same", false}});
-  const auto unticked = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const auto unticked = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   EXPECT_EQ(unticked.ws["payload"]["dialog"]["schema"]["properties"]["same"].value("default", true), false);
 }
 
 TEST_F(ToolBrowser, ASparseNameIsRemembered)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // "projection" to begin with ...
-  const auto first = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const auto first = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   EXPECT_EQ(first.ws["payload"]["dialog"]["schema"]["properties"]["name"].value("default", std::string()),
             "projection");
 
   // ... and the last name used comes back with the rest of the configuration.
-  fTool->Call("rbrowser/project", "POST",
+  fTool->Call("ndmspc/rbrowser/project", "POST",
               json{{"key", "hns"}, {"axes", AxesTable({0})}, {"name", "MyCanvas"}});
-  const auto again = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const auto again = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   EXPECT_EQ(again.ws["payload"]["dialog"]["schema"]["properties"]["name"].value("default", std::string()),
             "MyCanvas");
 }
 
 TEST_F(ToolBrowser, ASparseIsRereadAfterEachProjection)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // Every request frees the sparse it read, so the next one reads it again: two projections and a
   // dialog all work on the same object.
   const auto a =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
   EXPECT_EQ(a.reply.value("result", std::string()), "success");
   const auto b =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({1})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({1})}});
   EXPECT_EQ(b.reply.value("result", std::string()), "success");
-  const auto dialog = fTool->Call("rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const auto dialog = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   EXPECT_EQ(dialog.reply.value("result", std::string()), "success");
   EXPECT_TRUE(dialog.ws["payload"]["dialog"].contains("schema"));
 }
 
 TEST_F(ToolBrowser, ASparseOverlayIsCapped)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // Twelve distinct projections onto one name: the canvas keeps the last ten and drops the oldest.
   json last;
@@ -671,7 +671,7 @@ TEST_F(ToolBrowser, ASparseOverlayIsCapped)
         {{"use", false}},
     });
     last = ToolHarness::Pads(fTool->Call(
-        "rbrowser/project", "POST",
+        "ndmspc/rbrowser/project", "POST",
         json{{"key", "hns"}, {"axes", axes}, {"same", true}, {"name", "cap"}}))[0];
   }
   EXPECT_EQ(last["value"].value("_typename", std::string()), "TCanvas");
@@ -680,9 +680,9 @@ TEST_F(ToolBrowser, ASparseOverlayIsCapped)
 
 TEST_F(ToolBrowser, ASparseProjectionWithoutSameCanvasKeepsItsOwnTab)
 {
-  fTool->Call("browser/open", "POST", json{{"file", kFile}});
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
   const auto call =
-      fTool->Call("rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
   const json pads = ToolHarness::Pads(call);
   ASSERT_EQ(pads.size(), 1u);
   EXPECT_EQ(pads[0].value("label", std::string()), "projection");

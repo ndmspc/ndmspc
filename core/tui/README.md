@@ -49,4 +49,4 @@ propagates that to consumers from CMake 3.25, while this project declares a 3.24
 
 ## See also
 
-- [`http/tui`](../../http/tui/README.md) — the first consumer, `ndmspc-room-tui`.
+- [`http/tui`](../../http/tui/README.md) — an example TUI that links it (off by default, `-DWITH_TUI=ON`).

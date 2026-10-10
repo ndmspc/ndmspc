@@ -11,7 +11,7 @@ The module is organized by feature - the sources of a feature live in their own 
 | Directory | What lives there |
 | --------- | ---------------- |
 | `auth/` | OIDC (Keycloak) and X509 client-certificate authentication, token clients, passphrase input |
-| `room/` | the room router and its client: `NRoomRouter`, `NRoomClient`, `NRoomSession` |
+| `ndmspc/room/` | the room router and its client: `NRoomRouter`, `NRoomClient`, `NRoomSession` |
 | `mcp/` | the MCP endpoint |
 | `server/` | the HTTP/WebSocket layer: `NHttpServer` (engine, workspace, handler map, MCP, rooms), requests, handlers, clients, and the ngnt server pieces (`NWorkspace`, `NHistoryEntry`, `NRouteContext`, `NSchemaBuilder`) |
 | `cli/`, `tui/`, `examples/` | the executables, the room TUI and runnable examples |
@@ -245,7 +245,7 @@ UI, and a room can talk to the router:
 |---|---|
 | `GET /api/` | Root info. Reports `state.authentication.enabled` so the UI can detect that authentication is required. |
 | `/api/openapi/inspector` and `/api/inspector/openapi` | JSON-schema for the inspector. |
-| `POST /api/room/state` | Internal: a room reports its session here and fetches it back when it wakes. Not anonymous, though - a room has no user token to present, so it sends the access token it was created with in `?token=`, and the room router checks it against the room the request names (see [Room session restore](#room-session-restore)). |
+| `POST /api/ndmspc/room/state` | Internal: a room reports its session here and fetches it back when it wakes. Not anonymous, though - a room has no user token to present, so it sends the access token it was created with in `?token=`, and the room router checks it against the room the request names (see [Room session restore](#room-session-restore)). |
 
 WebSocket endpoints and static assets are unaffected: WebSocket connections use the `authenticate` first-frame protocol, and files under the configured asset locations are served as before.
 
@@ -530,15 +530,61 @@ begins with a bare name falls back on `$NDMSPC_DIR/macros/tools`.
 Supported JSON-RPC methods: `initialize`, `notifications/initialized`, `tools/list`,
 `tools/call`, `ping`.
 
+### Tool names
+
+A handler key — what a tool is registered under, routed by and called by — is
+
+```
+<namespace>/<group>[/<subgroup>]/<action>
+```
+
+with **at most one** subgroup between the group and the action. `ndmspc` is the platform's namespace; a
+macro of its own registers under its own, which is what keeps a third-party tool from colliding with a
+built-in one. The platform's **control** tools are the exception: `ndmspc/health`, `ndmspc/heartbeat`,
+`ndmspc/state`, `ndmspc/group` and `ndmspc/session` are two parts, and each declares its role
+(`.control = "session"`) — which is also what lets a client find "the tool that opens a session"
+without knowing what it is called.
+
+Everything else is derived from the key, so there is nothing else to keep in step:
+
+| From the key `ndmspc/ngnt/open` | Is |
+| --- | --- |
+| MCP tool name | `ndmspc_ngnt_open` — the key with every `/` written as `_` |
+| HTTP route | `POST /api/ndmspc/ngnt/open` — the key under `/api/` |
+| **Group** | `ndmspc/ngnt` — everything before the **last** `/` |
+
+The group is not cosmetic: sessions and combination trees are keyed by it, each group keeps its own live
+chain and its own schema, and a room's session snapshot groups its nodes by it. Splitting on the *last*
+slash is what keeps the namespace part of the group, so `ndmspc/ngnt/open` and another namespace's
+`acme/ngnt/open` are two groups rather than one.
+
+**A key that does not conform is refused**: `RegisterMcpTool` logs the clause it broke and throws, so a
+macro written for an older naming stops the server from starting rather than publishing a tool nothing
+can route. The rule itself is `Ndmspc::McpKeyRuleBroken` in `http/server/NHttpServer.h`.
+
+What a tool says about itself beyond its name travels in MCP's `_meta`, under `ndmspc.io/*`:
+
+| Key | What it carries |
+| --- | --- |
+| `ndmspc.io/action` | the handler key itself (`ndmspc/ngnt/open`) — the MCP name flattens `/`, and this is the key back |
+| `ndmspc.io/group` | the group a client groups tools and names sessions by (`ndmspc/ngnt`) |
+| `ndmspc.io/groupLabel` | what to call that group in words (`NGNT explorer`) |
+| `ndmspc.io/dependsOn` | the actions that must have run first |
+| `ndmspc.io/control` | the role of a platform control tool (`session`, `state`, …) |
+| `ndmspc.io/run` | `false` for a step that works through its own form, so a client offers no Run button |
+| `ndmspc.io/explorer` | `false` for a tool a client should not offer a person (it stays callable) |
+| `ndmspc.io/tutorial` | the tool's own guided tour: `{name, description, steps}` |
+
 ### Tools
 
-One tool is created per registered handler, named by replacing `/` with `_`
-(`ngnt/open` → `ngnt_open`). Each tool's `inputSchema` is taken from the workspace
+One tool is created per registered handler, and the tool's name, route and group all come from its key
+(see [Tool names](#tool-names)). Each tool's `inputSchema` is taken from the workspace
 inspector schema and extended with a `method` property (`GET`/`POST`/`PATCH`/`DELETE`,
 default `POST`), because the ngnt actions are verb-sensitive. Internal routes
-(`openapi/inspector`, `inspector/openapi`) are hidden; `health` and `state` are exposed — they come
-from the server itself (`Ndmspc::RegisterBaseActions`, built in) rather than from a macro, and
-`debug` is an example of a name the default filter hides for a macro that registers one.
+(`openapi/inspector`, `inspector/openapi`) are hidden; `debug` is an example of a name the default
+filter hides for a macro that registers one. The platform's own tools (`ndmspc/health`, `ndmspc/state`,
+…) are exposed like any other, and say with `_meta["ndmspc.io/explorer"]: false` that a client should
+keep them out of what it offers a person.
 
 Every `tools/call` is routed through the normal request path (the same dispatch used by
 the HTTP API and the WebSocket bridge), so history entries, workspace updates and
@@ -580,7 +626,7 @@ void toolMyCustom()
 | `methods` | Allowed HTTP verbs; narrows the tool's `method` enum. Empty = all four. |
 | `hidden` | Exclude the action from MCP entirely (neither listed nor callable). |
 | `inputSchema` | Extra JSON-Schema properties merged on top of the auto-derived schema. |
-| `dependsOn` | Actions that must have run before this one (e.g. `{"ngnt/open"}`). Enforced, and used to order `tools/list`. |
+| `dependsOn` | Actions that must have run before this one (e.g. `{"ndmspc/ngnt/open"}`). Enforced, and used to order `tools/list`. |
 | `order` | Tie-break among tools whose prerequisites are all met (`spectra` before `point`). Lower first; `0` = default. |
 | `label` | Template for a node's name in the combination tree, filled from the node's arguments (e.g. `{{ binningName }} ({{ levels }})`). |
 
@@ -620,13 +666,13 @@ and its `schema/probe` form shows one field of each kind.
 
 ### Tool dependencies
 
-A group of tools is usually a pipeline (`ngnt/open` → `ngnt/reshape` → `ngnt/map` → …), so a
+A group of tools is usually a pipeline (`ndmspc/ngnt/open` → `ndmspc/ngnt/reshape` → `ndmspc/ngnt/map` → …), so a
 tool declares what has to have run before it with `dependsOn`:
 
 ```cpp
-Ndmspc::RegisterMcpTool("ngnt/reshape", {
+Ndmspc::RegisterMcpTool("ndmspc/ngnt/reshape", {
     .description = "Reshape the opened tree into a navigator.",
-    .dependsOn   = {"ngnt/open"},
+    .dependsOn   = {"ndmspc/ngnt/open"},
     .order       = 2,
 });
 ```
@@ -645,11 +691,11 @@ That has three effects:
 
   ```json
   { "result": "failure", "code": "prerequisite_required",
-    "required": "ngnt/open", "error": "Requires ngnt/open to be run first" }
+    "required": "ndmspc/ngnt/open", "error": "Requires ndmspc/ngnt/open to be run first" }
   ```
 
   "Has run" is the server's own workspace history — the record of the actions that ran
-  successfully — so no separate state is kept: `ngnt/open` `DELETE` (which closes the file)
+  successfully — so no separate state is kept: `ndmspc/ngnt/open` `DELETE` (which closes the file)
   removes the entries that followed it, and the tools that depended on it are refused again.
   A prerequisite that is not registered here (a tool another macro would provide) is ignored,
   so a macro stays loadable on its own.
@@ -665,17 +711,17 @@ knowing anything about the tool. It is a **named** tour: `name` and `description
 action to open and the arguments to fill its form with.
 
 ```cpp
-Ndmspc::RegisterMcpTool("browser/browse", {
+Ndmspc::RegisterMcpTool("ndmspc/browser/browse", {
     .description = "Browse the open file: the step's form is its tree. …",
-    .dependsOn   = {"browser/open"},
+    .dependsOn   = {"ndmspc/browser/open"},
     .runButton   = false,
     .tutorial    = json{
         {"name", "Browse a ROOT file"},
         {"description", "Open a file and draw a few of its objects."},
         {"steps", json::array({
-            json{{"action", "browser/open"},
+            json{{"action", "ndmspc/browser/open"},
                  {"params", {{"file", "https://root.cern/js/files/hsimple.root"}}}},
-            json{{"action", "browser/browse"}},
+            json{{"action", "ndmspc/browser/browse"}},
         })},
     },
 });
@@ -707,19 +753,19 @@ Each instance is a **node**; a **combination** is a path of nodes from a root do
 (`i1/i4`); the **active** combination is the one whose objects are live.
 
 - **Creating** — a `POST` adds a child node under the node it is attached to (the active node by
-  default) whose action is this action's dependency. `POST ngnt/open {file}` creates a root (open
-  declares no dependency); a later `POST ngnt/reshape {binningName, levels}` attaches to the open
+  default) whose action is this action's dependency. `POST ndmspc/ngnt/open {file}` creates a root (open
+  declares no dependency); a later `POST ndmspc/ngnt/reshape {binningName, levels}` attaches to the open
   that is active. **The same action with the same arguments under the same parent is the same node**:
   running a step again reuses it, so the handler runs again and its fresh objects replace that node's
   old ones, and the tree keeps one path per distinct step instead of growing a twin beside it. (An
   explicitly given `label` is part of that identity.) Different arguments — a second reshape of the
   same tree — are therefore a **second node**, not a replacement of the first.
 - **Grouping and storage** — a node's tool group is the name before the slash of its action
-  (`ngnt/reshape` → `ngnt`), and the session snapshot is **keyed by it**: `{v:3, next, active,
+  (`ndmspc/ngnt/reshape` → `ndmspc/ngnt`), and the session snapshot is **keyed by it**: `{v:3, next, active,
   groups: {ngnt: {roots, nodes}, schema: {roots, nodes}}}`. Each node is stored under the group of
   its own action, and a group's `roots` are its entry points — its parentless nodes, plus any node
   whose parent belongs to another group, so a chain that leaves its group still restores on its own.
-  **The group is the key for `room/backup` and `room/restore`**: the router carries the session as
+  **The group is the key for `ndmspc/room/backup` and `ndmspc/room/restore`**: the router carries the session as
   opaque text, so a document exported today restores every group, and a group can be restored into a
   live room on its own (`NInstanceTree::Restore(document, group)`, which re-keys the incoming nodes
   because ids are numbered per tree). A `{v:2}` document — one flat `nodes` map — still restores: it
@@ -746,19 +792,19 @@ Each instance is a **node**; a **combination** is a path of nodes from a root do
   that combination is materialized again; it is still mirrored into `metadata.spectra.point` while a
   combination is live.
 - **Persisting** — a room's stored session carries the tree (`snapshot.combinations`), and a room
-  that wakes restores the tree and materializes the active path. A `room/restore` from a backup
+  that wakes restores the tree and materializes the active path. A `ndmspc/room/restore` from a backup
   replays the recorded `actions`, which restores the live combination.
 
-A group that declares no dependency (`health`, `state`, `room/*`, and every macro without
+A group that declares no dependency (`health`, `state`, `ndmspc/room/*`, and every macro without
 `dependsOn`) is untouched: it keeps the plain, single-session behaviour, with no nodes and no
 `path`.
 
-### Browsing a ROOT file (`browser`)
+### Browsing a ROOT file (`ndmspc/browser`)
 
-`macros/tools/toolBrowser.C` registers a `browser` **combination** — a TBrowser-like file browser, with
+`macros/tools/toolBrowser.C` registers a `ndmspc/browser` **combination** — a TBrowser-like file browser, with
 all the work on the server: it opens a ROOT file (`TFile::Open`, so a local path or an http(s) URL),
-walks its keys to build the tree, and draws a chosen object into a pad. `browser/browse` depends on
-`browser/open`, so the Explorer shows the group with `open` as the action that starts it and, under it,
+walks its keys to build the tree, and draws a chosen object into a pad. `ndmspc/browser/browse` depends on
+`ndmspc/browser/open`, so the Explorer shows the group with `open` as the action that starts it and, under it,
 the browse step whose form **is** the file tree.
 
 ```bash
@@ -767,22 +813,22 @@ ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
 
 | Action | Group | Methods | What it does |
 | --- | --- | --- | --- |
-| `browser/open` | `browser` | GET, POST, DELETE | POST opens `file` and publishes the file tree; GET reports the open file; DELETE closes it. |
-| `browser/browse` | `browser` | POST | The browse step: its form is the file tree (`key`, a `format:"tree"` field). Live without being run; expanding a folder and clicking an object run the two actions below. |
-| `rbrowser/ls` | `rbrowser` | POST | Expands the folder at `key` and re-publishes the tree. Hidden — the tree drives it. |
-| `rbrowser/draw` | `rbrowser` | POST, PATCH | Draws the object at `key` (the pad view decides which pad; `drawOpts` is a jsroot option string). With `branch`, it projects that branch into a histogram. Hidden — the tree drives it. |
-| `rbrowser/sparse` | `rbrowser` | POST | For a `THnSparse` at `key`, opens the projection dialog: a table with one line per axis — labelled `index, name [title]` (the title in ROOT TLatex) — and project/min/max/rebin columns, plus draw options. It opens on the last configuration kept for the object's **axis signature** (axes' names, titles, bin counts and bounds), so another object with the same axes comes up with it too. Hidden — the tree drives it. |
-| `rbrowser/project` | `rbrowser` | POST | Projects the `THnSparse` at `key` onto the axes the dialog's `axes` table ticked (1–3 of them) and draws the resulting `TH1`/`TH2`/`TH3`. A row's `min`/`max` cut that axis whether or not it is projected — so a cut on a non-projected axis (a pT window while projecting mass) carves the sample — and a projected row's `rebin` coarsens its output bins. It keeps the configuration for the axis signature. `name` is the projection's name — its own tab and the histogram's name (default `projection`) — and projections named alike share one canvas, so a different name is a tab of its own. `same` **overlays** every projection on one canvas — ROOT composes them onto a `TCanvas` (each after the first drawn `same`, in its own colour), so each projection is a curve of its own and the pad only draws the finished canvas. With `same` **off** the projection is drawn as its own object and **starts a new canvas** — unticking it is the "new canvas"; ticking it adds to the canvas in hand. The same projection (same object, axes and options) is not drawn twice, so a step the server replays to make a combination live does not pile a twin onto the canvas. A `THnSparse` is released as soon as a request has projected it (opening the dialog included), so it is not held between requests — the next projection re-reads it — and a canvas keeps at most ten curves (the oldest falls off), with all of them freed when the file is closed. Hidden — the dialog's submit drives it. |
+| `ndmspc/browser/open` | `ndmspc/browser` | GET, POST, DELETE | POST opens `file` and publishes the file tree; GET reports the open file; DELETE closes it. |
+| `ndmspc/browser/browse` | `ndmspc/browser` | POST | The browse step: its form is the file tree (`key`, a `format:"tree"` field). Live without being run; expanding a folder and clicking an object run the two actions below. |
+| `ndmspc/rbrowser/ls` | `ndmspc/rbrowser` | POST | Expands the folder at `key` and re-publishes the tree. Hidden — the tree drives it. |
+| `ndmspc/rbrowser/draw` | `ndmspc/rbrowser` | POST, PATCH | Draws the object at `key` (the pad view decides which pad; `drawOpts` is a jsroot option string). With `branch`, it projects that branch into a histogram. Hidden — the tree drives it. |
+| `ndmspc/rbrowser/sparse` | `ndmspc/rbrowser` | POST | For a `THnSparse` at `key`, opens the projection dialog: a table with one line per axis — labelled `index, name [title]` (the title in ROOT TLatex) — and project/min/max/rebin columns, plus draw options. It opens on the last configuration kept for the object's **axis signature** (axes' names, titles, bin counts and bounds), so another object with the same axes comes up with it too. Hidden — the tree drives it. |
+| `ndmspc/rbrowser/project` | `ndmspc/rbrowser` | POST | Projects the `THnSparse` at `key` onto the axes the dialog's `axes` table ticked (1–3 of them) and draws the resulting `TH1`/`TH2`/`TH3`. A row's `min`/`max` cut that axis whether or not it is projected — so a cut on a non-projected axis (a pT window while projecting mass) carves the sample — and a projected row's `rebin` coarsens its output bins. It keeps the configuration for the axis signature. `name` is the projection's name — its own tab and the histogram's name (default `projection`) — and projections named alike share one canvas, so a different name is a tab of its own. `same` **overlays** every projection on one canvas — ROOT composes them onto a `TCanvas` (each after the first drawn `same`, in its own colour), so each projection is a curve of its own and the pad only draws the finished canvas. With `same` **off** the projection is drawn as its own object and **starts a new canvas** — unticking it is the "new canvas"; ticking it adds to the canvas in hand. The same projection (same object, axes and options) is not drawn twice, so a step the server replays to make a combination live does not pile a twin onto the canvas. A `THnSparse` is released as soon as a request has projected it (opening the dialog included), so it is not held between requests — the next projection re-reads it — and a canvas keeps at most ten curves (the oldest falls off), with all of them freed when the file is closed. Hidden — the dialog's submit drives it. |
 
 The browse step's `key` field is where the tree lives: its `nodes` come from the file, so browsing and
-drawing happen in the step itself. A node carries the request a click makes — `rbrowser/ls` for a folder,
-`rbrowser/draw` for an object (a branch draws a histogram of that branch) — and clicking records **no
+drawing happen in the step itself. A node carries the request a click makes — `ndmspc/rbrowser/ls` for a folder,
+`ndmspc/rbrowser/draw` for an object (a branch draws a histogram of that branch) — and clicking records **no
 step**, so the tree stays on screen as you draw. Only `draw` fills a pad. A node is
 
 ```json
 { "id": "ntuple", "label": "ntuple;1", "detail": "TNtuple",
   "expandable": true, "loaded": true, "children": [ … ],
-  "action": { "type": "http", "method": "POST", "path": "rbrowser/ls",
+  "action": { "type": "http", "method": "POST", "path": "ndmspc/rbrowser/ls",
               "contentType": "application/json", "payload": { "key": "ntuple" } } }
 ```
 
@@ -790,23 +836,23 @@ The `id` (and the `key` the field emits) is the ROOT key path, the `label` is wh
 (cycle number included), and `action` is the request a click makes. A `TTree` expands to its branches
 (so it draws nothing itself); a branch node's own `action` draws a histogram of that branch.
 
-`rbrowser` is a group of its own with **no `dependsOn`**, and that is deliberate: the server records a
+`ndmspc/rbrowser` is a group of its own with **no `dependsOn`**, and that is deliberate: the server records a
 node for every POST of an action in a combination group (a dependency-less one becomes a *root*), so an
-action that must add no step cannot live in `browser`. Both internal actions are `hidden`, so neither
+action that must add no step cannot live in `ndmspc/browser`. Both internal actions are `hidden`, so neither
 the Explorer nor the Tools panel lists them; the tree's nodes invoke them by name.
 
 A node that can be expanded is **navigational**: clicking its row opens it (as the chevron does), so a
 folder — and a `TTree`, which expands to its branches — draws nothing. Only a leaf draws.
 
 A `THnSparse` is a **leaf** whose click opens a dialog rather than drawing: jsroot has no renderer for
-one, and a projection needs choices (which axes, which range), so the tree sends `rbrowser/sparse`,
+one, and a projection needs choices (which axes, which range), so the tree sends `ndmspc/rbrowser/sparse`,
 which answers with a **dialog** — the generic `payload.dialog` envelope — listing the object's axes.
-Its submit runs `rbrowser/project`, which projects the chosen 1–3 axes with the chosen ranges and draws
+Its submit runs `ndmspc/rbrowser/project`, which projects the chosen 1–3 axes with the chosen ranges and draws
 the resulting `TH1`/`TH2`/`TH3` as an ordinary jsroot envelope. The axis picker is the tool's form, not
 a UI feature: any tool can open a dialog the same way (see [Showing something in a
 pad](#showing-something-in-a-pad)).
 
-The drawing names **no pad**: the `rbrowser/draw` envelope carries no `pad`, so the pad view routes it —
+The drawing names **no pad**: the `ndmspc/rbrowser/draw` envelope carries no `pad`, so the pad view routes it —
 to the pad in hand in **fixed** mode, or to the selected pads in turn in **rotate** mode. The tool never
 has to know how many pads there are or which is showing.
 
@@ -925,7 +971,7 @@ curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
 curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ngnt_open","arguments":{"method":"POST","file":"test.root"}}}'
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ndmspc_ngnt_open","arguments":{"method":"POST","file":"test.root"}}}'
 ```
 
 With `--mcp false` (or `NDMSPC_MCP=0`), requests to `/api/mcp` return
@@ -972,52 +1018,63 @@ answers the `room_*` tools.
 Rooms are Knative Services created through the in-cluster API (`KUBERNETES_SERVICE_HOST`/`PORT`),
 so asking for them without that environment is refused at startup: the server logs why and exits
 non-zero before it builds the server or loads any macro. Where it can serve rooms it says so, with
-the namespace and room prefix it will use — `Rooms enabled: serving /api/room/* from the room router
+the namespace and room prefix it will use — `Rooms enabled: serving /api/ndmspc/room/* from the room router
 in namespace 'default' (one Knative Service per room, named 'ndmspc-room-<id>')` — so a deployment
-can tell from its logs that room serving is on rather than inferring it from a working `room/list`.
+can tell from its logs that room serving is on rather than inferring it from a working `ndmspc/room/list`.
 
 It creates one Knative Service per room on demand and one HTTPRoute matching `?room=<id>` that
 points straight at that room's revision, so steady-state traffic goes gateway → room and never
 touches the router again. The actions it registers (in the same handler map the macros use, so they
-are served both as `/api/room/*` and as MCP tools):
+are served both as `/api/ndmspc/room/*` and as MCP tools):
 
 | Action | Methods | What it does |
 | ------ | ------- | ------------ |
-| `room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. A room the cluster has no room for answers `state=pending` — the room exists and is kept (see [Room router](#room-router-nroomrouter)). `profile` (body or query) picks one of the skeleton's sizes — see [Room profiles](#room-profiles) — and resizes an existing room when it differs from the one it runs. |
-| `room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached; `state=pending` with `code=no_capacity` while it waits for cluster resources. Finishing a pending room that can now be placed happens here (and in `room/list`). Also `versions`: the images the room has run (its Knative revisions) — see [Rollback](#rollback-the-rooms-own-versions). |
-| `room/upgrade` | POST | Roll **one** room onto a chosen version — a newer tag to upgrade, an older tag to revert, or an `image` the room has run (a `versions` entry, for a rollback the tag list does not reach). `tag` is one the deployment offers (`room/list`'s `imageTags`); without `tag` or `image` the room is rolled onto the current tag. A room somebody is in is refused with `code=in_use` unless `force=true`; `wait=false` runs the roll in the background like `room/open`. See [Room image and upgrades](#room-image-and-upgrades). |
-| `room/list` | GET | Every room being tracked, including those still preparing, those waiting for resources (`state=pending`) and those whose creation failed. |
-| `room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
-| `room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
-| `room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
-| `room/backup` | GET | Every tracked room and its session as one JSON document, links and all; `room` (body or query) answers with that one room alone. A backup, for coming back to your own deployment. |
-| `room/config` | GET | **One room's configuration**: the file it opened, the steps that were run, the size it was created at, and what was on screen — and nothing about the room: no id, no owner, no links. What somebody hands to somebody else, and what `room/import` takes. |
-| `room/restore` | POST | Ensure every room in such a document and replay its session. Additive: rooms not named are untouched. |
-| `room/import` | POST | Replace **one** room with a configuration: `room` names the target, `config` the configuration (or a one-room document). The room is deleted if it is there and created again carrying it. A room that is not there is created. |
+| `ndmspc/room/open` | GET, POST | Ensure a room. `wait` (body, query, or `NDMSPC_ROOM_WAIT`) defaults to true and answers with the room's URL; `wait=false` registers the room and returns at once with `state=preparing`, leaving the work to a background thread. A room the cluster has no room for answers `state=pending` — the room exists and is kept (see [Room router](#room-router-nroomrouter)). `profile` (body or query) picks one of the skeleton's sizes — see [Room profiles](#room-profiles) — and resizes an existing room when it differs from the one it runs. |
+| `ndmspc/room/status` | GET | Whether a room is known, its revision, and — while it is being created — the phase it has reached; `state=pending` with `code=no_capacity` while it waits for cluster resources. Finishing a pending room that can now be placed happens here (and in `ndmspc/room/list`). Also `versions`: the images the room has run (its Knative revisions) — see [Rollback](#rollback-the-rooms-own-versions). |
+| `ndmspc/room/upgrade` | POST | Roll **one** room onto a chosen version — a newer tag to upgrade, an older tag to revert, or an `image` the room has run (a `versions` entry, for a rollback the tag list does not reach). `tag` is one the deployment offers (`ndmspc/room/list`'s `imageTags`); without `tag` or `image` the room is rolled onto the current tag. A room somebody is in is refused with `code=in_use` unless `force=true`; `wait=false` runs the roll in the background like `ndmspc/room/open`. See [Room image and upgrades](#room-image-and-upgrades). |
+| `ndmspc/room/list` | GET | Every room being tracked, including those still preparing, those waiting for resources (`state=pending`) and those whose creation failed. |
+| `ndmspc/room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
+| `ndmspc/room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
+| `ndmspc/room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
+| `ndmspc/room/backup` | GET | Every tracked room and its session as one JSON document, links and all; `room` (body or query) answers with that one room alone. A backup, for coming back to your own deployment. |
+| `ndmspc/room/config` | GET | **One room's configuration**: the file it opened, the steps that were run, the size it was created at, and what was on screen — and nothing about the room: no id, no owner, no links. What somebody hands to somebody else, and what `ndmspc/room/import` takes. |
+| `ndmspc/room/restore` | POST | Ensure every room in such a document and replay its session. Additive: rooms not named are untouched. |
+| `ndmspc/room/import` | POST | Replace **one** room with a configuration: `room` names the target, `config` the configuration (or a one-room document). The room is deleted if it is there and created again carrying it. A room that is not there is created. |
 
 ### Watching the rooms (instead of polling)
 
-`room/list` asked over a websocket subscribes that connection: the router then pushes the list to it
-whenever it changes, each watcher answered as the caller it registered as (see *Ownership and
-visibility*), so a rooms view does not have to poll. A view opens `/ws/root.websocket?rooms=1` — the
-router accepts a socket that asks for the rooms list, where one that names neither a room nor `rooms`
-is still refused — authenticates as it would for a room, and calls `room/list` over the socket: that
-call is both the first list and the subscription.
+A view opens `/ws/root.websocket?rooms=1` — the router accepts a socket that asks for the rooms list,
+where one that names neither a room nor `rooms` is still refused — authenticates as it would for a room,
+and then says what it is showing with `ndmspc/room/watch` (a POST carrying `topics` and, with no login,
+the `owner` it asserts). That one call sets what the socket is pushed, replacing whatever it watched
+before, so a topic a view has moved off costs nothing.
 
-The pushes are `{"event":"rooms","payload":<the room/list payload>}`, sent only when the list changed
-for that watcher, at most every `NDMSPC_ROOM_WATCH_INTERVAL` (default 2s; `0` serves no pushes). The
-router's own actions push at once rather than waiting for that interval, so a create, a close or a
-restore shows up as soon as it happened, and a cluster-side change (a room becoming ready, its pods
-going up or down) arrives within the interval. A view keeps its own interval as the fallback, so a
-socket that is down - or a deployment with watching off - still refreshes; `room/list` over HTTP is
-unchanged, and so is every script and MCP client that uses it.
+The topics are `rooms` (the list) and `room/<id>` (one room's session — what `room/backup` stores for it,
+an in-memory read of the router's registry, so watching a room costs no cluster call).
+
+The pushes are `{"event":"rooms","payload":<the ndmspc/room/list answer>}` and
+`{"event":"room","payload":<the ndmspc/room/backup answer>}` — the same envelope the reply to that request
+carries, so a client reads a push and an answer the same way. They go out only when that topic changed
+for that watcher, at most every `NDMSPC_ROOM_WATCH_INTERVAL` (default `0` = no pushes). A tick builds each
+topic **once per distinct caller**, not once per watcher — however many connections watch, the cluster is
+read once per caller — so a short interval is cheap; set it (e.g. `2s`) to serve pushes. The router's own
+actions publish at once rather than waiting for the interval, and so does a room reporting its session, so
+a create, a close, a restore or a room's work shows up as soon as it happened; a cluster-side change (a
+room becoming ready, its pods going up or down) arrives within the interval. A view keeps its own interval
+as the fallback, so a socket that is down - or a deployment with watching off - still refreshes;
+`ndmspc/room/list` over HTTP is unchanged, and so is every script and MCP client that uses it.
+
+A subscribed socket is held for as long as it is open, and each one occupies a thread of the server's
+connection pool (`--http-threads`). So a client holds one only while it is being looked at - the rooms
+view opens it while its tab is visible and closes it when it is not - and a deployment should keep
+`--http-threads` above the number of watchers it expects, plus its other clients and room connections.
 
 ### Creating a room in the background
 
 Creating a room means creating a Knative Service, waiting for its first revision, pinning the
 HTTPRoute and replaying the session — tens of seconds, minutes when the room has to roll. ROOT's
 `THttpServer` serves one request at a time, so doing that on the request thread freezes the router
-for its whole duration; that is why `room/open` has the `wait` flag. `NDMSPC_ROOM_MAX_PREPARING`
+for its whole duration; that is why `ndmspc/room/open` has the `wait` flag. `NDMSPC_ROOM_MAX_PREPARING`
 (default 4) bounds how many creations run at once. A worker checks between steps whether its room
 was closed or superseded, so a slow creation cannot outlive the room it belongs to, and a close that
 lands while a Service is being created takes that Service back out again.
@@ -1031,8 +1088,8 @@ can name it, a stable `code`. Waiting for resources and failing are two differen
   another room scales up cannot change this room's state. This needs `get`/`list` on pods (core) in
   the namespace; without it nothing breaks, the room simply reports the timeout instead. The room's
   Service is **kept** — it is what the cluster still has to place a pod for — and `code` is
-  `no_capacity`. The room comes up by itself once there is room for it: the next `room/list` or
-  `room/status` pins its revision's HTTPRoute and reports it ready, so nothing has to be opened
+  `no_capacity`. The room comes up by itself once there is room for it: the next `ndmspc/room/list` or
+  `ndmspc/room/status` pins its revision's HTTPRoute and reports it ready, so nothing has to be opened
   again.
 - `name_conflict` — the name the room needs is already taken by an object the router did not create
   (it carries no `ndmspc.io/room` label), so that object is left untouched rather than overwritten
@@ -1042,12 +1099,12 @@ can name it, a stable `code`. Waiting for resources and failing are two differen
   so the two cannot meet.
 - *(empty)* — anything else: a failed apply, a container that keeps dying, a timeout. A creation
   that **failed** leaves nothing behind: the router deletes the half-created Service and HTTPRoute,
-  so the next `room/open` creates the room from scratch rather than patching what failed — and a
+  so the next `ndmspc/room/open` creates the room from scratch rather than patching what failed — and a
   room whose route does not exist cannot take its `?room=<id>` link away from the router. The
-  reason is kept in the registry until then, so the next `room/open` reports what happened to its
+  reason is kept in the registry until then, so the next `ndmspc/room/open` reports what happened to its
   predecessor.
 
-`room/close` and the idle sweep only delete objects carrying the room label, so a name taken by
+`ndmspc/room/close` and the idle sweep only delete objects carrying the room label, so a name taken by
 anything else survives both.
 
 ### Websockets
@@ -1070,8 +1127,8 @@ Two are minted per room when it is created, one per level:
 - **`rw`** may do anything in the room;
 - **`ro`** may only read: a non-GET is refused.
 
-They are reported as `access` in `room_open`, `room_status`, `room_list` and the backup document, and
-`room_open`'s `url` carries the **read-write** one — that URL is the link a client hands on. The pair
+They are reported as `access` in `ndmspc_room_open`, `ndmspc_room_status`, `ndmspc_room_list` and the backup document, and
+`ndmspc_room_open`'s `url` carries the **read-write** one — that URL is the link a client hands on. The pair
 is also kept on the room's own Service, as the annotation `ndmspc.io/room-access`, and handed to the
 room as the environment variable `NDMSPC_ROOM_ACCESS` (a JSON object with the two tokens). Keeping
 them on the Service is what lets a router restart — and an idle room coming back — still know which
@@ -1091,8 +1148,8 @@ reads it to open the room at that level - a read-only link lists nothing rather 
 the room would refuse - without having to probe the token. The room checks the two agree and refuses
 the page (`404`, the same as an unknown token) when they do not, so a link whose level was edited does
 not open: the token is what opens the room, and the level is only what the page acts on. A link that
-states no level (one handed out before this existed) is admitted as it always was. `room/open`'s URL
-and the links `ndmspc-room-tui` shows carry the level of the link being handed out.
+states no level (one handed out before this existed) is admitted as it always was. `ndmspc/room/open`'s URL
+and the links the rooms view shows carry the level of the link being handed out.
 
 Refusals keep the shapes this server already uses: an `/api` request answers HTTP 200 with
 `{"result": "failure", "code": ..., "error": ...}`, where the code is `access_denied` (no token),
@@ -1122,21 +1179,21 @@ reports it as `owner`; a room created before this existed simply has none.
 
 Who is shown what follows from it:
 
-| Caller | `room/list` | `status` / `open` / `close` | `backup` / `restore` |
+| Caller | `ndmspc/room/list` | `status` / `open` / `close` | `backup` / `restore` |
 | ------ | ----------- | --------------------------- | -------------------- |
 | An admin (`NDMSPC_ROOM_ADMINS`; matched on any of the caller's identifiers, case-insensitively) | every room | any room | every room |
 | Identified, not an admin | their own rooms | only their own - otherwise `not_owner` | only their own; a document entry belonging to someone else fails with `not_owner` |
 | Nobody identified | every room | any room | every room |
 
 A new room is named after whoever asks for it: `mine` becomes `alice@example.com-mine` (see below).
-`room/list` also says whether the caller was answered as an admin (`admin`), so a view can show why it
+`ndmspc/room/list` also says whether the caller was answered as an admin (`admin`), so a view can show why it
 is being given more than its own rooms without keeping a second copy of the list.
 
 A caller counts as identified when the server verified it, or when it asserted an owner. A verified
 identity wins: a request cannot claim to be someone else while carrying a token that says otherwise.
 A client that knows both names for itself should send both - `owner` (what names its rooms) and
 `owner_email` - because an admin list may be written in either, and one name alone matches only that
-one. A caller that says nothing about itself - a script, or `ndmspc-room-tui` run with no credentials
+one. A caller that says nothing about itself - a script, or a client with no credentials
 - is answered exactly as it was before, which is what keeps operator tooling working. A room with no
 owner belongs to nobody, so it is shown to nobody but an admin or an anonymous caller.
 
@@ -1146,17 +1203,17 @@ is all a token carries), and that is the id in its link, its Service, its sessio
 payload - which is what lets two people both own a room called "mine" without one of them taking the
 other's. An id that already names a room is always that room (a link that was handed on has to keep
 working whoever follows it, and a room created before ownership existed keeps its own id); only an id
-that names nothing yet becomes the caller's own. So `room/open` answers with the id it used, and says
+that names nothing yet becomes the caller's own. So `ndmspc/room/open` answers with the id it used, and says
 whether it created the room (`created`) or found it already there - it is *ensure*, and an existing
-room is never an error. `room/restore` is the one exception: a document names its rooms, and they come
+room is never an error. `ndmspc/room/restore` is the one exception: a document names its rooms, and they come
 back under the names they were exported with.
 
 Refusals use the shape room actions always use - `result: "failure"` with a stable `code` - and the
-code here is `not_owner`, for a room that belongs to someone else (or to nobody). `room/open` refuses
+code here is `not_owner`, for a room that belongs to someone else (or to nobody). `ndmspc/room/open` refuses
 it too, because that call answers with the room's own link: without the refusal, knowing a room id
-would be enough to walk into the room. `room/backup` exports the rooms its caller may see and
-`room/restore` refuses a document entry that belongs to someone else, so neither can be used to reach
-around `room/list`.
+would be enough to walk into the room. `ndmspc/room/backup` exports the rooms its caller may see and
+`ndmspc/room/restore` refuses a document entry that belongs to someone else, so neither can be used to reach
+around `ndmspc/room/list`.
 
 **The assertion is not a boundary.** With no OIDC configured - or an engine that was not told an
 authenticating front door stands in front of it - anyone who can reach the router can claim any
@@ -1167,8 +1224,8 @@ room itself, whoever created it.
 ### Declared resources
 
 A room's container is shaped by the **room skeleton** — `room-skeleton.json` in the ConfigMap the
-router clones per room — so that is where a room's requests and limits are set. `room/list` and
-`room/status` report what the room's Service declares, alongside everything else a room is:
+router clones per room — so that is where a room's requests and limits are set. `ndmspc/room/list` and
+`ndmspc/room/status` report what the room's Service declares, alongside everything else a room is:
 
 ```json
 "resources": {
@@ -1190,7 +1247,7 @@ own process reports its CPU and memory over the websocket heartbeat instead.
 ### Room profiles
 
 A room's size is a **profile**: a named set of container resources the deployment defines in the room
-skeleton, beside `serviceSpec`, and `room/open` takes one by name:
+skeleton, beside `serviceSpec`, and `ndmspc/room/open` takes one by name:
 
 ```json
 "defaultProfile": "small",
@@ -1203,14 +1260,14 @@ skeleton, beside `serviceSpec`, and `room/open` takes one by name:
 
 The names are the deployment's — the router never knows what "small" means, it only resolves it — so
 a deployment can offer as many, and call them whatever, as it likes (the devops role's
-`ndmspc_room_profiles` is what renders this block). `room/open` with `profile` (body, or `?profile=`
+`ndmspc_room_profiles` is what renders this block). `ndmspc/room/open` with `profile` (body, or `?profile=`
 in the query) welds that profile's `resources` onto the room's container; without one a room keeps
-the profile it already has, and a room that has none takes `defaultProfile`. `room/list` reports
+the profile it already has, and a room that has none takes `defaultProfile`. `ndmspc/room/list` reports
 `profiles`, each with its resources, and `defaultProfile`, so a client can offer the choice without
 knowing the names in advance, and reports each room's `profile` beside its resources.
 
 The choice is kept as the annotation `ndmspc.io/room-profile`, so it survives a router restart,
-an idle room waking up and a restore; `room/status` and `room/open` report it too. Opening an existing
+an idle room waking up and a restore; `ndmspc/room/status` and `ndmspc/room/open` report it too. Opening an existing
 room with a **different** profile resizes it — the room's container resources are patched from the new
 profile, which rolls a new revision — while an open that names the same profile, or none, leaves the
 Service alone. A name the deployment does not offer fails with `code: unknown_profile`, and the room is
@@ -1228,27 +1285,27 @@ nothing describes any more; give such a room a profile explicitly to choose wher
 A room is created from the skeleton's `serviceSpec`, but the image it runs is pinned **per room**: the
 tag is kept on the room's own Service as the annotation `ndmspc.io/room-image` (beside its profile,
 owner and tokens) and reported as `image` (the whole reference) and `imageTag` (the tag alone) by
-`room/list` and `room/status`. Re-opening a room therefore keeps the image it already has, and a
+`ndmspc/room/list` and `ndmspc/room/status`. Re-opening a room therefore keeps the image it already has, and a
 skeleton whose image changed — a new release — does not move an existing room; it only decides what the
 *next* new room is created on.
 
-A room moves when it is asked to. `room/upgrade` rolls one room onto a chosen tag: a newer one to
+A room moves when it is asked to. `ndmspc/room/upgrade` rolls one room onto a chosen tag: a newer one to
 upgrade it, an older one to revert it. The tags a deployment offers live in the skeleton's `imageTags`,
-which `room/list` reports alongside `currentTag` (the skeleton image's own tag, always a valid target):
+which `ndmspc/room/list` reports alongside `currentTag` (the skeleton image's own tag, always a valid target):
 
 ```json
 "imageTags": ["v1.4.0", "v1.3.2", "v1.5.0-rc12"],
 "currentTag": "v1.5.0-rc12"
 ```
 
-`room/upgrade` takes `room`, `tag`, `image`, `force` and `wait` (body or MCP arguments; `tag`/`image`
+`ndmspc/room/upgrade` takes `room`, `tag`, `image`, `force` and `wait` (body or MCP arguments; `tag`/`image`
 may also come as `?tag=`/`?image=`). Without `tag` or `image` the room is rolled onto `currentTag` —
 the plain "update this room". Instead of a tag, `image` names a full reference: it is accepted only when
 it is one the room has actually run (see `versions` below), which is the way to roll back to a version
 whose tag the deployment no longer lists, or whose repository is not the skeleton's. Rolling replaces
 the room's revision, so a room somebody is in is refused with `code=in_use`; `force=true` rolls it
 anyway (an open websocket is dropped). The roll runs in the background unless `wait`, exactly as
-`room/open`, and repins the room's HTTPRoute to the new revision, so the next wake-up serves the chosen
+`ndmspc/room/open`, and repins the room's HTTPRoute to the new revision, so the next wake-up serves the chosen
 image. A tag the deployment does not offer, or an image the room has never run, fails with
 `code=unknown_image`.
 
@@ -1256,7 +1313,7 @@ image. A tag the deployment does not offer, or an image the room has never run, 
 
 Knative keeps a **Revision** per roll of a room's Service, and each carries the image it ran, so a room
 has its own version history — the one rollback list that is always valid, since it names images the room
-has run. `room/status` reports it as `versions`, newest first:
+has run. `ndmspc/room/status` reports it as `versions`, newest first:
 
 ```json
 "versions": [
@@ -1268,9 +1325,9 @@ has run. `room/status` reports it as `versions`, newest first:
 ```
 
 A client offers these as rollback targets and rolls back by passing the chosen entry's `image` to
-`room/upgrade`. Revisions are subject to Knative's garbage collector (`config-gc`: `retain-since-*`,
+`ndmspc/room/upgrade`. Revisions are subject to Knative's garbage collector (`config-gc`: `retain-since-*`,
 `min`/`max-non-active-revisions`), so older ones age out; an image that has been collected is no longer a
-target. `room/list` stays a flat list and does not carry `versions` — reading them is a `room/status`
+target. `ndmspc/room/list` stays a flat list and does not carry `versions` — reading them is a `ndmspc/room/status`
 call, asked for when a view opens its update choice.
 
 For a deployment that wants every room converged without anyone asking, `NDMSPC_ROOM_AUTO_UPDATE`
@@ -1280,7 +1337,7 @@ alone). With it off, a new image tag leaves existing rooms exactly where they ar
 
 ### Cluster capacity
 
-`room/capacity` answers "how much do the rooms cost, and what is left?" with the numbers the
+`ndmspc/room/capacity` answers "how much do the rooms cost, and what is left?" with the numbers the
 scheduler itself uses. Nothing is measured live — there is no metrics-server in this deployment — so
 "used" means **reserved**: the `requests` a room's containers declare, which is exactly what decides
 whether the next room can start (`no_capacity`). A room's live consumption is a different question,
@@ -1349,39 +1406,11 @@ router's own logic, and is what `test/test_NRoomRouter.cxx` exercises against an
 and through the actions themselves: no Kubernetes, no server, no HTTP. The workers it starts are
 owned by the object and joined when it goes away.
 
-## Room management TUI (`ndmspc-room-tui`)
+## Room list and state
 
-`ndmspc-room-tui` is a terminal UI for the room router (`Ndmspc::NRoomRouter`). It
-lists the rooms the router is tracking with their live state and drives the four room
-actions over the MCP endpoint, so it needs no cluster-side tooling of its own.
-
-```bash
-ndmspc-room-tui --url http://ndmspc.127.0.0.1.sslip.io:8009
-```
-
-The router must have the room macro loaded (`--rooms true` / `NDMSPC_ROOMS=1`); when the
-room tools are missing the tool says so at startup instead of showing an empty table.
-
-By default the tool says nothing about who is using it, which the router answers as an operator's
-tool: every room, every action. `--owner <email-or-user-name>` (or `NDMSPC_ROOM_OWNER`) makes it act
-as someone instead, so the router then shows it only that owner's rooms and refuses the rest - the
-same thing the UI does with the identity of whoever is signed in to it, or with the anonymous one its
-deployment was told to claim while nobody is (`VITE_NDMSPC_ANONYMOUS_USER`); see
-[Ownership and admins](#ownership-and-admins). A login (`--oidc-*`, or a client certificate) needs
-no flag: the router believes the verified identity, and an asserted owner never overrides one.
-
-### Keys
-
-| Key | Action |
-|---|---|
-| `↑` / `↓` (`j` / `k`, `PgUp` / `PgDn`, `Home` / `End`) | Move the selection |
-| `Enter` | Refresh the selected room's status |
-| `c` / `o` / `a` | Create a room (`o` / `a` are kept as aliases) |
-| `d` / `Del` | Delete a room, after confirmation |
-| `r` | Read the room list now (the router pushes it while the socket is up) |
-| `t` | Switch the detail pane between the read-write and the read-only link |
-| `?` | Key help |
-| `q` / `Esc` | Quit |
+The rooms view is the router's own page (see [UI configuration](#ui-configuration)): it lists the
+rooms the router is tracking, with their live state, and drives the room actions over the MCP
+endpoint. What follows is what it shows and what the router reports per room.
 
 An idle room keeps its Service but runs no pods, so `idle` with 0 pods is the normal
 resting state and is presented as such rather than as a problem; the detail pane shows the
@@ -1391,14 +1420,14 @@ room awake.
 
 The room itself lives for as long as something wants it. `NDMSPC_ROOM_IDLE_TTL` (default 24h) is how
 long a room may go unused before the router deletes it — route, then Service — and a room is unused
-when nothing wants it **and** its pod is not running. What wants a room is `room/open` (a client
-asking for it, or a handed-on link being followed); asking a room's *state* (`room/status`) does not,
+when nothing wants it **and** its pod is not running. What wants a room is `ndmspc/room/open` (a client
+asking for it, or a handed-on link being followed); asking a room's *state* (`ndmspc/room/status`) does not,
 because that is what a view does when it selects a row — counting it would keep a room alive for as
 long as somebody had it selected. Traffic into a room goes
 gateway → room and never reaches the router, so a running pod is the router's only evidence that
 somebody is in there: anything using the room keeps that pod up (an open WebSocket counts), and every
 read that finds a room running moves its idle clock forward, so its countdown never runs out while it
-is in use. The sweep that enforces the TTL runs on `room/list`, `room/status` and `room/open` — a view
+is in use. The sweep that enforces the TTL runs on `ndmspc/room/list`, `ndmspc/room/status` and `ndmspc/room/open` — a view
 that polls enforces it while it watches, and a room is deleted about the TTL after its pod has gone,
 not on the next create. A room still being created, or waiting for resources, is never swept either.
 
@@ -1444,7 +1473,7 @@ still being prepared, and its reason when it is not serving.
 
 Waiting and failing are different: a `pending` room carries `code=no_capacity`, the scheduler's own
 message (`0/1 nodes are available: 1 Insufficient cpu`) and is left to come up on its own — the row
-reads `waiting`, and only `room/close` takes it back. A `failed` creation carries the router's
+reads `waiting`, and only `ndmspc/room/close` takes it back. A `failed` creation carries the router's
 `error` and, when it can name the cause, a stable `code`: `container_error` means the room's own
 container keeps dying — a room created at a profile too small for what it loads is killed by the
 kernel before it can serve, and the failure says so instead of waiting out the timeout. The router
@@ -1468,100 +1497,46 @@ websocket closes and the only witness left is the pod's own status. The router r
 ```
 
 The block is absent for a room that has never died, and a container that exited `Completed` is not a
-failure and is not reported. `room/list` reports it per room, `room/status` and `room/open` report it
+failure and is not reported. `ndmspc/room/list` reports it per room, `ndmspc/room/status` and `ndmspc/room/open` report it
 for the room they are about, and a room whose container keeps dying while it is being created fails
 with `container_error` carrying the same block.
 
 Because Knative deletes a pod when its revision scales to zero, the pod is not a durable record: what
 the router finds is remembered in its registry (so it keeps reporting while the pod is gone) and as
 the Service annotation `ndmspc.io/room-last-error` (so it survives a router restart, an idle room
-waking up and a restore — `room/list`'s first refresh after a restart reads it back). The annotation
+waking up and a restore — `ndmspc/room/list`'s first refresh after a restart reads it back). The annotation
 dies with the Service, so closing a room clears its history: a room created again says nothing about
 its predecessor. The memory a room may use is its profile's limit, so an `OOMKilled` note is the
 deployment saying "give this room a bigger profile".
 
-Creating a room does not block the screen: the TUI calls `room/open` with `wait=false`, so the
+Creating a room does not block the screen: the view calls `ndmspc/room/open` with `wait=false`, so the
 router registers the room and does the slow part — a Knative Service, its first revision, the
-HTTPRoute, the session replay — in the background while the TUI keeps refreshing. That is what lets
-several rooms be created one after another, and it is also why one slow room no longer freezes the
-router for everyone else. A scripted caller keeps the old behaviour: `--open` waits for the room to
-be ready (following it with `room/status`; `--no-wait` skips that), so the URL it prints is usable
-straight away.
-
-Actions still run one at a time in the TUI, so a key that would start one is refused with a message
-naming what is still running, rather than quietly ignored.
-
-### Scripted use
-
-With any of these flags (and no terminal needed) the same binary performs a single action,
-prints the router's payload as JSON and exits — `0` on success, `1` when the router reports
-a failure, `2` for a bad invocation:
-
-```bash
-ndmspc-room-tui --url "$BASE" --list
-ndmspc-room-tui --url "$BASE" --open myroom
-ndmspc-room-tui --url "$BASE" --status myroom
-ndmspc-room-tui --url "$BASE" --close myroom
-ndmspc-room-tui --url "$BASE" --backup rooms.json    # export the rooms and their sessions
-ndmspc-room-tui --url "$BASE" --restore rooms.json   # re-create and replay them
-ndmspc-room-tui --url "$BASE" --restore rooms.json --replace   # as they were exported, over what is there
-ndmspc-room-tui --url "$BASE" --config mine.json --room myroom   # one room's configuration
-ndmspc-room-tui --url "$BASE" --import mine.json --room myroom   # put that configuration in a room
-```
-
-`--backup` writes the router's rooms and their sessions to a file and `--restore` brings
-them back, creating any room that is missing — see [Room backup and
-restore](#room-backup-and-restore) below. `--backup` refuses to overwrite an existing file
-unless you add `--force`, and `--restore` leaves a room that is already there alone unless you
-add `--replace` (which deletes it first, so the document's session is what it comes back with).
-
-`--room` names the room `--backup` or `--config` is about, and the target of `--import`, which puts
-the configuration the file holds into that room — see [One room's
-configuration](#one-rooms-configuration-roomconfig-and-roomimport).
-
-### Options
-
-| Option | Env | Default | Meaning |
-|---|---|---|---|
-| `--url,-u` | `NDMSPC_ROOM_URL` | `http://localhost:8080` | Router base URL, or a full `.../api/mcp` endpoint |
-| `--refresh,-r` | | `5` | Seconds between automatic refreshes (`0` = manual only) |
-| `--replace` | | `false` | With `--restore`: delete a room the document names that already exists before restoring it, so the document's session wins over what the room holds |
-| `--room` | | | The room `--backup`/`--config` is about, or the target of `--import` |
-| `--config` | | | With `--room`: write that room's configuration (the file, the steps, the size, the view) to this file — what you hand to somebody else |
-| `--owner` | `NDMSPC_ROOM_OWNER` | | Act as this owner (an email address or user name): the router then shows only its rooms. Empty says nothing about the caller, which keeps the operator's view of every room |
-| `--cert` / `--key` | | | Client certificate and key for mutual TLS |
-| `--key-pass` / `--key-pass-file` | `NDMSPC_KEY_PASS` / `NDMSPC_KEY_PASS_FILE` | | Private-key passphrase, or a base64 file holding it; an encrypted key with no source prompts on a terminal |
-| `--ca-file` / `--ca-path` | | | Verify the server against a specific CA |
-| `--allow-insecure` | | | Do not verify the server certificate |
-| `--oidc-issuer` / `--oidc-client-id` / `--oidc-client-secret` / `--oidc-grant` / `--oidc-username` / `--oidc-password` | | | Obtain an OIDC access token and send it as `Authorization: Bearer ...` |
-| `--oidc-ca-file` / `--oidc-ca-path` / `--oidc-allow-insecure-http` | | | TLS trust for the OIDC issuer |
-| `--oidc-token-refresh` | | `300` | Re-obtain the access token after this many seconds |
-| `--connect-retries` | | `3` | Attempts before giving up on a router that is not answering yet; a rejected certificate, a wrong URL or an authentication failure is reported immediately rather than retried |
-
-See [`examples/room`](examples/room) for a runnable example: it mocks the router's MCP
-endpoint so the tool can be exercised end to end without a cluster.
+HTTPRoute, the session replay — in the background while the view refreshes. That is what lets several
+rooms be created one after another, and it is also why one slow room no longer freezes the router for
+everyone else. A scripted caller can ask for the old behaviour with `wait=true`, which returns once
+the room is ready so the URL it prints is usable straight away.
 
 ## Room session restore
 
 A room is created with `min-scale 0`, so an idle room runs no pods at all. When it scales
 back up it is a brand-new process: the file it had open, its navigator and its drill-down
 are gone. The room router therefore remembers each room's **session** and replays it when
-the room is next opened, so `room/open` hands back a room holding what it held before.
+the room is next opened, so `ndmspc/room/open` hands back a room holding what it held before.
 
 - The snapshot is compact and replayable: the opened file, the request bodies of the actions
-  that define state (`ngnt/open`, `ngnt/reshape`) and the drill-down state point.
+  that define state (`ndmspc/ngnt/open`, `ndmspc/ngnt/reshape`) and the drill-down state point.
 - It is stored as the `ndmspc.io/room-state` annotation on the room's own Knative Service,
   so it survives a router restart (the router re-adopts it) and travels with the room.
   Annotating a Service does not create a revision.
 - It is captured while the room is running: the room reports it itself after any request that
   changes the session (see `NHttpServer::RoomSessionPush`), and nothing else asks the room for it.
   The router deliberately never polls a room: a request of its own would keep the room's pod awake,
-  so a room that was merely being listed could never go idle. It is replayed during `room/open`, and
+  so a room that was merely being listed could never go idle. It is replayed during `ndmspc/room/open`, and
   by the room itself when it wakes.
 
 Both ways a room can come back are covered:
 
-- a client that calls `room/open` gets the restored session in that same call;
+- a client that calls `ndmspc/room/open` gets the restored session in that same call;
 - a client that goes straight for `?room=<id>` (HTTP **or** WebSocket) wakes the room without
   the router ever seeing it, so the room restores **itself**: the first request fetches its
   snapshot from the router and replays it before being served, and the WebSocket path does the
@@ -1569,7 +1544,7 @@ Both ways a room can come back are covered:
   session.
 
 The room side needs `NDMSPC_ROOM_STATE_URL` on the room (the router injects it, derived from
-Knative's `K_SERVICE`), and the snapshot endpoints `POST`/`GET /api/room/state` on the router,
+Knative's `K_SERVICE`), and the snapshot endpoints `POST`/`GET /api/ndmspc/room/state` on the router,
 which are internal and hidden from the MCP tool list.
 
 That channel authenticates the room rather than a user: the room sends its own read-write token
@@ -1587,9 +1562,9 @@ room's pod awake, so a room being listed could never go idle and its idle TTL wo
 report the router refuses - an unknown token, a room it has not adopted yet - is logged with the
 router's own reason, and the room sends it again at the next change.
 
-`room/open` reports what happened in its payload: `"restored": true` with
+`ndmspc/room/open` reports what happened in its payload: `"restored": true` with
 `"session": "restored"`, or `"session": "live"` when the room was already in use, or
-`"restoreError"` when a replay step failed. `room/status` reports `"hasSnapshot"`.
+`"restoreError"` when a replay step failed. `ndmspc/room/status` reports `"hasSnapshot"`.
 
 Two rules make this safe:
 
@@ -1612,7 +1587,7 @@ Three more details keep it working in practice:
 **What is deliberately not persisted.** This restores the session, not data. A room's
 filesystem is ephemeral, so anything written into a ROOT file is lost when the room scales to
 zero. That is a deliberate choice for now: nothing in a room writes to a ROOT file today
-(`ngnt/open` opens read-only and no handler writes), so rooms are read-only sessions over the
+(`ndmspc/ngnt/open` opens read-only and no handler writes), so rooms are read-only sessions over the
 files baked into the image, and the restore above is what makes them feel continuous across
 scaling.
 
@@ -1627,14 +1602,14 @@ room itself.
 
 ## Room backup and restore
 
-`room/backup` exports the router's state — every room it is tracking, and each room's
-session — as one JSON document; `room/restore` takes such a document, ensures every room in
+`ndmspc/room/backup` exports the router's state — every room it is tracking, and each room's
+session — as one JSON document; `ndmspc/room/restore` takes such a document, ensures every room in
 it from the **current** skeleton and replays its session. It is the same snapshot the
 session restore above keeps, so what comes back is the session, not data.
 
 ```bash
-ndmspc-room-tui --url "$BASE" --backup rooms.json    # or: curl -s "$BASE/api/room/backup" > rooms.json
-ndmspc-room-tui --url "$BASE" --restore rooms.json   # onto this deployment, or a freshly installed one
+curl -s "$BASE/api/ndmspc/room/backup" > rooms.json              # export every room and its session
+curl -s -X POST "$BASE/api/ndmspc/room/restore" -d @rooms.json   # onto this deployment, or a freshly installed one
 ```
 
 The document is deliberately **not** a Kubernetes manifest dump: rooms are re-created from
@@ -1654,7 +1629,7 @@ minutes; a client timeout must not be read as a failure. Per-room failures come 
 room is annotated with its session again so the annotation store is repopulated rather than
 left to depend on the file.
 
-`replace` (body/query on `room/restore`, `--replace` in the TUI) asks for something else: a room
+`replace` (body/query on `ndmspc/room/restore`, `--replace` in the TUI) asks for something else: a room
 the document names that is already there is **deleted first**, so the document's session is what
 it comes back holding instead of the room keeping what it was left holding. It is off by default
 because it is the destructive half of a restore — a live room is replaced, not spared — and only
@@ -1665,9 +1640,9 @@ A document can be refused outright rather than acted on half-way: an unknown `ve
 `router.param`/`router.prefix` that disagrees with this router, means it came from a
 differently configured deployment and would create wrongly named rooms here.
 
-### One room's configuration: `room/config` and `room/import`
+### One room's configuration: `ndmspc/room/config` and `ndmspc/room/import`
 
-`room/config` writes **one room's configuration** — the file it opened, the steps that were run, the
+`ndmspc/room/config` writes **one room's configuration** — the file it opened, the steps that were run, the
 size it was created at, and what was on screen — and nothing about the room itself: no id, no name, no
 owner, no links.
 
@@ -1677,7 +1652,7 @@ owner, no links.
   "file": "NSingleBinning01Gaus.root",
   "profile": "small",
   "steps": [
-    { "action": "ngnt/reshape",
+    { "action": "ndmspc/ngnt/reshape",
       "params": { "binningName": "default", "levels": [[0], [1], [2]] } }
   ],
   "view": {
@@ -1688,11 +1663,11 @@ owner, no links.
 }
 ```
 
-That is what somebody hands to somebody else, and `room/import` takes it:
+That is what somebody hands to somebody else, and `ndmspc/room/import` takes it:
 
 ```bash
-ndmspc-room-tui --url "$BASE" --config mine.json --room alice-mine   # that room's configuration
-ndmspc-room-tui --url "$BASE" --import mine.json --room own-room     # ...into a room of your own
+curl -s "$BASE/api/ndmspc/room/config?room=alice-mine" > mine.json   # that room's configuration
+# ...then POST /api/ndmspc/room/import with {"room":"own-room","config":<mine.json>}
 ```
 
 An import is **all or nothing**, unlike a restore: the room is deleted if it is there and created again
@@ -1705,10 +1680,10 @@ before the room exists. Naming a room that is not there simply creates it, which
 Nothing in the file reaches back into the room it came from: there is no link to strip, no flag to
 remember, and no owner to ignore. The room belongs to whoever imports it, under their own id with their
 own links, and the configuration's `profile` is applied — a size this deployment does not define is
-refused **before** anything is deleted. `room/import` also takes a document from `room/backup`, so a
+refused **before** anything is deleted. `ndmspc/room/import` also takes a document from `ndmspc/room/backup`, so a
 one-room backup imports the same way.
 
-`room/backup` and `room/restore` are untouched by this: a backup is the room set *with* its links, for
+`ndmspc/room/backup` and `ndmspc/room/restore` are untouched by this: a backup is the room set *with* its links, for
 coming back to your own deployment, and a restore stays additive by default.
 
 ### Restoring from a file in devops

@@ -73,7 +73,7 @@ http/
               rooms), NHttpRequest, NWsHandler, NWsClient, NWsClientInfo, and the ngnt
               server pieces NWorkspace, NHistoryEntry, NRouteContext, NSchemaBuilder
   cli/        the executables: ndmspc-server, ndmspc-mcp, ndmspc-ws-client
-  tui/        the room TUI: ndmspc-room-tui
+  tui/        terminal UIs (an example only for now: -DWITH_TUI=ON)
   examples/   runnable examples (room, mcp, x509-mtls)
 ```
 
@@ -404,9 +404,6 @@ cd build && ctest
 ```bash
 # Start the HTTP server
 ./bin/ndmspc-server
-
-# Terminal UI for the room router (rooms need an in-cluster Kubernetes API)
-./bin/ndmspc-room-tui --url http://localhost:8080
 ```
 
 ## Project Status

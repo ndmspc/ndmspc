@@ -24,6 +24,7 @@ VERBOSE=false
 LIST_TESTS=false
 WITH_HTTP=${WITH_HTTP-true}
 WITH_UI=${WITH_UI-false}
+WITH_TUI=${WITH_TUI-false}
 NDMSPC_UI_VERSION=${NDMSPC_UI_VERSION-""}
 WITH_HEP=${WITH_HEP-true}
 WITH_TAXI=${WITH_TAXI-false}
@@ -102,6 +103,10 @@ for ARG in "$@"; do
       echo "Forcing build with UI support (version ${ARG#ui=})"
       WITH_UI=true
       NDMSPC_UI_VERSION="${ARG#ui=}"
+      ;;
+    "tui")
+      echo "Forcing build with TUI support"
+      WITH_TUI=true
       ;;
     "taxi")
       echo "Forcing build with Taxi support"
@@ -228,6 +233,9 @@ if [[ $WITH_UI == true ]]; then
 fi
 if [[ $WITH_NUMCAL == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_NUMCAL:bool=ON"
+fi
+if [[ $WITH_TUI == true ]]; then
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_TUI:bool=ON"
 fi
 if [[ $WITH_HEP == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_HEP:bool=ON"

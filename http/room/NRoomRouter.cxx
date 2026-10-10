@@ -123,12 +123,16 @@ NRoomConfig NRoomConfig::FromEnv()
   c.prefix          = NRoomEnv("NDMSPC_ROOM_PREFIX", "ndmspc-room-");
   c.param           = NRoomEnv("NDMSPC_ROOM_PARAM", "room");
   c.skeleton        = NRoomEnv("NDMSPC_ROOM_SKELETON", "ndmspc-room-skeleton");
+  c.service         = NRoomEnv("NDMSPC_ROOM_SERVICE", "ndmspc-router");
   c.urlBase         = NRoomEnv("NDMSPC_ROOM_URL_BASE", "");
   c.idleTtlSec      = ParseDuration(NRoomEnv("NDMSPC_ROOM_IDLE_TTL", "24h"), 86400);
   c.readyTimeoutSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_READY_TIMEOUT", "45s"), 45);
   c.maxPreparing    = static_cast<int>(std::strtol(NRoomEnv("NDMSPC_ROOM_MAX_PREPARING", "4").c_str(), nullptr, 10));
   c.autoUpdate      = ParseBool(NRoomEnv("NDMSPC_ROOM_AUTO_UPDATE", "false"), false);
-  c.watchIntervalSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_WATCH_INTERVAL", "2s"), 2);
+  // Off by default, so a deployment opts in: a push costs one cluster read per distinct caller per tick
+  // and holds the watcher's connection thread, so it is served only where somebody asked for it
+  // (NDMSPC_ROOM_WATCH_INTERVAL=5s, say).
+  c.watchIntervalSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_WATCH_INTERVAL", "0"), 0);
   c.waitDefault     = ParseBool(NRoomEnv("NDMSPC_ROOM_WAIT", "true"), true);
   c.admins          = NRoomList(NRoomEnv("NDMSPC_ROOM_ADMINS", ""));
   const std::string host = NRoomEnv("KUBERNETES_SERVICE_HOST", "");
@@ -238,9 +242,10 @@ std::string NRoomRouter::WithTag(const std::string & image, const std::string & 
   return image + ":" + tag;
 }
 
-// The image tags a room may be upgraded or reverted to: the skeleton's `imageTags` with its own
-// image's tag added if missing (the deployment's current tag is always a target).
-json NRoomRouter::ImageTags(const json & skeleton)
+// The image tags a room may be upgraded or reverted to: the tag the deployment is on now, the tags the
+// deployment has actually rolled (`deployed` — the router's own Revisions, newest first), and finally
+// whatever the skeleton advertises (an alias such as `local`, which the skeleton's own tag may repeat).
+json NRoomRouter::ImageTags(const json & skeleton, const json & deployed)
 {
   json tags = json::array();
   auto has  = [&tags](const std::string & tag) {
@@ -249,19 +254,47 @@ json NRoomRouter::ImageTags(const json & skeleton)
     }
     return false;
   };
+  auto add = [&tags, &has](const std::string & tag) {
+    if (!tag.empty() && !has(tag)) tags.push_back(tag);
+  };
+
+  // The skeleton's own tag first: it is the deployment's current image, which is what an update targets.
+  const std::string image = NdmspcRoomImage(skeleton);
+  if (!image.empty()) add(NdmspcImageTag(image));
+  // Then every tag this deployment has rolled, newest first: what a room can be moved back along.
+  if (deployed.is_array()) {
+    for (const auto & entry : deployed) {
+      if (entry.is_string()) add(entry.get<std::string>());
+    }
+  }
   const json advertised = skeleton.value("imageTags", json::array());
   if (advertised.is_array()) {
     for (const auto & entry : advertised) {
-      if (entry.is_string() && !entry.get<std::string>().empty() && !has(entry.get<std::string>())) {
-        tags.push_back(entry.get<std::string>());
-      }
+      if (entry.is_string()) add(entry.get<std::string>());
     }
   }
-  // The skeleton's own tag is always a target; a skeleton naming no image has no tags to offer.
-  const std::string image = NdmspcRoomImage(skeleton);
-  if (!image.empty()) {
-    const std::string current = NdmspcImageTag(image);
-    if (!has(current)) tags.push_back(current);
+  return tags;
+}
+
+// The tags this deployment has rolled: the Revisions of the router's own Service (see the header note).
+// Every deploy rolls the router, so this is the deployment's image history - the tags a room can be moved
+// along to, whether or not this room ever ran them.
+json NRoomRouter::DeployedTags()
+{
+  json tags = json::array();
+  if (fConfig.service.empty() || fConfig.apiServer.empty()) return tags;
+  for (const auto & version : RoomVersions(fConfig.service, "")) {
+    if (!version.is_object()) continue;
+    const std::string tag = version.value("imageTag", "");
+    if (tag.empty()) continue;
+    bool seen = false;
+    for (const auto & entry : tags) {
+      if (entry.is_string() && entry.get<std::string>() == tag) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen) tags.push_back(tag);
   }
   return tags;
 }
@@ -1204,6 +1237,10 @@ void NRoomRouter::StoreSnapshot(const std::string & name, const std::string & id
   if (!Annotate(name, kNRoomStateAnnotation, text, error)) {
     NLogWarning("[room] cannot store the session of %s: %s", name.c_str(), error.c_str());
   }
+
+  // A view watching this room's session (topic `room/<id>`) sees it change now rather than at the next
+  // tick: this is the one place a session is stored, so every path that changes one comes through here.
+  PublishNow();
 }
 
 json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & name, const std::string & value,
@@ -2526,102 +2563,241 @@ std::string NRoomRouter::UnschedulableError(const std::string & reason)
          " - free capacity, or lower the room's requests in its skeleton";
 }
 
-// Registers a connection as a watcher of the rooms list, as the caller it just was.
-//
-// The identity is the one its room/list ran as (see HandleList): verified where something verified it,
-// asserted where nothing did - which is exactly what that call answered it, so what it is later pushed
-// is the list it already has, kept up to date.
-void NRoomRouter::Watch(long wsId, const NRequestIdentity & identity)
-{
-  if (wsId == 0 || fConfig.watchIntervalSec <= 0) return;
-
-  std::lock_guard<std::mutex> lock(fWatchMutex);
-  fWatchers[wsId] = identity;
-}
-
-// The rooms list as one caller sees it.
-//
-// The handler room/list is what runs, with the caller stated in its input as the server states it, so a
-// pushed list and an asked-for one cannot drift - filtering, live state, profiles and all.
-json NRoomRouter::RoomsPayload(const NRequestIdentity & identity)
+// Runs one room action's handler and answers its `out` (or null when it did not succeed), so a pushed
+// payload is exactly the answer the same request would get - filtering, live state and all.
+static json RunRoomHandler(const std::string & route, const json & extra, const NRequestIdentity & identity)
 {
   if (gNHttpServer == nullptr) return json();
 
   const auto handlers = gNHttpServer->GetHttpHandlers();
-  const auto it       = handlers.find("room/list");
+  const auto it       = handlers.find(route);
   if (it == handlers.end() || it->second == nullptr) return json();
 
   json in = json::object();
   if (!identity.Empty()) in["_identity"] = identity.ToJson();
+  if (extra.is_object()) {
+    for (const auto & member : extra.items()) in[member.key()] = member.value();
+  }
 
   json                             out = json::object();
   json                             wsOut = json::object();
   std::map<std::string, TObject *> objects;
   it->second("GET", in, out, wsOut, objects);
   if (out.value("result", std::string()) != "success") return json();
-  return out.value("payload", json::object());
+  return out;
 }
 
-// Pushes the rooms list to every watcher, and only when it changed since that watcher was last sent it:
-// an idle cluster costs one comparison per watcher, not a message.
+// A topic names something a view can watch: the rooms list, or one room's session. The argument (the
+// room id for `room/<id>`) comes back through `argument`; an unknown topic is refused.
+static bool ParseTopic(const std::string & topic, std::string & argument)
+{
+  argument.clear();
+  if (topic == "rooms") return true;
+  if (topic.rfind("room/", 0) == 0 && topic.size() > 5) {
+    argument = topic.substr(5);
+    return true;
+  }
+  return false;
+}
+
+// The event a topic's pushes carry: one word a client can dispatch on (`rooms`, `room`).
+static std::string TopicEvent(const std::string & topic)
+{
+  const auto slash = topic.find('/');
+  return slash == std::string::npos ? topic : topic.substr(0, slash);
+}
+
+/// How many topics one socket may watch: a view shows the list and one room, so this is generous - it
+/// only stops a client asking for a topic per row, each of which costs a payload per tick.
+static const std::size_t kMaxWatchTopics = 32;
+
+// Sets what a connection watches: the topics it named are the ones it watches, so a topic left out
+// stops being pushed and its copy is forgotten - coming back to it is not mistaken for "already sent".
+void NRoomRouter::WatchTopics(long wsId, const std::vector<std::string> & topics, const NRequestIdentity & identity)
+{
+  if (wsId == 0 || fConfig.watchIntervalSec <= 0) return;
+
+  std::vector<std::string> wanted;
+  for (const std::string & topic : topics) {
+    std::string argument;
+    if (ParseTopic(topic, argument)) wanted.push_back(topic);
+  }
+  if (wanted.size() > kMaxWatchTopics) wanted.resize(kMaxWatchTopics);
+
+  {
+    std::lock_guard<std::mutex> lock(fWatchMutex);
+    for (auto & entry : fWatchers) {
+      if (entry.second.erase(wsId) > 0) fPushed[entry.first].erase(wsId);
+    }
+    for (const std::string & topic : wanted) fWatchers[topic][wsId] = identity;
+  }
+  // What it has just asked to see is sent at once rather than at the next tick.
+  PublishNow();
+}
+
+// ndmspc/room/watch: sets what the calling socket watches (see the header). The one subscription call
+// - a view sends the topics it is showing, and the router replaces what that socket is pushed.
+void NRoomRouter::HandleWatch(const std::string & method, json & in, json & out)
+{
+  if (method.find("POST") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/watch";
+    return;
+  }
+
+  const long wsId = in.is_object() && in.contains("_ws") && in["_ws"].is_number() ? in["_ws"].get<long>() : 0;
+  if (wsId == 0) {
+    out["result"] = "failure";
+    out["error"]  = "room/watch is asked for over a websocket";
+    return;
+  }
+  if (fConfig.watchIntervalSec <= 0) {
+    out["result"] = "failure";
+    out["code"]   = "watching_off";
+    out["error"]  = "this router serves no pushes (NDMSPC_ROOM_WATCH_INTERVAL=0)";
+    return;
+  }
+
+  std::vector<std::string> topics;
+  const json               wanted = NdmspcRoomMember(in, "topics");
+  if (wanted.is_array()) {
+    for (const auto & topic : wanted) {
+      if (!topic.is_string()) continue;
+      std::string argument;
+      if (!ParseTopic(topic.get<std::string>(), argument)) continue; // an unknown topic is not taken
+      topics.push_back(topic.get<std::string>());
+    }
+  }
+  if (topics.size() > kMaxWatchTopics) topics.resize(kMaxWatchTopics);
+
+  WatchTopics(wsId, topics, RequestIdentity(in));
+
+  // What comes back is what the socket watches, so a client can tell a topic it mistyped from one the
+  // router took.
+  out["result"]            = "success";
+  out["payload"]["topics"] = topics;
+}
+
+// The rooms list as one caller sees it (see the header).
+json NRoomRouter::RoomsPayload(const NRequestIdentity & identity)
+{
+  return RunRoomHandler("ndmspc/room/list", json::object(), identity);
+}
+
+// The fan-out core, without sockets (see the declaration in the header).
+std::map<long, std::string> NdmspcRoomFanOut(const std::string &                     event,
+                                             const std::map<long, NRequestIdentity> & watchers,
+                                             const std::vector<ULong_t> &            connected,
+                                             const std::map<long, std::string> &     previous,
+                                             const std::function<json(const NRequestIdentity &)> & build,
+                                             const std::function<void(long, const std::string &)> & send)
+{
+  std::map<std::string, json> byIdentity; // the payload per distinct caller, built once for the tick
+  std::map<long, std::string> next;
+
+  for (const auto & watcher : watchers) {
+    const long wsId = watcher.first;
+    if (std::find(connected.begin(), connected.end(), static_cast<ULong_t>(wsId)) == connected.end()) {
+      continue; // gone: left out of `next`, so it is dropped below
+    }
+
+    const std::string key = watcher.second.ToJson().dump();
+    auto              it  = byIdentity.find(key);
+    if (it == byIdentity.end()) it = byIdentity.emplace(key, build(watcher.second)).first;
+
+    std::string last;
+    const auto  seen = previous.find(wsId);
+    if (seen != previous.end()) last = seen->second;
+
+    // A payload that could not be built this tick (the read failed) is no reason to forget the watcher:
+    // keep it, and its copy, so it is served again once the read works.
+    next[wsId] = last;
+    if (it->second.is_null()) continue;
+
+    const std::string text = it->second.dump();
+    if (text == last) continue;
+
+    next[wsId] = text;
+    send(wsId, json{{"event", event}, {"payload", it->second}}.dump());
+  }
+
+  return next;
+}
+
+// Pushes every watched topic to the watchers whose copy of it changed - one payload per distinct caller
+// per topic per tick, one message per watcher whose copy actually changed (see NdmspcRoomFanOut).
 //
 // A connection that is no longer there is forgotten, so a reused id starts fresh rather than being
-// treated as somebody who already has the list.
-void NRoomRouter::PublishRooms()
+// treated as somebody who already has the topic.
+void NRoomRouter::PublishTopics()
 {
   if (fConfig.watchIntervalSec <= 0 || gNHttpServer == nullptr) return;
 
   NWsHandler * sockets = gNHttpServer->GetWebSocketHandler();
   if (sockets == nullptr) return;
 
-  std::map<long, NRequestIdentity> watchers;
+  std::map<std::string, std::map<long, NRequestIdentity>> topics;
+  std::map<std::string, std::map<long, std::string>>      previous;
   {
     std::lock_guard<std::mutex> lock(fWatchMutex);
-    watchers = fWatchers;
+    topics   = fWatchers;
+    previous = fPushed;
   }
+  if (topics.empty()) return;
 
-  std::map<long, std::string> pushed;
-  for (const auto & watcher : watchers) {
-    const long  wsId = watcher.first;
-    const auto  ids  = sockets->ConnectedIds();
-    if (std::find(ids.begin(), ids.end(), static_cast<ULong_t>(wsId)) == ids.end()) continue;
+  const auto connected = sockets->ConnectedIds();
 
-    const json payload = RoomsPayload(watcher.second);
-    if (payload.is_null()) continue;
+  std::map<std::string, std::map<long, std::string>> sent;
+  for (const auto & entry : topics) {
+    const std::string & topic = entry.first;
+    std::string         argument;
+    if (!ParseTopic(topic, argument)) continue; // an unknown topic is not built (nor kept)
 
-    const std::string text = payload.dump();
-    std::string       last;
-    {
-      std::lock_guard<std::mutex> lock(fWatchMutex);
-      const auto                  seen = fPushed.find(wsId);
-      if (seen != fPushed.end()) last = seen->second;
-    }
-    if (last == text) {
-      pushed[wsId] = text;
-      continue;
-    }
-
-    sockets->SendTo(wsId, json{{"event", "rooms"}, {"payload", payload}}.dump());
-    pushed[wsId] = text;
+    const auto seen = previous.find(topic);
+    sent[topic]     = NdmspcRoomFanOut(
+        TopicEvent(topic), entry.second, connected,
+        seen == previous.end() ? std::map<long, std::string>() : seen->second,
+        [this, argument](const NRequestIdentity & identity) {
+          // `rooms` is the list; `room/<id>` is that room's session, which is what a backup stores for it
+          // (an in-memory read of the registry, so a watched room costs no cluster call).
+          return argument.empty() ? RoomsPayload(identity)
+                                  : RunRoomHandler("ndmspc/room/backup", json{{"room", argument}}, identity);
+        },
+        [sockets](long wsId, const std::string & text) { sockets->SendTo(static_cast<ULong_t>(wsId), text); });
   }
 
   std::lock_guard<std::mutex> lock(fWatchMutex);
-  fPushed.swap(pushed);
+  fPushed = sent;
+  // A socket that is gone is left out of every topic's result, so a topic with nothing left is dropped
+  // (the socket comes back when it asks again).
   for (auto it = fWatchers.begin(); it != fWatchers.end();) {
-    it = fPushed.count(it->first) == 0 ? fWatchers.erase(it) : std::next(it);
+    const auto sentTopic = fPushed.find(it->first);
+    it = (sentTopic == fPushed.end() || sentTopic->second.empty()) ? fWatchers.erase(it) : std::next(it);
   }
 }
 
-// The watcher loop: the rooms list is pushed on its own interval, so a view that watches does not poll.
+// Asks the publish thread to publish now, so an action (or a new watch) reaches a watching view at
+// once (see the header). It only raises a flag - the reads and the sends stay on that thread.
+void NRoomRouter::PublishNow()
+{
+  if (fConfig.watchIntervalSec <= 0) return; // nothing watches, so nothing to wake
+  fPublishNow.store(true);
+}
+
+// The publish loop: every watched topic is pushed on its own interval, so a view that watches does not
+// poll.
 //
 // Runs on a thread of its own (ROOT's server serves one request at a time, and this is work no request
 // asked for), sleeps in short steps so the router waiting for it on the way out is not held up, and
-// does nothing at all when nobody is watching.
-void NRoomRouter::WatchRooms()
+// does nothing at all when nobody is watching. An action that asked to publish (PublishNow) cuts the
+// sleep short, so a create, a delete or a new watch is not left waiting for the tick.
+void NRoomRouter::PublishLoop()
 {
   while (!fWatchStop.load()) {
-    PublishRooms();
+    fPublishNow.store(false);
+    PublishTopics();
     for (int i = 0; i < fConfig.watchIntervalSec * 10 && !fWatchStop.load(); ++i) {
+      if (fPublishNow.load()) break;
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   }
@@ -2864,7 +3040,7 @@ bool NRoomRouter::KubernetesAvailable(std::string * reason)
 
 bool NRoomRouter::Register(NHttpServer * server)
 {
-  // Say why and refuse instead of serving /api/room/* actions that would all fail.
+  // Say why and refuse instead of serving /api/ndmspc/room/* actions that would all fail.
   std::string reason;
   if (!KubernetesAvailable(&reason)) {
     NLogError("[room] %s", reason.c_str());
@@ -2881,18 +3057,18 @@ bool NRoomRouter::Register(NHttpServer * server)
   // leaves this unset and keeps accepting every websocket.
   Ndmspc::gNdmspcWsConnectFilter = NdmspcRoomWsFilter;
 
-  // The rooms list is pushed to its watchers on a thread of its own (NDMSPC_ROOM_WATCH_INTERVAL): a
-  // view that watches does not have to poll, and none of that work is on the request path.
+  // The watched topics are pushed on a thread of its own (NDMSPC_ROOM_WATCH_INTERVAL): a view that
+  // watches does not have to poll, and none of that work is on the request path.
   if (fConfig.watchIntervalSec > 0 && !fWatchThread.joinable()) {
     fWatchStop.store(false);
-    fWatchThread = std::thread([this]() { WatchRooms(); });
+    fWatchThread = std::thread([this]() { PublishLoop(); });
   }
 
-  Ndmspc::RegisterMcpTool("room/open", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/open", {
       .description = "Ensure a room exists (one Knative Service per room) and return the URL that "
                      "serves it. POST/GET with 'room' in the body. With wait=false the call returns "
                      "at once with state=preparing and the room is created in the background - poll "
-                     "room/status or room/list for the outcome. 'profile' picks one of the room "
+                     "ndmspc/room/status or room/list for the outcome. 'profile' picks one of the room "
                      "skeleton's sizes (see room/list for the ones this deployment offers); without "
                      "it a room keeps the size it already has, and a new one takes the skeleton's "
                      "default.",
@@ -2910,14 +3086,14 @@ bool NRoomRouter::Register(NHttpServer * server)
                                           "false starts the creation in the background."}}}},
                        }},
   });
-  Ndmspc::RegisterMcpTool("room/status", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/status", {
       .description = "Report whether a room is known to the router, its current revision, and - while "
                      "it is being created - where that creation is (state=preparing with "
                      "phase=service|ready|route|restore), or state=failed with the reason.",
       .methods     = {"GET"},
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
-  Ndmspc::RegisterMcpTool("room/upgrade", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/upgrade", {
       .description = "Roll one room onto a chosen image tag - a newer one to upgrade, an older one to "
                      "revert. 'tag' is one the deployment offers (room/list reports them as "
                      "imageTags, with currentTag being the deployment's own); without it the room is "
@@ -2945,14 +3121,14 @@ bool NRoomRouter::Register(NHttpServer * server)
                           {"description", "Wait for the new revision before answering (default true); "
                                           "false returns at once with state=preparing."}}}}}},
   });
-  Ndmspc::RegisterMcpTool("room/list", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/list", {
       .description = "List the rooms the router is currently tracking (with their last-seen time). A "
                      "room whose creation is still running is listed as well, with state=preparing and "
                      "the phase it has reached; one whose creation failed is listed with state=failed "
                      "and the error.",
       .methods     = {"GET"},
   });
-  Ndmspc::RegisterMcpTool("room/capacity", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/capacity", {
       .description = "Report the cluster's capacity for rooms: what its nodes have (allocatable), what "
                      "the rooms and everything else already reserve (requests), and what is left "
                      "(free, plus a per-node breakdown). These are reservations, not live usage - the "
@@ -2961,20 +3137,32 @@ bool NRoomRouter::Register(NHttpServer * server)
                      "answer carries complete=false and only the parts it could read.",
       .methods     = {"GET"},
   });
-  Ndmspc::RegisterMcpTool("room/close", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/close", {
       .description = "Delete a room's HTTPRoute and Knative Service immediately.",
       .methods     = {"DELETE"},
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
+  // Internal plumbing: what a socket is pushed is what it watches, so a view says what it is showing.
+  // Hidden because it is not a user-facing room action.
+  Ndmspc::RegisterMcpTool("ndmspc/room/watch", {
+      .description = "Internal: set the topics this socket is pushed (rooms, room/<id>).",
+      .methods     = {"POST"},
+      .hidden      = true,
+      .inputSchema = {{"properties",
+                       {{"topics",
+                         {{"type", "array"},
+                          {"items", {{"type", "string"}}},
+                          {"description", "What to watch: rooms, and room/<id> for one room's session."}}}}}},
+  });
   // Internal plumbing: a room reports its session here and fetches it back when it wakes.
   // Hidden because it is not a user-facing room action.
-  Ndmspc::RegisterMcpTool("room/state", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/state", {
       .description = "Internal: store or fetch a room's session snapshot.",
       .methods     = {"GET", "POST"},
       .hidden      = true,
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
-  Ndmspc::RegisterMcpTool("room/backup", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/backup", {
       .description = "Export the tracked rooms and their sessions as one JSON document, for backup or "
                      "for restoring onto another deployment. It carries no ROOT data, only the "
                      "session (file, navigator, drill-down), plus the size and image each room was "
@@ -2987,16 +3175,16 @@ bool NRoomRouter::Register(NHttpServer * server)
                           {"description",
                            "Export this one room alone instead of every room the caller may see."}}}}}},
   });
-  Ndmspc::RegisterMcpTool("room/config", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/config", {
       .description = "Export one room's configuration: the file it opened, the steps that were run, "
                      "the size it was created at, and what was on screen (the sessions, the pads and "
                      "their tabs, the drill-down). It holds nothing about the room itself - no id, no "
                      "owner, no links - so it is what somebody hands to somebody else, and what "
-                     "room/import takes.",
+                     "ndmspc/room/import takes.",
       .methods     = {"GET"},
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
-  Ndmspc::RegisterMcpTool("room/restore", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/restore", {
       .description = "Ensure every room named in a document from room/backup and replay its session. "
                      "Additive by default: rooms already present are left alone and a live session is "
                      "never overwritten. With replace=true a room the document names that is already "
@@ -3013,7 +3201,7 @@ bool NRoomRouter::Register(NHttpServer * server)
                            "it, so the document's session wins over whatever the room holds. "
                            "Defaults to false (a room already in use is left alone)."}}}}}},
   });
-  Ndmspc::RegisterMcpTool("room/import", {
+  Ndmspc::RegisterMcpTool("ndmspc/room/import", {
       .description = "Replace one room with the configuration room/config answers with (or with one "
                      "room of a document from room/backup). The room is deleted if it is already "
                      "there - its current work is lost - and created again carrying that "
@@ -3035,49 +3223,56 @@ bool NRoomRouter::Register(NHttpServer * server)
   });
 
   // -------------------------------------------------------------------------
-  //  /api/room/open — ensure a room and hand back its URL
+  //  /api/ndmspc/room/open — ensure a room and hand back its URL
   // -------------------------------------------------------------------------
-  handlers["room/open"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/open"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleOpen(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/upgrade — roll one room onto a chosen image tag
+  //  /api/ndmspc/room/upgrade — roll one room onto a chosen image tag
   // -------------------------------------------------------------------------
-  handlers["room/upgrade"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/upgrade"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                                 std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleUpgrade(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/status — report a room's state
+  //  /api/ndmspc/room/status — report a room's state
   // -------------------------------------------------------------------------
-  handlers["room/status"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/status"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleStatus(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/list — rooms the router is tracking
+  //  /api/ndmspc/room/list — rooms the router is tracking
   // -------------------------------------------------------------------------
-  handlers["room/list"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/list"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleList(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/capacity — what the cluster has, and what the rooms reserve
+  //  /api/ndmspc/room/capacity — what the cluster has, and what the rooms reserve
   // -------------------------------------------------------------------------
-  handlers["room/capacity"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/capacity"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                                  std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleCapacity(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/close — delete a room
+  //  /api/ndmspc/room/close — delete a room
   // -------------------------------------------------------------------------
-  handlers["room/close"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/close"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleClose(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/state — the session snapshot a room reports and fetches back
+  //  /api/ndmspc/room/watch — set what this socket is pushed
+  // -------------------------------------------------------------------------
+  handlers["ndmspc/room/watch"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                              std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleWatch(method, in, out);
+  };
+  // -------------------------------------------------------------------------
+  //  /api/ndmspc/room/state — the session snapshot a room reports and fetches back
   // -------------------------------------------------------------------------
   //
   // Not a user-facing action: a room pushes its session here after it changes, and reads it
@@ -3088,12 +3283,12 @@ bool NRoomRouter::Register(NHttpServer * server)
   // carries a `snapshot` stores it; a POST without one reads the stored snapshot back. The
   // read is a POST because NDMSPC's HTTP client forwards the body for POST but not for GET,
   // so a GET could only ever be used by hand with curl (GET is still accepted for that).
-  handlers["room/state"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/state"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleState(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/backup — export the rooms and their sessions as one document
+  //  /api/ndmspc/room/backup — export the rooms and their sessions as one document
   // -------------------------------------------------------------------------
   //
   // The document holds the room set and each room's session, so it can be restored onto this
@@ -3103,23 +3298,23 @@ bool NRoomRouter::Register(NHttpServer * server)
   // data - ROOT files are not persisted - so what comes back is the session, not files.
   //
   // Nothing is called on the rooms, so exporting never wakes an idle room.
-  handlers["room/backup"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/backup"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleBackup(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/config — one room's configuration, and nothing about the room
+  //  /api/ndmspc/room/config — one room's configuration, and nothing about the room
   // -------------------------------------------------------------------------
   //
   // What somebody hands to somebody else: the file, the steps that were run, the size, and what was on
   // screen. No id, no owner, no links - so there is nothing in it that reaches back into the room it
   // came from, and the person importing it gets a room of their own holding that configuration.
-  handlers["room/config"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/config"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                                std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleConfig(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/restore — ensure every room in a document and replay its session
+  //  /api/ndmspc/room/restore — ensure every room in a document and replay its session
   // -------------------------------------------------------------------------
   //
   // Additive and convergent by default: rooms are created (or rolled) from the current skeleton and
@@ -3128,12 +3323,12 @@ bool NRoomRouter::Register(NHttpServer * server)
   // win instead: a room the document names that is already there is deleted first, so it is created
   // again holding what the document says. Per-room failures are reported rather than aborting the
   // whole restore.
-  handlers["room/restore"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/restore"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleRestore(method, in, out);
   };
   // -------------------------------------------------------------------------
-  //  /api/room/import — replace one room with one from a config
+  //  /api/ndmspc/room/import — replace one room with one from a config
   // -------------------------------------------------------------------------
   //
   // One room, not a set: the config is a document holding that room (what room/backup answers for a
@@ -3141,7 +3336,7 @@ bool NRoomRouter::Register(NHttpServer * server)
   // the config's session - because a room takes its session as it starts and latches: there is no way
   // to hand a session to a room that is already running, so the session has to be on the room before
   // it exists. Naming a room that is not there simply creates it.
-  handlers["room/import"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+  handlers["ndmspc/room/import"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                                std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleImport(method, in, out);
   };
@@ -3231,8 +3426,8 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
     // reason is what tells a user to give the room a bigger profile.
     const json lastError = RoomLastError(ref.name);
     if (!lastError.empty()) out["payload"]["lastError"] = lastError;
-    // A watcher sees the failure now rather than on its next push.
-    PublishRooms();
+    // A watcher sees the failure now: the watch thread is woken to publish it.
+    PublishNow();
     return;
   }
   const std::string state = payload.value("state", std::string());
@@ -3257,8 +3452,8 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   const json lastError = RoomLastError(ref.name);
   if (!lastError.empty()) payload["lastError"] = lastError;
 
-  // A watcher sees the room the moment it is opened rather than on its next push.
-  PublishRooms();
+  // A watcher sees the room the moment it is opened: the watch thread is woken to publish it.
+  PublishNow();
 
   out["result"]  = "success";
   out["payload"] = payload;
@@ -3359,7 +3554,7 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
   }
   else {
     std::string tag      = RequestImageTag(in);
-    const json  offered  = ImageTags(skeleton);
+    const json  offered  = ImageTags(skeleton, DeployedTags());
     auto        offers   = [&offered](const std::string & value) {
       for (const auto & entry : offered) {
         if (entry.is_string() && entry.get<std::string>() == value) return true;
@@ -3417,14 +3612,14 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
     out["result"] = "failure";
     out["error"]  = error;
     if (!code.empty()) out["code"] = code;
-    PublishRooms();
+    PublishNow();
     return;
   }
 
   payload["room"] = ref.value;
   payload["name"] = name;
   NLogInfo("[room] room '%s' is being rolled onto %s", ref.value.c_str(), image.c_str());
-  PublishRooms();
+  PublishNow();
   out["result"]  = "success";
   out["payload"] = payload;
 }
@@ -3607,9 +3802,8 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // Who is asking decides what the list holds: see "Ownership and visibility".
   const NRequestIdentity identity = RequestIdentity(in);
 
-  // Asked over a websocket, this call also subscribes the connection: the router then keeps this list
-  // up to date for it (see PublishRooms), as the caller it just was.
-  if (in.is_object() && in.contains("_ws") && in["_ws"].is_number()) Watch(in["_ws"].get<long>(), identity);
+  // What a socket is pushed is what it asked to watch (`ndmspc/room/watch`), not what it reads here:
+  // reading the list must not subscribe a connection that never said what it is showing.
 
   // Why the rooms' containers last died: one pods list for the whole namespace, matched to rooms by
   // the Knative label that carries their Service name. This happens before the registry is read, so
@@ -3840,7 +4034,9 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
     // The image tags a room may be rolled onto (room/upgrade), and the deployment's current one, so a
     // view can offer an update/revert without knowing the tags in advance. A room's own tag is on the
     // room itself (`imageTag`), which is what a view compares against `currentTag` to say one is due.
-    const json tags = NRoomRouter::ImageTags(skeleton);
+    // The list carries every tag this deployment has rolled (see `ImageTags`), never only the current
+    // one: a room is independent of the router beside it, so any of them is a place to move it to.
+    const json tags = NRoomRouter::ImageTags(skeleton, DeployedTags());
     if (!tags.empty()) {
       out["payload"]["imageTags"] = tags;
       const std::string image = NdmspcRoomImage(skeleton);
@@ -4126,15 +4322,15 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
   }
 
   CloseRoom(ref.value); // a room that is being created is cancelled on the way out
-  // A watcher sees it gone now rather than on its next push.
-  PublishRooms();
+  // A watcher sees it gone now: the watch thread is woken to publish it.
+  PublishNow();
   out["result"]  = "success";
   out["payload"]["room"] = ref.value;
   out["payload"]["name"] = ref.name;
 }
 
 // ===========================================================================
-//  room/state
+//  ndmspc/room/state
 // ===========================================================================
 void NRoomRouter::HandleState(const std::string & method, json & in, json & out)
 {
@@ -4197,7 +4393,7 @@ void NRoomRouter::HandleState(const std::string & method, json & in, json & out)
   }
 
   out["result"] = "failure";
-  out["error"]  = "Unsupported HTTP method for room/state";
+  out["error"]  = "Unsupported HTTP method for ndmspc/room/state";
 }
 
 // ===========================================================================
@@ -4482,8 +4678,8 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
   }
 
   NLogInfo("[room] restored %zu room(s), %zu failed", restored.size(), failed.size());
-  // A watcher sees the restored rooms now rather than on its next push.
-  PublishRooms();
+  // A watcher sees the restored rooms now: the watch thread is woken to publish it.
+  PublishNow();
   out["result"]              = "success";
   out["payload"]["restored"] = restored;
   out["payload"]["failed"]   = failed;
@@ -4664,9 +4860,9 @@ void NRoomRouter::HandleImport(const std::string & method, json & in, json & out
     }
     else {
       const std::string tag = NdmspcImageTag(wantedImage);
-      for (const auto & offered : ImageTags(skeleton)) {
-        const bool matches = !base.empty() && !tag.empty() && offered.is_string() &&
-                             offered.get<std::string>() == tag;
+      for (const auto & choice : ImageTags(skeleton, DeployedTags())) {
+        const bool matches = !base.empty() && !tag.empty() && choice.is_string() &&
+                             choice.get<std::string>() == tag;
         if (!matches) continue;
         image = NRoomRouter::WithTag(base, tag);
         break;
@@ -4752,8 +4948,8 @@ void NRoomRouter::HandleImport(const std::string & method, json & in, json & out
   if (!image.empty()) done["image"] = image;
   if (!skipped.empty()) done["skipped"] = skipped;
 
-  // A watcher sees the room as the import left it now rather than on its next push.
-  PublishRooms();
+  // A watcher sees the room as the import left it now: the watch thread is woken to publish it.
+  PublishNow();
   out["result"]  = "success";
   out["payload"] = done;
 }

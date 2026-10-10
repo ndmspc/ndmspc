@@ -5,7 +5,8 @@ set(PACKAGE Ndmspc${MODULE})
 # was, so no consumer and no user macro has to change. CONFIGURE_DEPENDS so that moving a file
 # between the directories is picked up without a manual re-configure.
 file(GLOB SRCS CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx" "*/*.cxx")
-# cli/ and tui/ are their own executables, already added below - they are not part of the library.
+# cli/ and tui/ are their own executables, not part of the library (tui/ is reserved and holds no
+# TUI right now).
 list(FILTER SRCS EXCLUDE REGEX "^(cli|tui|examples)/")
 
 # No mirror of the feature directories under ${CMAKE_BINARY_DIR}/include is needed: RootLib copies
@@ -31,4 +32,10 @@ RootLib(${PACKAGE} "${SRCS}" "${MY_EXTERNAL_LIBS}" "")
 target_compile_definitions(${PACKAGE} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
 add_subdirectory(cli)
-add_subdirectory(tui)
+
+# The terminal UIs are opt-in (-DWITH_TUI=ON). The web page carries the rooms view now, so tui/
+# holds an example only - it keeps the FTXUI dependency (core/tui) exercised and gives a real TUI a
+# working place to start.
+if(WITH_TUI)
+  add_subdirectory(tui)
+endif()

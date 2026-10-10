@@ -141,7 +141,7 @@ int main(int argc, char ** argv)
 
   TApplication rootApp("ndmspc-mcp", 0, nullptr);
 
-  // A server serving rooms loads no macro at all (the room router is /api/room/* only), so the
+  // A server serving rooms loads no macro at all (the room router is /api/ndmspc/room/* only), so the
   // default macro list is neither resolved nor applied for it.
   if (!withRooms && macroFilename.empty()) {
     const std::string dir = NdmspcDir();
@@ -175,13 +175,13 @@ int main(int argc, char ** argv)
   Ndmspc::gNdmspcMcpTools = &mcpTools;
 
   // The server's own base actions (health, state) are framework code, not a macro: register them
-  // here so they exist whatever -m says. A room router serves room/* only, so it gets none.
+  // here so they exist whatever -m says. A room router serves ndmspc/room/* only, so it gets none.
   if (!withRooms) Ndmspc::RegisterBaseActions();
 
   // A router serves rooms, not tools, so it loads no macro - not even one named on the command line.
   if (withRooms) {
     if (!macroFilename.empty()) {
-      NLogWarning("ndmspc-mcp: --rooms ignores the macro list '%s'; the room router serves only room/*",
+      NLogWarning("ndmspc-mcp: --rooms ignores the macro list '%s'; the room router serves only ndmspc/room/*",
                   macroFilename.c_str());
     }
     // The room router is framework code (NRoomRouter): register its actions (and their MCP tools)

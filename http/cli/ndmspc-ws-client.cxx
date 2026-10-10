@@ -98,7 +98,7 @@ int main(int argc, char ** argv)
   app.add_option("-t,--timeout", timeoutSec, "Exit after this many seconds (0 = run until interrupted)");
   app.add_option("--send", sendFrames,
                  "Frame to send once connected and authenticated (repeatable), e.g. a WS_DATA request "
-                 "'{\"requestId\":\"1\",\"method\":\"GET\",\"path\":\"room/list\"}': connecting to "
+                 "'{\"requestId\":\"1\",\"method\":\"GET\",\"path\":\"ndmspc/room/list\"}': connecting to "
                  "'<url>/ws/root.websocket?rooms=1' and sending that one subscribes the connection to "
                  "the room router's pushed room list, which then arrives on its own");
 
@@ -184,7 +184,7 @@ int main(int argc, char ** argv)
 
   // The frames the caller asked to send, once the connection is up (and authenticated): with
   // --send the client drives the same WS_DATA request/reply protocol a page does, and with a
-  // `?rooms=1` URL a `room/list` call is what subscribes the connection to the router's pushes.
+  // `?rooms=1` URL a `ndmspc/room/list` call is what subscribes the connection to the router's pushes.
   for (const auto & frame : sendFrames) {
     if (!client.Send(frame)) {
       NLogError("Failed to send frame: %s", frame.c_str());

@@ -226,7 +226,7 @@ bool NRoomClient::Initialize(std::string & error)
   message["id"]                               = ++fNextId;
   message["method"]                           = "initialize";
   message["params"]["protocolVersion"]        = kProtocolVersion;
-  message["params"]["clientInfo"]["name"]     = "ndmspc-room-tui";
+  message["params"]["clientInfo"]["name"]     = "ndmspc-room-client";
   message["params"]["clientInfo"]["version"]  = std::string(NDMSPC_VERSION) + "-" + NDMSPC_VERSION_RELEASE;
 
   std::string body;
@@ -259,7 +259,7 @@ bool NRoomClient::Initialize(std::string & error)
 
 NRoomListResult NRoomClient::List()
 {
-  const NRoomResult result = Call("room_list", "GET", "");
+  const NRoomResult result = Call("ndmspc_room_list", "GET", "");
   if (!result.ok) {
     NRoomListResult list;
     list.error = result.error;
@@ -362,7 +362,7 @@ NRoomResult NRoomClient::Open(const std::string & roomId, bool wait)
   // Always send the flag: which way this call behaves should not depend on the router's default.
   json extra;
   extra["wait"] = wait;
-  return Call("room_open", "POST", roomId, extra);
+  return Call("ndmspc_room_open", "POST", roomId, extra);
 }
 
 NRoomResult NRoomClient::Upgrade(const std::string & roomId, const std::string & tag, bool wait, bool force,
@@ -376,16 +376,16 @@ NRoomResult NRoomClient::Upgrade(const std::string & roomId, const std::string &
   if (!image.empty()) extra["image"] = image;
   else if (!tag.empty()) extra["tag"] = tag;
   if (force) extra["force"] = true;
-  return Call("room_upgrade", "POST", roomId, extra);
+  return Call("ndmspc_room_upgrade", "POST", roomId, extra);
 }
 
-NRoomResult NRoomClient::Status(const std::string & roomId) { return Call("room_status", "GET", roomId); }
+NRoomResult NRoomClient::Status(const std::string & roomId) { return Call("ndmspc_room_status", "GET", roomId); }
 
-NRoomResult NRoomClient::Close(const std::string & roomId) { return Call("room_close", "DELETE", roomId); }
+NRoomResult NRoomClient::Close(const std::string & roomId) { return Call("ndmspc_room_close", "DELETE", roomId); }
 
-NRoomResult NRoomClient::Backup(const std::string & roomId) { return Call("room_backup", "GET", roomId); }
+NRoomResult NRoomClient::Backup(const std::string & roomId) { return Call("ndmspc_room_backup", "GET", roomId); }
 
-NRoomResult NRoomClient::Config(const std::string & roomId) { return Call("room_config", "GET", roomId); }
+NRoomResult NRoomClient::Config(const std::string & roomId) { return Call("ndmspc_room_config", "GET", roomId); }
 
 NRoomResult NRoomClient::Restore(const json & document, bool replace)
 {
@@ -394,7 +394,7 @@ NRoomResult NRoomClient::Restore(const json & document, bool replace)
   // Sent only when asked for: a restore is additive otherwise, and a room that is already in use keeps
   // its own session. `replace` is what makes the document's session win (the room is deleted first).
   if (replace) extra["replace"] = true;
-  return Call("room_restore", "POST", "", extra);
+  return Call("ndmspc_room_restore", "POST", "", extra);
 }
 
 NRoomResult NRoomClient::Import(const std::string & roomId, const json & config, const std::string & profile)
@@ -403,7 +403,7 @@ NRoomResult NRoomClient::Import(const std::string & roomId, const json & config,
   extra["config"] = config;
   // Sent only when asked for: without it the router takes the config's own size, then the skeleton's.
   if (!profile.empty()) extra["profile"] = profile;
-  return Call("room_import", "POST", roomId, extra);
+  return Call("ndmspc_room_import", "POST", roomId, extra);
 }
 
 } // namespace Ndmspc

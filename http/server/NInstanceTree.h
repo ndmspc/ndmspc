@@ -26,7 +26,7 @@ namespace Ndmspc {
 ///
 /// Node JSON shape:
 /// \code
-/// { "action":"ngnt/reshape", "parent":"i1", "params":{...}, "children":["i3"], "label":"b",
+/// { "action":"ndmspc/ngnt/reshape", "parent":"i1", "params":{...}, "children":["i3"], "label":"b",
 ///   "state":{"point":[0,1]} }
 /// \endcode
 ///
@@ -47,7 +47,7 @@ class NInstanceTree {
 
   /**
    * @brief Create a node under a parent, or hand back the one that is already the same.
-   * @param action The action's handler key (e.g. "ngnt/reshape").
+   * @param action The action's handler key (e.g. "ndmspc/ngnt/reshape").
    * @param params The request input to replay the action with (internals already stripped).
    * @param parent The parent node id, or "" for a root.
    * @param label A display label (see LabelFor when empty); a non-empty one is part of the match.
@@ -157,7 +157,8 @@ class NInstanceTree {
   /// @brief Whether a snapshot holds any node at all, in either version (see the guards that use it).
   static bool HasNodes(const json & snapshot);
 
-  /// @brief The group prefix of an action key ("ngnt/reshape" -> "ngnt").
+  /// @brief The group of an action key: everything before its last slash (`ndmspc/ngnt/reshape` ->
+  ///        `ndmspc/ngnt`, `ndmspc/session` -> `ndmspc`).
   static std::string GroupOf(const std::string & action);
   /**
    * @brief Whether an action participates in a combination tree.

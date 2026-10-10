@@ -33,11 +33,11 @@ struct ToolAction {
 };
 
 const ToolAction kChain[] = {
-    {"ngnt/open", "", "{{ file }}", 1},
-    {"ngnt/reshape", "ngnt/open", "{{ binningName }} ({{ levels }})", 2},
-    {"ngnt/map", "ngnt/reshape", "{{ mappingPad }}", 3},
-    {"ngnt/spectra", "ngnt/map", "{{ parameters }}", 4},
-    {"ngnt/point", "ngnt/map", "", 5},
+    {"ndmspc/ngnt/open", "", "{{ file }}", 1},
+    {"ndmspc/ngnt/reshape", "ndmspc/ngnt/open", "{{ binningName }} ({{ levels }})", 2},
+    {"ndmspc/ngnt/map", "ndmspc/ngnt/reshape", "{{ mappingPad }}", 3},
+    {"ndmspc/ngnt/spectra", "ndmspc/ngnt/map", "{{ parameters }}", 4},
+    {"ndmspc/ngnt/point", "ndmspc/ngnt/map", "", 5},
 };
 
 /// A tool under test: its macro, loaded, with the handlers it registered.
@@ -54,7 +54,7 @@ TEST_F(ToolNgnt, LoadingTheMacroRegistersEveryActionOfTheChain)
     const Ndmspc::NHttpFuncPtr handler = fTool->Handler(action.key);
     EXPECT_NE(handler, nullptr) << action.key << " did not register a handler";
   }
-  EXPECT_EQ(fTool->Handler("ngnt/nonexistent"), nullptr);
+  EXPECT_EQ(fTool->Handler("ndmspc/ngnt/nonexistent"), nullptr);
 }
 
 TEST_F(ToolNgnt, TheChainIsPublishedWithItsDependenciesOrderAndLabels)

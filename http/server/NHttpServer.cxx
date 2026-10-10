@@ -222,7 +222,9 @@ std::string NHttpServer::RoomAccessToken() const
 
 std::string NHttpServer::RoomStateUrl(const std::string & base, const std::string & token)
 {
-  std::string url = base + "/api/room/state";
+  // The key's own route: the room-state channel is a tool like any other, so its path carries the
+  // namespace the key does (`ndmspc/room/state`).
+  std::string url = base + "/api/ndmspc/room/state";
   if (!token.empty()) url += "?" + std::string(NRoomAccess::kParam) + "=" + token;
   return url;
 }
@@ -916,7 +918,23 @@ std::string NHttpServer::StartSession(const std::string & group, const std::stri
       }
     }
   }
-  if (opener.empty()) return "";
+  if (opener.empty()) {
+    // A group whose tools declare no session opener cannot start one. Say which group was asked for and
+    // which ones do have an opener: the two differ by naming alone - a group is a key's `ndmspc/browser`,
+    // while the tool name spells it `ndmspc_browser` - and a client built against another naming asks
+    // for the other spelling.
+    std::string known;
+    if (gNdmspcMcpTools != nullptr) {
+      std::set<std::string> groups;
+      for (const auto & entry : *gNdmspcMcpTools) {
+        if (entry.second.session) groups.insert(Ndmspc::NInstanceTree::GroupOf(entry.first));
+      }
+      for (const auto & one : groups) known += (known.empty() ? "" : ", ") + one;
+    }
+    NLogWarning("Cannot start a session for group '%s': none of its tools opens one (groups that do: %s)",
+                group.c_str(), known.empty() ? "none" : known.c_str());
+    return "";
+  }
 
   // A session that has been started and not yet run is the one to be on: every client asks for one as
   // it joins, and they must all land on the same session rather than each making their own.
@@ -1852,7 +1870,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   // carry their identity already and are not re-checked here. The root info and
   // inspector-schema endpoints stay anonymous so UIs can bootstrap.
   //
-  // room/state is the internal room-to-router channel and stays out of this check too: a room
+  // ndmspc/room/state is the internal room-to-router channel and stays out of this check too: a room
   // has no user token to present - it reports its session on its own behalf. It authenticates
   // with the access token it was created with, which the router checks against the room the
   // request names (see NRoomRouter::HandleState).
@@ -1863,7 +1881,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   // from RoomSessionRestoreOnce) has no client behind it. Re-checking those rejected the very
   // requests the server had just admitted.
   const bool isWsBridged = arg->GetWSId() != 0;
-  const bool isRoomState = fullpath == "room/state";
+  const bool isRoomState = fullpath == "ndmspc/room/state";
   if (fOidcVerifier && !isWsBridged && !identityStated && !isRoomState && !fullpath.IsNull() &&
       fullpath != "openapi/inspector" && fullpath != "inspector/openapi") {
     NOidcSession session;
@@ -1916,13 +1934,15 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
       out["state"]["authentication"]["type"] = "bearer";
     }
 
-    // Derive group from handler keys if not yet set by a handler call
+    // The group a fresh room starts on, derived from the tools it loaded: the first one whose key has a
+    // group at all. The group is the key's own (see `NInstanceTree::GroupOf`) - everything before its
+    // last slash - so a namespaced key gives the family (`ndmspc/ngnt`), not the namespace it lives in.
     if (fGroup.empty()) {
       const auto handlersCopy = GetHttpHandlers();
       for (const auto & h : handlersCopy) {
-        auto pos = h.first.find('/');
-        if (pos != std::string::npos) {
-          fGroup = h.first.substr(0, pos);
+        const std::string group = Ndmspc::NInstanceTree::GroupOf(h.first);
+        if (!group.empty()) {
+          fGroup = group;
           break;
         }
       }
@@ -2495,6 +2515,11 @@ void NHttpServer::ResetServer()
   /// objects, then remove any remaining objects that weren't cleaned up by
   /// the handlers.
   ///
+  /// A DELETE replayed from the history can be a control tool that resets the server itself (the state
+  /// action), so a reset already under way is not started again: it would recurse without end.
+  ///
+  if (fResetting) return;
+  fResetting = true;
   NLogInfo("NHttpServer::ResetServer: Clearing history ...");
   ClearHistory();
   NLogInfo("NHttpServer::ResetServer: Removing remaining input objects ...");
@@ -2507,6 +2532,7 @@ void NHttpServer::ResetServer()
     NLogInfo("NHttpServer::ResetServer: Removing input object '%s'", key.c_str());
     RemoveInputObject(key);
   }
+  fResetting = false;
   NLogInfo("NHttpServer::ResetServer: Done.");
 }
 
