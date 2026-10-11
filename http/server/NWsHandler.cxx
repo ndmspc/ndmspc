@@ -557,6 +557,9 @@ json NWsHandler::BuildHeartbeat(bool withPrevious)
   if (Ndmspc::gNHttpServer != nullptr) {
     data["payload"]["intervalMs"]        = Ndmspc::gNHttpServer->GetHeartbeatMs();
     data["payload"]["defaultIntervalMs"] = Ndmspc::gNHttpServer->GetHeartbeatDefaultMs();
+    // What the room is doing: a viewer that did not start the work - a read-only link above all -
+    // otherwise cannot tell a room that is busy from one that is idle.
+    data["payload"]["busyActions"] = Ndmspc::gNHttpServer->BusyActions();
   }
   try {
     data["payload"]["system"] = NUtils::GetSystemStats();

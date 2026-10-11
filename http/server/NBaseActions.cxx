@@ -50,6 +50,30 @@ bool RegisterBaseActions()
       .control     = "group",
       .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
+  Ndmspc::RegisterMcpTool("ndmspc/reload", {
+      .description = "Tell every client of this room to reload: what the room router says after it has "
+                     "rolled the room onto another image, so the viewers move to the new revision instead "
+                     "of sitting on one that is about to go away. Broadcast to every connection, and "
+                     "best-effort - a room that is already gone cannot be told.",
+      .methods     = {"POST"},
+      .inputSchema = {{"properties",
+                       {{"image",
+                         {{"type", "string"},
+                          {"description", "The image the room is being replaced with (for the message)."}}}}}},
+      .control     = "reload",
+      .explorer    = false, // a platform control: the router drives it, no tool to offer
+  });
+  Ndmspc::RegisterMcpTool("ndmspc/pads", {
+      .description = "What the room has drawn: GET reports the pads it keeps per session, DELETE forgets "
+                     "them so a view that joins afterwards starts empty. A view's own Clear all empties "
+                     "what it is shown; without this the room would hand the drawings back.",
+      .methods     = {"GET", "DELETE"},
+      .inputSchema = {{"properties",
+                       {{"group", {{"type", "string"}, {"description", "The tool group whose pads go."}}},
+                        {"session", {{"type", "string"}, {"description", "The session whose pads go; over the group."}}}}}},
+      .control     = "pads",
+      .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
+  });
 
   handlers["ndmspc/health"] = [](std::string method, json & /*httpIn*/, json & httpOut, json & wsOut,
                           std::map<std::string, TObject *> &) {
@@ -109,6 +133,56 @@ bool RegisterBaseActions()
     httpOut["payload"]["defaultIntervalMs"]  = server->GetHeartbeatDefaultMs();
   };
 
+  handlers["ndmspc/reload"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                           std::map<std::string, TObject *> &) {
+    if (method.find("POST") == std::string::npos) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "Unsupported HTTP method for reload";
+      return;
+    }
+
+    // What is broadcast comes from `wsOut`: the server sends the payload to every connection of this room
+    // once the handler returns (the same path a drawing takes, and the pads record). Every client reads it
+    // and reloads, which is what moves them onto the revision that replaced this one.
+    wsOut["payload"]["state"]["reload"] = httpIn.value("image", std::string());
+    httpOut["result"]                   = "success";
+  };
+
+  handlers["ndmspc/pads"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+                         std::map<std::string, TObject *> &) {
+    auto server = Ndmspc::gNHttpServer;
+    if (server == nullptr) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "No server to forget the pads on";
+      return;
+    }
+
+    if (method.find("DELETE") != std::string::npos) {
+      // The session's drawings go, and its group's with them: a view that named no session files under the
+      // group, so forgetting one without the other would leave what was drawn before the session existed.
+      const std::string group   = httpIn.value("group", "");
+      const std::string session = httpIn.value("session", "");
+      if (session.empty() && group.empty()) {
+        server->ForgetPads("");
+      }
+      else {
+        if (!session.empty()) server->ForgetPads(session);
+        if (!group.empty()) server->ForgetPads(group);
+      }
+      // One view's Clear all empties the room's pads, so every other view follows rather than keeping what
+      // the room no longer holds.
+      wsOut["payload"]["pads"] = server->GetPads();
+    }
+    else if (method.find("GET") == std::string::npos) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "Unsupported HTTP method for pads";
+      return;
+    }
+
+    httpOut["result"]          = "success";
+    httpOut["payload"]["pads"] = server->GetPads();
+  };
+
   handlers["ndmspc/state"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
                          std::map<std::string, TObject *> & /*inputs*/) {
     auto server = Ndmspc::gNHttpServer;
@@ -123,6 +197,9 @@ bool RegisterBaseActions()
         httpOut["payload"]["inspector"] = schema["inspector"];
         httpOut["payload"]["metadata"] = schema["metadata"];
         httpOut["payload"]["state"]["heartbeat"] = server->GetHeartbeatMs();
+        // What the room is doing right now: a read-only viewer (or one that just arrived) otherwise
+        // cannot tell a room that is busy from one that is idle.
+        httpOut["payload"]["state"]["busyActions"] = server->BusyActions();
         httpOut["payload"]["combinations"] = Ndmspc::NInstanceTree(server->GetCombinations()).ToTree();
         NLogInfo("State GET inspector: %s", schema["inspector"].dump().c_str());
       }

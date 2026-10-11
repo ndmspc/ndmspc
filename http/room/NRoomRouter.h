@@ -85,6 +85,7 @@ struct NRoomState {
   std::string tokenRo;     ///< Access token for the room's read-only link (GET only)
   std::string owner;       ///< Who created the room ("" when nobody identified themselves, see Ownership)
   std::string profile;     ///< The room skeleton profile it was created with ("" when the skeleton has none)
+  bool        autoUpdate{false}; ///< Whether it follows the deployment's image on entry (see kAutoUpdateAnnotation)
   std::string image;       ///< The container image it is pinned to ("" until one is resolved)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
   /// The same clock as it stands on the room's own Service (`ndmspc.io/room-seen`): what the router
@@ -174,6 +175,8 @@ class NRoomClusterClient : public IRoomCluster {
  *                           whose creation failed)
  *   ndmspc/room/close    DELETE    delete a room's HTTPRoute and Knative Service (a creation still running
  *                           is cancelled)
+ *   ndmspc/room/clear    DELETE    forget a room's stored session, so the next time it is entered it
+ *                           starts empty (a room that is already running keeps what it holds)
  *   ndmspc/room/state    GET/POST  internal: a room reports its session here and fetches it back when it
  *                           wakes (hidden from the MCP tool list)
  *   ndmspc/room/backup   GET       export every tracked room and its session as one JSON document
@@ -374,6 +377,8 @@ class NRoomRouter {
   void HandleCapacity(const std::string & method, json & in, json & out);
   /// @brief ndmspc/room/close: delete a room, cancelling a creation still running for it.
   void HandleClose(const std::string & method, json & in, json & out);
+  /// @brief ndmspc/room/clear: forget a room's stored session, so the next entry starts empty.
+  void HandleClear(const std::string & method, json & in, json & out);
   /// @brief ndmspc/room/state: a room reports its session, or fetches it back.
   void HandleState(const std::string & method, json & in, json & out);
   /// @brief ndmspc/room/backup: export the tracked rooms the caller may see and their sessions. A `room` in
@@ -737,6 +742,15 @@ class NRoomRouter {
    * running room is not disturbed by it; a room created before profiles existed simply has none.
    */
   static constexpr const char * kProfileAnnotation = "ndmspc.io/room-profile";
+  /**
+   * Whether this room follows the deployment's image by itself, kept per room (`"on"`/`"off"`).
+   *
+   * Absent is **off**: a room stays on the revision it runs, exactly as every room did before the flag
+   * existed, and following is the deliberate act. The UI asks the room this when deciding whether to roll
+   * it on entry (see `needsUpdateOnEntry` in the UI), and a room locked here is never rolled on entry
+   * whatever the deployment moves to - which is what makes it a lock rather than a preference.
+   */
+  static constexpr const char * kAutoUpdateAnnotation = "ndmspc.io/room-auto-update";
 
   /**
    * @brief The Service annotation holding the container image a room is pinned to (see "Room image").
@@ -892,6 +906,18 @@ class NRoomRouter {
    * @return True on success.
    */
   bool Annotate(const std::string & name, const std::string & key, const std::string & value, std::string & error);
+  /**
+   * @brief Drops something a room keeps on its own Knative Service (see Annotate).
+   *
+   * A merge patch that sets the annotation to JSON null removes the key - how a cleared session stops
+   * being replayed.
+   *
+   * @param name Kubernetes name of the room.
+   * @param key The annotation key to remove.
+   * @param error Filled when the annotation cannot be cleared.
+   * @return True on success.
+   */
+  bool ClearAnnotation(const std::string & name, const std::string & key, std::string & error);
   /**
    * @brief Returns a room's stored session snapshot.
    *
@@ -1062,6 +1088,16 @@ class NRoomRouter {
    * @param profile The resolved profile name.
    */
   void SetProfile(const std::string & name, const std::string & profile);
+  /**
+   * @brief Record whether a room follows the deployment's image on entry (see {@link kAutoUpdateAnnotation}).
+   *
+   * Kept on the room's Service as well as in the registry, because the registry is rebuilt from the
+   * annotations at every adopt: a flag held only in memory would be forgotten by the next restart.
+   *
+   * @param name Kubernetes name of the room.
+   * @param follow True when the room follows the deployment, false to lock it to the revision it runs.
+   */
+  void SetAutoUpdate(const std::string & name, bool follow);
   /**
    * @brief The image a room is pinned to, read under the registry lock (see "Room image").
    * @param name Kubernetes name of the room.

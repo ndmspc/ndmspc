@@ -353,6 +353,48 @@ bool NRoomSession::Restore(NHttpRequest & http, const std::string & roomBaseUrl,
   return RestoreInPlace(snapshot, dispatch, error);
 }
 
+bool NRoomSession::Reload(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & image,
+                          std::string & error, const std::string & token)
+{
+  // One call, to the room's own reload route: the room publishes the message and every client it has reads
+  // it. The conventions are `Restore`'s (trim the base, the room token in its header, HTTP 200 kept even
+  // when a handler fails so the envelope is what says whether it worked, nothing thrown).
+  const std::string                  url = TrimBase(roomBaseUrl) + "/api/ndmspc/reload";
+  std::map<std::string, std::string> headers;
+  headers["Content-Type"] = "application/json";
+  if (!token.empty()) headers[NRoomAccess::kHeader] = token;
+
+  json body;
+  body["image"] = image;
+
+  NHttpResponse response;
+  try {
+    response = http.request("POST", url, body.dump(), headers);
+  }
+  catch (const std::exception & e) {
+    error = "cannot reach the room at " + url + " (" + e.what() + ")";
+    return false;
+  }
+  if (response.status != 200) {
+    error = "POST " + url + " answered HTTP " + std::to_string(response.status) + ": " + Elide(response.body);
+    return false;
+  }
+
+  try {
+    const json parsed = json::parse(response.body);
+    if (StringMember(parsed, "result") != "success") {
+      const std::string detail = StringMember(parsed, "error");
+      error = "POST " + url + " failed: " + (detail.empty() ? Elide(response.body) : detail);
+      return false;
+    }
+  }
+  catch (const json::parse_error &) {
+    error = "POST " + url + " returned a response that is not JSON: " + Elide(response.body);
+    return false;
+  }
+  return true;
+}
+
 std::string NRoomSession::Encode(const json & snapshot)
 {
   if (!snapshot.is_object() || snapshot.empty()) return {};

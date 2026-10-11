@@ -152,6 +152,24 @@ class NRoomSession {
                       std::string & error, const std::string & token = std::string());
 
   /**
+   * @brief Tell a room that it is being replaced, so it can send its clients to the new revision.
+   *
+   * What a router says after it has rolled a room: the room broadcasts the message to every connection it
+   * has, and each client reloads onto the revision taking over. **Best-effort by design** - it is called
+   * while the old revision is still serving (the window a roll leaves before it is gone), and a room that
+   * has already gone cannot be told anything: the socket dropping says the same thing, less politely.
+   *
+   * @param http Transport to use.
+   * @param roomBaseUrl Room base URL.
+   * @param image The image the room is being replaced with, for the message.
+   * @param error Filled with the reason when the room could not be told.
+   * @param token The room's read-write access token, when it has one.
+   * @return True when the room answered that it had published the message.
+   */
+  static bool Reload(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & image,
+                     std::string & error, const std::string & token = std::string());
+
+  /**
    * @brief Whether an action defines session state and is therefore worth replaying.
    *
    * The tools say so themselves (NMcpToolInfo::session, e.g. an `open`, and the step that rebuilds what

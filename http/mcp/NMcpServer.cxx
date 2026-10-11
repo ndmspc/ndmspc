@@ -202,9 +202,13 @@ json NMcpServer::BuildTools() const
               continue;
             }
             for (auto field = prop.value().begin(); field != prop.value().end(); ++field) {
-              // The macro's word wins, except where the live workspace already has the data.
-              if (target.contains(field.key()) && isDataKeyword(field.key())) continue;
-              target[field.key()] = field.value();
+              // The live workspace is the authority on the data a field *offers* — the enum, items,
+              // format or nodes that exist right now — but not on a `default` the macro declares: a
+              // fresh form starts on the tool's own default, not on whatever was used last. (The live
+              // one still fills a field the macro leaves open, which is below.)
+              const std::string & keyword = field.key();
+              if (keyword != "default" && target.contains(keyword) && isDataKeyword(keyword)) continue;
+              target[keyword] = field.value();
             }
           }
         }

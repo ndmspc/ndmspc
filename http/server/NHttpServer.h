@@ -332,6 +332,12 @@ class NHttpServer : public THttpServer {
   /// takes its readings at a fine interval, so a long job can be watched as it goes.
   void SetBusyAction(bool busy);
 
+  /// @brief How many actions are in flight now — what the room is *doing*.
+  ///
+  /// Published with the heartbeat (and the state read), so a client that did not start the work — a
+  /// read-only viewer above all — can tell a room that is busy from one that is idle.
+  int BusyActions() const { return fBusyActions.load(); }
+
   /// Notes that the room was asked to do something — any action, over any transport.
   ///
   /// This and {@link SetBusyAction} are what the heartbeat thread reads to choose its cadence, and it is
@@ -638,6 +644,16 @@ class NHttpServer : public THttpServer {
    * @param envelopes The frame's `payload.pad`: one envelope, or a list of them.
    */
   void                                          RecordPads(const std::string & group, const json & envelopes);
+  /**
+   * @brief Forget the pad envelopes one session drew, so a view that joins afterwards is not shown them.
+   *
+   * A view's own "clear all" empties the drawings it is *shown*; without this the room's record would hand
+   * them back to the next view that joins (or to the same one coming back), and clearing would read as
+   * having done nothing.
+   *
+   * @param key The session (or group) whose drawings go; empty forgets every session's.
+   */
+  void                                          ForgetPads(const std::string & key);
 
   /// @brief Enable or disable the MCP endpoint (POST /api/mcp). Disabled by default.
   void SetMcpEnabled(bool enabled) { fMcpEnabled = enabled; }
@@ -652,6 +668,19 @@ class NHttpServer : public THttpServer {
   std::string RoomAccessLevel(const std::string & token) const;
   /// @brief The access token a request carries: `?token=`, the header, or the room's cookie.
   std::string RequestAccessToken(THttpCallArg * arg) const;
+  /**
+   * @brief Whether a request that travels as a POST is only a **read** of the room — the MCP methods
+   *        that open the protocol and ask what the room offers (`initialize`, `notifications/initialized`,
+   *        `tools/list`, `ping`) rather than change it.
+   *
+   *        A read-only token may make these: without them a viewer on a read-only link would see an
+   *        empty room, since listing is how the page learns what there is to look at. A call that names
+   *        a tool (`tools/call`) is a change and stays refused.
+   *
+   * @param arg The request, whose body carries the JSON-RPC method.
+   * @return True when the request only reads.
+   */
+  bool IsMcpReadRequest(THttpCallArg * arg) const;
   /// @brief This room's own read-write access token ("" when it was given none).
   std::string RoomAccessToken() const;
   /**

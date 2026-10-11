@@ -353,6 +353,37 @@ std::string NHttpServer::RequestAccessToken(THttpCallArg * arg) const
   return NRoomAccess::TokenFromCookie(RequestHeader(arg, "Cookie"));
 }
 
+bool NHttpServer::IsMcpReadRequest(THttpCallArg * arg) const
+{
+  // Whether this request merely asks for something, which is all a read-only room token is admitted for.
+  if (arg == nullptr) return false;
+  // The body of a `POST /api/mcp` is the request's **post data**, which is where the MCP endpoint reads it
+  // from too (see the `mcp` branch of the request handler). Asking `GetContent()` here found nothing at
+  // all, so every read-only `tools/list` was refused as if it were a write: a viewer on a read-only link
+  // then had no tools, and with no tools nothing to draw - an empty inspector and empty pads rather than a
+  // room it may look at. `GetContent()` is still consulted for a request that carries its body that way.
+  const char * data = static_cast<const char *>(arg->GetPostData());
+  std::string  text = data != nullptr ? std::string(data) : std::string();
+  if (text.empty() && arg->GetContent() != nullptr) {
+    const int stated = arg->GetContentLength();
+    text = stated > 0 ? std::string(static_cast<const char *>(arg->GetContent()), static_cast<size_t>(stated))
+                      : std::string(static_cast<const char *>(arg->GetContent()));
+  }
+  if (text.empty()) return false;
+  try {
+    const json        parsed = json::parse(text);
+    const std::string method = parsed.value("method", std::string());
+    // The MCP methods that only ask: opening the protocol, and asking what the room offers. Anything
+    // else - `tools/call` above all - names work to do, and a read-only token does not do work.
+    return method == "initialize" || method == "notifications/initialized" ||
+           method == "tools/list" || method == "ping";
+  }
+  catch (const std::exception &) {
+    // Not JSON, or not the shape expected: not something a read-only token is admitted for.
+    return false;
+  }
+}
+
 bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method, bool isPage,
                                  bool alreadyAdmitted)
 {
@@ -408,7 +439,11 @@ bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method
     }
   }
 
-  if (level == NRoomAccess::kReadOnly && method.find("GET") == std::string::npos) {
+  // A read-only token reads; it does not write. What travels as a POST is admitted only when it is
+  // one of the MCP methods that merely ask (see IsMcpReadRequest) - without those a viewer on a
+  // read-only link would see an empty room, since listing is how the page learns what there is.
+  if (level == NRoomAccess::kReadOnly && method.find("GET") == std::string::npos &&
+      !IsMcpReadRequest(arg)) {
     NLogWarning("Refusing a %s request to /api of room '%s': that token is read-only", method.c_str(),
                 fRoomId.c_str());
     arg->SetContentType("application/json");
@@ -715,6 +750,15 @@ void NHttpServer::RecordPads(const std::string & group, const json & envelopes)
     }
     if (!replaced) kept.push_back(envelope);
   }
+}
+
+void NHttpServer::ForgetPads(const std::string & key)
+{
+  // A view's Clear all empties what the room has drawn, not only what that view is shown: the record is
+  // what a joining view is handed (see SessionState), so leaving it would hand the drawings straight back
+  // and clearing would read as having done nothing.
+  if (key.empty()) fPads = json::object();
+  else fPads.erase(key);
 }
 
 json NHttpServer::SessionState()

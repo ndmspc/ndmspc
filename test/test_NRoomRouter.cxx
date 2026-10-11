@@ -482,6 +482,7 @@ struct Router {
     else if (action == "list") router->HandleList(method, in, out);
     else if (action == "capacity") router->HandleCapacity(method, in, out);
     else if (action == "close") router->HandleClose(method, in, out);
+    else if (action == "clear") router->HandleClear(method, in, out);
     else if (action == "state") router->HandleState(method, in, out);
     else if (action == "backup") router->HandleBackup(method, in, out);
     else if (action == "config") router->HandleConfig(method, in, out);
@@ -842,6 +843,57 @@ TEST(NRoomAccessTest, ThePageLinkStatesItsLevelAndTheRoomChecksItAgrees)
     arg.SetQuery("room=alpha&token=ro-token&access=rw");
     EXPECT_TRUE(server.ApplyRoomAccess(&arg, "GET", /*isPage=*/false));
   }
+}
+
+TEST(NRoomAccessTest, AReadOnlyTokenIsStillAdmittedForWhatOnlyReads)
+{
+  // Listing travels as a POST to /api/mcp, and listing is how a page learns what there is to look at
+  // - so a read-only token has to be admitted for the MCP methods that only ask, or an RO link opens
+  // an empty room. Doing something (a `tools/call`) is refused, as it always was.
+  const std::string tokens = NRoomRouter::AccessJson("rw-token", "ro-token").dump();
+  EnvGuard          access("NDMSPC_ROOM_ACCESS", tokens.c_str());
+  NHttpServer       server("", /*ws=*/false, 10000, {}, /*startEngine=*/false);
+
+  const auto posted = [&server](const std::string & token, const std::string & body) {
+    THttpCallArg arg;
+    arg.SetMethod("POST");
+    arg.SetQuery(("room=alpha&token=" + token).c_str());
+    // The body arrives as the request's **post data**, which is where the MCP endpoint reads it too. This
+    // test used to hand it over with `SetContent` instead, and passed while a real read-only link was
+    // refused: no request carries its JSON-RPC call that way, so the check never saw a method at all.
+    arg.SetPostData(std::string(body));
+    return server.ApplyRoomAccess(&arg, "POST", /*isPage=*/false);
+  };
+
+  // The methods that only ask: what the room offers, and opening the protocol.
+  EXPECT_TRUE(posted("ro-token", R"({"jsonrpc":"2.0","id":1,"method":"tools/list"})"));
+  EXPECT_TRUE(posted("ro-token", R"({"jsonrpc":"2.0","id":1,"method":"initialize"})"));
+  EXPECT_TRUE(posted("ro-token", R"({"jsonrpc":"2.0","id":1,"method":"notifications/initialized"})"));
+  EXPECT_TRUE(posted("ro-token", R"({"jsonrpc":"2.0","id":1,"method":"ping"})"));
+
+  // Anything that names work to do is not one of them, and neither is a body that is not a call.
+  EXPECT_FALSE(posted("ro-token", R"({"jsonrpc":"2.0","id":1,"method":"tools/call"})"));
+  EXPECT_FALSE(posted("ro-token", "{}"));
+  EXPECT_FALSE(posted("ro-token", "not json"));
+
+  // A request that carries its body the other way is read too, and judged the same.
+  {
+    THttpCallArg arg;
+    arg.SetMethod("POST");
+    arg.SetQuery("room=alpha&token=ro-token");
+    arg.SetContent(R"({"jsonrpc":"2.0","id":1,"method":"tools/list"})");
+    EXPECT_TRUE(server.ApplyRoomAccess(&arg, "POST", /*isPage=*/false));
+  }
+  {
+    THttpCallArg arg;
+    arg.SetMethod("POST");
+    arg.SetQuery("room=alpha&token=ro-token");
+    arg.SetContent(R"({"jsonrpc":"2.0","id":1,"method":"tools/call"})");
+    EXPECT_FALSE(server.ApplyRoomAccess(&arg, "POST", /*isPage=*/false));
+  }
+
+  // The read-write token does either.
+  EXPECT_TRUE(posted("rw-token", R"({"jsonrpc":"2.0","id":1,"method":"tools/call"})"));
 }
 
 TEST(NRoomAccessTest, AHeaderIsReadWhateverCaseAProxyLeavesItIn)
@@ -1904,6 +1956,46 @@ TEST(NRoomRouterActionsTest, SessionStateRequiresTheRoomsOwnToken)
   EXPECT_EQ(fetched["payload"]["snapshot"]["file"], "x.root");
 }
 
+TEST(NRoomRouterActionsTest, ClearingASessionForgetsItAndOnlyItsOwnerMayAsk)
+{
+  Router test;
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  const json        opened  = test.OpenBy(Verified("alice", "alice@example.com"), "alpha", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  const std::string tokenRw = opened["payload"]["access"]["rw"].get<std::string>();
+  ASSERT_FALSE(tokenRw.empty());
+
+  // The room reports its session, as it does after every change.
+  json report{{"room", "alice-alpha"},
+              {"snapshot", {{"v", 1}, {"file", "x.root"}}},
+              {"_query", "room=alice-alpha&token=" + tokenRw}};
+  EXPECT_EQ(test.Call("state", "POST", report)["result"], "success");
+  const auto hasSnapshot = [&]() {
+    return test.Call("status", "GET", Verified("alice", "alice@example.com", {{"room", "alice-alpha"}}))
+        ["payload"]["hasSnapshot"]
+            .get<bool>();
+  };
+  EXPECT_TRUE(hasSnapshot());
+
+  // Somebody else's room is not theirs to clear.
+  const json refused =
+      test.Call("clear", "DELETE", Verified("bob", "bob@example.com", {{"room", "alice-alpha"}}));
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused.value("code", ""), "not_owner");
+  EXPECT_TRUE(hasSnapshot());
+
+  // Its owner clears it: the stored session goes, and the room itself stays.
+  const json cleared =
+      test.Call("clear", "DELETE", Verified("alice", "alice@example.com", {{"room", "alice-alpha"}}));
+  ASSERT_EQ(cleared["result"], "success");
+  EXPECT_EQ(cleared["payload"]["room"], "alice-alpha");
+  EXPECT_FALSE(hasSnapshot());
+  EXPECT_EQ(test.Call("status", "GET", Verified("alice", "alice@example.com", {{"room", "alice-alpha"}}))
+                ["payload"]["tracked"],
+            true);
+}
+
 TEST(NRoomRouterActionsTest, SessionStateStillWorksForARoomWithoutTokens)
 {
   Router test;
@@ -2678,6 +2770,70 @@ TEST(NRoomRouterActionsTest, TheListReportsEachRoomsImageAndTag)
   ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
   EXPECT_EQ(list["payload"]["rooms"][0]["image"], "registry.example.com/ndmspc/base:v1.4.0-rc12");
   EXPECT_EQ(list["payload"]["rooms"][0]["imageTag"], "v1.4.0-rc12");
+}
+
+TEST(NRoomRouterActionsTest, TheRoomCarriesWhetherItFollowsTheDeployment)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImage("registry.example.com/ndmspc/base:v1.4.0-rc12");
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+
+  // A room nobody has asked about does not follow, and the list says so: absent is off, which is what every
+  // room did before the flag existed. A view reads this before rolling an idle room on entry.
+  EXPECT_EQ(test.Call("list", "GET")["payload"]["rooms"][0]["autoUpdate"], false);
+  // Nothing was written on the room either - the flag is only recorded when it is asked for.
+  EXPECT_FALSE(test.cluster->objects.at(service)["metadata"]["annotations"].contains("ndmspc.io/room-auto-update"));
+
+  // Asked for with the roll, it is kept **on the room** (the annotation), so another client - and a router
+  // that restarts, which rebuilds its registry from these annotations - reads the same answer.
+  json in;
+  in["room"]       = "alpha";
+  in["autoUpdate"] = true;
+  ASSERT_EQ(test.Call("upgrade", "POST", in)["result"], "success");
+
+  EXPECT_EQ(test.cluster->objects.at(service)["metadata"]["annotations"]["ndmspc.io/room-auto-update"], "on");
+  EXPECT_EQ(test.Call("list", "GET")["payload"]["rooms"][0]["autoUpdate"], true);
+
+  // And locking it again turns it off, which is the lock a view holds an idle room by.
+  in["autoUpdate"] = false;
+  ASSERT_EQ(test.Call("upgrade", "POST", in)["result"], "success");
+  EXPECT_EQ(test.cluster->objects.at(service)["metadata"]["annotations"]["ndmspc.io/room-auto-update"], "off");
+  EXPECT_EQ(test.Call("list", "GET")["payload"]["rooms"][0]["autoUpdate"], false);
+}
+
+TEST(NRoomRouterActionsTest, AReadOnlyLinkMayNotRollTheRoom)
+{
+  // The role **is** the token's level: whoever presents the room's read-only token is a guest, and a guest
+  // may not roll the room onto another image - whatever identity is behind the request. That check is the
+  // router's, not the page's, since a page can be talked round and the router cannot.
+  Router test;
+  test.cluster->skeleton = SkeletonWithImage("ndmspc/base:new");
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["result"], "success");
+
+  const json listed = test.Call("list", "GET");
+  ASSERT_EQ(listed["payload"]["rooms"].size(), 1u);
+  const std::string ro = listed["payload"]["rooms"][0]["access"]["ro"].get<std::string>();
+  const std::string rw = listed["payload"]["rooms"][0]["access"]["rw"].get<std::string>();
+
+  // A guest's request is refused with a code a view can act on, and the room is left where it was.
+  json guest;
+  guest["room"]  = "alpha";
+  guest["token"] = ro;
+  const json refused = test.Call("upgrade", "POST", guest);
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused["code"], "read_only");
+
+  // A token the room does not have is no better than a guest's: presenting the wrong one is not a way in.
+  guest["token"] = "not-this-rooms-token";
+  EXPECT_EQ(test.Call("upgrade", "POST", guest)["result"], "failure");
+
+  // The owner's own token is the one that may roll it.
+  json owner;
+  owner["room"]  = "alpha";
+  owner["token"] = rw;
+  EXPECT_EQ(test.Call("upgrade", "POST", owner)["result"], "success");
 }
 
 TEST(NRoomRouterActionsTest, ARoomInUseIsNotRolledOntoTheNewImage)
