@@ -685,7 +685,8 @@ void toolBrowser()
                                     {"action", group + "/browse"},
                                     {"body", "The file is open, and this step was added for it: the tree "
                                              "below was built from the file itself and every object in it "
-                                             "can be clicked."}},
+                                             "can be clicked. Don't click anything yet — press Next and we "
+                                             "will guide you."}},
                                json{{"action", group + "/browse"}, {"click", "hpx"}},
                                json{{"show", "pads"}, {"body", "Now draw hpxpy. Click Next."}},
                                json{{"action", group + "/browse"}, {"click", "hpxpy"}},
@@ -710,7 +711,8 @@ void toolBrowser()
                                json{{"show", "browseStep"},
                                     {"action", group + "/browse"},
                                     {"body", "graph.root's own tree: graphs of several kinds, and the canvases "
-                                             "that go with them."}},
+                                             "that go with them. Don't click anything yet — press Next and we "
+                                             "will guide you."}},
                                json{{"action", group + "/browse"}, {"click", "Graph"}},
                                json{{"show", "pads"}, {"body", "A graph from your file. Click Next."}},
                                json{{"action", group + "/browse"}, {"click", "c1"}},

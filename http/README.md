@@ -1035,6 +1035,7 @@ are served both as `/api/ndmspc/room/*` and as MCP tools):
 | `ndmspc/room/list` | GET | Every room being tracked, including those still preparing, those waiting for resources (`state=pending`) and those whose creation failed. |
 | `ndmspc/room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
 | `ndmspc/room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
+| `ndmspc/room/clear` | DELETE | Forget a room's stored session so the next time it is entered it starts empty. The room itself is untouched (use `ndmspc/room/close` to delete it), and a room that is already running keeps what it holds until it is closed and re-entered. |
 | `ndmspc/room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
 | `ndmspc/room/backup` | GET | Every tracked room and its session as one JSON document, links and all; `room` (body or query) answers with that one room alone. A backup, for coming back to your own deployment. |
 | `ndmspc/room/config` | GET | **One room's configuration**: the file it opened, the steps that were run, the size it was created at, and what was on screen — and nothing about the room: no id, no owner, no links. What somebody hands to somebody else, and what `ndmspc/room/import` takes. |
@@ -1125,7 +1126,11 @@ keeps serving without a token, and it is the room's own process that turns a str
 Two are minted per room when it is created, one per level:
 
 - **`rw`** may do anything in the room;
-- **`ro`** may only read: a non-GET is refused.
+- **`ro`** may only read: a non-GET is refused, except the MCP methods that only ask — `initialize`,
+  `notifications/initialized`, `tools/list` and `ping`. They travel as a POST, and listing is how the
+  page learns what there is to look at, so without them a read-only link would open an empty room.
+  Everything that changes the room (`tools/call`, and every mutating route) is still refused with
+  `code: read_only`.
 
 They are reported as `access` in `ndmspc_room_open`, `ndmspc_room_status`, `ndmspc_room_list` and the backup document, and
 `ndmspc_room_open`'s `url` carries the **read-write** one — that URL is the link a client hands on. The pair
@@ -1298,8 +1303,13 @@ which `ndmspc/room/list` reports alongside `currentTag` (the skeleton image's ow
 "currentTag": "v1.5.0-rc12"
 ```
 
-`ndmspc/room/upgrade` takes `room`, `tag`, `image`, `force` and `wait` (body or MCP arguments; `tag`/`image`
-may also come as `?tag=`/`?image=`). Without `tag` or `image` the room is rolled onto `currentTag` —
+`ndmspc/room/upgrade` takes `room`, `tag`, `image`, `force`, `wait` and `autoUpdate` (body or MCP arguments;
+`tag`/`image` may also come as `?tag=`/`?image=`). `autoUpdate` is the room's own answer to what it does the
+*next* time it is entered: `false` locks it to whatever it is rolled onto, `true` lets it follow the
+deployment again, and leaving it out keeps the room as it was. It is kept on the room
+(`ndmspc.io/room-auto-update`), so the lock holds for every client and survives a router restart, and
+`ndmspc/room/list` reports it back as `autoUpdate` — which is what a view reads before rolling an idle
+room on entry. Without `tag` or `image` the room is rolled onto `currentTag` —
 the plain "update this room". Instead of a tag, `image` names a full reference: it is accepted only when
 it is one the room has actually run (see `versions` below), which is the way to roll back to a version
 whose tag the deployment no longer lists, or whose repository is not the skeleton's. Rolling replaces

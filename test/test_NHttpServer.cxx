@@ -117,11 +117,15 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
   // The heartbeat cadence: GET reports it, POST sets it, so a view can ask for finer readings while
   // something long is running and put the deployment's own back afterwards.
   EXPECT_NE(handlers.find("ndmspc/heartbeat"), handlers.end());
+  // What the room has drawn: GET reports its pads, DELETE forgets them, so a view that clears them does
+  // not have them handed back on its next visit.
+  EXPECT_NE(handlers.find("ndmspc/pads"), handlers.end());
   EXPECT_NE(tools.find("ndmspc/health"), tools.end());
   EXPECT_NE(tools.find("ndmspc/state"), tools.end());
   EXPECT_NE(tools.find("ndmspc/group"), tools.end());
   EXPECT_NE(tools.find("ndmspc/session"), tools.end());
   EXPECT_NE(tools.find("ndmspc/heartbeat"), tools.end());
+  EXPECT_NE(tools.find("ndmspc/pads"), tools.end());
 
   // The debug echo helper is gone with the macro it used to live in: a macro that wants one
   // registers its own.
@@ -130,7 +134,7 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
 
   // Registering twice is what a deployment that also loads the deprecated toolBase.C shim does.
   EXPECT_TRUE(Ndmspc::RegisterBaseActions());
-  EXPECT_EQ(handlers.size(), 5u);
+  EXPECT_EQ(handlers.size(), 7u);
 
   // A process that never wired a handler map is told so rather than crashing.
   Ndmspc::gNdmspcHttpHandlers = nullptr;

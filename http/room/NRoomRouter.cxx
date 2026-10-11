@@ -758,6 +758,24 @@ void NRoomRouter::SetProfile(const std::string & name, const std::string & profi
   if (it != fRooms.end()) it->second.profile = profile;
 }
 
+// Records whether a room follows the deployment's image, in the registry **and** on its Service.
+//
+// The Service annotation is the one that lasts: the registry is rebuilt from it at every adopt, so a flag
+// kept only here would be forgotten by the next restart - and never seen by another router. Written the
+// way the room's other marks are, which does not create a revision (see `Annotate`).
+void NRoomRouter::SetAutoUpdate(const std::string & name, bool follow)
+{
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it != fRooms.end()) it->second.autoUpdate = follow;
+  }
+  std::string error;
+  if (!Annotate(name, kAutoUpdateAnnotation, follow ? "on" : "off", error)) {
+    NLogWarning("[room] cannot store whether %s follows the deployment's image: %s", name.c_str(), error.c_str());
+  }
+}
+
 // The image a room is pinned to, read under the registry lock.
 std::string NRoomRouter::RoomImage(const std::string & name) const
 {
@@ -1170,6 +1188,23 @@ bool NRoomRouter::Annotate(const std::string & name, const std::string & key, co
 {
   json patch;
   patch["metadata"]["annotations"][key] = value;
+
+  const auto response =
+      Request("PATCH", SvcPath(name), patch.dump(), "application/merge-patch+json");
+  if (response.status < 200 || response.status >= 300) {
+    error = "PATCH " + SvcPath(name) + " failed (HTTP " + std::to_string(response.status) +
+            "): " + response.body;
+    return false;
+  }
+  return true;
+}
+
+// Drops something a room keeps on its own Knative Service (see Annotate). A merge patch that sets an
+// annotation to JSON null removes the key, which is how a cleared session stops being replayed.
+bool NRoomRouter::ClearAnnotation(const std::string & name, const std::string & key, std::string & error)
+{
+  json patch;
+  patch["metadata"]["annotations"][key] = nullptr;
 
   const auto response =
       Request("PATCH", SvcPath(name), patch.dump(), "application/merge-patch+json");
@@ -1688,6 +1723,10 @@ void NRoomRouter::Adopt()
           // silently resize it. A room created before profiles existed has none, and takes the
           // skeleton's default the next time it is opened.
           state.profile = metadata.value("annotations", json::object()).value(kProfileAnnotation, "");
+          // Whether this room follows the deployment's image (see kAutoUpdateAnnotation); absent, it does
+          // not - a room nobody has asked about stays on the revision it runs.
+          state.autoUpdate =
+              metadata.value("annotations", json::object()).value(kAutoUpdateAnnotation, std::string()) == "on";
         }
         if (state.image.empty()) {
           // The image it is pinned to: the annotation this router wrote when it created or last
@@ -2262,6 +2301,34 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
   }
   std::string applyCode;
   if (!Apply(SvcCollection(), SvcPath(name), service, error, applyCode)) return fail(error, applyCode);
+
+  // A room that was already on another image has clients on the revision that is about to go: tell it, so
+  // they reload onto the new one instead of sitting on a room that is disappearing under them. Off the
+  // request path, like the router's other writes, and best-effort by design - the revision still serves at
+  // this moment (that is what makes the window), and one already gone cannot be told anything: the socket
+  // dropping says the same thing, less politely.
+  if (!pinned.empty() && pinned != image) {
+    std::string previous;
+    {
+      std::lock_guard<std::mutex> lock(fMutex);
+      const auto                  it = fRooms.find(name);
+      if (it != fRooms.end()) previous = it->second.revision;
+    }
+    if (!previous.empty()) {
+      const auto token = access["rw"].is_string() ? access["rw"].get<std::string>() : std::string();
+      auto       done  = std::make_shared<std::atomic<bool>>(false);
+      SpawnWorker(name, std::thread([this, previous, image, token, done]() {
+                    Ndmspc::NHttpRequest http;
+                    std::string          reloadError;
+                    if (!Ndmspc::NRoomSession::Reload(http, RoomBaseUrl(previous), image, reloadError, token)) {
+                      NLogInfo("[room] the replaced revision could not tell its clients to reload: %s",
+                               reloadError.c_str());
+                    }
+                    done->store(true);
+                  }),
+                  done);
+    }
+  }
 
   // Closed while the Service was being created: the room is gone for good, so take the Service
   // back out rather than leaving one nothing else will ever clean up.
@@ -3101,7 +3168,10 @@ bool NRoomRouter::Register(NHttpServer * server)
                      "run before (one of the images room/status reports as versions) - the way to roll "
                      "back to a version the tag list does not reach. A room somebody is in is refused "
                      "with code=in_use unless force=true. With wait=false the roll runs in the "
-                     "background (the default); poll room/status or room/list for the outcome.",
+                     "background (the default); poll room/status or room/list for the outcome. Pass "
+                     "autoUpdate to say what the room does next: false locks it to what it is rolled "
+                     "onto, true lets it follow the deployment on entry (room/list reports the room's "
+                     "own answer as autoUpdate); without it the room keeps what it had.",
       .methods     = {"POST"},
       .inputSchema = {{"properties",
                        {{"room", {{"type", "string"}, {"description", "Room id."}}},
@@ -3119,7 +3189,13 @@ bool NRoomRouter::Register(NHttpServer * server)
                         {"wait",
                          {{"type", "boolean"},
                           {"description", "Wait for the new revision before answering (default true); "
-                                          "false returns at once with state=preparing."}}}}}},
+                                          "false returns at once with state=preparing."}}},
+                        {"autoUpdate",
+                         {{"type", "boolean"},
+                          {"description",
+                           "Whether the room follows the deployment's image when it is next entered: false "
+                           "locks it to what it is rolled onto, true lets it follow. Omit to leave the "
+                           "room as it was."}}}}}},
   });
   Ndmspc::RegisterMcpTool("ndmspc/room/list", {
       .description = "List the rooms the router is currently tracking (with their last-seen time). A "
@@ -3139,6 +3215,14 @@ bool NRoomRouter::Register(NHttpServer * server)
   });
   Ndmspc::RegisterMcpTool("ndmspc/room/close", {
       .description = "Delete a room's HTTPRoute and Knative Service immediately.",
+      .methods     = {"DELETE"},
+      .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
+  });
+  Ndmspc::RegisterMcpTool("ndmspc/room/clear", {
+      .description = "Forget a room's stored session - the file it opened and the steps under it that "
+                     "would be replayed when it wakes - so the room comes back empty. The room itself "
+                     "is not touched (use room/close to delete it); a room that is already running "
+                     "keeps what it holds until it is closed and re-entered.",
       .methods     = {"DELETE"},
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
@@ -3263,6 +3347,17 @@ bool NRoomRouter::Register(NHttpServer * server)
   handlers["ndmspc/room/close"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
                              std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleClose(method, in, out);
+  };
+  // -------------------------------------------------------------------------
+  //  /api/ndmspc/room/clear — forget a room's stored session
+  // -------------------------------------------------------------------------
+  //
+  // What a user asks for before entering a room: drop the session the room would replay, so it comes
+  // back empty. The room itself - its Service, its size, its owner - is untouched; room/close is what
+  // deletes a room.
+  handlers["ndmspc/room/clear"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                             std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleClear(method, in, out);
   };
   // -------------------------------------------------------------------------
   //  /api/ndmspc/room/watch — set what this socket is pushed
@@ -3522,6 +3617,34 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
     out["result"] = "failure";
     out["error"]  = skeletonError;
     return;
+  }
+
+  // Strict on a guest link. The role **is** the token's level (RW = owner, RO = guest), so a caller that
+  // presents the room's read-only token may not roll it, whatever identity is behind that request - that
+  // difference cannot be left to the page to respect. A request with no `token` at all is a caller talking
+  // to the router as themselves (the rooms list, a script), which the ownership check above has decided;
+  // one that names a token the room does not have is refused for the same reason a guest is.
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it != fRooms.end()) {
+      const std::string presented = in.value("token", std::string());
+      const bool        guest     = !presented.empty() && presented != it->second.tokenRw;
+      if (guest) {
+        out["result"] = "failure";
+        out["code"]   = "read_only";
+        out["error"]  = "That link may only read this room, so it cannot roll it onto another image.";
+        return;
+      }
+    }
+  }
+
+  // Whether this room should follow the deployment from here on: asked for in the same request as the roll,
+  // because that is where the question belongs - the dialog's "keep this room on this revision" checkbox
+  // travels with the version it is rolling to. Absent leaves the room as it was, so a caller that only
+  // wanted to roll it does not thereby change what it does the next time it is entered.
+  if (in.contains("autoUpdate") && in["autoUpdate"].is_boolean()) {
+    SetAutoUpdate(ref.name, in["autoUpdate"].get<bool>());
   }
 
   // The version to roll onto, named one of two ways (see "Room image"):
@@ -3853,6 +3976,9 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       if (!access.empty()) room["access"] = access;
       if (!entry.second.owner.empty()) room["owner"] = entry.second.owner;
       if (!entry.second.profile.empty()) room["profile"] = entry.second.profile;
+      // Whether the room follows the deployment's image on entry: what the UI reads to decide whether it
+      // may roll an idle room at all (a locked room is never rolled, whoever moves).
+      room["autoUpdate"] = entry.second.autoUpdate;
       // Why its container last died, if it ever did: the reason a room the user expected to be
       // serving is not, which Kubernetes otherwise keeps to itself.
       const json lastError = NRoomRouter::LastErrorJson(entry.second.lastReason, entry.second.lastExit,
@@ -4040,7 +4166,13 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
     if (!tags.empty()) {
       out["payload"]["imageTags"] = tags;
       const std::string image = NdmspcRoomImage(skeleton);
-      if (!image.empty()) out["payload"]["currentTag"] = NdmspcImageTag(image);
+      if (!image.empty()) {
+        out["payload"]["currentTag"] = NdmspcImageTag(image);
+        // The image itself, not only the tag it ends in: two images can carry the same tag (a re-pushed
+        // `latest`, a reused `local`), and a view comparing tags alone would then call a room current
+        // while the router - which compares images, see the adopt pass - would still roll it.
+        out["payload"]["currentImage"] = image;
+      }
     }
   }
   else {
@@ -4397,6 +4529,57 @@ void NRoomRouter::HandleState(const std::string & method, json & in, json & out)
 }
 
 // ===========================================================================
+//  room/clear
+// ===========================================================================
+void NRoomRouter::HandleClear(const std::string & method, json & in, json & out)
+{
+  if (method.find("DELETE") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/clear";
+    return;
+  }
+
+  const std::string id = RequestId(in);
+  if (id.empty()) {
+    out["result"] = "failure";
+    out["error"]  = "Missing room id (send it in the body as {\"room\": \"<id>\"})";
+    return;
+  }
+
+  // Like room/close: adopt first, because a router that has just started has not read the cluster back
+  // yet and would take an unread room for nobody's - so only the owner (or an admin) clears a session.
+  Adopt();
+
+  const NRequestIdentity identity = RequestIdentity(in);
+  const NRoomRef         ref      = Resolve(id, identity);
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it != fRooms.end() && !MaySee(it->second, identity)) {
+      out["result"] = "failure";
+      out["code"]   = kNotOwner;
+      out["error"]  = NRoomRouter::NotOwnerMessage(ref.value, it->second.owner);
+      return;
+    }
+    // The registry copy goes, and the Service annotation with it, so a router restart cannot bring the
+    // cleared session back. The room's own id and size are left alone: only the session is forgotten.
+    if (it != fRooms.end()) it->second.snapshot.clear();
+  }
+
+  std::string error;
+  if (!ClearAnnotation(ref.name, kNRoomStateAnnotation, error)) {
+    NLogWarning("[room] cannot clear the session of %s: %s", ref.name.c_str(), error.c_str());
+  }
+  NLogInfo("[room] %s: cleared its stored session", ref.name.c_str());
+  // A view watching this room's session sees it go now rather than at the next tick.
+  PublishNow();
+
+  out["result"]          = "success";
+  out["payload"]["room"] = ref.value;
+  out["payload"]["name"] = ref.name;
+}
+
+// ===========================================================================
 //  room/backup
 // ===========================================================================
 void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out)
@@ -4472,6 +4655,9 @@ void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out
     // which re-creates every room from the deployment's current skeleton; room/import reads them to
     // recreate a room as the config had it.
     if (!room.profile.empty()) entry["profile"] = room.profile;
+    // Carried with the room's own settings, so a backup/restore round trip keeps the lock: a room that
+    // was told not to follow comes back that way.
+    entry["autoUpdate"] = room.autoUpdate;
     if (!room.image.empty()) entry["image"] = room.image;
 
     // Carry the tokens, so that restoring hands out the same links again instead of quietly
