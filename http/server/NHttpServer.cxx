@@ -411,7 +411,7 @@ bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method
   if (arg->GetWSId() != 0) return true;
 
   const std::string token = RequestAccessToken(arg);
-  const std::string level = RoomAccessLevel(token);
+  std::string       level = RoomAccessLevel(token);
 
   if (level.empty()) {
     NLogWarning("Refusing a %s request to %s of room '%s': %s", method.c_str(), isPage ? "the page" : "/api",
@@ -448,6 +448,15 @@ bool NHttpServer::ApplyRoomAccess(THttpCallArg * arg, const std::string & method
       arg->Set404();
       return false;
     }
+  }
+
+  // A guest of the deployment (an authenticated user not on the allowed list) is read-only whatever room
+  // token they present: the same rule a read-only token gets, applied to the person rather than the link.
+  // The user name is what the OIDC gate put on the request (empty on the page, which is a GET and does no
+  // work); the policy is inert when no list is configured.
+  if (const char * user = arg->GetUserName(); user != nullptr && *user != '\0' &&
+      fAccessPolicy.IsGuest(NRequestIdentity::FromUsername(user))) {
+    level = NRoomAccess::kReadOnly;
   }
 
   // A read-only token reads; it does not write. What travels as a POST is admitted only when it is
@@ -1958,12 +1967,13 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     }
   }
 
-  // Who may enter, after authentication: a *verified* identity that is not on the deployment's list is
-  // turned away here, on every transport that reaches this funnel - the OIDC bearer gate above, an
-  // x509 identity the front door forwarded, a bridged WebSocket call, an MCP tool call, the router.
-  // Only a verified identity is gated, so anonymous requests and the server's own asserted ones are
-  // untouched, and the check does nothing at all when no list is configured (the default).
-  if (!identityStated && identity.verified && !fAccessPolicy.Allows(identity)) {
+  // Who may enter, after authentication. A *verified* identity not on the deployment's list is a guest.
+  // In `deny` mode it is turned away here (the original behaviour); in the default `guest` mode it is
+  // let through read-only and constrained where the work is named - the room gate below forces it to a
+  // read-only level, and the router refuses its mutating actions. Only a verified identity is affected,
+  // so anonymous requests and the server's own asserted ones are untouched, and the check does nothing
+  // at all when no list is configured.
+  if (!identityStated && identity.verified && fAccessPolicy.IsGuest(identity) && fAccessPolicy.IsDeny()) {
     NLogWarning("Refusing a %s request to /api/%s: the authenticated user is not allowed to enter",
                 method.Data(), fullpath.Data());
     // HTTP 200 with the reason in the body: ROOT's engine cannot send a body with an error status.
@@ -1999,6 +2009,9 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     // Expose current authentication mode to clients (bootstrap endpoint stays
     // anonymous so UIs can discover whether a token is required).
     out["state"]["authentication"]["enabled"] = fOidcVerifier != nullptr;
+    // The role this caller gets (owner or guest), so a client with no websocket can still tell who may
+    // read and who may write (see NAccessPolicy).
+    out["state"]["authentication"]["role"] = fAccessPolicy.RoleOf(identity);
     if (arg->GetUserName()) {
       out["state"]["authentication"]["username"] = arg->GetUserName();
     }

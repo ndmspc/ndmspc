@@ -79,6 +79,13 @@ std::string NWsHandler::AccessLevelOf(ULong_t wsId) const
   return it == fAccessLevels.end() ? std::string() : it->second;
 }
 
+std::string NWsHandler::RoleOf(ULong_t wsId) const
+{
+  std::lock_guard lock(fMutex);
+  const auto      it = fClients.find(wsId);
+  return it == fClients.end() ? std::string("owner") : it->second.GetRole();
+}
+
 Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 {
   if (!arg || arg->GetWSId() == 0) return kTRUE;
@@ -182,10 +189,12 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       json requestId = parsed.contains("requestId") ? parsed["requestId"] : json(nullptr);
       std::string method = parsed.value("method", "POST");
 
-      // A connection admitted with a read-only token may only read. The bridge reaches exactly the
-      // same handlers as /api/<path>, so the rule has to hold here as well.
-      if (AccessLevelOf(wsId) == NRoomAccess::kReadOnly && method.find("GET") == std::string::npos) {
-        NLogWarning("Refusing a %s request over websocket %lld: its room token is read-only", method.c_str(),
+      // A connection admitted read-only may only read: whether that is because its room token is `ro`, or
+      // because the caller is a guest of the deployment (an authenticated user not on the allowed list).
+      // The bridge reaches exactly the same handlers as /api/<path>, so the rule has to hold here as well.
+      if ((AccessLevelOf(wsId) == NRoomAccess::kReadOnly || RoleOf(wsId) == "guest") &&
+          method.find("GET") == std::string::npos) {
+        NLogWarning("Refusing a %s request over websocket %lld: this connection is read-only", method.c_str(),
                     static_cast<long long>(wsId));
         json reply;
         reply["event"]       = "message_reply";
@@ -303,16 +312,17 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
     return;
   }
 
-  // Who may enter, after authentication: a verified user who is not on the deployment's list is not
-  // activated. This is where an OIDC websocket's identity becomes known - it never passes through
-  // NHttpServer::Dispatch - so the /api gate there does not cover it. (The x509 front door enforces
-  // the same on its own websocket; this handler runs anonymously behind it and never sees the
-  // certificate's identity.) An already-active client keeps its session if its old token is still
-  // valid, exactly as a failed refresh does.
+  // Who may enter, after authentication. A verified user not on the deployment's list is a guest: in
+  // `deny` mode they are refused here (this is where an OIDC websocket's identity becomes known - it
+  // never passes through NHttpServer::Dispatch); in the default `guest` mode they are admitted, and the
+  // role is recorded on the client so the bridge below refuses their writes. (The x509 front door does
+  // the same on its own websocket; this handler runs anonymously behind it.) An already-active client
+  // keeps its session if its old token is still valid, exactly as a failed refresh does.
+  std::string role{"owner"};
   if (gNHttpServer != nullptr) {
-    const NRequestIdentity identity =
-        NRequestIdentity::FromSession(NOidcSession::FromIdentity(*result.identity));
-    if (!gNHttpServer->AccessPolicy().Allows(identity)) {
+    const auto & policy = gNHttpServer->AccessPolicy();
+    role = policy.RoleOf(NRequestIdentity::FromSession(NOidcSession::FromIdentity(*result.identity)));
+    if (role == "guest" && policy.IsDeny()) {
       bool oldTokenValid = false;
       {
         std::lock_guard lock(fMutex);
@@ -322,7 +332,7 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
       }
       NLogWarning("WebSocket user '%s' is not allowed to enter this deployment",
                   result.identity->preferredUsername.c_str());
-      SendAuthenticationError(wsId, "user_not_allowed", gNHttpServer->AccessPolicy().Message(), false);
+      SendAuthenticationError(wsId, "user_not_allowed", policy.Message(), false);
       if (initial || !oldTokenValid) CloseWS(wsId);
       return;
     }
@@ -335,8 +345,10 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
     std::lock_guard lock(fMutex);
     if (initial) {
       if (!fPendingClients.erase(wsId)) return;
-      fClients.emplace(wsId, NWsClientInfo(wsId, result.identity->subject, result.identity->preferredUsername,
-                                          result.identity->expiresAt));
+      auto [client, inserted] = fClients.emplace(
+          wsId, NWsClientInfo(wsId, result.identity->subject, result.identity->preferredUsername,
+                              result.identity->expiresAt));
+      client->second.SetRole(role);
       activated = true;
     } else {
       const auto client = fClients.find(wsId);
@@ -347,6 +359,7 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
         usernameChanged = client->second.GetUsername() != result.identity->preferredUsername;
         client->second.ReplaceIdentity(result.identity->subject, result.identity->preferredUsername,
                                        result.identity->expiresAt);
+        client->second.SetRole(role);
       }
     }
   }
@@ -359,6 +372,9 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
   json authenticated;
   authenticated["event"] = "authenticated";
   authenticated["payload"]["username"] = result.identity->preferredUsername;
+  // The role the app runs as: an owner may write, a guest may only read (see NAccessPolicy). The client
+  // turns this into its read-only UI without waiting to be refused first.
+  authenticated["payload"]["role"] = role;
   authenticated["payload"]["expiresAt"] = std::chrono::duration_cast<std::chrono::milliseconds>(
       result.identity->expiresAt.time_since_epoch()).count();
   SendFrame(wsId, authenticated.dump());
@@ -382,6 +398,8 @@ void NWsHandler::SendWelcomeAndAnnounce(ULong_t wsId, const std::string & userna
   welcome["event"] = "welcome";
   welcome["payload"]["username"] = username;
   welcome["payload"]["wsId"] = wsId;
+  // The role this connection runs as ("owner"/"guest"), so the app knows before it tries anything.
+  welcome["payload"]["role"] = RoleOf(wsId);
   SendFrame(wsId, welcome.dump());
 
   for (const auto recipient : ClientIds()) {

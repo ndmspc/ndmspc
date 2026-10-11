@@ -98,6 +98,36 @@ TEST(NAccessPolicyTest, FromEnvironmentSplitsTrimsAndDropsEmptyEntries)
   EXPECT_EQ(policy.Message(), "ask an admin");
 }
 
+TEST(NAccessPolicyTest, RoleIsOwnerForListedAndGuestForOthers)
+{
+  const NAccessPolicy policy({"alice"}, "nope");
+  EXPECT_EQ(policy.RoleOf(User()), "owner");
+  EXPECT_FALSE(policy.IsGuest(User()));
+
+  NRequestIdentity bob;
+  bob.username = "bob";
+  bob.verified = true;
+  EXPECT_EQ(policy.RoleOf(bob), "guest");
+  EXPECT_TRUE(policy.IsGuest(bob));
+
+  // With no list, everyone is an owner.
+  const NAccessPolicy open;
+  EXPECT_EQ(open.RoleOf(bob), "owner");
+  EXPECT_FALSE(open.IsGuest(bob));
+}
+
+TEST(NAccessPolicyTest, TheModeDefaultsToGuestAndDenyIsOptIn)
+{
+  EnvGuard users("NDMSPC_ALLOWED_USERS", "alice");
+
+  EnvGuard unset("NDMSPC_ALLOWED_USERS_MODE", nullptr);
+  EXPECT_FALSE(NAccessPolicy::FromEnvironment().IsDeny());
+  EXPECT_EQ(NAccessPolicy::FromEnvironment().GetMode(), NAccessPolicy::Mode::Guest);
+
+  EnvGuard deny("NDMSPC_ALLOWED_USERS_MODE", "deny");
+  EXPECT_TRUE(NAccessPolicy::FromEnvironment().IsDeny());
+}
+
 TEST(NAccessPolicyTest, FromEnvironmentIsOpenWhenTheListIsUnset)
 {
   EnvGuard users("NDMSPC_ALLOWED_USERS", nullptr);

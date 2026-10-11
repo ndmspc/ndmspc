@@ -48,6 +48,12 @@ class TestWsHandler : public Ndmspc::NWsHandler {
     std::lock_guard lock(fMutex);
     return fClients.at(wsId).GetUsername();
   }
+
+  std::string Role(ULong_t wsId) const
+  {
+    std::lock_guard lock(fMutex);
+    return fClients.at(wsId).GetRole();
+  }
 };
 
 std::unique_ptr<THttpCallArg> Event(const char * method, ULong_t wsId, std::string payload = {},
@@ -238,9 +244,10 @@ TEST(NWsAuthenticationTest, RefreshKeepsSubjectAndUpdatesUsername)
   EXPECT_EQ(handler.Username(5), "alice-new");
 }
 
-TEST(NWsAuthenticationTest, AVerifiedUserNotOnTheAllowListIsRefused)
+TEST(NWsAuthenticationTest, ANonListedUserIsAdmittedAsAGuest)
 {
   EnvGuard           users("NDMSPC_ALLOWED_USERS", "alice");
+  EnvGuard           mode("NDMSPC_ALLOWED_USERS_MODE", nullptr); // default: guest
   AccessPolicyServer accessServer; // puts a server (with the list above) behind gNHttpServer
   auto               verifier = std::make_shared<FakeVerifier>();
   verifier->results.push_back(Identity("subject-9", "bob"));
@@ -249,12 +256,27 @@ TEST(NWsAuthenticationTest, AVerifiedUserNotOnTheAllowListIsRefused)
   handler.ProcessWS(Event("WS_READY", 21).get());
   auto auth = Event("WS_DATA", 21, R"({"event":"authenticate","token":"t"})");
   EXPECT_TRUE(handler.ProcessWS(auth.get()));
-  // Verified, but not on the list: never activated, and not left pending either.
+  // Verified but not on the list: admitted, and marked a guest so its writes are refused.
+  EXPECT_EQ(handler.GetClientCount(), 1);
+  EXPECT_EQ(handler.Role(21), "guest");
+}
+
+TEST(NWsAuthenticationTest, ANonListedUserIsRefusedInDenyMode)
+{
+  EnvGuard           users("NDMSPC_ALLOWED_USERS", "alice");
+  EnvGuard           mode("NDMSPC_ALLOWED_USERS_MODE", "deny");
+  AccessPolicyServer accessServer;
+  auto               verifier = std::make_shared<FakeVerifier>();
+  verifier->results.push_back(Identity("subject-9", "bob"));
+  TestWsHandler handler(verifier);
+
+  handler.ProcessWS(Event("WS_READY", 21).get());
+  EXPECT_TRUE(handler.ProcessWS(Event("WS_DATA", 21, R"({"event":"authenticate","token":"t"})").get()));
   EXPECT_EQ(handler.GetClientCount(), 0);
   EXPECT_FALSE(handler.Pending(21));
 }
 
-TEST(NWsAuthenticationTest, AListedUserIsActivated)
+TEST(NWsAuthenticationTest, AListedUserIsActivatedAsAnOwner)
 {
   EnvGuard           users("NDMSPC_ALLOWED_USERS", "alice");
   AccessPolicyServer accessServer;
@@ -266,9 +288,10 @@ TEST(NWsAuthenticationTest, AListedUserIsActivated)
   handler.ProcessWS(Event("WS_DATA", 22, R"({"event":"authenticate","token":"t"})").get());
   EXPECT_EQ(handler.GetClientCount(), 1);
   EXPECT_EQ(handler.Username(22), "alice");
+  EXPECT_EQ(handler.Role(22), "owner");
 }
 
-TEST(NWsAuthenticationTest, WithNoAllowListEveryVerifiedUserIsActivated)
+TEST(NWsAuthenticationTest, WithNoAllowListEveryVerifiedUserIsAnOwner)
 {
   EnvGuard           users("NDMSPC_ALLOWED_USERS", nullptr);
   AccessPolicyServer accessServer;
@@ -280,6 +303,7 @@ TEST(NWsAuthenticationTest, WithNoAllowListEveryVerifiedUserIsActivated)
   handler.ProcessWS(Event("WS_DATA", 23, R"({"event":"authenticate","token":"t"})").get());
   EXPECT_EQ(handler.GetClientCount(), 1);
   EXPECT_EQ(handler.Username(23), "bob");
+  EXPECT_EQ(handler.Role(23), "owner");
 }
 
 } // namespace

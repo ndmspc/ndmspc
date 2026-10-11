@@ -204,6 +204,12 @@ class NWsHandler : public THttpWSHandler {
    * @return "rw", "ro", or "" when this connection needed no token.
    */
   std::string AccessLevelOf(ULong_t wsId) const;
+  /**
+   * @brief The allowlist role of a connection: "owner" (may write) or "guest" (may only read).
+   * @param wsId WebSocket client id.
+   * @return The role recorded when it authenticated ("owner" for an anonymous connection).
+   */
+  std::string RoleOf(ULong_t wsId) const;
   /// @brief Drop clients whose token expired and pending clients past the auth timeout.
   void ExpireConnections();
   /// @brief Build the "clients" broadcast payload.

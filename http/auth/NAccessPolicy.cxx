@@ -44,14 +44,17 @@ const char * NAccessPolicy::DefaultMessage()
   return "Request access via email (martin.vala@cern.ch)";
 }
 
-NAccessPolicy::NAccessPolicy(std::vector<std::string> allowed, std::string message)
-    : fAllowed(std::move(allowed)), fMessage(message.empty() ? DefaultMessage() : std::move(message))
+NAccessPolicy::NAccessPolicy(std::vector<std::string> allowed, std::string message, Mode mode)
+    : fAllowed(std::move(allowed)), fMessage(message.empty() ? DefaultMessage() : std::move(message)), fMode(mode)
 {
 }
 
 NAccessPolicy NAccessPolicy::FromEnvironment()
 {
-  return NAccessPolicy(SplitList(Env("NDMSPC_ALLOWED_USERS")), Env("NDMSPC_ACCESS_DENIED_MESSAGE"));
+  // Anything but "deny" is the read-only-guest default: a typo relaxes to admitting a guest rather than
+  // locking everybody out.
+  const Mode mode = Trim(Env("NDMSPC_ALLOWED_USERS_MODE")) == "deny" ? Mode::Deny : Mode::Guest;
+  return NAccessPolicy(SplitList(Env("NDMSPC_ALLOWED_USERS")), Env("NDMSPC_ACCESS_DENIED_MESSAGE"), mode);
 }
 
 bool NAccessPolicy::Allows(const NRequestIdentity & identity) const
@@ -64,6 +67,16 @@ bool NAccessPolicy::Allows(const NRequestIdentity & identity) const
     if (identity.Matches(entry)) return true;
   }
   return false;
+}
+
+bool NAccessPolicy::IsGuest(const NRequestIdentity & identity) const
+{
+  return Configured() && !Allows(identity);
+}
+
+std::string NAccessPolicy::RoleOf(const NRequestIdentity & identity) const
+{
+  return IsGuest(identity) ? "guest" : "owner";
 }
 
 } // namespace Ndmspc

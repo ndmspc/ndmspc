@@ -801,6 +801,22 @@ class NRoomRouter {
   /// @brief Whether a caller is one of NDMSPC_ROOM_ADMINS (by email or user name, case-insensitively).
   bool IsAdmin(const NRequestIdentity & identity) const;
 
+  /**
+   * @brief Whether a caller is a guest of the deployment: authenticated but not on the allowed list.
+   *
+   * The server's {@link NHttpServer::AccessPolicy} decides it (NDMSPC_ALLOWED_USERS, with an empty list
+   * making everyone an owner). A guest may look at the rooms but not change them.
+   */
+  bool GuestCaller(const NRequestIdentity & identity) const;
+
+  /**
+   * @brief Refuse a room-changing action from a guest, filling `out` with the refusal.
+   * @param identity The caller.
+   * @param out The handler output to fill when the caller is a guest.
+   * @return True when the caller is a guest, so the handler returns at once.
+   */
+  bool RefuseGuest(const NRequestIdentity & identity, json & out) const;
+
   // API paths.
   /// @brief The Knative Services collection path of this router's namespace.
   std::string SvcCollection() const;

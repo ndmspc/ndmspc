@@ -821,6 +821,26 @@ bool NRoomRouter::IsAdmin(const NRequestIdentity & identity) const
   return false;
 }
 
+// Whether a caller is a guest of the deployment: authenticated, but not on the allowed-user list. The
+// router reads the policy itself from the environment rather than reaching for gNHttpServer: the server
+// pointer is not guaranteed to be live here (the tests move it around), and the setting - which the
+// server also reads - is fixed for the life of the process either way. An empty list makes everyone an
+// owner, so this is false for every caller then.
+bool NRoomRouter::GuestCaller(const NRequestIdentity & identity) const
+{
+  static const NAccessPolicy policy = NAccessPolicy::FromEnvironment();
+  return policy.IsGuest(identity);
+}
+
+bool NRoomRouter::RefuseGuest(const NRequestIdentity & identity, json & out) const
+{
+  if (!GuestCaller(identity)) return false;
+  out["result"] = "failure";
+  out["code"]   = "read_only";
+  out["error"]  = "A guest may look at the rooms, not change them.";
+  return true;
+}
+
 // Whether a caller may see and act on a room: see "Ownership and visibility" in the class note.
 bool NRoomRouter::MaySee(const NRoomState & room, const NRequestIdentity & identity) const
 {
@@ -3465,6 +3485,7 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   // room's own link), while an id that names nothing yet becomes the caller's own - which is what
   // lets two people both have a room called "mine", one named after each of them.
   const NRequestIdentity identity = RequestIdentity(in);
+  if (RefuseGuest(identity, out)) return;
   const NRoomRef         ref     = Resolve(id, identity);
   bool                   created = false;
   {
@@ -3599,6 +3620,7 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
   Adopt();
 
   const NRequestIdentity identity = RequestIdentity(in);
+  if (RefuseGuest(identity, out)) return;
   const NRoomRef         ref      = Resolve(id, identity);
   {
     std::lock_guard<std::mutex> lock(fMutex);
@@ -4145,6 +4167,8 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // caller's own rooms - or that it is not - without keeping a second copy of the admin list that
   // could drift from this one.
   out["payload"]["admin"] = IsAdmin(identity);
+  // Whether this caller is a guest (read-only), so a rooms view runs read-only without asking again.
+  out["payload"]["guest"] = GuestCaller(identity);
 
   // The sizes this deployment offers, so a client can let a user choose one without knowing the
   // names: the same skeleton the rooms are created from. A skeleton without profiles - a deployment
@@ -4441,6 +4465,7 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
   Adopt();
 
   const NRequestIdentity identity = RequestIdentity(in);
+  if (RefuseGuest(identity, out)) return;
   const NRoomRef         ref      = Resolve(id, identity);
   {
     std::lock_guard<std::mutex> lock(fMutex);
@@ -4551,6 +4576,7 @@ void NRoomRouter::HandleClear(const std::string & method, json & in, json & out)
   Adopt();
 
   const NRequestIdentity identity = RequestIdentity(in);
+  if (RefuseGuest(identity, out)) return;
   const NRoomRef         ref      = Resolve(id, identity);
   {
     std::lock_guard<std::mutex> lock(fMutex);
@@ -4733,6 +4759,7 @@ void NRoomRouter::HandleRestore(const std::string & method, json & in, json & ou
   Adopt();
 
   const NRequestIdentity identity = RequestIdentity(in);
+  if (RefuseGuest(identity, out)) return;
 
   // `replace` deletes the rooms the document names that this router already tracks, so the document's
   // session is what comes back: a restore is additive otherwise, and a room that already has a file
@@ -4993,6 +5020,7 @@ void NRoomRouter::HandleImport(const std::string & method, json & in, json & out
   }
 
   const NRequestIdentity identity = RequestIdentity(in);
+  if (RefuseGuest(identity, out)) return;
 
   // Everything that can be refused is refused before anything is deleted: a config this deployment
   // cannot apply must never cost a room that works.
