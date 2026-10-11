@@ -3,8 +3,10 @@
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NWsHandler.h"
 
+#include <cstdlib>
 #include <deque>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace {
@@ -88,6 +90,47 @@ Ndmspc::NOidcResult Identity(std::string subject, std::string username, std::str
                                             .expiresAt = std::chrono::system_clock::now() + std::chrono::minutes(5)},
           .error = Ndmspc::NOidcErrorCode::None, .diagnostic = {}};
 }
+
+/// @brief Sets an environment variable for one test and restores it afterwards.
+class EnvGuard {
+  public:
+  EnvGuard(const char * name, const char * value) : fName(name)
+  {
+    if (const char * old = std::getenv(name); old != nullptr) {
+      fHad = true;
+      fOld = old;
+    }
+    if (value != nullptr) ::setenv(name, value, 1);
+    else ::unsetenv(name);
+  }
+  ~EnvGuard()
+  {
+    if (fHad) ::setenv(fName.c_str(), fOld.c_str(), 1);
+    else ::unsetenv(fName.c_str());
+  }
+
+  private:
+  std::string fName;
+  std::string fOld;
+  bool        fHad{false};
+};
+
+/**
+ * @brief A server the handler's allowlist gate reads, built and torn down with the test.
+ *
+ * The gate lives on `gNHttpServer` (see `NHttpServer::AccessPolicy`), which the handler looks up. The
+ * global is captured before the server is constructed and put back afterwards, so a later test does
+ * not see a dangling pointer.
+ */
+struct AccessPolicyServer {
+  Ndmspc::NHttpServer * previous = Ndmspc::gNHttpServer;
+  Ndmspc::NHttpServer   server;
+  AccessPolicyServer()
+      : server("", /*ws=*/false, /*heartbeat_ms=*/0, Ndmspc::NOidcConfig{}, /*startEngine=*/false)
+  {
+  }
+  ~AccessPolicyServer() { Ndmspc::gNHttpServer = previous; }
+};
 
 TEST(NWsAuthenticationTest, AnonymousModeActivatesOnReady)
 {
@@ -193,6 +236,50 @@ TEST(NWsAuthenticationTest, RefreshKeepsSubjectAndUpdatesUsername)
   EXPECT_TRUE(handler.ProcessWS(refresh.get()));
   EXPECT_EQ(handler.Subject(5), "subject-1");
   EXPECT_EQ(handler.Username(5), "alice-new");
+}
+
+TEST(NWsAuthenticationTest, AVerifiedUserNotOnTheAllowListIsRefused)
+{
+  EnvGuard           users("NDMSPC_ALLOWED_USERS", "alice");
+  AccessPolicyServer accessServer; // puts a server (with the list above) behind gNHttpServer
+  auto               verifier = std::make_shared<FakeVerifier>();
+  verifier->results.push_back(Identity("subject-9", "bob"));
+  TestWsHandler handler(verifier);
+
+  handler.ProcessWS(Event("WS_READY", 21).get());
+  auto auth = Event("WS_DATA", 21, R"({"event":"authenticate","token":"t"})");
+  EXPECT_TRUE(handler.ProcessWS(auth.get()));
+  // Verified, but not on the list: never activated, and not left pending either.
+  EXPECT_EQ(handler.GetClientCount(), 0);
+  EXPECT_FALSE(handler.Pending(21));
+}
+
+TEST(NWsAuthenticationTest, AListedUserIsActivated)
+{
+  EnvGuard           users("NDMSPC_ALLOWED_USERS", "alice");
+  AccessPolicyServer accessServer;
+  auto               verifier = std::make_shared<FakeVerifier>();
+  verifier->results.push_back(Identity("subject-1", "alice"));
+  TestWsHandler handler(verifier);
+
+  handler.ProcessWS(Event("WS_READY", 22).get());
+  handler.ProcessWS(Event("WS_DATA", 22, R"({"event":"authenticate","token":"t"})").get());
+  EXPECT_EQ(handler.GetClientCount(), 1);
+  EXPECT_EQ(handler.Username(22), "alice");
+}
+
+TEST(NWsAuthenticationTest, WithNoAllowListEveryVerifiedUserIsActivated)
+{
+  EnvGuard           users("NDMSPC_ALLOWED_USERS", nullptr);
+  AccessPolicyServer accessServer;
+  auto               verifier = std::make_shared<FakeVerifier>();
+  verifier->results.push_back(Identity("subject-2", "bob"));
+  TestWsHandler handler(verifier);
+
+  handler.ProcessWS(Event("WS_READY", 23).get());
+  handler.ProcessWS(Event("WS_DATA", 23, R"({"event":"authenticate","token":"t"})").get());
+  EXPECT_EQ(handler.GetClientCount(), 1);
+  EXPECT_EQ(handler.Username(23), "bob");
 }
 
 } // namespace
