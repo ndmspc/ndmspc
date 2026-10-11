@@ -18,6 +18,7 @@ class NWsClientInfo {
   ULong_t     fWsId;         ///< Unique WebSocket client ID
   std::string fSubject;      ///< Verified token subject ("sub" claim)
   std::string fUsername;     ///< Username associated with the client
+  std::string fRole{"owner"}; ///< Allowlist role: "owner" (may write) or "guest" (may only read)
   int         fMessageCount; ///< Number of messages sent/received
   std::chrono::system_clock::time_point fConnectedAt; ///< Connection start time
   std::chrono::system_clock::time_point fTokenExpiresAt; ///< Expiry of the client's access token
@@ -60,6 +61,16 @@ class NWsClientInfo {
    * @return Subject string.
    */
   const std::string & GetSubject() const;
+  /**
+   * @brief Get the client's allowlist role: "owner" (may write) or "guest" (may only read).
+   * @return Role string.
+   */
+  const std::string & GetRole() const;
+  /**
+   * @brief Set the client's allowlist role.
+   * @param role "owner" or "guest".
+   */
+  void SetRole(const std::string & role);
   /**
    * @brief Get the expiry of the client's access token.
    * @return Token expiry time point.

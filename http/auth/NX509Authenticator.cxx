@@ -65,8 +65,9 @@ int ClientCertVerifyCallback(int preverify_ok, X509_STORE_CTX * store)
 }
 
 // Rewrites the "username" field of NDMSPC JSON WebSocket messages so the client
-// sees its certificate-derived identity.
-std::string RewriteUsernameInJson(const std::string & payload, const std::string & username)
+// sees its certificate-derived identity, and reports the caller's allowlist role.
+std::string RewriteUsernameInJson(const std::string & payload, const std::string & username,
+                                  const std::string & role)
 {
   try {
     auto json = nlohmann::json::parse(payload);
@@ -76,6 +77,8 @@ std::string RewriteUsernameInJson(const std::string & payload, const std::string
       if (json.contains("payload") && json["payload"].is_object()) {
         auto & pl = json["payload"];
         if (pl.contains("username")) pl["username"] = username;
+        // The role the app runs as (owner may write, guest may only read), on the frame that announces it.
+        if (event == "welcome") pl["role"] = role;
         if (pl.contains("users") && pl["users"].is_array()) {
           for (auto & user : pl["users"]) {
             if (user.contains("username")) user["username"] = username;
@@ -87,6 +90,32 @@ std::string RewriteUsernameInJson(const std::string & payload, const std::string
   } catch (...) {
   }
   return payload;
+}
+
+// Whether a client WebSocket frame is an /api request that changes something. Only a GET (and a frame
+// that is not an /api request at all) is a read; a guest may send those and nothing else.
+bool IsWriteFrame(const std::string & payload, std::string & requestId)
+{
+  try {
+    const auto json = nlohmann::json::parse(payload);
+    if (!json.is_object() || !json.contains("path") || !json["path"].is_string()) return false;
+    requestId = json.contains("requestId") && json["requestId"].is_string() ? json["requestId"].get<std::string>() : "";
+    const std::string method = json.value("method", "POST");
+    return method.find("GET") == std::string::npos;
+  } catch (...) {
+    return false;
+  }
+}
+
+// The reply a guest gets when it tries to write: the same shape the room's own read-only gate answers.
+std::string ReadOnlyFrame(const std::string & requestId)
+{
+  nlohmann::json reply;
+  reply["event"]       = "message_reply";
+  reply["requestId"]   = requestId.empty() ? nlohmann::json(nullptr) : nlohmann::json(requestId);
+  reply["contentType"] = "application/json";
+  reply["payload"]     = {{"result", "failure"}, {"code", "read_only"}, {"error", "this user may only read (guest)"}};
+  return reply.dump();
 }
 
 // Trims ASCII whitespace from both ends of a string.
@@ -281,13 +310,14 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
   // ROOT WebSocket engine and rewrite usernames to the certificate identity.
   server->WebSocket("/ws/root.websocket",
                     [&impl](const httplib::Request &, httplib::ws::WebSocket & clientWs) {
-    const std::string identity = gPeerIdentity;
-    // Who may enter, after authentication (the client certificate is it): a name that is not on the
-    // deployment's list is refused here, before anything is bridged upstream. The frame is the one
-    // the OIDC handshake uses, so the page's auth-error path shows the message. An empty list allows
-    // everyone, and an anonymous connection (no certificate, when verification is optional) is only
-    // admitted when no list is set.
-    if (!impl.accessPolicy.Allows(NRequestIdentity::FromUsername(identity))) {
+    const std::string      identity = gPeerIdentity;
+    const NRequestIdentity who      = NRequestIdentity::FromUsername(identity);
+    // Who may enter, after authentication (the client certificate is it). In `deny` mode a name not on
+    // the deployment's list is refused here, before anything is bridged upstream; in the default `guest`
+    // mode it is admitted read-only, and the write frames it sends are refused in the relay below. An
+    // empty list allows everyone, and an anonymous connection is only admitted when no list is set.
+    const std::string role = impl.accessPolicy.RoleOf(who);
+    if (role == "guest" && impl.accessPolicy.IsDeny()) {
       NLogWarning("NX509 WS: user '%s' is not allowed to enter this deployment", identity.c_str());
       nlohmann::json refusal;
       refusal["event"]                = "authentication_error";
@@ -298,7 +328,8 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
       clientWs.close(httplib::ws::CloseStatus::PolicyViolation, "user not allowed");
       return;
     }
-    const std::string user = identity.empty() ? "anonymous" : identity;
+    const bool        guest = role == "guest";
+    const std::string user  = identity.empty() ? "anonymous" : identity;
 
     const std::string upstreamUrl = impl.internalWsBase + "/ws/root.websocket";
     httplib::ws::WebSocketClient up(upstreamUrl);
@@ -315,13 +346,20 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
     // Upstream -> external client relay.
     std::thread upstream([&]() {
       std::string msg;
-      while (up.read(msg) != httplib::ws::ReadResult::Fail) clientWs.send(RewriteUsernameInJson(msg, user));
+      while (up.read(msg) != httplib::ws::ReadResult::Fail) clientWs.send(RewriteUsernameInJson(msg, user, role));
       clientWs.close(httplib::ws::CloseStatus::Normal, "upstream closed");
     });
 
-    // External client -> upstream relay.
+    // External client -> upstream relay. A guest may only read: its write frames are answered here with
+    // the read-only refusal and never reach the room.
     std::string msg;
     while (clientWs.read(msg) != httplib::ws::ReadResult::Fail) {
+      std::string requestId;
+      if (guest && IsWriteFrame(msg, requestId)) {
+        NLogWarning("NX509 WS: refusing a write frame from guest '%s'", identity.c_str());
+        clientWs.send(ReadOnlyFrame(requestId));
+        continue;
+      }
       if (!up.send(msg)) break;
     }
     up.close();

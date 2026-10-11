@@ -438,9 +438,24 @@ TEST(NHttpServerGroupTest, RerunningAStepRollsBackItsOwnGroupAndNoOther)
   delete server;
 }
 
-TEST(NHttpServerAccessTest, AVerifiedUserNotOnTheAllowListIsRefused)
+TEST(NHttpServerAccessTest, ANonListedUserIsNotRefusedInGuestMode)
 {
   EnvGuard users("NDMSPC_ALLOWED_USERS", "alice");
+  EnvGuard mode("NDMSPC_ALLOWED_USERS_MODE", nullptr); // default: guest
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetTrustForwardedIdentity(true);
+
+  // A guest is let through here (and held read-only elsewhere), not refused at the entry.
+  const std::string response = RequestAsUser(server, "GET", "ndmspc/state", "bob");
+  EXPECT_EQ(response.find("user_not_allowed"), std::string::npos) << response;
+
+  delete server;
+}
+
+TEST(NHttpServerAccessTest, ANonListedUserIsRefusedInDenyMode)
+{
+  EnvGuard users("NDMSPC_ALLOWED_USERS", "alice");
+  EnvGuard mode("NDMSPC_ALLOWED_USERS_MODE", "deny");
   auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
   server->SetTrustForwardedIdentity(true);
 

@@ -146,16 +146,22 @@ Available settings:
 
 If either issuer or audience is configured, both are required. The server performs OIDC discovery and loads the initial JWKS during startup. Invalid configuration or an unavailable provider causes startup to fail rather than falling back to anonymous access.
 
-### Who may enter (allowed users)
+### Who may enter (owners and guests)
 
-After a user authenticates — an OIDC bearer token, or an x509 client certificate — the server lets them
-in only when their name is on `NDMSPC_ALLOWED_USERS`, a comma-separated list. **An empty list (the
-default) allows every authenticated user**, so the setting is inert unless a deployment sets it.
+After a user authenticates — an OIDC bearer token, or an x509 client certificate — `NDMSPC_ALLOWED_USERS`
+(a comma-separated list) decides their role:
+
+- **on the list → owner**: full access;
+- **not on the list → guest**: read-only across the deployment — they may list rooms and view a room
+  through its read-only link, but every write is refused;
+- **an empty list (the default) → everyone is an owner**, so the setting is inert unless a deployment
+  sets it.
 
 | Environment variable | Default |
 |---|---:|
-| `NDMSPC_ALLOWED_USERS` | Empty — everyone who authenticates is allowed |
-| `NDMSPC_ACCESS_DENIED_MESSAGE` | `Request access via email (martin.vala@cern.ch)` |
+| `NDMSPC_ALLOWED_USERS` | Empty — everyone who authenticates is an owner |
+| `NDMSPC_ALLOWED_USERS_MODE` | `guest` — what a non-listed user gets; `deny` refuses them outright |
+| `NDMSPC_ACCESS_DENIED_MESSAGE` | `Request access via email (martin.vala@cern.ch)` — shown only in `deny` mode |
 
 An entry matches whichever form the user is known by — user name, email or subject, case-insensitively —
 the same matcher the room admins list (`NDMSPC_ROOM_ADMINS`) uses. The check runs on every
@@ -163,13 +169,17 @@ the same matcher the room admins list (`NDMSPC_ROOM_ADMINS`) uses. The check run
 and the websocket handshake, on the room server, the room router and behind the x509 door. An anonymous
 request carries no identity, so the list never applies to it.
 
-A refused user is answered with `{"result":"failure","code":"user_not_allowed","error":"<message>"}` on
-`/api`, and with an `authentication_error` frame (`"code":"user_not_allowed"`) carrying the same message
-on the websocket; the page shows that message. The identity (subject) is not disclosed.
+A guest is held to read-only in place: the room's own gate forces its access level to the read-only one
+(so a non-GET request is refused with `{"result":"failure","code":"read_only",...}`), and the router
+refuses its mutating actions (`room/open`, `room/upgrade`, `room/close`, `room/clear`, `room/import`,
+`room/restore`) the same way. The role is reported to the app — a `role` field on the websocket
+`welcome`/`authenticated` frames, `guest` in `room/list`, and `state.authentication.role` on the root
+`/api` — so its UI runs read-only. In `deny` mode a non-listed user is instead refused with
+`{"code":"user_not_allowed"}` and the message. The identity (subject) is not disclosed.
 
 ```bash
-export NDMSPC_ALLOWED_USERS="alice, bob@example.org, 1234abcd-…"
-export NDMSPC_ACCESS_DENIED_MESSAGE="Request access via email (martin.vala@cern.ch)"
+export NDMSPC_ALLOWED_USERS="alice, bob@example.org, 1234abcd-…"   # owners
+export NDMSPC_ALLOWED_USERS_MODE="guest"                          # everyone else: read-only
 ```
 
 ## WebSocket authentication protocol

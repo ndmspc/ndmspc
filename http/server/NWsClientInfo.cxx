@@ -36,6 +36,14 @@ const std::string & NWsClientInfo::GetSubject() const
 {
   return fSubject;
 }
+const std::string & NWsClientInfo::GetRole() const
+{
+  return fRole;
+}
+void NWsClientInfo::SetRole(const std::string & role)
+{
+  fRole = role;
+}
 std::chrono::system_clock::time_point NWsClientInfo::GetTokenExpiresAt() const
 {
   return fTokenExpiresAt;
