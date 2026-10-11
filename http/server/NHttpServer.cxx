@@ -191,6 +191,17 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcCo
              fMaxFileBytes > 0 ? NUtils::FormatBytes(fMaxFileBytes).c_str() : "unlimited",
              fMaxStorageBytes > 0 ? NUtils::FormatBytes(fMaxStorageBytes).c_str() : "unlimited");
   }
+
+  // Who may enter, after authentication. Read once, here, so the list is fixed for the life of the
+  // process - like the other deployment settings above. An empty list allows everyone, which is what
+  // every deployment did before this existed.
+  fAccessPolicy = NAccessPolicy::FromEnvironment();
+  if (fAccessPolicy.Configured()) {
+    NLogInfo("%zu user(s) may enter this deployment", fAccessPolicy.Allowed().size());
+  }
+  else {
+    NLogInfo("No allowed-user list is set: every authenticated user may enter");
+  }
 }
 
 json NHttpServer::RoomAccessTokens() const
@@ -1945,6 +1956,23 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     if (identity.Empty() && arg->GetUserName() != nullptr) {
       identity = NRequestIdentity::FromUsername(arg->GetUserName());
     }
+  }
+
+  // Who may enter, after authentication: a *verified* identity that is not on the deployment's list is
+  // turned away here, on every transport that reaches this funnel - the OIDC bearer gate above, an
+  // x509 identity the front door forwarded, a bridged WebSocket call, an MCP tool call, the router.
+  // Only a verified identity is gated, so anonymous requests and the server's own asserted ones are
+  // untouched, and the check does nothing at all when no list is configured (the default).
+  if (!identityStated && identity.verified && !fAccessPolicy.Allows(identity)) {
+    NLogWarning("Refusing a %s request to /api/%s: the authenticated user is not allowed to enter",
+                method.Data(), fullpath.Data());
+    // HTTP 200 with the reason in the body: ROOT's engine cannot send a body with an error status.
+    // The shape is the room gate's, so the UI already reads the code and the message.
+    arg->SetContentType("application/json");
+    arg->SetContent(json{{"result", "failure"}, {"code", "user_not_allowed"}, {"error", fAccessPolicy.Message()}}
+                        .dump());
+    arg->AddNoCacheHeader();
+    return;
   }
 
   // The room's own gate, on every /api request including the bridged, MCP and replay ones - which

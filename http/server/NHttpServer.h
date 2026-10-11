@@ -18,6 +18,7 @@
 #include <THttpServer.h>
 
 #include "ndmspc/core/NLogger.h"
+#include "ndmspc/http/NAccessPolicy.h"
 #include "ndmspc/http/NWorkspace.h"
 #include "ndmspc/http/NOidcConfig.h"
 #include "ndmspc/http/NRequestIdentity.h"
@@ -301,6 +302,15 @@ class NHttpServer : public THttpServer {
    * @brief Whether OIDC authentication is enabled for this server.
    */
   bool OidcEnabled() const { return static_cast<bool>(fOidcVerifier); }
+
+  /**
+   * @brief Who may enter this deployment, after authentication.
+   *
+   * Read from the environment at construction (`NDMSPC_ALLOWED_USERS`, an empty list allowing
+   * everyone). Enforced on `/api` in {@link Dispatch} and on the websocket handshake (see
+   * {@link NWsHandler}); the x509 front door enforces it on its own websocket.
+   */
+  const NAccessPolicy & AccessPolicy() const { return fAccessPolicy; }
 
   /**
    * @brief Whether the server believes the identity an authenticating front door forwards.
@@ -842,6 +852,7 @@ class NHttpServer : public THttpServer {
   protected:
   NWsHandler *      fNWsHandler{nullptr}; ///<! WebSocket handler instance
   std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Shared OIDC token verifier (HTTP + WS)
+  NAccessPolicy     fAccessPolicy;      ///<! Who may enter, after authentication (see NAccessPolicy)
   bool              fTrustForwardedIdentity{false}; ///<! Whether the front door's identity headers are believed
   bool              fWsEnabled{false};   ///<! Whether WebSocket support was requested
   bool              fEngineStarted{false}; ///<! Whether the HTTP engine has been created

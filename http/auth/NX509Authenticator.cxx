@@ -3,6 +3,8 @@
 #include <httplib.h>
 
 #include "ndmspc/core/NLogger.h"
+#include "ndmspc/http/NAccessPolicy.h"
+#include "ndmspc/http/NRequestIdentity.h"
 
 #include <atomic>
 #include <functional>
@@ -141,6 +143,7 @@ struct NX509Authenticator::Impl {
   explicit Impl(NX509Config cfg) : config(std::move(cfg)) {}
 
   NX509Config config;                ///< X509 front-door configuration
+  NAccessPolicy accessPolicy;        ///< Who may enter, after the certificate authenticated them
   std::string internalBase;          ///< Base URL of the internal loopback ROOT engine
   std::string internalWsBase;        ///< internalBase with the ws:// scheme (httplib WS client rejects http://)
   std::unique_ptr<httplib::SSLServer> server; ///< HTTPS listener terminating client certificates
@@ -169,6 +172,11 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
 {
   auto & impl = *fImpl;
   impl.config.Validate();
+  // Who may enter, after the certificate authenticated them. Read once; an empty list allows everyone.
+  impl.accessPolicy = NAccessPolicy::FromEnvironment();
+  if (impl.accessPolicy.Configured()) {
+    NLogInfo("NX509 front door: %zu user(s) may enter", impl.accessPolicy.Allowed().size());
+  }
   impl.internalBase = internalBase;
   // httplib's WebSocket client only accepts ws:// and wss:// URLs; the internal
   // ROOT engine is reached over plain HTTP, so translate the scheme for the
@@ -274,6 +282,22 @@ bool NX509Authenticator::Start(const std::string & listenHost, int port, const s
   server->WebSocket("/ws/root.websocket",
                     [&impl](const httplib::Request &, httplib::ws::WebSocket & clientWs) {
     const std::string identity = gPeerIdentity;
+    // Who may enter, after authentication (the client certificate is it): a name that is not on the
+    // deployment's list is refused here, before anything is bridged upstream. The frame is the one
+    // the OIDC handshake uses, so the page's auth-error path shows the message. An empty list allows
+    // everyone, and an anonymous connection (no certificate, when verification is optional) is only
+    // admitted when no list is set.
+    if (!impl.accessPolicy.Allows(NRequestIdentity::FromUsername(identity))) {
+      NLogWarning("NX509 WS: user '%s' is not allowed to enter this deployment", identity.c_str());
+      nlohmann::json refusal;
+      refusal["event"]                = "authentication_error";
+      refusal["payload"]["code"]      = "user_not_allowed";
+      refusal["payload"]["message"]   = impl.accessPolicy.Message();
+      refusal["payload"]["retryable"] = false;
+      clientWs.send(refusal.dump());
+      clientWs.close(httplib::ws::CloseStatus::PolicyViolation, "user not allowed");
+      return;
+    }
     const std::string user = identity.empty() ? "anonymous" : identity;
 
     const std::string upstreamUrl = impl.internalWsBase + "/ws/root.websocket";

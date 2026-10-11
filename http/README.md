@@ -146,6 +146,32 @@ Available settings:
 
 If either issuer or audience is configured, both are required. The server performs OIDC discovery and loads the initial JWKS during startup. Invalid configuration or an unavailable provider causes startup to fail rather than falling back to anonymous access.
 
+### Who may enter (allowed users)
+
+After a user authenticates — an OIDC bearer token, or an x509 client certificate — the server lets them
+in only when their name is on `NDMSPC_ALLOWED_USERS`, a comma-separated list. **An empty list (the
+default) allows every authenticated user**, so the setting is inert unless a deployment sets it.
+
+| Environment variable | Default |
+|---|---:|
+| `NDMSPC_ALLOWED_USERS` | Empty — everyone who authenticates is allowed |
+| `NDMSPC_ACCESS_DENIED_MESSAGE` | `Request access via email (martin.vala@cern.ch)` |
+
+An entry matches whichever form the user is known by — user name, email or subject, case-insensitively —
+the same matcher the room admins list (`NDMSPC_ROOM_ADMINS`) uses. The check runs on every
+**authenticated** request: `/api` (the OIDC bearer gate, or the identity the x509 front door forwarded)
+and the websocket handshake, on the room server, the room router and behind the x509 door. An anonymous
+request carries no identity, so the list never applies to it.
+
+A refused user is answered with `{"result":"failure","code":"user_not_allowed","error":"<message>"}` on
+`/api`, and with an `authentication_error` frame (`"code":"user_not_allowed"`) carrying the same message
+on the websocket; the page shows that message. The identity (subject) is not disclosed.
+
+```bash
+export NDMSPC_ALLOWED_USERS="alice, bob@example.org, 1234abcd-…"
+export NDMSPC_ACCESS_DENIED_MESSAGE="Request access via email (martin.vala@cern.ch)"
+```
+
 ## WebSocket authentication protocol
 
 The websocket is **on by default** and can be turned off with `--ws false` (`NDMSPC_WS=0`), which

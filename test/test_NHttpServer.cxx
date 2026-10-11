@@ -178,6 +178,22 @@ std::string RequestJson(Ndmspc::NHttpServer * server, const char * method, const
   return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
 }
 
+// The same, carrying the identity header an authenticating front door would set - what a server told
+// to trust that door (SetTrustForwardedIdentity) reads as a verified identity, and so what the
+// allowed-user gate sees.
+std::string RequestAsUser(Ndmspc::NHttpServer * server, const char * method, const char * action,
+                          const std::string & user)
+{
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod(method);
+  arg->SetPathName("api");
+  arg->SetFileName(action);
+  arg->SetPostData("{}");
+  arg->SetRequestHeader(("X-Ndmspc-User: " + user + "\r\n").c_str());
+  server->ProcessRequest(arg);
+  return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+}
+
 } // namespace
 
 TEST(NHttpServerToolDependencyTest, ADependentActionIsRefusedUntilItsPrerequisiteRuns)
@@ -418,6 +434,60 @@ TEST(NHttpServerGroupTest, RerunningAStepRollsBackItsOwnGroupAndNoOther)
       << "the re-run analysis group took the browser's step with it";
   ASSERT_FALSE(names.empty());
   EXPECT_EQ(names.back(), "ndmspc/ngnt/open") << "the re-run is the newest step";
+
+  delete server;
+}
+
+TEST(NHttpServerAccessTest, AVerifiedUserNotOnTheAllowListIsRefused)
+{
+  EnvGuard users("NDMSPC_ALLOWED_USERS", "alice");
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetTrustForwardedIdentity(true);
+
+  const std::string refused = RequestAsUser(server, "GET", "ndmspc/state", "bob");
+  EXPECT_NE(refused.find("\"code\":\"user_not_allowed\""), std::string::npos) << refused;
+  EXPECT_NE(refused.find(Ndmspc::NAccessPolicy::DefaultMessage()), std::string::npos) << refused;
+
+  delete server;
+}
+
+TEST(NHttpServerAccessTest, AListedUserPassesTheGateAnyIdentifier)
+{
+  EnvGuard users("NDMSPC_ALLOWED_USERS", "alice");
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetTrustForwardedIdentity(true);
+
+  // The list holds a user name; the request names the same person by their user name and by their
+  // email (case-insensitively) - both are "alice" and both are admitted. The handler is not registered
+  // here, so the answer is the "unsupported action" one - anything but the refusal is the proof.
+  for (const std::string & user : {std::string("alice"), std::string("ALICE")}) {
+    const std::string response = RequestAsUser(server, "GET", "ndmspc/state", user);
+    EXPECT_EQ(response.find("user_not_allowed"), std::string::npos) << response;
+  }
+
+  delete server;
+}
+
+TEST(NHttpServerAccessTest, WithNoAllowListEveryVerifiedUserPasses)
+{
+  EnvGuard users("NDMSPC_ALLOWED_USERS", nullptr);
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetTrustForwardedIdentity(true);
+
+  const std::string response = RequestAsUser(server, "GET", "ndmspc/state", "bob");
+  EXPECT_EQ(response.find("user_not_allowed"), std::string::npos) << response;
+
+  delete server;
+}
+
+TEST(NHttpServerAccessTest, AnAnonymousRequestIsNeverGatedByTheList)
+{
+  EnvGuard users("NDMSPC_ALLOWED_USERS", "alice");
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  // No verified identity reaches the funnel (the door's headers are not believed here), so the list -
+  // which is an "after authentication" gate - does not apply and nothing is refused.
+  const std::string response = RequestAsUser(server, "GET", "ndmspc/state", "");
+  EXPECT_EQ(response.find("user_not_allowed"), std::string::npos) << response;
 
   delete server;
 }

@@ -303,6 +303,31 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
     return;
   }
 
+  // Who may enter, after authentication: a verified user who is not on the deployment's list is not
+  // activated. This is where an OIDC websocket's identity becomes known - it never passes through
+  // NHttpServer::Dispatch - so the /api gate there does not cover it. (The x509 front door enforces
+  // the same on its own websocket; this handler runs anonymously behind it and never sees the
+  // certificate's identity.) An already-active client keeps its session if its old token is still
+  // valid, exactly as a failed refresh does.
+  if (gNHttpServer != nullptr) {
+    const NRequestIdentity identity =
+        NRequestIdentity::FromSession(NOidcSession::FromIdentity(*result.identity));
+    if (!gNHttpServer->AccessPolicy().Allows(identity)) {
+      bool oldTokenValid = false;
+      {
+        std::lock_guard lock(fMutex);
+        if (initial) fPendingClients.erase(wsId);
+        const auto client = fClients.find(wsId);
+        oldTokenValid = client != fClients.end() && client->second.IsTokenValidAt(std::chrono::system_clock::now());
+      }
+      NLogWarning("WebSocket user '%s' is not allowed to enter this deployment",
+                  result.identity->preferredUsername.c_str());
+      SendAuthenticationError(wsId, "user_not_allowed", gNHttpServer->AccessPolicy().Message(), false);
+      if (initial || !oldTokenValid) CloseWS(wsId);
+      return;
+    }
+  }
+
   bool activated = false;
   bool usernameChanged = false;
   bool identityChanged = false;
