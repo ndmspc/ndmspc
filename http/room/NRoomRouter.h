@@ -175,8 +175,9 @@ class NRoomClusterClient : public IRoomCluster {
  *                           whose creation failed)
  *   ndmspc/room/close    DELETE    delete a room's HTTPRoute and Knative Service (a creation still running
  *                           is cancelled)
- *   ndmspc/room/clear    DELETE    forget a room's stored session, so the next time it is entered it
- *                           starts empty (a room that is already running keeps what it holds)
+ *   ndmspc/room/clear    DELETE    forget a room's session - the stored one and, when the room is up, the
+ *                           one it holds: the next time it is entered it starts empty (a room that is
+ *                           running is told to forget it too, or its next change would report it back)
  *   ndmspc/room/state    GET/POST  internal: a room reports its session here and fetches it back when it
  *                           wakes (hidden from the MCP tool list)
  *   ndmspc/room/backup   GET       export every tracked room and its session as one JSON document
@@ -213,6 +214,11 @@ class NRoomClusterClient : public IRoomCluster {
  * `code: in_use` unless the caller passes `force=true`; the roll runs in the background like ndmspc/room/open
  * (non-blocking by default) and repins the room's HTTPRoute to the new revision, so the next wake-up
  * serves the chosen image.
+ *
+ * A roll tells the revision it replaces to send its clients to the new one - but only when somebody is
+ * actually in the room. A previous revision with no pod has nobody to tell, and asking it anyway would
+ * start that pod beside the new revision, holding the resources the new room needs. An idle room (the
+ * only kind a view rolls on entry) is therefore rolled without waking what it leaves behind.
  *
  * For a deployment that wants every room converged without anyone asking, `NDMSPC_ROOM_AUTO_UPDATE`
  * (off by default) restores the older behaviour: on start, every idle room whose image is not the

@@ -2322,25 +2322,30 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
   std::string applyCode;
   if (!Apply(SvcCollection(), SvcPath(name), service, error, applyCode)) return fail(error, applyCode);
 
-  // A room that was already on another image has clients on the revision that is about to go: tell it, so
-  // they reload onto the new one instead of sitting on a room that is disappearing under them. Off the
-  // request path, like the router's other writes, and best-effort by design - the revision still serves at
-  // this moment (that is what makes the window), and one already gone cannot be told anything: the socket
-  // dropping says the same thing, less politely.
+  // A room that was already on another image **and that somebody is in** has clients on the revision
+  // that is about to go: tell it, so they reload onto the new one instead of sitting on a room that is
+  // disappearing under them. Only a previous revision that is actually running has anybody to tell, and
+  // the request is not free: a revision is a Knative Service of its own, so asking a scaled-to-zero one
+  // anything starts its pod - a second revision running beside the new one, holding the resources the
+  // new room needs. An idle room (the only kind that is rolled on entry) is therefore rolled without
+  // ever waking what it leaves behind. Off the request path, like the router's other writes, and
+  // best-effort by design - the revision still serves at this moment (that is what makes the window),
+  // and one already gone cannot be told anything: the socket dropping says the same thing, less politely.
   if (!pinned.empty() && pinned != image) {
-    std::string previous;
+    NRoomState previous;
     {
       std::lock_guard<std::mutex> lock(fMutex);
       const auto                  it = fRooms.find(name);
-      if (it != fRooms.end()) previous = it->second.revision;
+      if (it != fRooms.end()) previous = it->second;
     }
-    if (!previous.empty()) {
-      const auto token = access["rw"].is_string() ? access["rw"].get<std::string>() : std::string();
-      auto       done  = std::make_shared<std::atomic<bool>>(false);
-      SpawnWorker(name, std::thread([this, previous, image, token, done]() {
+    if (!previous.revision.empty() && RoomInUse(previous)) {
+      const std::string revision = previous.revision;
+      const auto        token    = access["rw"].is_string() ? access["rw"].get<std::string>() : std::string();
+      auto              done     = std::make_shared<std::atomic<bool>>(false);
+      SpawnWorker(name, std::thread([this, revision, image, token, done]() {
                     Ndmspc::NHttpRequest http;
                     std::string          reloadError;
-                    if (!Ndmspc::NRoomSession::Reload(http, RoomBaseUrl(previous), image, reloadError, token)) {
+                    if (!Ndmspc::NRoomSession::Reload(http, RoomBaseUrl(revision), image, reloadError, token)) {
                       NLogInfo("[room] the replaced revision could not tell its clients to reload: %s",
                                reloadError.c_str());
                     }
@@ -3239,10 +3244,10 @@ bool NRoomRouter::Register(NHttpServer * server)
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
   Ndmspc::RegisterMcpTool("ndmspc/room/clear", {
-      .description = "Forget a room's stored session - the file it opened and the steps under it that "
-                     "would be replayed when it wakes - so the room comes back empty. The room itself "
-                     "is not touched (use room/close to delete it); a room that is already running "
-                     "keeps what it holds until it is closed and re-entered.",
+      .description = "Forget a room's session - the file it opened and the steps under it that would be "
+                     "replayed when it wakes - so the room comes back empty. A room that is running is "
+                     "told to forget it as well, or its next change would report the same session back. "
+                     "The room itself is not touched (use room/close to delete it).",
       .methods     = {"DELETE"},
       .inputSchema = {{"properties", {{"room", {{"type", "string"}}}}}},
   });
@@ -4596,6 +4601,38 @@ void NRoomRouter::HandleClear(const std::string & method, json & in, json & out)
   if (!ClearAnnotation(ref.name, kNRoomStateAnnotation, error)) {
     NLogWarning("[room] cannot clear the session of %s: %s", ref.name.c_str(), error.c_str());
   }
+
+  // And the room itself, when it is up: it holds its session in memory and reports it to the router again
+  // after its next change (a room reports on every POST and PATCH - see NHttpServer::RoomSessionPush), so
+  // forgetting only the stored copy was undone by the very next thing anybody did in the room, which is
+  // what "cleared, and nothing happened" looked like. Only a room that is actually running: an idle one
+  // has nothing in memory to forget - its next wake reads the snapshot this just cleared - and the
+  // request would only start its pod. Best-effort, off the request path like the router's other writes.
+  NRoomState cleared;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it != fRooms.end() && !it->second.preparing) cleared = it->second;
+  }
+  if (!cleared.revision.empty() && RoomInUse(cleared)) {
+    const std::string revision = cleared.revision;
+    const std::string token    = cleared.tokenRw;
+    auto              done     = std::make_shared<std::atomic<bool>>(false);
+    SpawnWorker(ref.name, std::thread([this, revision, token, done]() {
+                  Ndmspc::NHttpRequest http;
+                  std::string          resetError;
+                  if (!Ndmspc::NRoomSession::Reset(http, RoomBaseUrl(revision), resetError, token)) {
+                    NLogWarning("[room] could not ask %s to forget its session: %s", revision.c_str(),
+                                resetError.c_str());
+                  }
+                  else {
+                    NLogInfo("[room] %s was told to forget its session", revision.c_str());
+                  }
+                  done->store(true);
+                }),
+                done);
+  }
+
   NLogInfo("[room] %s: cleared its stored session", ref.name.c_str());
   // A view watching this room's session sees it go now rather than at the next tick.
   PublishNow();

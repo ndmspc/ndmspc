@@ -951,7 +951,14 @@ bool NHttpServer::ActivateSession(const std::string & session)
   // Its live chain becomes its group's live one, and the room's active session with it. Nothing is
   // materialized: a session's objects and defaults are kept for as long as it exists, so they are
   // still there when it comes back into view.
-  tree.SetActive(Ndmspc::NInstanceTree::GroupOf(tree.Action(session)), tree.Path(session));
+  const std::string group = Ndmspc::NInstanceTree::GroupOf(tree.Action(session));
+  const auto        live  = tree.Active(group);
+  // The session the room is already on keeps the chain it has live. Its steps below the session are
+  // materialized - the objects are there - and a client reads a step as "on the server" from this chain
+  // (see the re-run rule): setting it back to the bare session made every step under it look un-run, so
+  // a combination that had run was offered for a re-run it did not need.
+  if (!live.empty() && live.front() == session) return true;
+  tree.SetActive(group, tree.Path(session));
   return true;
 }
 
@@ -2010,6 +2017,16 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   // with the access token it was created with, which the router checks against the room the
   // request names (see NRoomRouter::HandleState).
   //
+  // A request that carries this room's own **read-write** token stays out of it as well, for the same
+  // reason: the router runs no client's request, so it presents no user bearer, and that token is the
+  // only credential it has. Without this its two calls on the room's behalf are refused in a deployment
+  // that authenticates /api - `ndmspc/reload`, and the recorded actions replayed to restore a stored
+  // session (`ngnt/open`, ...) - so a rolled room never tells its clients to move, and comes up empty
+  // instead of with the work it held. The token is what already opens the room (its page and its
+  // websocket), and the room's own gate below still enforces the level it grants; a read-only token is
+  // deliberately not enough, so a guest holding one link still needs a user token exactly as its
+  // websocket does.
+  //
   // A request the server dispatches itself is not a request from the network at all, so there is
   // nothing to authenticate here: a tool call runs as the caller whose request already passed this
   // gate (see NMcpServer::CallTool), and a room replaying its stored session (ProcessRequestAs
@@ -2017,7 +2034,8 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   // requests the server had just admitted.
   const bool isWsBridged = arg->GetWSId() != 0;
   const bool isRoomState = fullpath == "ndmspc/room/state";
-  if (fOidcVerifier && !isWsBridged && !identityStated && !isRoomState && !fullpath.IsNull() &&
+  const bool isRoomOwner = RoomAccessLevel(RequestAccessToken(arg.get())) == NRoomAccess::kReadWrite;
+  if (fOidcVerifier && !isWsBridged && !identityStated && !isRoomState && !isRoomOwner && !fullpath.IsNull() &&
       fullpath != "openapi/inspector" && fullpath != "inspector/openapi") {
     NOidcSession session;
     if (!NOidcHttpAuthenticator::ApplyToRequest(fOidcVerifier, arg.get(), &session)) {
@@ -2629,7 +2647,12 @@ bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, 
     }
 
     fCurrentInstance = id;
-    json params      = tree.Params(id);
+    // Which session this step belongs to: the root of its path. A drawing it makes is filed under it, the
+    // same rule a client's own request follows (see the RecordPads call in Dispatch), rather than under
+    // whatever the room happened to be on.
+    const auto nodePath = tree.Path(id);
+    fCurrentSession     = nodePath.empty() ? std::string() : nodePath.front();
+    json params         = tree.Params(id);
     json nodeOut, nodeWsOut;
     fn("POST", params, nodeOut, nodeWsOut, fObjectsMap);
     if (!(nodeOut.contains("result") && nodeOut["result"].is_string() &&
@@ -2640,6 +2663,21 @@ bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, 
       fCurrentInstance = "";
       return false;
     }
+
+    // What the step drew comes back with it. The room remembers a drawing the same way whether a client
+    // asked for it or the restore ran it, so a room that restores its combination is handed to its
+    // viewers as the path draws it - without this the drawings the restore itself made were thrown away,
+    // and a reloaded room's pads held only what the stored session happened to carry: the histogram a
+    // `map` draws was missing from pad1 until that step was run again.
+    if (nodeWsOut.is_object() && nodeWsOut.contains("payload") && nodeWsOut["payload"].is_object() &&
+        nodeWsOut["payload"].contains("pad")) {
+      const std::string group = (nodeWsOut.contains("group") && nodeWsOut["group"].is_string())
+                                    ? nodeWsOut["group"].get<std::string>()
+                                    : fGroup;
+      const std::string drewIn = fCurrentSession.empty() ? group : fCurrentSession;
+      if (!drewIn.empty()) RecordPads(drewIn, nodeWsOut["payload"]["pad"]);
+    }
+
     auto * entry = new NHistoryEntry(action.c_str(), "POST");
     entry->SetPayloadIn(params);
     entry->SetPayloadOut(nodeOut);

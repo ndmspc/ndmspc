@@ -2943,6 +2943,34 @@ TEST(NRoomRouterActionsTest, UpgradeRefusesARoomInUseUnlessForced)
             "registry.example.com/ndmspc/base:v1.4.0");
 }
 
+TEST(NRoomRouterActionsTest, ARolledIdleRoomReadsWhetherTheRevisionItLeavesIsServing)
+{
+  // A roll replaces the room's revision, and the router tells the revision it replaces to send its
+  // clients to the new one. Only a revision somebody is in has clients to tell: asking a scaled-to-zero
+  // one anything would start its pod, and that second revision would hold the resources the new room
+  // needs. Whether there is anybody to tell is read from the revision itself - a room's pod is the
+  // router's only witness - so a roll consults the revision it leaves before deciding to tell it, and
+  // finds nobody here. `force` takes the caller's word out of it, so what is read is this roll's own rule.
+  Router test;
+  test.cluster->skeleton = SkeletonWithImageTags("registry.example.com/ndmspc/base:v1.5.0",
+                                                 json::array({"v1.5.0", "v1.4.0"}));
+  SeedRoomOnImage(test.cluster, "registry.example.com/ndmspc/base:v1.4.0");
+  test.cluster->replicas = 0; // the room runs at zero: nobody is in it
+
+  const json upgraded = test.Upgrade("alpha", /*tag=*/std::string(), /*force=*/true, /*wait=*/true);
+  ASSERT_EQ(upgraded["result"], "success");
+
+  const std::string revision = "/apis/serving.knative.dev/v1/namespaces/default/revisions/revision-old";
+  EXPECT_GE(test.cluster->Count("GET", revision), 1u);
+
+  // The room did move onto the deployment's current image, and off the revision it was on.
+  const std::string service = "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  const std::string route   = "/apis/gateway.networking.k8s.io/v1/namespaces/default/httproutes/ndmspc-room-alpha";
+  EXPECT_EQ(test.cluster->objects.at(service)["spec"]["template"]["spec"]["containers"][0]["image"],
+            "registry.example.com/ndmspc/base:v1.5.0");
+  EXPECT_NE(test.cluster->objects.at(route)["spec"]["rules"][0]["backendRefs"][0]["name"], "revision-old");
+}
+
 TEST(NRoomRouterActionsTest, UpgradeRefusesATagTheDeploymentDoesNotOffer)
 {
   Router test;

@@ -170,6 +170,24 @@ class NRoomSession {
                      std::string & error, const std::string & token = std::string());
 
   /**
+   * @brief Tell a room to forget its session: the combinations it holds, the objects they made and the
+   *        history that describes them (`ndmspc/state` DELETE).
+   *
+   * A room that is running keeps its session in memory and reports it to the router again after its next
+   * change - a room reports after every POST and PATCH (see NHttpServer::RoomSessionPush) - so forgetting
+   * only the *stored* copy is undone by the very next thing anybody does in the room. This is what makes
+   * `ndmspc/room/clear` stick.
+   *
+   * @param http Transport to use.
+   * @param roomBaseUrl Room base URL.
+   * @param error Filled with the reason when the room could not be told.
+   * @param token The room's read-write access token, when it has one.
+   * @return True when the room answered that it had reset.
+   */
+  static bool Reset(NHttpRequest & http, const std::string & roomBaseUrl, std::string & error,
+                    const std::string & token = std::string());
+
+  /**
    * @brief Whether an action defines session state and is therefore worth replaying.
    *
    * The tools say so themselves (NMcpToolInfo::session, e.g. an `open`, and the step that rebuilds what

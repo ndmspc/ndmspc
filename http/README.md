@@ -1071,7 +1071,7 @@ are served both as `/api/ndmspc/room/*` and as MCP tools):
 | `ndmspc/room/list` | GET | Every room being tracked, including those still preparing, those waiting for resources (`state=pending`) and those whose creation failed. |
 | `ndmspc/room/capacity` | GET | What the cluster has for rooms, what they and everything else reserve, and what is left — see [Cluster capacity](#cluster-capacity). |
 | `ndmspc/room/close` | DELETE | Delete a room's HTTPRoute and Knative Service; a creation still running for it is cancelled. |
-| `ndmspc/room/clear` | DELETE | Forget a room's stored session so the next time it is entered it starts empty. The room itself is untouched (use `ndmspc/room/close` to delete it), and a room that is already running keeps what it holds until it is closed and re-entered. |
+| `ndmspc/room/clear` | DELETE | Forget a room's session so the next time it is entered it starts empty. A room that is already running is told to forget it as well — it holds its session in memory and reports it back after its next change. The room itself is untouched (use `ndmspc/room/close` to delete it). |
 | `ndmspc/room/state` | GET, POST | Internal: a room reports its session here and fetches it back when it wakes. Hidden from the MCP tool list. |
 | `ndmspc/room/backup` | GET | Every tracked room and its session as one JSON document, links and all; `room` (body or query) answers with that one room alone. A backup, for coming back to your own deployment. |
 | `ndmspc/room/config` | GET | **One room's configuration**: the file it opened, the steps that were run, the size it was created at, and what was on screen — and nothing about the room: no id, no owner, no links. What somebody hands to somebody else, and what `ndmspc/room/import` takes. |

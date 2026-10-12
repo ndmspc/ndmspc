@@ -150,9 +150,12 @@ void NWorkspace::Clear(Option_t *)
   for (int i = static_cast<int>(fEntries.size()) - 1; i >= 0; i--) {
     RemoveEntry(i);
   }
-  fWorkspace = nullptr;
-  fState     = nullptr;
-  fCombinations = nullptr;
+  // Emptied, not nulled: every caller reads these as objects (`GetWorkspace().value("open")` in the
+  // session snapshot, `GetCombinations()` in the tree) and a null one throws - a reset room then failed
+  // every request it was given, which is how "reset the server" broke a room rather than emptying it.
+  fWorkspace    = json::object();
+  fState        = json::object();
+  fCombinations = json::object();
 }
 
 bool NWorkspace::LoadFromFile(const std::string & filename)

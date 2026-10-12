@@ -494,6 +494,55 @@ TEST(NHttpServerGroupTest, RerunningAStepRollsBackItsOwnGroupAndNoOther)
   delete server;
 }
 
+/**
+ * A session the room is already on keeps the chain it has live when it is activated again.
+ *
+ * A client reads a step as "on the server" from the group's live chain (`combinations.active`), and
+ * re-entering a combination - which is what a run dialog does as it closes - used to set that chain back
+ * to the bare session. Every step under it then read as un-run, so a combination that had already run
+ * came back asking to be run again.
+ */
+TEST(NHttpServerGroupTest, ReEnteringTheSessionTheRoomIsOnKeepsItsLiveChain)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/open"]    = SuccessHandler;
+  handlers["ndmspc/ngnt/reshape"] = SuccessHandler;
+
+  // The base actions too: `ndmspc/session` is what re-enters a combination.
+  Ndmspc::gNdmspcHttpHandlers = &handlers;
+  Ndmspc::RegisterBaseActions();
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previousTools = Ndmspc::gNdmspcMcpTools;
+  tools["ndmspc/ngnt/open"]    = {};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+  Ndmspc::gNdmspcMcpTools      = &tools;
+
+  const json        open    = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "a.root"}}));
+  const std::string i1      = open["combination"]["id"];
+  const json        reshape = json::parse(
+      RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"binningName", "x"}, {"path", json::array({i1})}}));
+  const std::string i2 = reshape["combination"]["id"];
+
+  Ndmspc::NInstanceTree tree(server->GetCombinations());
+  ASSERT_EQ(tree.Active("ndmspc/ngnt"), std::vector<std::string>({i1, i2}));
+
+  // Re-entering the session the room is on: what a run dialog does as it closes.
+  const json again = json::parse(RequestJson(server, "PATCH", "ndmspc/session", {{"session", i1}}));
+  EXPECT_TRUE(again.value("result", std::string()) == "success") << again.dump();
+
+  EXPECT_EQ(tree.Active("ndmspc/ngnt"), std::vector<std::string>({i1, i2}))
+      << "re-entering the session the room is on threw its live chain away";
+  EXPECT_EQ(tree.Active(), std::vector<std::string>({i1, i2}));
+
+  Ndmspc::gNdmspcMcpTools     = previousTools;
+  Ndmspc::gNdmspcHttpHandlers = nullptr;
+  delete server;
+}
+
 TEST(NHttpServerAccessTest, ANonListedUserIsNotRefusedInGuestMode)
 {
   EnvGuard users("NDMSPC_ALLOWED_USERS", "alice");
