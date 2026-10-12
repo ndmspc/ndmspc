@@ -200,6 +200,9 @@ bool RegisterBaseActions()
         // What the room is doing right now: a read-only viewer (or one that just arrived) otherwise
         // cannot tell a room that is busy from one that is idle.
         httpOut["payload"]["state"]["busyActions"] = server->BusyActions();
+        // What is running, and since when (see NHttpServer::BusyActionsList): what a viewer that did not
+        // start the work reads, alongside the count.
+        httpOut["payload"]["state"]["busy"] = server->BusyActionsList();
         httpOut["payload"]["combinations"] = Ndmspc::NInstanceTree(server->GetCombinations()).ToTree();
         NLogInfo("State GET inspector: %s", schema["inspector"].dump().c_str());
       }

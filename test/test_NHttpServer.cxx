@@ -6,10 +6,14 @@
 
 #include <THttpCallArg.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -152,6 +156,58 @@ void SuccessHandler(std::string /*method*/, json & /*in*/, json & out, json & /*
                     std::map<std::string, TObject *> & /*objects*/)
 {
   out["result"] = "success";
+}
+
+// A handler that blocks until the test releases it, so an action can be observed while it is in flight.
+// Ndmspc::NHttpFuncPtr is a plain function pointer (no captures), so its state lives at namespace scope.
+std::mutex              gBusyMutex;
+std::condition_variable gBusyCv;
+bool                    gBusyStarted = false;
+bool                    gBusyRelease = false;
+
+void BlockingHandler(std::string /*method*/, json & /*in*/, json & out, json & /*wsOut*/,
+                     std::map<std::string, TObject *> & /*objects*/)
+{
+  {
+    std::lock_guard<std::mutex> lock(gBusyMutex);
+    gBusyStarted = true;
+  }
+  gBusyCv.notify_all();
+  std::unique_lock<std::mutex> lock(gBusyMutex);
+  gBusyCv.wait(lock, [] { return gBusyRelease; });
+  out["result"] = "success";
+}
+
+/// @brief Resets the blocking handler's flags so a test starts from a clean state.
+void ResetBlockingHandler()
+{
+  std::lock_guard<std::mutex> lock(gBusyMutex);
+  gBusyStarted = false;
+  gBusyRelease = false;
+}
+
+/// @brief Starts an action on `server` that blocks in {@link BlockingHandler}, and waits till it runs.
+void StartBlockingAction(Ndmspc::NHttpServer * server, const char * requestId)
+{
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod("POST");
+  arg->SetPathName("api");
+  arg->SetFileName("ndmspc/ngnt/reshape");
+  arg->SetPostData(R"({"path":["i1","i2"]})");
+  server->RunAction(arg, nullptr, requestId, nullptr);
+  // Wait until the handler is actually running, so the in-flight list is populated before it is read.
+  std::unique_lock<std::mutex> lock(gBusyMutex);
+  gBusyCv.wait(lock, [] { return gBusyStarted; });
+}
+
+/// @brief Releases a {@link BlockingHandler} started by {@link StartBlockingAction}, and lets it finish.
+void ReleaseBlockingAction()
+{
+  {
+    std::lock_guard<std::mutex> lock(gBusyMutex);
+    gBusyRelease = true;
+  }
+  gBusyCv.notify_all();
 }
 
 // One request through the same dispatch /api/* uses, returning the response body.
@@ -505,4 +561,100 @@ TEST(NHttpServerAccessTest, AnAnonymousRequestIsNeverGatedByTheList)
   EXPECT_EQ(response.find("user_not_allowed"), std::string::npos) << response;
 
   delete server;
+}
+
+TEST(NHttpServerBusyTest, AnActionInFlightIsListedWhileItRuns)
+{
+  ResetBlockingHandler();
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/reshape"] = BlockingHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  StartBlockingAction(server, "req-42");
+
+  // While it runs: one entry, named, with the combination it acts on and its age; the count agrees.
+  const json list = server->BusyActionsList();
+  ASSERT_EQ(list.size(), 1u) << list.dump();
+  EXPECT_EQ(list[0]["id"].get<std::string>(), "req-42");
+  EXPECT_EQ(list[0]["action"].get<std::string>(), "ndmspc/ngnt/reshape");
+  EXPECT_EQ(list[0]["path"], json::array({"i1", "i2"}));
+  EXPECT_EQ(list[0]["method"].get<std::string>(), "POST");
+  EXPECT_GE(list[0]["elapsedMs"].get<long long>(), 0);
+  EXPECT_EQ(server->BusyActions(), 1);
+
+  ReleaseBlockingAction();
+  // Poll until the worker threads the action (and its list entry) away.
+  for (int i = 0; i < 200 && !server->BusyActionsList().empty(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_TRUE(server->BusyActionsList().empty());
+  EXPECT_EQ(server->BusyActions(), 0);
+
+  delete server;
+}
+
+TEST(NHttpServerBusyTest, TheKillSwitchTurnsTheListOff)
+{
+  EnvGuard off("NDMSPC_BUSY_BROADCAST", "0");
+  ResetBlockingHandler();
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/reshape"] = BlockingHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  StartBlockingAction(server, "req-43");
+  // Switched off: nothing recorded, so no list - but the count (the chip, the cadence) is unchanged.
+  EXPECT_TRUE(server->BusyActionsList().empty());
+  EXPECT_EQ(server->BusyActions(), 1);
+
+  ReleaseBlockingAction();
+  delete server;
+}
+
+TEST(NHttpServerBusyTest, TheStateReadCarriesTheBusyList)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  Ndmspc::NMcpToolMap                         tools;
+  Ndmspc::NHttpHandlerMap *                   previousHandlers = Ndmspc::gNdmspcHttpHandlers;
+  Ndmspc::NMcpToolMap *                       previousTools    = Ndmspc::gNdmspcMcpTools;
+  Ndmspc::gNdmspcHttpHandlers = &handlers;
+  Ndmspc::gNdmspcMcpTools      = &tools;
+  ASSERT_TRUE(Ndmspc::RegisterBaseActions());
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  const json body = json::parse(Request(server, "GET", "ndmspc/state"));
+  Ndmspc::gNdmspcHttpHandlers = previousHandlers;
+  Ndmspc::gNdmspcMcpTools      = previousTools;
+  delete server;
+
+  ASSERT_TRUE(body.contains("payload")) << body.dump();
+  const json & state = body["payload"]["state"];
+  ASSERT_TRUE(state.contains("busy")) << body.dump();
+  EXPECT_TRUE(state["busy"].is_array());
+  EXPECT_TRUE(state["busy"].empty());
+}
+
+TEST(NHttpServerBusyTest, ACancelIsRefusedForAReadOnlyToken)
+{
+  // A room that enforces access, so the control request has a level to check.
+  EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod("POST");
+  arg->SetPathName("api");
+  arg->SetFileName("cancel");
+  arg->SetQuery("token=roTok");
+  arg->SetPostData(R"({"requestId":"whatever"})");
+  server->ProcessRequest(arg);
+
+  const std::string body(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+  delete server;
+  EXPECT_NE(body.find("read-only"), std::string::npos) << body;
+  EXPECT_EQ(body.find("\"cancelled\":true"), std::string::npos) << body;
 }

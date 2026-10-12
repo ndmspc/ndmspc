@@ -348,6 +348,24 @@ class NHttpServer : public THttpServer {
   /// read-only viewer above all — can tell a room that is busy from one that is idle.
   int BusyActions() const { return fBusyActions.load(); }
 
+  /// One action in flight, for the "what is running" list (see {@link BusyActionsList}).
+  struct NRunningAction {
+    std::string                          action;  ///< The handler key it runs (e.g. ngnt/reshape)
+    std::vector<std::string>             path;    ///< The combination node ids it acts on (empty when none)
+    std::string                          method;  ///< The HTTP verb it came in with
+    std::chrono::steady_clock::time_point started; ///< When it began, for the elapsed readout
+  };
+
+  /**
+   * @brief The actions in flight now, as `[{id, action, path, method, elapsedMs}]`.
+   *
+   * Empty when nothing runs, or when the list is switched off (`NDMSPC_BUSY_BROADCAST=0`). `elapsedMs` is
+   * an age, not a timestamp, because the browser's clock is not the server's; a client turns it into a
+   * local start time. What a client that did not start the work sees (see NWsHandler's heartbeat and the
+   * state action) - the count alone says "busy", not "busy with what".
+   */
+  json BusyActionsList();
+
   /// Notes that the room was asked to do something — any action, over any transport.
   ///
   /// This and {@link SetBusyAction} are what the heartbeat thread reads to choose its cadence, and it is
@@ -866,8 +884,13 @@ class NHttpServer : public THttpServer {
   std::mutex        fWorkerMutex;              ///<! Guards fActionWorker's creation
   /// The cancel flag of each action waiting to run, by the client's request id. Set by CancelRequest;
   /// the worker checks it before running a queued action and the loops poll it while one runs.
-  std::mutex        fCancelMutex;              ///<! Guards fCancelFlags
+  std::mutex        fCancelMutex;              ///<! Guards fCancelFlags and fRunning
   std::map<std::string, std::shared_ptr<std::atomic<bool>>> fCancelFlags;
+  /// The actions in flight, by request id, for {@link BusyActionsList}. Same lifecycle and the same guard
+  /// as fCancelFlags: registered when the request is queued, erased when it finishes. Never written when
+  /// the broadcast is switched off.
+  std::map<std::string, NRunningAction> fRunning;
+  bool fBusyBroadcast{true}; ///<! Whether the running-action list is published (NDMSPC_BUSY_BROADCAST)
   std::atomic<int> fServCnt{0};           ///<! Service counter used in heartbeat payload
   std::mutex        fHeartbeatMutex;       ///<! Guards the heartbeat interval/timer
   std::condition_variable fHeartbeatCv;    ///<! Signals heartbeat thread wake-up/shutdown
