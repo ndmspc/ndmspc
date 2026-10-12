@@ -395,6 +395,46 @@ bool NRoomSession::Reload(NHttpRequest & http, const std::string & roomBaseUrl, 
   return true;
 }
 
+bool NRoomSession::Reset(NHttpRequest & http, const std::string & roomBaseUrl, std::string & error,
+                         const std::string & token)
+{
+  // One call, to the room's own reset: it clears the combinations it holds, the objects they made and the
+  // history that describes them, so the room stops reporting a session the router has just forgotten.
+  // The conventions are `Reload`'s (trim the base, the room token in its header, HTTP 200 kept even when
+  // a handler fails so the envelope is what says whether it worked, nothing thrown).
+  const std::string                  url = TrimBase(roomBaseUrl) + "/api/ndmspc/state";
+  std::map<std::string, std::string> headers;
+  headers["Content-Type"] = "application/json";
+  if (!token.empty()) headers[NRoomAccess::kHeader] = token;
+
+  NHttpResponse response;
+  try {
+    response = http.request("DELETE", url, "", headers);
+  }
+  catch (const std::exception & e) {
+    error = "cannot reach the room at " + url + " (" + e.what() + ")";
+    return false;
+  }
+  if (response.status != 200) {
+    error = "DELETE " + url + " answered HTTP " + std::to_string(response.status) + ": " + Elide(response.body);
+    return false;
+  }
+
+  try {
+    const json parsed = json::parse(response.body);
+    if (StringMember(parsed, "result") != "success") {
+      const std::string detail = StringMember(parsed, "error");
+      error = "DELETE " + url + " failed: " + (detail.empty() ? Elide(response.body) : detail);
+      return false;
+    }
+  }
+  catch (const json::parse_error &) {
+    error = "DELETE " + url + " returned a response that is not JSON: " + Elide(response.body);
+    return false;
+  }
+  return true;
+}
+
 std::string NRoomSession::Encode(const json & snapshot)
 {
   if (!snapshot.is_object() || snapshot.empty()) return {};
