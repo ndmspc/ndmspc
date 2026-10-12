@@ -202,6 +202,13 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcCo
   else {
     NLogInfo("No allowed-user list is set: every authenticated user may enter");
   }
+
+  // Whether the "what is running" list is published (see BusyActionsList). On by default; off means it is
+  // never recorded, so a viewer falls back on the count-only "working" chip and the setting costs nothing.
+  if (const char * broadcast = std::getenv("NDMSPC_BUSY_BROADCAST"); broadcast != nullptr && *broadcast != '\0') {
+    const std::string value(broadcast);
+    fBusyBroadcast = !(value == "0" || value == "false" || value == "no");
+  }
 }
 
 json NHttpServer::RoomAccessTokens() const
@@ -547,6 +554,36 @@ private:
   bool                  fTool;
 };
 
+/// @brief The action a queued request is running, for the "what is running" list.
+///
+/// The action is the handler key `Dispatch` resolves (`ngnt/reshape`, not `api/ngnt/reshape`); the path
+/// is the combination node ids the client sent (`arg->GetPostData()` is the request payload on the WS
+/// bridge), which a client turns back into the steps' own names for the detail line.
+NHttpServer::NRunningAction RunningActionOf(const std::shared_ptr<THttpCallArg> & arg)
+{
+  NHttpServer::NRunningAction running;
+  std::string                 full = std::string(arg->GetPathName()) + "/" + std::string(arg->GetFileName());
+  if (full.rfind("api/", 0) == 0) full = full.substr(4);
+  running.action  = full;
+  running.method  = arg->GetMethod();
+  running.started = std::chrono::steady_clock::now();
+
+  const char * post = static_cast<const char *>(arg->GetPostData());
+  if (post != nullptr && *post != '\0') {
+    try {
+      const json in = json::parse(post);
+      if (in.is_object() && in.contains("path") && in["path"].is_array()) {
+        for (const auto & id : in["path"]) {
+          if (id.is_string()) running.path.push_back(id.get<std::string>());
+        }
+      }
+    }
+    catch (const json::parse_error &) {
+    }
+  }
+  return running;
+}
+
 /// The cadence a room is put on while it is working: a second, fine enough to watch a job as it goes.
 const int kBusyHeartbeatMs = 1000;
 
@@ -567,6 +604,29 @@ void NHttpServer::SetBusyAction(bool busy)
 void NHttpServer::NoteActivity()
 {
   fLastActivity.store(std::chrono::steady_clock::now());
+}
+
+json NHttpServer::BusyActionsList()
+{
+  json list = json::array();
+  if (!fBusyBroadcast) return list;
+
+  // The age, not a timestamp: the browser's clock is not the server's, so a client computes its own
+  // start time from it (see the heartbeat's `previous.afterMs` for the same reason).
+  const auto                  now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(fCancelMutex);
+  for (const auto & entry : fRunning) {
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - entry.second.started).count();
+    json one;
+    one["id"]        = entry.first;
+    one["action"]    = entry.second.action;
+    one["path"]      = entry.second.path;
+    one["method"]    = entry.second.method;
+    one["elapsedMs"] = static_cast<long long>(elapsed);
+    list.push_back(std::move(one));
+  }
+  return list;
 }
 
 void NHttpServer::SetHeartbeatMs(int ms)
@@ -1469,6 +1529,9 @@ void NHttpServer::RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<N
     flag = std::make_shared<std::atomic<bool>>(false);
     std::lock_guard<std::mutex> lock(fCancelMutex);
     fCancelFlags[requestId] = flag;
+    // What the room is doing, for the heartbeat's `busy` list (see BusyActionsList). Skipped entirely when
+    // the broadcast is off, so a switched-off server does no work per action.
+    if (fBusyBroadcast) fRunning[requestId] = RunningActionOf(arg);
   }
 
   worker->Submit([this, arg, identity, requestId, flag, onComplete]() {
@@ -1486,6 +1549,7 @@ void NHttpServer::RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<N
     if (!requestId.empty()) {
       std::lock_guard<std::mutex> lock(fCancelMutex);
       fCancelFlags.erase(requestId);
+      fRunning.erase(requestId);
     }
     if (onComplete) onComplete();
   });
@@ -1732,6 +1796,13 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
     }
     catch (const json::parse_error &) {
     }
+  }
+  // Cancelling stops what the room is doing, so it is a write: a read-only token may not do it (the same
+  // rule upload and delete follow). The UI hides Cancel for a read-only viewer; this is the boundary.
+  if (level != "rw") {
+    arg->SetContentType("application/json");
+    arg->SetContent(json{{"result", "failure"}, {"error", "this room's access token is read-only"}}.dump());
+    return true;
   }
   const std::string requestId =
       in.contains("requestId") && in["requestId"].is_string() ? in["requestId"].get<std::string>() : std::string();

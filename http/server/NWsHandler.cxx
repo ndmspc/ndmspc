@@ -603,6 +603,9 @@ json NWsHandler::BuildHeartbeat(bool withPrevious)
     // What the room is doing: a viewer that did not start the work - a read-only link above all -
     // otherwise cannot tell a room that is busy from one that is idle.
     data["payload"]["busyActions"] = Ndmspc::gNHttpServer->BusyActions();
+    // What is running, and since when: the same for every client, so a viewer that did not start the
+    // work sees it too (see NHttpServer::BusyActionsList). Empty when nothing runs, or switched off.
+    data["payload"]["busy"] = Ndmspc::gNHttpServer->BusyActionsList();
   }
   try {
     data["payload"]["system"] = NUtils::GetSystemStats();
