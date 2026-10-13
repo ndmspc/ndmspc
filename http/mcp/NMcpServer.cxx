@@ -257,12 +257,26 @@ json NMcpServer::BuildTools() const
     if (info != nullptr && !info->runButton) {
       tool["_meta"]["ndmspc.io/run"] = false;
     }
-    // And the tool's own guided tour, when it declares one: what it is called, what it does, and the
+    // And the tool's own guided tours, when it declares any: what each is called, what it does, and the
     // combination of steps the client walks. Declared here rather than invented by the client, so the
-    // tool says what a tour of it should do — and a tool with no tour simply declares none.
-    if (info != nullptr && info->tutorial.is_object() && info->tutorial.contains("steps") &&
-        info->tutorial["steps"].is_array() && !info->tutorial["steps"].empty()) {
-      tool["_meta"]["ndmspc.io/tutorial"] = info->tutorial;
+    // tool says what a tour of it should do — and a tool with no tour simply declares none. A tool may
+    // declare **several** (`tutorial` an array — a browsing tour, then a projecting one); one alone is
+    // published under the key clients have always read.
+    if (info != nullptr) {
+      if (info->tutorial.is_array()) {
+        json tours = json::array();
+        for (const auto & one : info->tutorial) {
+          if (one.is_object() && one.contains("steps") && one["steps"].is_array() &&
+              !one["steps"].empty()) {
+            tours.push_back(one);
+          }
+        }
+        if (!tours.empty()) tool["_meta"]["ndmspc.io/tutorials"] = tours;
+      }
+      else if (info->tutorial.is_object() && info->tutorial.contains("steps") &&
+               info->tutorial["steps"].is_array() && !info->tutorial["steps"].empty()) {
+        tool["_meta"]["ndmspc.io/tutorial"] = info->tutorial;
+      }
     }
     // What a client needs to name the group in words, to group the tools, to call the tool by its own key
     // (the MCP name flattens `/` to `_`, which cannot be undone when the key has a subgroup), and to find

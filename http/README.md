@@ -610,6 +610,7 @@ What a tool says about itself beyond its name travels in MCP's `_meta`, under `n
 | `ndmspc.io/run` | `false` for a step that works through its own form, so a client offers no Run button |
 | `ndmspc.io/explorer` | `false` for a tool a client should not offer a person (it stays callable) |
 | `ndmspc.io/tutorial` | the tool's own guided tour: `{name, description, steps}` |
+| `ndmspc.io/tutorials` | its tours, when it declares **several**: an array of the above, in `order` |
 
 ### Tools
 
@@ -741,10 +742,10 @@ This enforcement is the framework's own: it applies to `/api/*`, the WebSocket b
 
 ### Tool tutorial
 
-A tool can declare a guided tour of itself, so a client can walk a user through running it without
-knowing anything about the tool. It is a **named** tour: `name` and `description` say what it does, and
-`steps` is a **combination** — the same shape a client builds: an ordered list of steps, each naming an
-action to open and the arguments to fill its form with.
+A tool can declare a guided tour of itself — or **several**, when it has more than one thing to walk a
+user through (the room's own files first, then what is in one of them). A tour is **named**: `name` and
+`description` say what it does, and `steps` is a **combination** — the same shape a client builds: an
+ordered list of steps, each naming an action to open and the arguments to fill its form with.
 
 ```cpp
 Ndmspc::RegisterMcpTool("ndmspc/browser/browse", {
@@ -763,7 +764,19 @@ Ndmspc::RegisterMcpTool("ndmspc/browser/browse", {
 });
 ```
 
-It is published as `_meta["ndmspc.io/tutorial"]` on the tool in `tools/list`, and it is **optional**:
+More than one is an **array**, each tour with its own `order` — the place it takes among that tool's
+tours (lowest first), so a tour that has to be taken first says so rather than relying on the order the
+JSON happens to be written in:
+
+```cpp
+    .tutorial = json::array({
+        json{{"name", "Browse cernstaff.root from Storage"}, {"order", 1}, {"steps", json::array({/* … */})}},
+        json{{"name", "Project a THnSparse"},                {"order", 2}, {"steps", json::array({/* … */})}},
+    }),
+```
+
+It is published on the tool in `tools/list`: one tour as `_meta["ndmspc.io/tutorial"]`, several as
+`_meta["ndmspc.io/tutorials"]` (an array of the same objects, in `order`). It is **optional**:
 a tool that declares none offers no tour, which is what most want — a tour is for the tool a user does
 not yet know how to drive, not for `health` or an internal helper. The `name` and `description` are what
 a client lists the tour by, so where a tour is offered (Help, or an Inspector with no session yet) it is
@@ -775,7 +788,10 @@ tree first, a step names it with `"expand": "ntuple"`: the client points at that
 moves on once its children appear, so the step after it can click one (`"click": "ntuple/px"`). A step
 may also be `{"show": "pads"}` — a surface rather than an action, so a tour can end on the result it
 drew. Any step may also carry its own `body`: the card's text, when the tool wants to say more than the
-default (e.g. "…now draw a different object. Click Next.").
+default (e.g. "…now draw a different object. Click Next."). A step may drop the card's **Next** with
+`"next": false` — for one whose own control is the way on, like copying the path that closes Storage — and
+it may instead say what it waits for with `"advanceOn": "<data-tour>"`: the tour moves on the moment that
+element appears, which is how a step whose click is expected to open a dialog hands over to it.
 
 The client walks the steps in order, opening each action's step and pointing at **Save & Run** (or at
 the form, or at the named node) for the user to do — the tool says what a tour of it is; the client

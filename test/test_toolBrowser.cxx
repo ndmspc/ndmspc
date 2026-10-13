@@ -319,24 +319,27 @@ TEST_F(ToolBrowser, ASparseNodeOpensAProjectionDialog)
   // No canvas yet, so SAME starts unticked — there is nothing to overlay onto.
   EXPECT_EQ(props["same"].value("default", true), false);
 
-  // The table has one row per axis and a checkbox column (`use`); the first axis is ticked by default,
-  // so the form's first run is a 1D projection.
+  // The table has a checkbox column (`use`), the axis as its own index and name, and the options
+  // after it; the first axis is ticked by default, so the form's first run is a 1D projection.
   ASSERT_TRUE(props["axes"]["columns"].is_array());
   EXPECT_EQ(props["axes"]["columns"][0].value("key", std::string()), "use");
-  EXPECT_EQ(props["axes"]["columns"][1].value("key", std::string()), "axis");
-  // The label is an axis name, rendered as plain text: not TLatex, which would read the underscore of
-  // a name like `p_T` as markup.
-  EXPECT_FALSE(props["axes"]["columns"][1].contains("format"));
+  EXPECT_EQ(props["axes"]["columns"][1].value("key", std::string()), "id");
+  EXPECT_EQ(props["axes"]["columns"][2].value("key", std::string()), "axis");
+  // The name is rendered as plain text: not TLatex, which would read the underscore of a name like
+  // `p_T` as markup. What a reader would call the axis travels beside it, for the cell's hover.
+  EXPECT_FALSE(props["axes"]["columns"][2].contains("format"));
+  EXPECT_EQ(props["axes"]["columns"][2].value("hint", std::string()), "axisTitle");
 
-  // One row per axis, labelled "index, name" — the name is what identifies the axis, and the title is
-  // prose a table row does not need. The first axis is ticked by default, so the form's first run is a
-  // 1D projection.
+  // One row per axis: the index it projects at, its name, and the name's title for the hover.
   ASSERT_TRUE(props["axes"]["default"].is_array());
   ASSERT_EQ(props["axes"]["default"].size(), 3u);
-  EXPECT_EQ(props["axes"]["default"][0].value("axis", std::string()), "0, mass");
-  EXPECT_EQ(props["axes"]["default"][1].value("axis", std::string()), "1, pt");
+  EXPECT_EQ(props["axes"]["default"][0].value("id", -1), 0);
+  EXPECT_EQ(props["axes"]["default"][0].value("axis", std::string()), "mass");
+  EXPECT_EQ(props["axes"]["default"][1].value("id", -1), 1);
+  EXPECT_EQ(props["axes"]["default"][1].value("axis", std::string()), "pt");
+  EXPECT_EQ(props["axes"]["default"][0].value("axisTitle", std::string()), "invariant mass");
   EXPECT_EQ(props["axes"]["default"][0].value("use", false), true);
-  EXPECT_EQ(props["axes"]["default"][1].value("use", true), false);
+  EXPECT_EQ(props["axes"]["default"][1].value("use", false), false);
 }
 
 TEST_F(ToolBrowser, ProjectingASparseDrawsTheChosenAxes)

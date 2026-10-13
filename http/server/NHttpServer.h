@@ -115,12 +115,15 @@ struct NMcpToolInfo {
   /// tree draws an object on a click - leaves nothing for one, and the client offers none. Declared here,
   /// by the tool, rather than by the client keeping a list of actions it knows.
   bool                     runButton{true};
-  /// A guided tour of this tool, or empty for none. A **named** tour: `"name"` and `"description"` say
-  /// what it does, and `"steps"` is the **combination** the client walks — an ordered list of steps,
-  /// each naming an action to open (with the arguments to fill its form with), so the user presses
-  /// Save & Run at each. A client lists the tour by its name and description, so where a tour is offered
-  /// it is offered by what it does rather than by the tool's own name; a tool that needs no tour simply
-  /// declares none. A step is `{"action": "ndmspc/browser/open", "params": { … }}`; `params` is optional.
+  /// The guided tour (or **tours**) of this tool, or empty for none. A **named** tour: `"name"` and
+  /// `"description"` say what it does, and `"steps"` is the **combination** the client walks — an ordered
+  /// list of steps, each naming an action to open (with the arguments to fill its form with), so the user
+  /// presses Save & Run at each. A client lists the tour by its name and description, so where a tour is
+  /// offered it is offered by what it does rather than by the tool's own name; a tool that needs no tour
+  /// simply declares none. A tool that has several declares them as an **array** — each with its own
+  /// `"order"`, the place it takes among that tool's tours, and published as
+  /// `_meta["ndmspc.io/tutorials"]` rather than `_meta["ndmspc.io/tutorial"]`. A step is
+  /// `{"action": "ndmspc/browser/open", "params": { … }}`; `params` is optional.
   json                     tutorial{};
   /// How this tool's **group** is named for a reader, when its prefix is not the words to show
   /// (`ndmspc_ngnt` reads as "NGNT explorer"). Published as `_meta["ndmspc.io/groupLabel"]`; empty says
