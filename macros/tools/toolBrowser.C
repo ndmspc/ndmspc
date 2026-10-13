@@ -291,13 +291,17 @@ json SparseDialogSchema(THnSparse * sparse, const json & saved = json())
                              ? saved["axes"]
                              : json::array();
 
-  // The checkbox leads the line, the axis name is the label, and the options follow it. The label is
-  // the axis **name** (`mean`), not its title: a name is what identifies an axis, and the title is
-  // prose written for a reader ("Mean [GeV]") that a row in a table does not need - and plain text, so
-  // a name carrying an underscore is not read as LaTeX.
+  // The checkbox leads the line, then the axis it applies to as two columns: a narrow, left-aligned
+  // **index** (where the projection will put it) beside its **name** (`mean`), which takes the space
+  // that is left. A name is what identifies an axis; the title is prose written for a reader
+  // ("Mean [GeV]"), so the row carries it for the name cell's hover rather than printing it - and a name
+  // is plain text, so one carrying an underscore is not read as LaTeX. Its own bin count follows
+  // (read-only, narrow: how big it is before a cut or a rebin), then the options that change it.
   json columns = json::array({
       {{"key", "use"}, {"title", "Project"}, {"type", "boolean"}},
-      {{"key", "axis"}, {"title", "Axis"}, {"type", "string"}, {"readOnly", true}},
+      {{"key", "id"}, {"title", "#"}, {"type", "integer"}, {"readOnly", true}, {"align", "left"}, {"width", "w-8"}},
+      {{"key", "axis"}, {"title", "Axis"}, {"type", "string"}, {"readOnly", true}, {"hint", "axisTitle"}},
+      {{"key", "bins"}, {"title", "bins"}, {"type", "integer"}, {"readOnly", true}, {"width", "w-16"}},
       {{"key", "min"}, {"title", "min"}, {"type", "number"}},
       {{"key", "max"}, {"title", "max"}, {"type", "number"}},
       {{"key", "rebin"}, {"title", "rebin"}, {"type", "integer"}},
@@ -308,13 +312,13 @@ json SparseDialogSchema(THnSparse * sparse, const json & saved = json())
     TAxis *      axis = sparse->GetAxis(i);
     const char * name = (axis != nullptr && axis->GetName() != nullptr) ? axis->GetName() : "";
 
-    // "index, name" - the index places the axis where the projection will put it, the name is what the
-    // file calls it.
-    const std::string label = std::to_string(i) + ", " + name;
+    // The axis' own title, for the name cell's hover: what a reader would call it ("Hours per week").
+    const char * title = (axis != nullptr && axis->GetTitle() != nullptr) ? axis->GetTitle() : "";
 
     // The bounds default to the axis' own, so the table opens on the full range and the user narrows it.
     const double xmin  = axis != nullptr ? axis->GetXmin() : 0.0;
     const double xmax  = axis != nullptr ? axis->GetXmax() : 0.0;
+    const int    bins  = axis != nullptr ? axis->GetNbins() : 0;
     bool         use   = i == 0;
     int          rebin = 1;
     double       lo    = xmin;
@@ -338,7 +342,14 @@ json SparseDialogSchema(THnSparse * sparse, const json & saved = json())
       hi = xmax;
     }
 
-    rows.push_back({{"axis", label}, {"use", use}, {"min", lo}, {"max", hi}, {"rebin", rebin}});
+    rows.push_back({{"id", i},
+                    {"axis", name},
+                    {"axisTitle", title},
+                    {"bins", bins},
+                    {"use", use},
+                    {"min", lo},
+                    {"max", hi},
+                    {"rebin", rebin}});
   }
 
   // A rebin ROOT cannot do is not offered: `Rebin` works on fixed bin widths only, so an axis with
@@ -626,29 +637,12 @@ void toolBrowser()
       .order       = 1,
       .label       = "{{ file }}",
       .session     = true, // the opened file is part of the room's session
-  });
-
-  Ndmspc::RegisterMcpTool(group + "/browse", {
-      .description = "Browse the open file: the step's form is its tree. Expand a folder to load its "
-                     "children, click an object to draw it.",
-      .methods     = {"POST"},
-      .inputSchema = {{"properties",
-                       {{"key",
-                         {{"type", "string"},
-                          {"format", "tree"},
-                          {"title", "Object"},
-                          {"description",
-                           "The file's objects: expand a folder, or click an object to draw it."}}}}}},
-      .dependsOn   = {group + "/open"},
-      .order       = 2,
-      .label       = "{{ key }}",
-      .runButton   = false, // the tree is how it works: clicking an object draws it, so there is no Run
-      // The tour of browsing, named by what it does — that name and description are how a client offers
-      // it. It opens the sample file, then draws a couple of its objects — a 1D histogram and a 2D one —
-      // and a branch of the ntuple, looking at each in the pads between clicks. The open step is *shown*
-      // rather than run past: its form carries the file name, and the user presses Save & Run. Each object
-      // step names what to click, so the client shows the tree and points at that node; the drawing moves
-      // the tour on, and the tour ends where the user takes over with a file of their own.
+      // The browsing tour, hosted here because this tool starts the pair (`browse` dependsOn it), so a
+      // client offers this tour first. It opens the sample file and draws a couple of its objects — a 1D
+      // histogram and a 2D one — and a branch of the ntuple, looking at each in the pads between clicks.
+      // Each object step names what to click, so the client shows the tree and points at that node; the
+      // drawing moves the tour on, and the tour ends where the user takes over with a file of their own.
+      // The tour names the actions it opens itself, so which tool carries it only decides where it sits.
       .tutorial    = json{{"name", "Browse hsimple.root file"},
                           {"description",
                            "Open the hsimple.root sample and draw a couple of its objects — a 1D histogram, "
@@ -718,6 +712,161 @@ void toolBrowser()
                                json{{"action", group + "/browse"}, {"click", "c1"}},
                                json{{"show", "pads"}, {"body", "And its canvas — the tour ends here."}},
                            })}},
+  });
+
+  Ndmspc::RegisterMcpTool(group + "/browse", {
+      .description = "Browse the open file: the step's form is its tree. Expand a folder to load its "
+                     "children, click an object to draw it, or click a THnSparse to open its projection "
+                     "dialog.",
+      .methods     = {"POST"},
+      .inputSchema = {{"properties",
+                       {{"key",
+                         {{"type", "string"},
+                          {"format", "tree"},
+                          {"title", "Object"},
+                          {"description",
+                           "The file's objects: expand a folder, or click an object to draw it."}}}}}},
+      .dependsOn   = {group + "/open"},
+      .order       = 2,
+      .label       = "{{ key }}",
+      .runButton   = false, // the tree is how it works: clicking an object draws it, so there is no Run
+      // Two tours are hosted here: `browse` dependsOn `open`, so the tool tree itself offers them after
+      // the browsing tour on `open`, and the order each names puts them the way they are meant to be
+      // taken. A tool may declare several — the client offers one entry each.
+      .tutorial    = json::array({
+          // The first: the room's own Storage (where a file's path is copied for a tool), then the file's
+          // tree, where a branch draws as the automatically binned 1D a TTree gives.
+          json{{"name", "Browse cernstaff.root from Storage"},
+               {"description",
+                "Open the room's Storage, copy cernstaff.root's path, open the file and draw a branch of "
+                "its tree — the automatic binning a TTree gives."},
+               {"order", 1},
+               {"steps",
+                json::array({
+                    // The room's files live in Storage, and that is where a tool's path for one is copied.
+                    json{{"show", "storage"},
+                         {"body", "Every file a tool reads comes from the room's own Storage. Open it — "
+                                  "the button sits beside the room's name."}},
+                    // The file's own row, told one column at a time — the anchors name the file, so the
+                    // cards are about cernstaff.root rather than about the table's columns.
+                    json{{"show", "field:storage:cernstaff.root:file"},
+                         {"body", "cernstaff.root is the file this tour opens."}},
+                    json{{"show", "field:storage:cernstaff.root:size"},
+                         {"body", "How big it is — against the room's own ceiling, above the table."}},
+                    json{{"show", "field:storage:cernstaff.root:modified"},
+                         {"body", "When it last changed."}},
+                    json{{"show", "field:storage:cernstaff.root:download"},
+                         {"body", "Download keeps a copy in this browser instead."}},
+                    json{{"show", "field:storage:cernstaff.root:delete"},
+                         {"body", "Delete takes it out of the room."}},
+                    json{{"show", "field:storage:add"},
+                         {"body", "Add file brings one in — and it lives only as long as the room does: "
+                                  "the room keeps its files in its own working directory, and they go when "
+                                  "it scales to zero."}},
+                    // Last of the dialog, and it is the way out of it: copying the path closes Storage, so
+                    // this step is done when the dialog goes — and the tour carries on behind it. No Next:
+                    // pressing Copy is the step.
+                    json{{"show", "field:storage:cernstaff.root:copy"},
+                         {"next", false},
+                         {"body", "Copy the file's path: that is what a tool's `file` argument takes, "
+                                  "resolved in the room's own working directory. Copying closes Storage, "
+                                  "and the tour goes on behind it."}},
+                    // The copied path is the next step's own: paste it into the open form. The field is
+                    // handed the caret with its text selected, so pasting replaces it in one go.
+                    json{{"show", "field:file"},
+                         {"action", group + "/open"},
+                         {"params", {{"file", "cernstaff.root"}}},
+                         {"body", "The path is on your clipboard, and the File field has the caret with "
+                                  "what it held **selected** — so paste straight over it: `Ctrl+V` "
+                                  "(`Cmd+V` on a Mac), or right-click and Paste. Then press **Save & "
+                                  "Run**."}},
+                    json{{"show", "saveAndRun"}, {"body", "Run it to open the file."}},
+                    json{{"show", "browseStep"},
+                         {"action", group + "/browse"},
+                         {"body", "The file's tree: the ntuple T and the 11-dimensional sparse hsparse. "
+                                  "A tree draws — expand T and we will draw one of its branches."}},
+                    // A branch draws as a histogram ROOT bins itself: 1D, one per branch. The sparse side of
+                    // the same data is the other tour's subject, said here so the two are read together.
+                    json{{"action", group + "/browse"}, {"expand", "T"}},
+                    json{{"action", group + "/browse"}, {"click", "T/Age"}},
+                    json{{"show", "pads"},
+                         {"body", "A branch, drawn: ROOT bins it for you — that is what a tree gives, one "
+                                  "1D histogram per branch. The same data can also be built into a "
+                                  "`THnSparse` and projected in 1D, 2D or 3D — the **Project a THnSparse** "
+                                  "tour takes you through that."}},
+                })}},
+          // The second: projecting the sparse in that file.
+          json{{"name", "Project a THnSparse (cernstaff.root)"},
+               {"description",
+                "Open the local cernstaff.root and project its 11-dimensional hsparse: a 1D projection "
+                "with a narrowed range and a rebin, then a 2D one, then a 3D one."},
+               {"order", 2},
+               {"steps",
+                json::array({
+                    json{{"show", "stepBlock"},
+                         {"action", group + "/open"},
+                         {"params", {{"file", "cernstaff.root"}}},
+                         {"body", "Open the local cernstaff.root — its path is already in the "
+                                  "form. Press Save & Run."}},
+                    json{{"show", "saveAndRun"}, {"body", "Run it to open the file."}},
+                    json{{"show", "browseStep"},
+                         {"action", group + "/browse"},
+                         {"body", "cernstaff.root is open: the ntuple T and the 11-dimensional "
+                                  "sparse hsparse. Next we project hsparse three times — a 1D, a "
+                                  "2D and a 3D histogram. A THnSparse has no quick draw, so "
+                                  "clicking it opens a projection dialog rather than drawing."}},
+                    // Each projection: click hsparse (the spotlight lands on the tree row), and
+                    // the tour hands it to the projection dialog the moment it opens — `advanceOn`
+                    // names the dialog's `data-tour` anchor. The dialog card carries the settings,
+                    // and the dialog closing moves the tour on to the pads.
+                    json{{"action", group + "/browse"},
+                         {"click", "hsparse"},
+                         {"advanceOn", "action-dialog"}},
+                    // The dialog opens on its fields, one at a time: what each is, then the first
+                    // task. The spotlight lands on the dialog's own anchors — `field:<name>`
+                    // for a field, `field:<name>:<column>` for a column of its axes table.
+                    json{{"show", "field:name"},
+                         {"body", "The projection's name — the tab it gets in the pads view, and "
+                                  "the histogram's name. Leave it `projection`, or name it to "
+                                  "give the projection a canvas of its own."}},
+                    json{{"show", "field:axes:axis"},
+                         {"body", "The axes table: one row per axis, here its number (where the "
+                                  "projection will put it) and its name."}},
+                    json{{"show", "field:axes:bins"},
+                         {"body", "How many bins the axis has — what the projection keeps unless "
+                                  "you rebin it."}},
+                    json{{"show", "field:axes:min"},
+                         {"body", "`min` is where the range starts: the projection is built from "
+                                  "this value up."}},
+                    json{{"show", "field:axes:max"},
+                         {"body", "`max` is where it ends. Together they cut the axis — only that "
+                                  "range is projected."}},
+                    json{{"show", "field:axes:rebin"},
+                         {"body", "rebin groups the projected bins (`2` halves them). An axis ROOT "
+                                  "cannot rebin has it off."}},
+                    // The task, on the dialog as a whole: this step has no Next, so submitting
+                    // (or closing) the dialog is what moves the tour on.
+                    json{{"show", "dialog"},
+                         {"body", "Now a 1D projection: tick the `2, Age` row — untick any other "
+                                  "row — set a range or a rebin if you like, then press Project."}},
+                    json{{"show", "pads"}, {"body", "That is the 1D projection. Click Next."}},
+                    json{{"action", group + "/browse"},
+                         {"click", "hsparse"},
+                         {"advanceOn", "action-dialog"}},
+                    json{{"show", "dialog"},
+                         {"body", "Tick TWO axes (e.g. 2, Age and 3, Service), leave rebin at 1, "
+                                  "then press Project for the 2D projection."}},
+                    json{{"show", "pads"}, {"body", "The 2D projection. Click Next."}},
+                    json{{"action", group + "/browse"},
+                         {"click", "hsparse"},
+                         {"advanceOn", "action-dialog"}},
+                    json{{"show", "dialog"},
+                         {"body", "Tick THREE axes (e.g. 2, Age, 3, Service, 4, Children), then "
+                                  "press Project for the 3D projection."}},
+                    json{{"show", "pads"},
+                         {"body", "A 3D projection — the tour ends here."}},
+                })}},
+      }),
   });
 
   // The internals the tree drives. They are a group of their own with no `dependsOn`, so the server

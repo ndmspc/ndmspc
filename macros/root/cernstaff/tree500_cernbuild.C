@@ -29,15 +29,23 @@ TFile * tree500_cernbuild(Int_t getFile = 0, Int_t print = 1)
   Char_t Division[4];
   Char_t Nation[3];
 
-  // The input file cern.dat is a copy of the CERN staff data base from 1988
+  // The input file cernstaff.dat is a copy of the CERN staff data base from 1988.
+  // Locate it next to this macro first (works both from the source tree and from
+  // the installed share directory), then fall back to the ROOT tutorials and the
+  // current directory. This lets the macro be run from anywhere, no cd required.
   TString filename = "cernstaff.root";
   TString dir      = gROOT->GetTutorialDir();
   dir.Append("/io/tree/");
   dir.ReplaceAll("/./", "/");
-  FILE * fp = fopen(Form("%scernstaff.dat", dir.Data()), "r");
-  if (!fp) {
-    fp = fopen("cernstaff.dat", "r");
+
+  TString datFile = "cernstaff.dat";
+  if (!gSystem->AccessPathName(Form("%s/cernstaff.dat", gSystem->DirName(__FILE__)), kFileExists)) {
+    datFile = Form("%s/cernstaff.dat", gSystem->DirName(__FILE__));
   }
+  else if (!gSystem->AccessPathName(Form("%scernstaff.dat", dir.Data()), kFileExists)) {
+    datFile = Form("%scernstaff.dat", dir.Data());
+  }
+  FILE * fp = fopen(datFile, "r");
   if (!fp) {
     printf("Cannot open cernstaff.dat file\n");
     return 0;
@@ -134,7 +142,7 @@ TFile * tree500_cernbuild(Int_t getFile = 0, Int_t print = 1)
     delete hfile;
     return nullptr;
   }
-  // Set axis names
+  // Set axis names: what identifies each axis (the projection dialog lists these).
   hsparse->GetAxis(0)->SetName("Category");
   hsparse->GetAxis(1)->SetName("Flag");
   hsparse->GetAxis(2)->SetName("Age");
@@ -146,6 +154,20 @@ TFile * tree500_cernbuild(Int_t getFile = 0, Int_t print = 1)
   hsparse->GetAxis(8)->SetName("Cost");
   hsparse->GetAxis(9)->SetName("Division");
   hsparse->GetAxis(10)->SetName("Nation");
+
+  // And their titles: what a reader sees, carried onto every projection's axis (NUtils::ProjectTHnSparse
+  // copies the title), so a drawn histogram is labelled rather than bare.
+  hsparse->GetAxis(0)->SetTitle("Category");
+  hsparse->GetAxis(1)->SetTitle("Flag");
+  hsparse->GetAxis(2)->SetTitle("Age");
+  hsparse->GetAxis(3)->SetTitle("Service");
+  hsparse->GetAxis(4)->SetTitle("Children");
+  hsparse->GetAxis(5)->SetTitle("Grade");
+  hsparse->GetAxis(6)->SetTitle("Step");
+  hsparse->GetAxis(7)->SetTitle("Hours per week");
+  hsparse->GetAxis(8)->SetTitle("Cost");
+  hsparse->GetAxis(9)->SetTitle("Division");
+  hsparse->GetAxis(10)->SetTitle("Nation");
 
   // set labels for division and nation axes
   int i = 1;
