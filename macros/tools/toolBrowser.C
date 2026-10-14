@@ -111,9 +111,9 @@ std::string ChildKey(const std::string & prefix, const std::string & name)
   return prefix.empty() ? name : prefix + "/" + name;
 }
 
-/// Release an object read from a file once a request is done with it. `TFile::Get` holds what it reads
-/// until the file closes, and a `THnSparse` is big — so a request frees it rather than leaving one per
-/// projection in memory. A later `Get` re-reads it from disk.
+/// Release an object read from a file once a request is done with it. `TFile::Get` hands back a fresh
+/// object it does not keep, and a `THnSparse` is big — so a request deletes it rather than leaving one
+/// per projection in memory; the next `Get` reads it again from disk.
 void Release(TObject * object)
 {
   delete object;
@@ -1176,6 +1176,11 @@ void toolBrowser()
           const double lo = rows[i].value("min", axis->GetXmin());
           const double hi = rows[i].value("max", axis->GetXmax());
           if (!(hi > lo)) continue;
+          // A cut only when it actually narrows the axis. Setting an explicit range drops the axis'
+          // under/overflow bins — ROOT folds them into the first and last bin only while no range is set
+          // — and the dialog seeds min/max from the axis' own bounds, so an untouched "project the whole
+          // axis" row must not become a cut that throws the overflow (and so the data) away.
+          if (lo <= axis->GetXmin() && hi >= axis->GetXmax()) continue;
           int binLo = axis->FindBin(lo);
           int binHi = axis->FindBin(hi);
           if (binLo < 1) binLo = 1;

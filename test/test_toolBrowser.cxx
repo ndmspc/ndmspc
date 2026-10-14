@@ -89,6 +89,20 @@ void WriteTestFile()
   sparse2.Fill(a, 1.0);
   sparse2.Write();
 
+  // A sparse whose data lies outside its axis' bounds (in the overflow). ROOT folds the under/overflow
+  // bins into the first and last bin while no range is set, so projecting it must keep them — a range
+  // that covers the whole axis (what the dialog's untouched min/max is) must not silently become a cut
+  // and empty the projection.
+  const Int_t    ovBins[1] = {4};
+  const Double_t ovMin[1]  = {0.0};
+  const Double_t ovMax[1]  = {4.0};
+  THnSparseD     overflow("hov", "hov", 1, ovBins, ovMin, ovMax);
+  overflow.GetAxis(0)->SetName("ncl");
+  overflow.GetAxis(0)->SetTitle("NCl");
+  const Double_t away[1] = {10.0};
+  overflow.Fill(away, 7.0);
+  overflow.Write();
+
   file->Close();
   delete file;
 }
@@ -124,6 +138,19 @@ int CountOf(const std::string & text, const std::string & needle)
     at += needle.size();
   }
   return count;
+}
+
+/// The total of a projected pad's bins (`fArray`), or 0 when it carries none — what tells a projection
+/// that drew the sparse's data from one that came out empty.
+double BinTotal(const json & pad)
+{
+  const json & value = pad["value"];
+  if (!value.contains("fArray") || !value["fArray"].is_array()) return 0.0;
+  double total = 0.0;
+  for (const auto & bin : value["fArray"]) {
+    if (bin.is_number()) total += bin.get<double>();
+  }
+  return total;
 }
 
 class ToolBrowser : public ::testing::Test {
@@ -356,6 +383,8 @@ TEST_F(ToolBrowser, ProjectingASparseDrawsTheChosenAxes)
   // No name given: the projection is named after the default ("projection").
   EXPECT_EQ(onePads[0]["value"]["fName"], "projection");
   EXPECT_EQ(onePads[0]["value"].value("_typename", std::string()).rfind("TH1", 0), 0u);
+  // And it carries the data — a projection of a sparse that came back empty would not.
+  EXPECT_GT(BinTotal(onePads[0]), 0.0);
 
   // 2D: two axes.
   const auto two =
@@ -363,6 +392,7 @@ TEST_F(ToolBrowser, ProjectingASparseDrawsTheChosenAxes)
   const json twoPads = ToolHarness::Pads(two);
   ASSERT_EQ(twoPads.size(), 1u);
   EXPECT_EQ(twoPads[0]["value"].value("_typename", std::string()).rfind("TH2", 0), 0u);
+  EXPECT_GT(BinTotal(twoPads[0]), 0.0);
 
   // 3D: three axes.
   const auto three =
@@ -370,6 +400,7 @@ TEST_F(ToolBrowser, ProjectingASparseDrawsTheChosenAxes)
   const json threePads = ToolHarness::Pads(three);
   ASSERT_EQ(threePads.size(), 1u);
   EXPECT_EQ(threePads[0]["value"].value("_typename", std::string()).rfind("TH3", 0), 0u);
+  EXPECT_GT(BinTotal(threePads[0]), 0.0);
 }
 
 TEST_F(ToolBrowser, ProjectingWithoutAnAxisIsRefused)
@@ -649,13 +680,21 @@ TEST_F(ToolBrowser, ASparseIsRereadAfterEachProjection)
   fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
 
   // Every request frees the sparse it read, so the next one reads it again: two projections and a
-  // dialog all work on the same object.
+  // dialog all work on the same object — and each projection still carries its data.
   const auto a =
       fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({0})}});
   EXPECT_EQ(a.reply.value("result", std::string()), "success");
+  const json aPads = ToolHarness::Pads(a);
+  ASSERT_EQ(aPads.size(), 1u);
+  EXPECT_GT(BinTotal(aPads[0]), 0.0);
+
   const auto b =
       fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hns"}, {"axes", AxesTable({1})}});
   EXPECT_EQ(b.reply.value("result", std::string()), "success");
+  const json bPads = ToolHarness::Pads(b);
+  ASSERT_EQ(bPads.size(), 1u);
+  EXPECT_GT(BinTotal(bPads[0]), 0.0);
+
   const auto dialog = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
   EXPECT_EQ(dialog.reply.value("result", std::string()), "success");
   EXPECT_TRUE(dialog.ws["payload"]["dialog"].contains("schema"));
@@ -689,6 +728,36 @@ TEST_F(ToolBrowser, ASparseProjectionWithoutSameCanvasKeepsItsOwnTab)
   const json pads = ToolHarness::Pads(call);
   ASSERT_EQ(pads.size(), 1u);
   EXPECT_EQ(pads[0].value("label", std::string()), "projection");
+}
+
+TEST_F(ToolBrowser, ProjectingWhatTheDialogSentKeepsTheData)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  // The flow the UI drives: click the sparse (the dialog), then submit its own defaults. The dialog
+  // seeds min/max from the axis' own bounds, so an untouched "project the whole axis" row still carries
+  // a full range. On this fixture the data sits outside the axis (in the overflow), which ROOT only folds
+  // into the first/last bin while no range is set — so turning that full range into a cut empties the
+  // projection. It must not: a full range is no cut.
+  const auto   dialog = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hov"}});
+  const json & rows   = dialog.ws["payload"]["dialog"]["schema"]["properties"]["axes"]["default"];
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].value("use", false), true);
+
+  const auto viaDialog =
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hov"}, {"axes", rows}});
+  ASSERT_EQ(viaDialog.reply.value("result", std::string()), "success");
+  const json dialogPads = ToolHarness::Pads(viaDialog);
+  ASSERT_EQ(dialogPads.size(), 1u);
+  EXPECT_GT(BinTotal(dialogPads[0]), 0.0);
+
+  // And it projects the same data as a request that names no range at all.
+  const json none = json::array({json{{"use", true}}});
+  const auto plain =
+      fTool->Call("ndmspc/rbrowser/project", "POST", json{{"key", "hov"}, {"axes", none}});
+  const json plainPads = ToolHarness::Pads(plain);
+  ASSERT_EQ(plainPads.size(), 1u);
+  EXPECT_DOUBLE_EQ(BinTotal(dialogPads[0]), BinTotal(plainPads[0]));
 }
 
 } // namespace
