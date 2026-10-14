@@ -650,8 +650,8 @@ void toolBrowser()
                           {"steps",
                            json::array({
                                json{{"show", "group"}, {"body", "Choose the browser tool."}},
-                               json{{"show", "sessionNew"},
-                                    {"body", "Fill in the first step and run it — that starts the session."}},
+                               // No session lead-in card: running the first step is what starts the session,
+                               // and the tour says so at that step's own run card — one card for it, not two.
                                // The open step, told one piece at a time: the step itself, the name it goes
                                // by, the file argument (theirs to change), and the button - which the user
                                // presses, so that last card carries no Next and follows the run. Only the
@@ -672,7 +672,8 @@ void toolBrowser()
                                     {"body", "What it takes: the file to open. This is the hsimple.root "
                                              "sample — put any path or URL you like here."}},
                                json{{"show", "saveAndRun"},
-                                    {"body", "And this runs it, with what the step was given."}},
+                                    {"body", "And this runs it, with what the step was given — it starts the "
+                                             "session, too."}},
                                // The step the run created, framed whole before the tour goes into its tree:
                                // what the room did with the file, and that the tree is the file's own.
                                json{{"show", "browseStep"},

@@ -791,7 +791,10 @@ drew. Any step may also carry its own `body`: the card's text, when the tool wan
 default (e.g. "…now draw a different object. Click Next."). A step may drop the card's **Next** with
 `"next": false` — for one whose own control is the way on, like copying the path that closes Storage — and
 it may instead say what it waits for with `"advanceOn": "<data-tour>"`: the tour moves on the moment that
-element appears, which is how a step whose click is expected to open a dialog hands over to it.
+element appears, which is how a step whose click is expected to open a dialog hands over to it. A step that
+runs something long may ask to **hold** with `"waitForIdle": true`: the tour waits until the room has been
+busy and is quiet again — the run has finished, and whatever it drew has arrived — before moving on. The
+run card does that by itself, so a tour needs it only on a card of its own.
 
 The client walks the steps in order, opening each action's step and pointing at **Save & Run** (or at
 the form, or at the named node) for the user to do — the tool says what a tour of it is; the client
