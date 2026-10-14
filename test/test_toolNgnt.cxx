@@ -84,4 +84,27 @@ TEST_F(ToolNgnt, AnActionCarriesAnInputSchemaSoAClientCanFillItIn)
   }
 }
 
+/// The tour of the whole workflow is carried by the last action of the chain, and only by it: the client
+/// offers it once, in the group's Help, and its steps name the actions they open themselves.
+TEST_F(ToolNgnt, TheWorkflowTourHangsOffTheEndOfTheChain)
+{
+  const Ndmspc::NMcpToolInfo * spectra = fTool->ToolInfo("ndmspc/ngnt/spectra");
+  ASSERT_NE(spectra, nullptr);
+  ASSERT_TRUE(spectra->tutorial.is_object()) << "spectra carries no tour";
+  EXPECT_EQ(spectra->tutorial.value("name", std::string()), "The NGNT workflow");
+  ASSERT_TRUE(spectra->tutorial.contains("steps"));
+  const json & steps = spectra->tutorial["steps"];
+  ASSERT_TRUE(steps.is_array());
+  ASSERT_FALSE(steps.empty());
+  // The tour opens the session lead-in first, as the browser's tours do.
+  EXPECT_EQ(steps[0].value("show", std::string()), "group");
+
+  for (const ToolAction & action : kChain) {
+    if (std::string(action.key) == "ndmspc/ngnt/spectra") continue;
+    const Ndmspc::NMcpToolInfo * info = fTool->ToolInfo(action.key);
+    ASSERT_NE(info, nullptr) << action.key;
+    EXPECT_FALSE(info->tutorial.is_object()) << action.key << " should carry no tour of its own";
+  }
+}
+
 } // namespace

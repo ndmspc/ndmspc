@@ -652,6 +652,94 @@ void toolNgnt()
           .dependsOn   = {group + "/map"},
           .order       = 4,
           .label       = "{{ parameters }}",
+          // The tour of the whole workflow — open, reshape, map, spectra — carried by the last action of
+          // the chain. Which tool carries it only decides where it sits; the steps name their own actions.
+          .tutorial    = json{{"name", "The NGNT workflow"},
+                              {"description",
+                               "Open the room's example NGnTree, reshape it into a navigator, map that onto "
+                               "pads and draw spectra for its parameters — the analysis end to end."},
+                              {"steps",
+                               json::array({
+                                   json{{"show", "group"}, {"body", "Choose the NGNT explorer."}},
+                                   // No session lead-in card: running the first step is what starts the
+                                   // session, and the tour says so at that step's own run card — one card
+                                   // for it, not two.
+                                   // The file is the room's own example, so the step is run as it stands.
+                                   json{{"show", "stepBlock"},
+                                        {"action", group + "/open"},
+                                        {"body", "The first step of the chain: opening the file. What it "
+                                                 "takes sits below it, already filled in."}},
+                                   json{{"show", "field:file"},
+                                        {"body", "The file to open — the room's own example, "
+                                                 "`NSingleBinning01Gaus.root`. Leave it as it is: a "
+                                                 "single-binning cube with two parameters, mean and sigma."}},
+                                   json{{"show", "saveAndRun"},
+                                        {"body", "Run the step: it starts the session and reads the file, "
+                                                 "and the next step is added for it."}},
+                                   // The navigator: the axes the form lists, the binning, the levels.
+                                   json{{"show", "stepBlock"},
+                                        {"action", group + "/reshape"},
+                                        {"body", "A navigator is the tree cut into nested levels — what the "
+                                                 "analysis walks and what the pads draw."}},
+                                   json{{"show", "stepForm"},
+                                        {"body", "The list is the axes this file has, with the bins each "
+                                                 "one holds — `[0] mean: 5 bins`, `[1] sigma: 6 bins`."}},
+                                   json{{"show", "field:binningName"},
+                                        {"body", "Which **binning definition** to cut by. The file's own is "
+                                                 "already chosen."}},
+                                   json{{"show", "field:levels"},
+                                        {"body", "And how the axes are grouped into levels: each level is "
+                                                 "one cut the navigator can walk into. Three axes per level "
+                                                 "is fine — run it with these defaults."}},
+                                   json{{"show", "saveAndRun"},
+                                        {"body", "Run it: the navigator is built from the file, and "
+                                                 "everything below works on it."}},
+                                   // The map: the two pads, then the run.
+                                   json{{"show", "stepBlock"},
+                                        {"action", group + "/map"},
+                                        {"body", "Mapping draws the navigator's current level into a pad — "
+                                                 "one histogram per parameter, tiled."}},
+                                   json{{"show", "field:mappingPad"},
+                                        {"body", "The pad the map itself is drawn in — `pad1`."}},
+                                   json{{"show", "field:contentPad"},
+                                        {"body", "And the pad a picked point's **content** goes to — "
+                                                 "`pad2`. It stays empty until something is picked."}},
+                                   json{{"show", "saveAndRun"},
+                                        {"body", "Run it: the mapping appears in the pads, beside us."}},
+                                   // The map is in pad1 now.
+                                   json{{"show", "pad:pad1"},
+                                        {"body", "The mapping, in `pad1`: one histogram per parameter of "
+                                                 "this level. Its bins are a live map — each one stands for "
+                                                 "a slice of the data below it."}},
+                                   // A bin click drills: pad2 is created/redrawn. The whole pane, since the
+                                   // pad is dynamic and appears beside the map.
+                                   json{{"show", "pads"},
+                                        {"body", "Click a bin of the mapping: what it stands for is drilled "
+                                                 "into and drawn beside it, in `pad2` — a pad that exists "
+                                                 "only once something has been picked. Click another bin and "
+                                                 "`pad2` is redrawn for that one; click deeper and it "
+                                                 "follows the level you are on."}},
+                                   // The spectra: the parameters (several at once) and the pad they start at.
+                                   json{{"show", "stepBlock"},
+                                        {"action", group + "/spectra"},
+                                        {"body", "The last step: a spectrum per parameter, drawn from the "
+                                                 "place you are holding in the navigator."}},
+                                   json{{"show", "field:parameters"},
+                                        {"body", "Which parameters to draw for — **several may be picked at "
+                                                 "once**, and each gets a spectrum of its own. The first is "
+                                                 "picked to begin with."}},
+                                   json{{"show", "field:startPad"},
+                                        {"body", "The pad the spectra **start** at — `pad3`, the next free "
+                                                 "one, so they land beside the mapping rather than over it. "
+                                                 "One pad per parameter picked, onwards from here."}},
+                                   json{{"show", "saveAndRun"},
+                                        {"body", "Run it: the spectra are added under the mapping, one "
+                                                 "after another."}},
+                                   json{{"show", "pad:pad3"},
+                                        {"body", "The spectra, from `pad3` on — one per parameter you "
+                                                 "picked."}},
+                               })},
+                          },
       });
   Ndmspc::RegisterMcpTool(
       group + "/point",
