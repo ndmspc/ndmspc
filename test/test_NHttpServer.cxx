@@ -5,6 +5,7 @@
 #include "ndmspc/http/NInstanceTree.h"
 
 #include <THttpCallArg.h>
+#include <TNamed.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -14,6 +15,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -164,6 +166,41 @@ std::mutex              gBusyMutex;
 std::condition_variable gBusyCv;
 bool                    gBusyStarted = false;
 bool                    gBusyRelease = false;
+
+// What a tool-like handler's DELETE saw, and whether it found the object it looked for. File scope so
+// the handlers can stay non-capturing (NHttpFuncPtr is a plain function pointer).
+std::vector<std::string> gDeleteSessions;
+bool                     gDeleteFound = false;
+
+/**
+ * A tool-like handler: it owns one object per session, keyed `<name>@<session>` - the rule
+ * NRouteContext::ObjectName follows - creating it on POST and freeing it on DELETE. On DELETE it
+ * records the session it ran as, so a replay that did not restore the entry's own session (and so
+ * looked under the wrong key, freeing nothing) is caught.
+ */
+void SessionObjectHandler(const std::string & name, std::string method, json & /*in*/, json & out, json & wsOut,
+                          std::map<std::string, TObject *> & objects)
+{
+  auto *            server  = Ndmspc::gNHttpServer;
+  const std::string session = server == nullptr ? std::string() : server->GetCurrentSession();
+  const std::string key     = session.empty() ? name : name + "@" + session;
+
+  if (method.find("DELETE") != std::string::npos) {
+    gDeleteSessions.push_back(session);
+    if (objects.find(key) != objects.end()) {
+      gDeleteFound = true;
+      delete objects[key];
+      objects.erase(key);
+    }
+    out["result"] = "success";
+    return;
+  }
+
+  objects[key]  = new TNamed(name.c_str(), "");
+  out["result"] = "success";
+  // Draw something too, so the room records a pad for this session (see RecordPads).
+  wsOut["payload"]["pad"] = json::array({json{{"pad", "pad1"}, {"label", name}}});
+}
 
 void BlockingHandler(std::string /*method*/, json & /*in*/, json & out, json & /*wsOut*/,
                      std::map<std::string, TObject *> & /*objects*/)
@@ -537,6 +574,107 @@ TEST(NHttpServerGroupTest, ReEnteringTheSessionTheRoomIsOnKeepsItsLiveChain)
   EXPECT_EQ(tree.Active("ndmspc/ngnt"), std::vector<std::string>({i1, i2}))
       << "re-entering the session the room is on threw its live chain away";
   EXPECT_EQ(tree.Active(), std::vector<std::string>({i1, i2}));
+
+  Ndmspc::gNdmspcMcpTools     = previousTools;
+  Ndmspc::gNdmspcHttpHandlers = nullptr;
+  delete server;
+}
+
+TEST(NHttpServerCombinationTest, ClearingASessionFreesItsOwnObjects)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  // A tool-like pair: each step owns one object, keyed by the session the request runs in (the same
+  // rule NRouteContext::ObjectName follows), created on POST and freed on DELETE.
+  handlers["ndmspc/ngnt/open"] = [](std::string method, json & in, json & out, json & wsOut,
+                                    std::map<std::string, TObject *> & objects) {
+    SessionObjectHandler("ngnt", method, in, out, wsOut, objects);
+  };
+  handlers["ndmspc/ngnt/reshape"] = [](std::string method, json & in, json & out, json & wsOut,
+                                       std::map<std::string, TObject *> & objects) {
+    SessionObjectHandler("navigator", method, in, out, wsOut, objects);
+  };
+
+  Ndmspc::gNdmspcHttpHandlers = &handlers;
+  Ndmspc::RegisterBaseActions();
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previousTools = Ndmspc::gNdmspcMcpTools;
+  tools["ndmspc/ngnt/open"]    = {};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+  Ndmspc::gNdmspcMcpTools      = &tools;
+
+  const json        open = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "a.root"}}));
+  const std::string id   = open["combination"]["id"];
+  ASSERT_FALSE(id.empty()) << open.dump();
+  RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"binningName", "x"}, {"path", json::array({id})}});
+  ASSERT_EQ(server->GetObjectsMap().count("ngnt@" + id), 1u);
+  ASSERT_EQ(server->GetObjectsMap().count("navigator@" + id), 1u);
+  ASSERT_TRUE(server->GetPads().contains(id)) << "the drawing was not recorded for the session";
+
+  // Clearing the session: a DELETE on its root node, the way the room's Clear session asks for it.
+  const json cleared = json::parse(RequestJson(server, "DELETE", "ndmspc/ngnt/open", {{"path", json::array({id})}}));
+  EXPECT_TRUE(cleared.value("result", std::string()) == "success") << cleared.dump();
+
+  // Every step's objects are gone: the root's DELETE runs once, and each step under it is torn down
+  // through the subtree (RemoveSubtree's callback), not left to the route-name rollback.
+  EXPECT_EQ(server->GetObjectsMap().count("ngnt@" + id), 0u) << "the session's file object was left behind";
+  EXPECT_EQ(server->GetObjectsMap().count("navigator@" + id), 0u) << "a step's object was left behind";
+  // And its drawings, which are the serialized objects (megabytes) and nothing else would drop: they
+  // are what a room that cleared a session would otherwise go on serving and reporting for ever.
+  EXPECT_FALSE(server->GetPads().contains(id)) << "the cleared session's drawings were left behind";
+
+  Ndmspc::gNdmspcMcpTools     = previousTools;
+  Ndmspc::gNdmspcHttpHandlers = nullptr;
+  delete server;
+}
+
+TEST(NHttpServerCombinationTest, AResetReplaysEachStepsDeleteAsItsOwnSession)
+{
+  gDeleteSessions.clear();
+  gDeleteFound = false;
+
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/open"] = [](std::string method, json & in, json & out, json & wsOut,
+                                    std::map<std::string, TObject *> & objects) {
+    SessionObjectHandler("ngnt", method, in, out, wsOut, objects);
+  };
+  handlers["ndmspc/ngnt/reshape"] = [](std::string method, json & in, json & out, json & wsOut,
+                                       std::map<std::string, TObject *> & objects) {
+    SessionObjectHandler("navigator", method, in, out, wsOut, objects);
+  };
+
+  Ndmspc::gNdmspcHttpHandlers = &handlers;
+  Ndmspc::RegisterBaseActions();
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previousTools = Ndmspc::gNdmspcMcpTools;
+  tools["ndmspc/ngnt/open"]    = {};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+  Ndmspc::gNdmspcMcpTools      = &tools;
+
+  const json        open = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "a.root"}}));
+  const std::string id   = open["combination"]["id"];
+  ASSERT_FALSE(id.empty()) << open.dump();
+  RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"binningName", "x"}, {"path", json::array({id})}});
+  ASSERT_EQ(server->GetObjectsMap().count("ngnt@" + id), 1u);
+
+  // A reset is what a room is told to do when its session is forgotten: a DELETE on the state control,
+  // which is not a node action, so the request itself sets no session - every replayed DELETE has to
+  // take the session from its entry. Run as none, a handler looks under a bare key and frees nothing.
+  const json reset = json::parse(RequestJson(server, "DELETE", "ndmspc/state", json::object()));
+  EXPECT_TRUE(reset.value("result", std::string()) == "success") << reset.dump();
+
+  ASSERT_FALSE(gDeleteSessions.empty()) << "the reset replayed no step's DELETE";
+  for (const auto & session : gDeleteSessions) EXPECT_EQ(session, id) << "a replayed DELETE ran as the wrong session";
+  EXPECT_TRUE(gDeleteFound) << "a replayed handler never found its object: it ran as the wrong session";
+  EXPECT_TRUE(server->GetObjectsMap().empty()) << "objects were left behind after a reset";
+  EXPECT_TRUE(server->GetPads().empty()) << "drawings were left behind after a reset";
 
   Ndmspc::gNdmspcMcpTools     = previousTools;
   Ndmspc::gNdmspcHttpHandlers = nullptr;

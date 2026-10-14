@@ -552,6 +552,16 @@ class NHttpServer : public THttpServer {
    * "" when the request names no combination.
    */
   const std::string &                           GetCurrentSession() const { return fCurrentSession; }
+  /**
+   * @brief Set the combination node a replayed handler runs for (see NWorkspace::RemoveEntry).
+   *
+   * A history entry records the node/session it was created for; when its DELETE is replayed the
+   * node and session are restored from it, so a handler that keys its objects by session
+   * (NRouteContext::ObjectName) frees the objects of the session the entry belongs to.
+   */
+  void                                          SetCurrentInstance(const std::string & instance) { fCurrentInstance = instance; }
+  /// @brief Set the session a replayed handler runs in (see NWorkspace::RemoveEntry).
+  void                                          SetCurrentSession(const std::string & session) { fCurrentSession = session; }
 
   /**
    * @brief The session state a client needs to render it, as one websocket frame.

@@ -2243,7 +2243,20 @@ NGnTree * NGnTree::ImportSimple(const std::string & findPath, const std::string 
         }
       }
       else {
-        outputPoint->Add(key->ReadObj());
+        TObject * obj = key->ReadObj();
+        if (obj) {
+          // Detach from the file so the object is not deleted when fIn is closed below
+          if (TH1 * h1 = dynamic_cast<TH1 *>(obj)) {
+            h1->SetDirectory(nullptr);
+          }
+          else if (TTree * t = dynamic_cast<TTree *>(obj)) {
+            t->SetDirectory(nullptr);
+          }
+          else {
+            fIn->Remove(obj);
+          }
+          outputPoint->Add(obj);
+        }
       }
     }
 
