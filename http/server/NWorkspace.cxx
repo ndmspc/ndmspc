@@ -76,8 +76,18 @@ bool NWorkspace::RemoveEntry(int index)
   NLogTrace("Removing workspace entry: %s", name.c_str());
   NLogTrace("Config: %s", in.dump().c_str());
   NLogTrace("Invoking HTTP handler for DELETE on entry: %s", name.c_str());
+  // Run the DELETE as the node/session the entry was made in: a handler that keys its objects by
+  // session (NRouteContext::ObjectName) then frees the objects of that session, not whatever session
+  // the request that triggered this replay happens to be in. Restored afterwards, because the calling
+  // dispatch still needs its own node/session.
+  const std::string prevInstance = fServer->GetCurrentInstance();
+  const std::string prevSession  = fServer->GetCurrentSession();
+  if (!entry->GetNode().empty()) fServer->SetCurrentInstance(entry->GetNode());
+  fServer->SetCurrentSession(entry->GetSession());
   const auto handlerFn = fServer->FindHttpHandler(name);
   if (handlerFn) handlerFn("DELETE", in, out, wsOut, fServer->GetObjectsMap());
+  fServer->SetCurrentInstance(prevInstance);
+  fServer->SetCurrentSession(prevSession);
 
   // The handler may have taken this entry away itself, and more than it: a control tool resets the
   // whole history (the state action's DELETE). So the entry is looked up again rather than freed
@@ -133,6 +143,19 @@ bool NWorkspace::RemoveEntry(const std::string & name)
     }
     RemoveEntry(i);
     return true;
+  }
+  return false;
+}
+
+bool NWorkspace::RemoveEntryByNode(const std::string & node)
+{
+  // Removal by node, not by route name: two sessions of one group share the root action's name, so a
+  // name match cannot tell which session's entry (and so which session's objects) is meant. Each
+  // entry recorded the node it was made for, so the node says exactly which one goes.
+  if (node.empty()) return false;
+  for (int i = static_cast<int>(fEntries.size()) - 1; i >= 0; i--) {
+    if (fEntries.at(i)->GetNode() != node) continue;
+    return RemoveEntry(i);
   }
   return false;
 }

@@ -1,9 +1,11 @@
 set(MY_INCLUDE_DIRS
   ${HTTPLIB_INCLUDE_DIRS}
   ${NLOHMANN_JSON_INCLUDE_DIRS}
+  ${OpenSSL_INCLUDE_DIRS}
 )
 
 set(MY_EXTERNAL_LIBS
+  ${OpenSSL_LIBRARIES}
   NdmspcCore
   NdmspcAiLLM
   NdmspcAiAgents

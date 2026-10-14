@@ -1,6 +1,10 @@
 #include <TROOT.h>
 #include <TSystem.h>
 
+#if defined(__GLIBC__)
+#include <malloc.h> // malloc_trim, to hand freed heap back to the OS
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -38,6 +42,23 @@
 // The process environment, as the C library exposes it. Declared here rather than pulling in
 // <unistd.h> for the one symbol.
 extern char **environ;
+
+namespace {
+
+/// @brief Hand the heap freed since the last call back to the OS.
+///
+/// Deleting the objects a session made frees them to malloc's arenas, which by glibc's design stay
+/// mapped: the pages are reusable by the process but not returned, so RSS - what a room is measured
+/// and killed by - does not fall when a session is cleared. After a clear or a reset the free pages
+/// are handed back explicitly, or "the session is gone" reads as memory the room never gives up.
+void TrimHeap()
+{
+#if defined(__GLIBC__)
+  malloc_trim(0);
+#endif
+}
+
+} // namespace
 
 /// \cond CLASSIMP
 ClassImp(Ndmspc::NHttpServer);
@@ -2080,6 +2101,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
 
   json out;
   json wsOut;
+  bool nodeEntriesRemoved = false; ///< A DELETE tore its subtree's entries down by node
   if (fullpath.IsNull()) {
 
     out["result"]  = "success";
@@ -2391,7 +2413,27 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
           }
         }
         if (runHandler && isDelete && ok && !nodeId.empty()) {
-          tree.RemoveSubtree(nodeId, nullptr);
+          // Tear the subtree down node by node, not by route name: every removed node's own DELETE is
+          // replayed (as the session it belongs to - see NWorkspace::RemoveEntry) so each step's
+          // objects are freed. `RemoveSubtree`'s callback is what it is for, and the node ids recorded
+          // on each entry are what tell two sessions of one group apart - a name match cannot.
+          const bool isSessionRoot = tree.Parent(nodeId).empty();
+          std::vector<std::string> removed;
+          tree.RemoveSubtree(nodeId, [&removed](const std::string & id, const std::string &) { removed.push_back(id); });
+          for (const auto & id : removed) fWorkspace.RemoveEntryByNode(id);
+          // A cleared session's drawings and its per-session workspace are its own: drop them with it.
+          // The drawings are the serialized objects it drew (megabytes), and nothing else clears them -
+          // the pads action is the view's own "clear all" - so without this a room that cleared a
+          // session would go on serving and reporting what that session had drawn. The free pages are
+          // handed back to the OS too, so clearing a session actually lowers what the room holds.
+          if (isSessionRoot) {
+            ForgetPads(nodeId);
+            fWorkspaceBySession.erase(nodeId);
+            fSessionNames.erase(nodeId);
+            wsOut["payload"]["pads"] = fPads; // tell clients the cleared session's drawings are gone
+            TrimHeap();
+          }
+          nodeEntriesRemoved = true;
         }
         if (runHandler) {
           wsOut["payload"]["combinations"] = tree.ToTree();
@@ -2415,6 +2457,10 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
         NLogTrace("Adding history entry for path: %s", fullpath.Data());
         historyEntry = new NHistoryEntry(fullpath.Data(), method.Data());
         historyEntry->SetPayloadIn(in);
+        // The node and session the entry belongs to, so its DELETE can be replayed against the right
+        // objects even when the request that triggers the replay runs in another session (or none).
+        historyEntry->SetNode(fCurrentInstance);
+        historyEntry->SetSession(fCurrentSession);
         NLogTrace("History entry created for path: %s with payload: %s", fullpath.Data(), in.dump().c_str());
         fWorkspace.AddEntry(historyEntry);
       }
@@ -2430,7 +2476,10 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
           }
         }
         else if (!method.CompareTo("DELETE")) {
-          fWorkspace.RemoveEntry(fullpath.Data());
+          // A node delete already rolled its own subtree's entries back by node; only fall back to the
+          // route-name rollback when it did not (e.g. a DELETE on a non-node action), where the name
+          // is all there is to match on.
+          if (!nodeEntriesRemoved) fWorkspace.RemoveEntry(fullpath.Data());
         }
       }
       else {
@@ -2682,6 +2731,8 @@ bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, 
     entry->SetPayloadIn(params);
     entry->SetPayloadOut(nodeOut);
     entry->SetPayloadWsOut(nodeWsOut);
+    entry->SetNode(id);
+    entry->SetSession(fCurrentSession);
     fWorkspace.AddEntry(entry);
 
     // A node's stored point comes back with it, so the live state matches the combination.
@@ -2726,6 +2777,17 @@ void NHttpServer::ResetServer()
     NLogInfo("NHttpServer::ResetServer: Removing input object '%s'", key.c_str());
     RemoveInputObject(key);
   }
+  // Everything a session was described by, not only the objects and the history: the drawings it made
+  // (serialized objects - megabytes - that would otherwise be served and reported for the life of the
+  // room), the per-session and per-group schema defaults, and the names. A reset means an empty room.
+  fPads = json::object();
+  fWorkspaceBySession.clear();
+  fWorkspaceByGroup.clear();
+  fSessionNames.clear();
+  fCurrentSession.clear();
+  fCurrentInstance.clear();
+  fRoomPushed.clear();
+  TrimHeap();
   fResetting = false;
   NLogInfo("NHttpServer::ResetServer: Done.");
 }
@@ -2736,6 +2798,14 @@ bool NHttpServer::RemoveInputObject(const std::string & name)
     TObject * obj = fObjectsMap[name];
     if (obj) {
       NLogDebug("Removing input object: %s", name.c_str());
+      // Deletion is a plain `delete` of a heap `TObject` - the correct C++ destruction of a ROOT
+      // object (its destructor is virtual), not a C `free`/`malloc` and not ROOT's `TObject::Delete`
+      // (which no-ops unless `kCanDelete` is set, so it would leak an object nobody marked). What
+      // keeps this from being a double delete is that the server is the object's **sole owner**: a
+      // tool hands an object over with AddInputObject, a container of them is made owner itself
+      // (`SetOwner(true)`), and an object ROOT could also own is detached from `gDirectory` by the
+      // tool that made it (`SetDirectory(nullptr)`, `SetBit(kMustCleanup, kFALSE)`). Nothing here (or
+      // in ResetServer's trim of the heap) frees an object ROOT still holds.
       delete obj;
     }
     fObjectsMap.erase(name);

@@ -48,6 +48,16 @@ public:
    */
   bool RemoveEntry(const std::string& name);
   /**
+   * @brief Remove the entry created for the given combination node.
+   *
+   * Removal by node rather than by route name, so two sessions of one group (which share the root
+   * action's name) are told apart. The entry's DELETE is replayed as the session it was made in
+   * (see RemoveEntry(int)).
+   * @param node Combination node id the entry was created for.
+   * @return True when such an entry was present and removed.
+   */
+  bool RemoveEntryByNode(const std::string& node);
+  /**
    * @brief Remove all entries and reset the workspace schema/state.
    * @param option Optional ROOT option string (unused).
    */

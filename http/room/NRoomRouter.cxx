@@ -4607,7 +4607,13 @@ void NRoomRouter::HandleClear(const std::string & method, json & in, json & out)
   // forgetting only the stored copy was undone by the very next thing anybody did in the room, which is
   // what "cleared, and nothing happened" looked like. Only a room that is actually running: an idle one
   // has nothing in memory to forget - its next wake reads the snapshot this just cleared - and the
-  // request would only start its pod. Best-effort, off the request path like the router's other writes.
+  // request would only start its pod.
+  //
+  // Waited on rather than handed to a worker: the answer has to say whether the running room actually
+  // forgot its session, or a "cleared" that left every object and file in place - and so reported a
+  // clean clear that never happened - is exactly what cannot be trusted. The call is bounded, so a
+  // room that has gone unresponsive cannot hold the router (which serves one request at a time) for
+  // the default read timeout.
   NRoomState cleared;
   {
     std::lock_guard<std::mutex> lock(fMutex);
@@ -4617,20 +4623,20 @@ void NRoomRouter::HandleClear(const std::string & method, json & in, json & out)
   if (!cleared.revision.empty() && RoomInUse(cleared)) {
     const std::string revision = cleared.revision;
     const std::string token    = cleared.tokenRw;
-    auto              done     = std::make_shared<std::atomic<bool>>(false);
-    SpawnWorker(ref.name, std::thread([this, revision, token, done]() {
-                  Ndmspc::NHttpRequest http;
-                  std::string          resetError;
-                  if (!Ndmspc::NRoomSession::Reset(http, RoomBaseUrl(revision), resetError, token)) {
-                    NLogWarning("[room] could not ask %s to forget its session: %s", revision.c_str(),
-                                resetError.c_str());
-                  }
-                  else {
-                    NLogInfo("[room] %s was told to forget its session", revision.c_str());
-                  }
-                  done->store(true);
-                }),
-                done);
+    Ndmspc::NHttpRequest http;
+    http.SetTimeout(3000, 5000);
+    std::string resetError;
+    if (!Ndmspc::NRoomSession::Reset(http, RoomBaseUrl(revision), resetError, token)) {
+      NLogWarning("[room] could not ask %s to forget its session: %s", revision.c_str(), resetError.c_str());
+      // The stored copy is gone, but the running room kept what it held (its objects and files are
+      // still there): say so rather than report a clean clear that did not happen.
+      out["warning"]         = "the running room could not be told to forget its session: " + resetError;
+      out["payload"]["live"] = false;
+    }
+    else {
+      NLogInfo("[room] %s was told to forget its session", revision.c_str());
+      out["payload"]["live"] = true;
+    }
   }
 
   NLogInfo("[room] %s: cleared its stored session", ref.name.c_str());
