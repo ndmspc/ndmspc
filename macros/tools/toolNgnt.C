@@ -147,6 +147,74 @@ json DrawnNodePath(Ndmspc::NRouteContext & ctx)
   return json(Ndmspc::NInstanceTree(server->GetCombinations()).Path(node));
 }
 
+/**
+ * Record the spectra call the macro's line makes, on the step itself.
+ *
+ * The step's arguments are the form's, and a form may leave `axismargin` or `minmaxMode` out — the room then
+ * uses its own defaults, which the export cannot know (they are not the library's). So the room records what
+ * it actually did: the parameter the line is for (the first of those drawn) and the two values it resolved.
+ * It is the step's bookkeeping (`NInstanceTree::SetParams`), so its form never shows them, and the line the
+ * tool declared reads the room's call rather than a guess at it.
+ *
+ * @param ctx The request.
+ * @param parameters The parameters the spectra were drawn for (the first names the macro's line).
+ * @param axismargin The edge margin in use.
+ * @param minmaxMode The min/max mode in use.
+ * @param point The layer it drew for, recorded as the step's own state (see `NRouteContext::SetStatePoint`).
+ */
+void RecordSpectraCall(Ndmspc::NRouteContext & ctx, const std::vector<std::string> & parameters, double axismargin,
+                       const std::string & minmaxMode, const std::vector<int> & point)
+{
+  Ndmspc::NHttpServer * server = ctx.Server();
+  if (server == nullptr) return;
+  const std::string & node = server->GetCurrentInstance();
+  if (node.empty()) return;
+
+  Ndmspc::NInstanceTree tree(server->GetCombinations());
+  if (!tree.Has(node)) return; // not a step of a combination: nothing to record on
+
+  json params = tree.Params(node);
+  if (!params.is_object()) params = json::object();
+  params["parameter"]  = parameters.empty() ? std::string() : parameters.front();
+  params["axismargin"] = axismargin;
+  params["minmaxMode"] = minmaxMode;
+  tree.SetParams(node, params);
+
+  // The layer it is on, too: a step run while the room is drilled into one uses that layer (the live state the
+  // drill mirrors), and the node has to hold it as its own or the macro would walk somewhere else - the state
+  // is where a point lives (see NRouteContext::SetStatePoint, which the drill's own request does).
+  tree.SetState(node, json{{"point", point}});
+}
+
+/**
+ * Record the layer a step is on, when nothing has recorded one yet.
+ *
+ * A step's line reads `{{ state.point }}` to walk to the layer it is on, and a value the renderer does not
+ * find is left out - which would write `GetNavigator()`, code that does not compile. So a step that makes
+ * its object on a layer holds the layer it is on: **empty** when that layer is the navigator itself, which
+ * is what a step run with no drill is on. An existing point is left alone: what the step is on is the layer
+ * the user picked, and running the step again does not unpick it (only another drill moves it).
+ *
+ * @param ctx The request; the step it runs for is the room's current instance.
+ */
+void RecordLayerPoint(Ndmspc::NRouteContext & ctx)
+{
+  Ndmspc::NHttpServer * server = ctx.Server();
+  if (server == nullptr) return;
+  const std::string & node = server->GetCurrentInstance();
+  if (node.empty()) return;
+
+  Ndmspc::NInstanceTree tree(server->GetCombinations());
+  if (!tree.Has(node)) return; // not a step of a combination: nothing to record on
+
+  json recorded = tree.State(node);
+  if (!recorded.is_object()) recorded = json::object();
+  if (recorded.contains("point")) return;
+
+  recorded["point"] = json::array();
+  tree.SetState(node, recorded);
+}
+
 json BuildMapClickAction(const std::vector<int> & point, int level, const std::string & group = "",
                          const json & nodePath = json::array())
 {
@@ -568,6 +636,11 @@ void toolNgnt()
                                                   {"default", "NSingleBinning01Gaus.root"}}}}}},
                               .order       = 1,
                               .label       = "{{ file }}",
+                              // What this step is in C++, for a combination written out as a macro
+                              // (ndmspc/macro): the file it opened, opened the same way here — the object the
+                              // user goes on with in ROOT, not a drawing of it.
+                              .macroLines    = {"auto * ngnt = Ndmspc::NGnTree::Open({{ file }});"},
+                              .macroIncludes = {"ndmspc/core/NGnTree.h"},
                               .session     = true, // the opened file is part of the room's session
                           });
   Ndmspc::RegisterMcpTool(
@@ -590,6 +663,10 @@ void toolNgnt()
           .dependsOn   = {group + "/open"},
           .order       = 2,
           .label       = "{{ binningName }} ({{ levels }})",
+          // The reshape, as the call that made it: the arguments are the node's own, so the macro reshapes
+          // the very navigator this combination reshaped — and leaves it for the user to walk.
+          .macroLines    = {"auto * nav = ngnt->Reshape({{ binningName }}, {{ levels }});"},
+          .macroIncludes = {"ndmspc/core/NGnNavigator.h"},
           .session     = true, // the navigator the reshape builds is part of the session
       });
   Ndmspc::RegisterMcpTool(
@@ -619,6 +696,12 @@ void toolNgnt()
           .dependsOn   = {group + "/reshape"},
           .order       = 3,
           .label       = "{{ mappingPad }}",
+          // The layer the room is on, then the projection that layer shows: a click on a bin drills (the room
+          // resolves the point and records it as this step's state), so the macro walks to the same place —
+          // `nav->GetNavigator(point)` is that walk in one call. With no drill the recorded point is absent,
+          // `{{ state.point }}` renders `{}` and the walk gives the navigator itself: a one-level navigator,
+          // as before. Each node keeps its own point, so two maps on different layers stay apart.
+          .macroLines  = {"auto * projection = nav->GetNavigator({{ state.point }})->GetProjection();"},
       });
   Ndmspc::RegisterMcpTool(
       group + "/spectra",
@@ -648,10 +731,23 @@ void toolNgnt()
                               // Which level was clicked is the drill's to say here too.
                               {"hidden", true},
                               {"description", "Target navigator level; used with the stored state point when 'point' "
-                                              "is omitted."}}}}}},
+                                              "is omitted."}}},
+                            // What the step records when it runs (see RecordSpectraCall): the parameter the
+                            // macro's line is for (the first drawn), and the two values the room resolved for
+                            // itself when the form left them out. The step's own bookkeeping, so its form never
+                            // shows it — and the arguments the line reads.
+                            {"parameter", {{"type", "string"}, {"hidden", true}}}}}},
           .dependsOn   = {group + "/map"},
           .order       = 4,
           .label       = "{{ parameters }}",
+          // What this step is in C++, for a combination written out as a macro (`ndmspc/macro`): the spectra
+          // the room obtained, as the list the library hands back — nothing is drawn, and the user goes on
+          // with the list themselves. It is taken at the layer the step is on (the same walk the map's line
+          // makes), because a drill into a layer moves where the spectra come from. The margin and mode are the
+          // room's own (its defaults when the form sent none), recorded with the call (see RecordSpectraCall)
+          // so the line reads what the room did rather than the library's defaults.
+          .macroLines    = {"auto * spectra = nav->GetNavigator({{ state.point }})->DrawSpectraAll({{ parameter }}, { {{ axismargin }} }, {{ minmaxMode }});"},
+          .macroIncludes = {"ndmspc/core/NGnNavigator.h"},
           // The tour of the whole workflow — open, reshape, map, spectra — carried by the last action of
           // the chain. Which tool carries it only decides where it sits; the steps name their own actions.
           .tutorial    = json{{"name", "The NGNT workflow"},
@@ -752,6 +848,11 @@ void toolNgnt()
                             {"contentPad", {{"type", "string"}}}}}},
           .dependsOn   = {group + "/map"},
           .order       = 5,
+          // This step is the layer the room is on, and it makes no object of its own: `macroSilent` says so,
+          // rather than the export naming a step that has nothing to hand over or writing a line that would
+          // have to guess at one. What it stands for is recorded as state (`state.point`, written by the drill
+          // itself and by a spectra run) and read by the lines of the steps that do make objects.
+          .macroSilent = true,
       });
 
   // Every tool of this family is named the same way where a user reads it: said once, so a tool added to
@@ -1023,6 +1124,10 @@ void toolNgnt()
       }
       wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
 
+      // Where this step stands, so its line can walk there (see RecordLayerPoint): a map makes its projection on
+      // the navigator it was given, so with nothing drilled it is on the navigator itself.
+      RecordLayerPoint(ctx);
+
       ctx.Success();
       return;
     }
@@ -1224,6 +1329,12 @@ void toolNgnt()
 
       wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
 
+      // What the room is doing, on the step: the parameter, the two values its macro line reads and the layer
+      // it drew for (see RecordSpectraCall) — the layer only here, after the walk above, since that is what
+      // settles it (a point may name a bin that holds no data, and the walk moves to the level's first bin
+      // that does).
+      RecordSpectraCall(ctx, parameters, minmax, minmaxMode, point);
+
       int padIndex = ParsePadIndex(spectraPad);
       // A fresh draw owns the pads it draws to (`replace`), so spectra from another combination do not
       // linger; the PATCH path appends.
@@ -1289,6 +1400,10 @@ void toolNgnt()
 
       std::string spectraPad = ctx.GetString("startPad", "pad3");
       int         padIndex   = ParsePadIndex(spectraPad);
+
+      // A drill draws spectra for the same parameter the step is on: the step keeps reading what it drew,
+      // including the layer the drill landed on.
+      RecordSpectraCall(ctx, parameters, minmax, minmaxMode, point);
 
       RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex, point);
       ctx.Success();

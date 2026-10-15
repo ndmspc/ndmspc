@@ -97,6 +97,10 @@ extern NdmspcWsConnectFilter gNdmspcWsConnectFilter;
  * `label` names a node in the combination tree: the template is filled from the node's own
  * arguments (`{{ arg }}`), so a macro says what its step reads as rather than the framework
  * guessing at the first string argument.
+ *
+ * `macro` is the same idea for the step's **code**: what the step is in C++, filled from the same
+ * arguments, so a combination can be handed out as a runnable ROOT macro - see {@link macro} below
+ * and the `ndmspc/macro` tool that writes it.
  */
 struct NMcpToolInfo {
   std::string              description{};  ///< Human-readable tool description
@@ -107,6 +111,38 @@ struct NMcpToolInfo {
   std::vector<std::string> dependsOn{};    ///< Actions that must have run first (e.g. "ndmspc/ngnt/open")
   int                      order{0};       ///< Tie-break among ready tools (lower first; 0 = default)
   std::string              label{};        ///< Node name template, e.g. "{{ binningName }} ({{ levels }})"
+  /// The step as C++ source, for the combination's own **macro export**: one entry per line of the code
+  /// this step makes, each the same `{{ arg }}` template `label` uses, filled from the node's arguments -
+  /// so a tool says what its step *is* in code rather than a generator guessing at it.
+  ///
+  /// \code
+  ///   .macroLines = {"auto * file = TFile::Open({{ file }});",
+  ///                  "auto * object = file->Get({{ key }});"}
+  /// \endcode
+  ///
+  /// It is the code that **makes the step's objects**, not a script that uses them: a user takes the macro
+  /// and goes on in ROOT from the objects it leaves behind (`ngnt`, `nav`, `file`, the object a browser step
+  /// picked), so drawing, rendering or projecting belongs to the user rather than here.
+  ///
+  /// Each line introduces the variables the later ones use, and the recipe writes no quotes of its own: an
+  /// argument is rendered as the C++ literal its type takes - a string quoted and escaped (`{{ file }}` ->
+  /// `"test.root"`), an array as a braced initializer (`{{ levels }}` -> `{{0}, {1}, {2}}`). A placeholder
+  /// that names *code the line uses* rather than a value it passes is written `{{ name:bare }}`, which
+  /// inserts the argument as it stands (`({{ cls:bare }} *) file->Get(…)` -> `(TH1D *) file->Get(…)`), and
+  /// one that names what the step **recorded for itself** rather than what it was given is written
+  /// `{{ state.<key> }}` (see {@link RenderTemplate}) - the drill a step is on, the object a browser step
+  /// picked. A recipe must not contain a literal `{{`. Empty (the default) means the step has no code: it
+  /// appears in the macro as a comment naming it, so nothing is silently dropped - unless it says otherwise
+  /// with {@link macroSilent}.
+  std::vector<std::string> macroLines{};
+  /// Whether this step writes no code at all, not even the comment naming it. Declared by a step whose
+  /// business is to *record* something the later steps read rather than to make an object of its own - the
+  /// ngnt `point`, which stands for the layer the room is on (`state.point`, written by the drill).
+  bool                     macroSilent{false};
+  /// The `#include`s this tool's {@link macroLines} need, e.g. `{"ndmspc/core/NGnTree.h"}` - they are
+  /// emitted once at the top of an exported macro and deduplicated. Declared by the tool like
+  /// everything else here, so the generator needs no list of tool names.
+  std::vector<std::string> macroIncludes{};
   /// Whether this action defines session state and is replayed when an idle room is restored (its
   /// opened file, the steps that rebuild what it was doing). Declared here, by the tool, so the room
   /// session needs no list of tool names: an action a group adds is replayed by saying so itself.

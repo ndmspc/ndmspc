@@ -9,6 +9,42 @@
 
 namespace Ndmspc {
 
+/// How a template's `{{ arg }}` values are written (see {@link RenderTemplate}).
+enum class NTemplateStyle {
+  Json, ///< A string bare, anything else its JSON - what a node's `label` reads as
+  Cpp,  ///< A C++ literal - what an exported macro's step has to compile as
+};
+
+/**
+ * @brief Fill a `{{ arg }}` template from a node's arguments.
+ *
+ * This is the one template syntax the framework has: a tool declares what its step reads as
+ * (`NMcpToolInfo::label`) or what it *is* in code (`NMcpToolInfo::macroLines`) with `{{ arg }}`
+ * placeholders, and this fills them from the node's own arguments - the same arguments the action was
+ * run with.
+ *
+ * A placeholder may name the node's **state** instead, as `{{ state.<key> }}`: what the step recorded for
+ * itself rather than what it was given (`{"point": [1, 2]}`, where a drill landed, say). That is the
+ * difference between what a form sent and what the room worked out, and a step's own line often needs the
+ * second.
+ *
+ * A placeholder naming an argument the node does not have is left out, and with it the space around
+ * it, so a label never reads "b0 (  )". That tidying is the Json style only: C++ source is handed
+ * over exactly as written, since its whitespace and line breaks are its own.
+ *
+ * A placeholder may also say how its value reads: `{{ name:bare }}` inserts it as it stands, rather than
+ * as the C++ literal of its type - what a recipe needs when the value is *code it uses* (a class name it
+ * casts to, say) instead of a value it passes.
+ *
+ * @param tmpl The template.
+ * @param params The node's arguments (not an object: every placeholder is left out).
+ * @param style How a value is written (see {@link NTemplateStyle}); `Json` by default.
+ * @param state The node's own state, for a `{{ state.<key> }}` placeholder (empty when it has none).
+ * @return The filled template.
+ */
+std::string RenderTemplate(const std::string & tmpl, const json & params,
+                           NTemplateStyle style = NTemplateStyle::Json, const json & state = json::object());
+
 ///
 /// \class NInstanceTree
 ///
@@ -170,8 +206,8 @@ class NInstanceTree {
   static bool IsNodeAction(const std::string & action);
   /// @brief The one action this action must sit under (its first dependency), or "".
   static std::string ParentActionFor(const std::string & action);
-  /// @brief A display label for a node: the first non-empty string param, else "".
-  static std::string LabelFor(const std::string & action, const json & params);
+  /// @brief A display label for a node: the action's own template, else guessed, else "".
+  static std::string LabelFor(const std::string & action, const json & params, const json & state = json::object());
 
   private:
   /// @brief Ensure the store is an object with the expected keys.

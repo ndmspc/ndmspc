@@ -19,7 +19,11 @@
 #include <TFile.h>
 #include <TH1D.h>
 #include <THnSparse.h>
+#include <THttpCallArg.h>
 #include <TNtuple.h>
+
+#include "ndmspc/http/NInstanceTree.h"
+#include "ndmspc/http/NMacroBuilder.h"
 
 #include "NToolHarness.h"
 
@@ -158,6 +162,18 @@ class ToolBrowser : public ::testing::Test {
   static void SetUpTestSuite() { WriteTestFile(); }
   void SetUp() override { fTool = std::make_unique<ToolHarness>(kToolMacro); }
 
+  /** One request through the same dispatch `/api/*` uses — what records a combination node — as its reply. */
+  static json Dispatch(Ndmspc::NHttpServer * server, const char * method, const char * action, const json & body)
+  {
+    auto arg = std::make_shared<THttpCallArg>();
+    arg->SetMethod(method);
+    arg->SetPathName("api");
+    arg->SetFileName(action);
+    arg->SetPostData(body.dump());
+    server->ProcessRequest(arg);
+    return json::parse(std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength()));
+  }
+
   std::unique_ptr<ToolHarness> fTool;
 };
 
@@ -193,6 +209,99 @@ TEST_F(ToolBrowser, RegistersTheBrowseStepAndItsHiddenInternals)
     EXPECT_TRUE(info->hidden) << key << " should be hidden";
     EXPECT_TRUE(info->dependsOn.empty()) << key << " should add no step";
   }
+}
+
+/// What a combination of this tool reads as when it is handed on as a macro (`ndmspc/macro`): the file it
+/// opened and the object its browse step is on — the *object*, which is what somebody going on in ROOT
+/// needs, not a drawing of it. The type is the class the step recorded (see the recording test below), so a
+/// tree comes out a `TTree *` rather than an anonymous `TObject *`.
+TEST_F(ToolBrowser, ACombinationOfItReadsAsTheFileAndTheObjectItIsOn)
+{
+  ASSERT_NE(fTool->ToolInfo("ndmspc/browser/open"), nullptr);
+  EXPECT_EQ(fTool->ToolInfo("ndmspc/browser/open")->macroLines,
+            std::vector<std::string>({"auto * file = TFile::Open({{ file }});"}));
+  EXPECT_EQ(fTool->ToolInfo("ndmspc/browser/open")->macroIncludes, std::vector<std::string>({"TFile.h"}));
+  ASSERT_NE(fTool->ToolInfo("ndmspc/browser/browse"), nullptr);
+  EXPECT_EQ(fTool->ToolInfo("ndmspc/browser/browse")->macroLines,
+            std::vector<std::string>({"auto * object = ({{ state.cls:bare }} *) file->Get({{ state.key }});"}));
+  EXPECT_EQ(fTool->ToolInfo("ndmspc/browser/browse")->label, "{{ state.key }}"); // the step is named by the pick
+
+  // A histogram picked in the tree, and the file it lives in. The pick is the step's own *state* (what it
+  // recorded, `{{ state.… }}`), because a form never sends it.
+  const Ndmspc::NMacroDocument object = Ndmspc::BuildCombinationMacro(
+      {{"ndmspc/browser/open", {{"file", "cernstaff.root"}}, json::object()},
+       {"ndmspc/browser/browse", {{"key", "hpx"}}, {{"key", "hpx"}, {"cls", "TH1D"}}}},
+      "browse 1");
+  EXPECT_EQ(object.text, "// browse 1: the room's active combination\n"
+                         "// Written read-only - nothing in the room was changed.\n"
+                         "\n"
+                         "#include <TFile.h>\n"
+                         "\n"
+                         "void browse_1()\n"
+                         "{\n"
+                         "  auto * file = TFile::Open(\"cernstaff.root\");\n"
+                         "  auto * object = (TH1D *) file->Get(\"hpx\");\n"
+                         "}\n");
+
+  // A tree picked in the tree — including a click on one of its branches, which is the tree that is held:
+  // "we just need the TTree object and that is it".
+  const Ndmspc::NMacroDocument tree = Ndmspc::BuildCombinationMacro(
+      {{"ndmspc/browser/open", {{"file", "cernstaff.root"}}, json::object()},
+       {"ndmspc/browser/browse", {{"key", "ntuple"}}, {{"key", "ntuple"}, {"cls", "TNtuple"}}}},
+      "browse 1");
+  EXPECT_NE(tree.text.find("  auto * object = (TNtuple *) file->Get(\"ntuple\");\n"), std::string::npos)
+      << tree.text;
+  EXPECT_EQ(tree.text.find("Draw"), std::string::npos) << tree.text; // the macro makes objects, it does not use them
+}
+
+/**
+ * A pick leaves the object on the browse step, bringing that step into being if it was not there.
+ *
+ * A click adds no step — it runs the hidden `ndmspc/rbrowser/draw` — so the pick belongs to the browse step of
+ * the group's live chain; and since that step has no Run button (its form *is* the tree), the first pick is
+ * what creates it, under the `open` it browses. The combination then holds the step, named by the object it is
+ * on, and a macro written from it carries the object. This drives the server's own dispatch, because that is
+ * what records a node.
+ */
+TEST_F(ToolBrowser, APickCreatesTheBrowseStepAndMovesItThereafter)
+{
+  Ndmspc::NHttpServer * server = fTool->Server();
+
+  const json opened = Dispatch(server, "POST", "ndmspc/browser/open", {{"file", kFile}});
+  ASSERT_EQ(opened["result"], "success") << opened.dump();
+  const std::string openId = opened["combination"]["id"];
+
+  // Nothing picked yet: the combination is the open step alone, so a macro written from it has no object.
+  {
+    Ndmspc::NInstanceTree tree(server->GetCombinations());
+    EXPECT_TRUE(tree.Children(openId).empty());
+  }
+
+  // The first click: the browse step appears under the open, on the object that was clicked.
+  const json click = Dispatch(server, "POST", "ndmspc/rbrowser/draw",
+                              {{"key", "hpx"}, {"path", json::array({openId})}});
+  ASSERT_EQ(click["result"], "success") << click.dump();
+
+  Ndmspc::NInstanceTree afterClick(server->GetCombinations());
+  const std::vector<std::string> children = afterClick.Children(openId);
+  ASSERT_EQ(children.size(), 1u) << afterClick.ToTree().dump();
+  const std::string browseId = children.front();
+  EXPECT_EQ(afterClick.Action(browseId), "ndmspc/browser/browse");
+  EXPECT_EQ(afterClick.Params(browseId)["key"], "hpx"); // the form's own field, so the step can be run again
+  EXPECT_EQ(afterClick.State(browseId)["key"], "hpx");  // the pick, which is what the macro and the label read
+  EXPECT_EQ(afterClick.State(browseId)["cls"], "TH1D");
+  EXPECT_EQ(afterClick.Get(browseId)["label"], "hpx"); // the step is named by the object it is on
+
+  // The next click moves that one step — no second node, and the name follows the new object.
+  const json again = Dispatch(server, "POST", "ndmspc/rbrowser/draw",
+                              {{"key", "ntuple"}, {"path", json::array({openId, browseId})}});
+  ASSERT_EQ(again["result"], "success") << again.dump();
+
+  Ndmspc::NInstanceTree afterAgain(server->GetCombinations());
+  EXPECT_EQ(afterAgain.Children(openId), std::vector<std::string>({browseId}));
+  EXPECT_EQ(afterAgain.State(browseId)["key"], "ntuple");
+  EXPECT_EQ(afterAgain.State(browseId)["cls"], "TNtuple");
+  EXPECT_EQ(afterAgain.Get(browseId)["label"], "ntuple");
 }
 
 TEST_F(ToolBrowser, OpenPublishesTheFileTreeOntoTheBrowseStep)

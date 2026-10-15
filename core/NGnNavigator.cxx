@@ -1597,6 +1597,23 @@ NGnNavigator * NGnNavigator::GetChild(size_t index) const
   return (index < fChildren.size()) ? fChildren[index] : nullptr;
 }
 
+NGnNavigator * NGnNavigator::GetNavigator(std::vector<int> point) const
+{
+  ///
+  /// Walks the point down one child per level, stopping where it stops being walkable and handing back the
+  /// deepest navigator it reached - the one a drill landed on, which is what a macro written from a
+  /// combination has to be pointed at before it takes that layer's projection or spectra.
+  ///
+  NGnNavigator * at = const_cast<NGnNavigator *>(this);
+  for (const auto & bin : point) {
+    if (at == nullptr) break;
+    NGnNavigator * child = at->GetChild(static_cast<size_t>(bin));
+    if (child == nullptr) break; // a bin with no data has no child: the point stops here
+    at = child;
+  }
+  return at;
+}
+
 NGnNavigator * NGnNavigator::GetFirstChild(size_t * bin) const
 {
   ///

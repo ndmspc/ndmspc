@@ -107,6 +107,14 @@ class ToolHarness {
   /** The objects the tool has built so far, by the name its handlers use for them. */
   std::map<std::string, TObject *> & Objects() { return fServer->GetObjectsMap(); }
 
+  /**
+   * The server the tool is served by.
+   *
+   * A test that needs what the *dispatch* adds — the combination tree a request is recorded in, the
+   * workspace, the history — drives this one with `ProcessRequest`, exactly as `/api/*` does.
+   */
+  NHttpServer * Server() { return fServer.get(); }
+
   /** The handler a tool registered under that key, or null when it registered none. */
   NHttpFuncPtr Handler(const std::string & key) { return fServer->FindHttpHandler(key); }
 

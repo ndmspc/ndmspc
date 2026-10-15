@@ -183,6 +183,22 @@ class NGnNavigator : public TNamed {
   NGnNavigator * GetChild(size_t index) const;
 
   /**
+   * @brief Get the navigator at a drill-down point, walking one child per level from this one.
+   *
+   * A point is a path of child **bin numbers** (ROOT's 1-based bins, one per level), which is how the
+   * server records where a drill landed (`NRouteContext::SetStatePoint`). This is the walk
+   * `NGnNavigator::Draw` and the tools make for their layers, as one call.
+   *
+   * It stops where the point stops being walkable - a bin with no child, or a shorter point - and returns
+   * the deepest navigator it reached, never null: a point that leads nowhere gives this navigator back, so
+   * a caller that only wants "the layer this point is on" needs no check. An empty point gives this one.
+   *
+   * @param point Child bin numbers, one per level (empty = this navigator).
+   * @return The navigator the point reaches.
+   */
+  NGnNavigator * GetNavigator(std::vector<int> point) const;
+
+  /**
    * @brief Get the first child this navigator has, and the bin index it sits at.
    *
    * A child is built only for a bin that holds data, so the first bin (1) may be absent: this is the

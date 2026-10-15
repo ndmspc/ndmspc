@@ -577,7 +577,7 @@ A handler key — what a tool is registered under, routed by and called by — i
 with **at most one** subgroup between the group and the action. `ndmspc` is the platform's namespace; a
 macro of its own registers under its own, which is what keeps a third-party tool from colliding with a
 built-in one. The platform's **control** tools are the exception: `ndmspc/health`, `ndmspc/heartbeat`,
-`ndmspc/state`, `ndmspc/group` and `ndmspc/session` are two parts, and each declares its role
+`ndmspc/state`, `ndmspc/group`, `ndmspc/session` and `ndmspc/macro` are two parts, and each declares its role
 (`.control = "session"`) — which is also what lets a client find "the tool that opens a session"
 without knowing what it is called.
 
@@ -666,6 +666,9 @@ void toolMyCustom()
 | `dependsOn` | Actions that must have run before this one (e.g. `{"ndmspc/ngnt/open"}`). Enforced, and used to order `tools/list`. |
 | `order` | Tie-break among tools whose prerequisites are all met (`spectra` before `point`). Lower first; `0` = default. |
 | `label` | Template for a node's name in the combination tree, filled from the node's arguments (e.g. `{{ binningName }} ({{ levels }})`). |
+| `macroLines` | The step as C++ source, for [exporting a combination as a macro](#exporting-a-combination-as-a-macro): one entry per line of the code the step makes, each the same `{{ arg }}` template `label` uses, filled from the node's arguments — and from what the step recorded for itself, as `{{ state.<key> }}` (e.g. `{"auto * spectra = nav->GetNavigator({{ state.point }})->DrawSpectraAll(…);"}`). |
+| `macroSilent` | The step writes no code at all, not even the comment naming it — for a step whose business is to record something the later lines read (the ngnt `point`, which stands for the layer the room is on). |
+| `macroIncludes` | The `#include`s those `macroLines` need (e.g. `{"ndmspc/core/NGnTree.h"}`), emitted once at the top of an exported macro. |
 
 Changing a description requires only editing the macro and reloading — no recompilation of
 the server. Actions with no registered metadata keep the generic description, and
@@ -854,6 +857,127 @@ A group that declares no dependency (`health`, `state`, `ndmspc/room/*`, and eve
 `dependsOn`) is untouched: it keeps the plain, single-session behaviour, with no nodes and no
 `path`.
 
+### Exporting a combination as a macro
+
+`GET /api/ndmspc/macro` (`ndmspc_macro`) writes a combination out as a **runnable ROOT macro**: what the
+user downloads and runs locally, without the room. It answers with the macro's source and the file name
+it wants:
+
+```bash
+curl -s localhost:8080/api/ndmspc/macro | jq -r '.payload.macro' > ngnt_1.C
+```
+
+```json
+{ "result": "success",
+  "payload": { "name": "ngnt_1.C", "macro": "// ngnt 1: the room's active combination\n…" } }
+```
+
+```cpp
+// ngnt 1: the room's active combination
+// Written read-only - nothing in the room was changed.
+
+#include <ndmspc/core/NGnNavigator.h>
+#include <ndmspc/core/NGnTree.h>
+
+void ngnt_1()
+{
+  auto * ngnt = Ndmspc::NGnTree::Open("NSingleBinning01Gaus.root");
+  auto * nav = ngnt->Reshape("default", {{0}, {1}, {2}});
+  auto * projection = nav->GetNavigator({1})->GetProjection();
+  auto * spectra = nav->GetNavigator({1})->DrawSpectraAll("mean", { 1.0 }, "V");
+}
+```
+
+It is the code that **makes the step's objects**, and nothing that uses them: a user takes the macro and goes on
+in ROOT from what it leaves behind — `ngnt`, `nav`, the projection, the spectra list, the file, the object a
+browser step picked. So `->Draw()`, rendering and projecting belong to the user rather than to the export, and
+a line is written to hand an object over rather than to show it.
+
+- **What is written** is the steps of a combination and nothing else — no pad layout, no drill-down, no
+  bookkeeping. Each step is the C++ its own tool declared for it (`NMcpToolInfo::macroLines`, one entry per
+  line), filled from the node's own arguments and from what it **recorded for itself** (`{{ state.<key> }}`);
+  a step whose action declares none is written as a comment naming it rather than dropped, and a step that
+  declares itself `macroSilent` writes nothing at all. The includes the tools asked for (`macroIncludes`) go
+  at the top, once each.
+- **Where a step stands**: the arguments are what a form sent, the state is what the room worked out — a
+  drill's resolved point, the object a browser step picked — and it is often only the state that can say where
+  a step is. So `ndmspc/ngnt/map` and `/spectra` read `{{ state.point }}` and walk to the layer a click landed
+  on (`nav->GetNavigator(point)`, the walk the room itself makes), which is what makes a macro of a navigator
+  with several levels describe the selected one. A step that makes its object on a layer therefore **records
+  the layer it is on as it runs** — `map` records the empty point when nothing was drilled, which is the
+  navigator itself, and a drill (and `spectra`) record the point they settled on. A point the room never
+  recorded is not written at all, which would leave `GetNavigator()` in the macro: the empty point has to be
+  *there*, as `[]`, for the line to read `{}`.
+- **Which combination**: the active one — the live chain of the group the room is looking at. `combination`
+  (an array of node ids, a root first) names any other path in the tree, which is also how one step or one
+  branch of it is written on its own.
+- **The name** is what the room calls the session it is on, reduced to the identifier a macro's function
+  can be: a session renamed *ngnt 1* is `ngnt_1.C` with `void ngnt_1()`, and one left at the default
+  name (`ndmspc/ngnt 1`) is `ndmspc_ngnt_1.C`. ROOT names a macro after the function in it, so the file
+  has to follow the function.
+- **It changes nothing.** The export is a `GET`, and the action declares no `dependsOn`, so it is not a step
+  of any combination: nothing is replayed for it, no node is created, nothing is appended to the workspace
+  history and the active combination is untouched. Asking for a macro is therefore as free as reading the
+  tree — which is why a view can offer it on a read-only link, and does.
+
+Declaring a step is one line in the tool macro, beside the `label` it already has:
+
+```cpp
+Ndmspc::RegisterMcpTool("ndmspc/ngnt/open", {
+    .description   = "Open or close an NGnTree ROOT file.",
+    .methods       = {"GET", "POST", "DELETE"},
+    .label         = "{{ file }}",
+    .macroLines    = {"auto * ngnt = Ndmspc::NGnTree::Open({{ file }});"},
+    .macroIncludes = {"ndmspc/core/NGnTree.h"},
+});
+```
+
+The recipe writes no quotes of its own: an argument is rendered as the C++ literal its type takes — a string
+quoted and escaped (`{{ file }}` → `"test.root"`), an array as the braced initializer its argument type
+wants (`{{ levels }}` → `{{0}, {1}, {2}}` for a `std::vector<std::vector<int>>`) — so what a step compiles
+as is what the node holds, whatever the file is called. Each recipe introduces its own variables, so a later
+step can use them. A tool that declares nothing still exports: its step reads as
+`// ndmspc/ngnt/spectra {"parameters":["mean"]}`, which is a place to write the recipe rather than a hole in
+the macro.
+
+A step may be more than one line — a temporary, then the object it makes — by giving `macroLines` several
+entries, and they come out in the order the tool wrote them:
+
+```cpp
+Ndmspc::RegisterMcpTool("acme/point", {
+    .macroLines = {"ngnt->GetEntry({{ entry }});",
+                   "auto * objects = (TList *) ngnt->GetStorageTree()->GetBranchObject(\"_outputPoint\");"},
+});
+```
+
+That is how the browser works, too: a click in its tree runs a **hidden** action (`ndmspc/rbrowser/draw`, whose
+group declares no `dependsOn`, so it adds no step), and that action records what the step is *on* — the `key`
+that was picked and the `cls` the file reports for it — as the step's **state**, keeping the step's id. Browsing
+therefore moves that one step rather than growing the combination per click, the step is *named* by what it is on
+(`{{ state.key }}`, so the combination reads as the object that is selected), and the line reads it:
+
+```cpp
+Ndmspc::RegisterMcpTool("ndmspc/browser/browse", {
+    // The object, not a picture of it: a class the file reported, so a tree is a `TTree *` the interpreter can
+    // call `Draw("px")` on rather than an anonymous `TObject *`.
+    .label      = "{{ state.key }}",
+    .macroLines = {"auto * object = ({{ state.cls:bare }} *) file->Get({{ state.key }});"},
+});
+```
+
+The browse step has **no Run button** (its form *is* the tree), so a click is what brings it into being: the
+first pick creates it under the `open` step it browses and makes it the group's live combination, and later
+picks move it. That is why a combination of this tool holds the step at all — and why the export carries the
+object.
+
+`ndmspc/rbrowser/sparse` / `/project` (a THnSparse's projection dialog) record nothing yet, so a projected
+sparse leaves the previous pick in place; `ndmspc/ngnt/point` declares itself `macroSilent` — it writes no line,
+because it stands for the layer the room is on, which the lines that make objects read as `{{ state.point }}`.
+
+The macro is a plain ROOT macro over the analysis library (`Ndmspc::NGnTree::Open` — the calls this
+server's own macros make), so running it locally needs what running any ndmspc macro needs: ROOT, with the
+ndmspc library and headers available.
+
 ### Browsing a ROOT file (`ndmspc/browser`)
 
 `macros/tools/toolBrowser.C` registers a `ndmspc/browser` **combination** — a TBrowser-like file browser, with
@@ -878,7 +1002,10 @@ ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
 The browse step's `key` field is where the tree lives: its `nodes` come from the file, so browsing and
 drawing happen in the step itself. A node carries the request a click makes — `ndmspc/rbrowser/ls` for a folder,
 `ndmspc/rbrowser/draw` for an object (a branch draws a histogram of that branch) — and clicking records **no
-step**, so the tree stays on screen as you draw. Only `draw` fills a pad. A node is
+step**, so the tree stays on screen as you draw; it does leave the pick on the `browse` step itself (`key` and the
+class of the object, in its state), which is what the step is *named* by and what the macro written from the
+combination carries. The first pick is what creates that step (it has no Run button), and each later pick moves
+it. Only `draw` fills a pad. A node is
 
 ```json
 { "id": "ntuple", "label": "ntuple;1", "detail": "TNtuple",
