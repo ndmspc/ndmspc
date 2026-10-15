@@ -24,11 +24,13 @@
 ///
 /// `browse`'s form is the file tree: its `key` field is a `format: "tree"` whose nodes come from the
 /// file, so the browse step is where you browse and draw — expanding a folder loads its children,
-/// clicking an object draws it. Clicking records nothing: it just draws. That is why `ls` and `draw`
-/// live in the separate `rbrowser` group — the server records a node for every POST of an action in a
-/// combination group (a dependency-less one becomes a *root*), so an action that must not add a step
-/// cannot be part of `browser`. They are hidden, so neither the Explorer nor the Tools panel lists
-/// them; the tree's nodes invoke them by name over the websocket.
+/// clicking an object draws it. Clicking adds **no step**: it draws, and records the pick on the browse
+/// step it was made from (`key`, the `kind` of pick, and the expression a branch was projected with), so
+/// the step follows what you look at and a combination written out as a macro is what you last drew. That
+/// is why `ls` and `draw` live in the separate `rbrowser` group — the server records a node for every POST
+/// of an action in a combination group (a dependency-less one becomes a *root*), so an action that must not
+/// add a step cannot be part of `browser`. They are hidden, so neither the Explorer nor the Tools panel
+/// lists them; the tree's nodes invoke them by name over the websocket.
 ///
 /// The argument a node names is called `key` (the ROOT key path) rather than `path`, because `path` is
 /// the server's own combination address (the node ids a request acts on) and is consumed by the
@@ -71,14 +73,20 @@
 
 #include <ndmspc/core/NUtils.h>
 #include <ndmspc/http/NHttpServer.h>
+#include <ndmspc/http/NInstanceTree.h>
 #include <ndmspc/http/NRouteContext.h>
 #include <ndmspc/http/NSchemaBuilder.h>
 
 namespace {
 
+/// The tool group: everything before the last `/` of an action, and what a session and its combination tree
+/// are keyed by (`NInstanceTree::GroupOf`). A pick is recorded on the group's live chain, so the recording
+/// needs it as a name of its own.
+const char * kGroup = "ndmspc/browser";
 /// The name the opened file is registered under in the server's object map.
 const char * kFileObject = "browserFile";
-/// Workspace routes (short keys: the action name without its group).
+/// Workspace routes (short keys: the action name without its group). `browse` is also the action the pick is
+/// recorded on (`ndmspc/browser/browse`), which is where the macro's object line comes from.
 const char * kOpenKey   = "open";
 const char * kBrowseKey = "browse";
 /// The internal helper group. It declares no `dependsOn`, so the server keeps no combination node for
@@ -497,6 +505,22 @@ json ListDirectory(TDirectory * dir, const std::string & prefix, const std::set<
   return nodes;
 }
 
+/// The node ids a request names as its own step (`path`), in order, or none when it names none.
+///
+/// A form dispatches the action of the row it drew with the step's own path, so a click says which step it
+/// was made from rather than leaving the server to guess — the same reason `ngnt` puts its map's path on a
+/// click (see `DrawnNodePath`). A `POST` names the *parent* it belongs to, so the list is what a pick has to
+/// look through rather than a single id.
+std::vector<std::string> RequestPath(const json & in)
+{
+  std::vector<std::string> path;
+  if (!in.is_object() || !in.contains("path") || !in["path"].is_array()) return path;
+  for (const auto & id : in["path"]) {
+    if (id.is_string()) path.push_back(id.get<std::string>());
+  }
+  return path;
+}
+
 /// The tree value the `browse` step's `key` field reads.
 json BuildTree(TFile * file, const std::set<std::string> & expanded)
 {
@@ -612,6 +636,110 @@ TFile * RequireOpenFile(Ndmspc::NRouteContext & ctx)
   return file;
 }
 
+/**
+ * The browse step a pick belongs to: the one it names, or one created under the step it is on.
+ *
+ * Three ways a pick can know where it goes, in order:
+ *
+ * 1. the request runs *as* the browse step (the step's own run, where the dispatch made the node it runs
+ *    for);
+ * 2. the path it carries names it (a later click: the form dispatches the row's action with the step's own
+ *    path, so the clicked step is the deepest `browse` on it);
+ * 3. neither — the first click, before any browse step exists. The step has no Run button (its form *is* the
+ *    tree), so a click is what brings it into being: it is created under the step the path is on, else under
+ *    the group's live chain (the `open` it browses).
+ *
+ * @param tree The combination tree.
+ * @param path The node ids the request named.
+ * @param key The ROOT key path being picked (the arguments a created step starts with).
+ * @return The step's id, or "" when there is nowhere to put it.
+ */
+std::string BrowseStepFor(Ndmspc::NInstanceTree & tree, const std::vector<std::string> & path,
+                          const std::string & key)
+{
+  const std::string action = std::string(kGroup) + "/" + kBrowseKey;
+
+  if (auto * server = Ndmspc::gNHttpServer) {
+    const std::string & running = server->GetCurrentInstance();
+    if (!running.empty() && tree.Has(running) && tree.Action(running) == action) return running;
+  }
+
+  for (auto it = path.rbegin(); it != path.rend(); ++it) {
+    if (tree.Has(*it) && tree.Action(*it) == action) return *it;
+  }
+
+  // Where it goes: the deepest step the path names, else the group's live chain's (the open it browses).
+  std::string parent;
+  for (auto it = path.rbegin(); it != path.rend(); ++it) {
+    if (tree.Has(*it)) {
+      parent = *it;
+      break;
+    }
+  }
+  if (parent.empty()) {
+    for (const auto & id : tree.Active(kGroup)) parent = id;
+  }
+  if (parent.empty()) return "";
+
+  const std::string step = tree.Create(action, json{{"key", key}}, parent, "");
+  // The pick is what the room is looking at, so the step it made becomes the group's live combination: the
+  // tree on screen belongs to it, the room's session reports it, and the export (which describes the
+  // combination the room is on) carries the object rather than stopping at the file.
+  tree.SetActive(kGroup, tree.Path(step));
+  return step;
+}
+
+/**
+ * Record the object a browse step is on, on the step itself — creating that step if the pick is the first
+ * thing that happened to it.
+ *
+ * A browse step *is* the file's tree, so what it holds is the object that was picked: its `key` and the `cls`
+ * it is an instance of, kept as the step's **state** (what the step recorded for itself, apart from what a
+ * form sends). Three things follow from that:
+ *
+ * - the macro's line reads exactly what the file holds (`auto * object = (TH1D *) file->Get("hpx");`), which
+ *   is what makes the object usable in an interpreter rather than an anonymous `TObject *`;
+ * - the combination's label reads it too (`{{ state.key }}`), so the picked object is what the step is called;
+ * - a click is not a step of its own (`ndmspc/rbrowser/draw` declares no `dependsOn`), so it leaves the pick
+ *   on one step — the step keeps its id (`NInstanceTree::SetParams`), and browsing moves it rather than
+ *   growing the combination a node per click.
+ *
+ * A pick that names no object (a run with nothing chosen) still records `TObject`, so the line the tool
+ * declared stays the code it says it is instead of coming out with a hole in it.
+ *
+ * @param ctx The request.
+ * @param path The node ids the request named (see {@link RequestPath}).
+ * @param key The ROOT key path the step is on ("" when nothing was picked).
+ * @return Whether a step was touched, so the caller can publish the tree it changed.
+ */
+bool RecordPick(Ndmspc::NRouteContext & ctx, const std::vector<std::string> & path, const std::string & key)
+{
+  Ndmspc::NHttpServer * server = ctx.Server();
+  if (server == nullptr) return false;
+
+  Ndmspc::NInstanceTree tree(server->GetCombinations());
+  const std::string    step = BrowseStepFor(tree, path, key);
+  if (step.empty()) return false;
+
+  // The class the key holds, read from the file the step is working on — the same object a click drew — and
+  // `TObject` when there is nothing to read it from.
+  std::string cls = "TObject";
+  if (!key.empty()) {
+    if (TFile * file = OpenFileOf(ctx)) {
+      if (TObject * object = file->Get(key.c_str())) cls = object->ClassName();
+    }
+  }
+
+  // The state first, then the arguments: the label is rendered again when either changes, and it reads the
+  // state (`{{ state.key }}`), so this order leaves the step named by the object it is on.
+  tree.SetState(step, json{{"key", key}, {"cls", cls}});
+  json params = tree.Params(step);
+  if (!params.is_object()) params = json::object();
+  params["key"] = key; // the form's own field, so the step can be run again and its picker starts there
+  tree.SetParams(step, params);
+  return true;
+}
+
 } // namespace
 
 void toolBrowser()
@@ -636,6 +764,10 @@ void toolBrowser()
                           {"default", "https://root.cern/js/files/hsimple.root"}}}}}},
       .order       = 1,
       .label       = "{{ file }}",
+      // What this step is in C++, for a combination written out as a macro (ndmspc/macro): the file it
+      // opened, opened the same way here.
+      .macroLines  = {"auto * file = TFile::Open({{ file }});"},
+      .macroIncludes = {"TFile.h"},
       .session     = true, // the opened file is part of the room's session
       // The browsing tour, hosted here because this tool starts the pair (`browse` dependsOn it), so a
       // client offers this tour first. It opens the sample file and draws a couple of its objects — a 1D
@@ -729,7 +861,17 @@ void toolBrowser()
                            "The file's objects: expand a folder, or click an object to draw it."}}}}}},
       .dependsOn   = {group + "/open"},
       .order       = 2,
-      .label       = "{{ key }}",
+      // What the step is called: the object it is on, which it recorded for itself (`state.key`), so the
+      // combination reads as the thing that is selected rather than as a step with an empty form.
+      .label       = "{{ state.key }}",
+      // What this step is in C++, for a combination written out as a macro (`ndmspc/macro`): the object the
+      // step is on, read from the file this combination opened — the same object a click in the tree drew.
+      //
+      // The *object* and nothing done with it: the macro is an instruction for somebody who is going on in
+      // ROOT themselves, so the line leaves `object` in their hands instead of drawing it. It is named by the
+      // class the step recorded (`state.cls`), so a tree comes out a `TTree *` and a histogram a `TH1D *`
+      // rather than an anonymous `TObject *` the interpreter cannot call a method on.
+      .macroLines  = {"auto * object = ({{ state.cls:bare }} *) file->Get({{ state.key }});"},
       .runButton   = false, // the tree is how it works: clicking an object draws it, so there is no Run
       // Two tours are hosted here: `browse` dependsOn `open`, so the tool tree itself offers them after
       // the browsing tour on `open`, and the order each names puts them the way they are meant to be
@@ -1002,7 +1144,10 @@ void toolBrowser()
     TFile *        file = RequireOpenFile(ctx);
     if (file == nullptr) return;
 
-    PublishTreeSchema(ctx, BuildTree(file, ExpandedOf(ctx)), "");
+    PublishTreeSchema(ctx, BuildTree(file, ExpandedOf(ctx)), ctx.GetString("key"));
+    // The step is the tree, so running it says which object it is on — recorded on the step itself (see
+    // RecordPick), which is what a combination written out as a macro reads.
+    RecordPick(ctx, RequestPath(httpIn), ctx.GetString("key"));
     ctx.Success();
   };
 
@@ -1085,8 +1230,15 @@ void toolBrowser()
         ctx.ShowRoot(object, "", label, drawOpts, json::object(), /*replace=*/true);
         if (ctx.HasError()) return;
 
-        // Keep the tree on screen (and the picked node), and remember what was drawn last.
+        // Keep the tree on screen, and let the step that published it hold the pick: browsing then moves that
+        // step — creating it the first time, since it has no Run button of its own — and a combination written
+        // out as a macro is the object that was last looked at (see RecordPick).
         PublishTreeSchema(ctx, BuildTree(file, ExpandedOf(ctx)), key);
+        if (RecordPick(ctx, RequestPath(httpIn), key)) {
+          // The combination changed under the client's feet (a step appeared, or moved to another object), and
+          // this request is not a node action, so it has to say so itself — the same frame a node action sends.
+          wsOut["payload"]["combinations"] = Ndmspc::NInstanceTree(ctx.Server()->GetCombinations()).ToTree();
+        }
         ctx.Success();
       };
 

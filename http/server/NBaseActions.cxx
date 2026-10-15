@@ -8,10 +8,12 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NInstanceTree.h"
+#include "ndmspc/http/NMacroBuilder.h"
 
 namespace Ndmspc {
 
@@ -337,6 +339,92 @@ bool RegisterBaseActions()
     }
     httpOut["result"] = "failure";
     httpOut["error"]  = "Unsupported HTTP method for session action";
+  };
+
+  Ndmspc::RegisterMcpTool("ndmspc/macro", {
+      .description = "Write a combination out as a runnable ROOT macro: GET answers with the macro's source "
+                     "and the file name it wants, for the combination that is active - or for the one named "
+                     "with `combination` (the node ids from a root down to a step). It only reads: no step is "
+                     "replayed for it, no node is created and nothing is added to the room's history.",
+      .methods     = {"GET"},
+      .inputSchema = {{"properties",
+                       {{"combination",
+                         {{"type", "array"},
+                          {"items", {{"type", "string"}}},
+                          {"description", "The node ids from a root down to the step to write, for a combination "
+                                          "that is not the active one."}}}}}},
+      .control     = "macro",
+      .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
+  });
+
+  handlers["ndmspc/macro"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
+                                std::map<std::string, TObject *> & /*inputs*/) {
+    auto server = Ndmspc::gNHttpServer;
+    if (server == nullptr) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "No server to write a macro from";
+      return;
+    }
+    if (method.find("GET") == std::string::npos) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "Unsupported HTTP method for macro: it only reads, so use GET";
+      return;
+    }
+
+    // A GET body is optional, so the arguments are read from a request that may have none.
+    const json args = httpIn.is_object() ? httpIn : json::object();
+
+    // Read-only by construction: the tree is read where it stands. Nothing is materialized for it, no
+    // node is created and no history entry is appended - which is what makes asking for a macro free.
+    Ndmspc::NInstanceTree tree(server->GetCombinations());
+
+    std::vector<std::string> path;
+    if (args.contains("combination") && args["combination"].is_array()) {
+      for (const auto & id : args["combination"]) {
+        if (id.is_string()) path.push_back(id.get<std::string>());
+      }
+    }
+    // The room's own combination: the live chain of the group it is looking at (what its views show),
+    // or the path it selected when it is on no group in particular.
+    if (path.empty()) path = tree.Active(server->GetGroup());
+    if (path.empty()) path = tree.Active();
+    if (path.empty()) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "No combination to write: nothing has been opened in this room yet";
+      return;
+    }
+
+    std::vector<Ndmspc::NMacroStep> steps;
+    for (const auto & id : path) {
+      if (!tree.Has(id)) {
+        httpOut["result"] = "failure";
+        httpOut["error"]  = "not a step of this room: '" + id + "'";
+        return;
+      }
+      // The step's arguments *and* what it recorded for itself: a line may read either (`{{ file }}`,
+      // `{{ state.point }}`), and the second is the only place a resolved drill lives.
+      steps.push_back({tree.Action(id), tree.Params(id), tree.State(id)});
+    }
+
+    // What a session is called is the room's (see RenameSession), and it names the macro: ROOT names a
+    // macro after the function in it, so the label becomes an identifier and the file follows it. The list is
+    // **held**: the room builds it for this call, and reading it through a temporary (`SessionList()["sessions"]`
+    // in the loop) leaves the loop on an object that has already been destroyed - the one thing that made this
+    // name a node id on one machine and the session's name on another.
+    const json  sessions = server->SessionList()["sessions"];
+    std::string label;
+    for (const auto & one : sessions) {
+      if (one.value("id", std::string()) == path.front()) label = one.value("label", std::string());
+    }
+    if (label.empty()) {
+      const std::string group = Ndmspc::NInstanceTree::GroupOf(steps.front().action);
+      label                   = group.empty() ? path.front() : group + " " + path.front();
+    }
+
+    const Ndmspc::NMacroDocument doc = Ndmspc::BuildCombinationMacro(steps, label);
+    httpOut["result"]                = "success";
+    httpOut["payload"]["name"]       = doc.name + ".C";
+    httpOut["payload"]["macro"]      = doc.text;
   };
 
   return true;

@@ -123,15 +123,19 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
   // The heartbeat cadence: GET reports it, POST sets it, so a view can ask for finer readings while
   // something long is running and put the deployment's own back afterwards.
   EXPECT_NE(handlers.find("ndmspc/heartbeat"), handlers.end());
-  // What the room has drawn: GET reports its pads, DELETE forgets them, so a view that clears them does
-  // not have them handed back on its next visit.
+  // The room's drawings: GET reports them, DELETE forgets them, so a view that clears them does not
+  // have them handed back on its next visit.
   EXPECT_NE(handlers.find("ndmspc/pads"), handlers.end());
+  // A combination written out as a macro the user can run locally: a read, so a room's whole
+  // combination is handed on without anything being run again.
+  EXPECT_NE(handlers.find("ndmspc/macro"), handlers.end());
   EXPECT_NE(tools.find("ndmspc/health"), tools.end());
   EXPECT_NE(tools.find("ndmspc/state"), tools.end());
   EXPECT_NE(tools.find("ndmspc/group"), tools.end());
   EXPECT_NE(tools.find("ndmspc/session"), tools.end());
   EXPECT_NE(tools.find("ndmspc/heartbeat"), tools.end());
   EXPECT_NE(tools.find("ndmspc/pads"), tools.end());
+  EXPECT_NE(tools.find("ndmspc/macro"), tools.end());
 
   // The debug echo helper is gone with the macro it used to live in: a macro that wants one
   // registers its own.
@@ -140,7 +144,7 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
 
   // Registering twice is what a deployment that also loads the deprecated toolBase.C shim does.
   EXPECT_TRUE(Ndmspc::RegisterBaseActions());
-  EXPECT_EQ(handlers.size(), 7u);
+  EXPECT_EQ(handlers.size(), 8u);
 
   // A process that never wired a handler map is told so rather than crashing.
   Ndmspc::gNdmspcHttpHandlers = nullptr;
@@ -409,6 +413,103 @@ TEST(NHttpServerCombinationTest, PostCreatesNodesAndBranchesUnderAParent)
   EXPECT_EQ(bad["code"].get<std::string>(), "invalid_combination");
 
   Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
+}
+
+/**
+ * A combination written out as a macro (ndmspc/macro), and the promise that asking for one costs the
+ * room nothing: no step is replayed, no node is created and no history entry is appended, so a room
+ * hands its whole combination on without moving.
+ */
+TEST(NHttpServerMacroExportTest, WritesACombinationWithoutRunningOrRecordingAnything)
+{
+  Ndmspc::NHttpHandlerMap * previousHandlers = Ndmspc::gNdmspcHttpHandlers;
+  Ndmspc::NMcpToolMap *     previousTools    = Ndmspc::gNdmspcMcpTools;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> all;
+  Ndmspc::NMcpToolMap                         tools;
+  Ndmspc::gNdmspcHttpHandlers = &all;
+  Ndmspc::gNdmspcMcpTools      = &tools;
+  all["ndmspc/ngnt/open"]      = SuccessHandler;
+  all["ndmspc/ngnt/reshape"]   = SuccessHandler;
+  // The export itself is a base action, registered the way a CLI registers it.
+  ASSERT_TRUE(Ndmspc::RegisterBaseActions());
+
+  // What the tools say their steps are in code - the only input the export has beyond the tree.
+  tools["ndmspc/ngnt/open"]    = {.label         = "{{ file }}",
+                                  .macroLines    = {"auto * ngnt = Ndmspc::NGnTree::Open({{ file }});"},
+                                  .macroIncludes = {"ndmspc/core/NGnTree.h"}};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"},
+                                  .macroLines = {"auto * nav = ngnt->Reshape({{ binningName }}, {{ levels }});"}};
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
+  server->SetHttpHandlers(all);
+
+  // A combination: one open, one reshape under it.
+  const json        opened  = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "test.root"}}));
+  const std::string i1      = opened["combination"]["id"];
+  const json        reshaped = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/reshape",
+                                                       {{"binningName", "default"},
+                                                        {"levels", json::array({json::array({0, 1, 2})})}}));
+  const std::string i2      = reshaped["combination"]["id"];
+
+  const std::size_t historyBefore = server->GetJson().size();
+  const std::size_t nodesBefore   = server->GetCombinations()["nodes"].size();
+
+  // The macro is named after the session the room is on - what its own view calls that session - because
+  // ROOT names a macro after the function in it, so the file has to follow the same identifier. A room names
+  // a session as it starts one, and the first of a group is "ndmspc/ngnt 1"; reading that name back is what
+  // this pins, since a name read out of a list that is gone is how this came out as a node id instead.
+  const json exported = json::parse(Request(server, "GET", "ndmspc/macro"));
+  ASSERT_EQ(exported["result"], "success") << exported.dump();
+
+  EXPECT_EQ(exported["payload"]["name"], "ndmspc_ngnt_1.C");
+  const std::string macro = exported["payload"]["macro"];
+  EXPECT_NE(macro.find("void ndmspc_ngnt_1()"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("#include <ndmspc/core/NGnTree.h>"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("auto * ngnt = Ndmspc::NGnTree::Open(\"test.root\");"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("ngnt->Reshape(\"default\", {{0, 1, 2}});"), std::string::npos) << macro;
+
+  // Nothing moved: the same history, the same nodes, the same active combination.
+  EXPECT_EQ(server->GetJson().size(), historyBefore);
+  EXPECT_EQ(server->GetCombinations()["nodes"].size(), nodesBefore);
+  EXPECT_EQ(server->GetCombinations()["active"], json::array({i1, i2}));
+
+  // A named combination is written instead of the active one - still without running anything.
+  const json branch =
+      json::parse(RequestJson(server, "GET", "ndmspc/macro", {{"combination", json::array({i1})}}));
+  ASSERT_EQ(branch["result"], "success") << branch.dump();
+  const std::string branchMacro = branch["payload"]["macro"].get<std::string>();
+  EXPECT_NE(branchMacro.find("NGnTree::Open"), std::string::npos) << branchMacro;
+  EXPECT_EQ(branchMacro.find("Reshape"), std::string::npos) << branchMacro;
+  EXPECT_EQ(server->GetJson().size(), historyBefore);
+
+  // A rename stands, and the macro follows it too: what a session is called names the macro, whether the room
+  // handed the name out or a user gave it.
+  ASSERT_TRUE(server->RenameSession(i1, "ngnt demo"));
+  const json renamed = json::parse(Request(server, "GET", "ndmspc/macro"));
+  ASSERT_EQ(renamed["result"], "success") << renamed.dump();
+  EXPECT_EQ(renamed["payload"]["name"], "ngnt_demo.C");
+  EXPECT_NE(renamed["payload"]["macro"].get<std::string>().find("void ngnt_demo()"), std::string::npos)
+      << renamed["payload"]["macro"];
+  EXPECT_EQ(server->GetJson().size(), historyBefore);
+
+  // It only reads: a write is refused, and leaves no history entry behind either.
+  const json refused = json::parse(Request(server, "POST", "ndmspc/macro"));
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_NE(refused["error"].get<std::string>().find("only reads"), std::string::npos);
+  EXPECT_EQ(server->GetJson().size(), historyBefore);
+
+  // A room with nothing open has no combination to write, and says so rather than answering an empty
+  // macro.
+  auto * fresh  = new Ndmspc::NHttpServer("", true, 10000, {}, false);
+  fresh->SetHttpHandlers(all);
+  const json nothing = json::parse(Request(fresh, "GET", "ndmspc/macro"));
+  EXPECT_EQ(nothing["result"], "failure");
+  EXPECT_EQ(nothing["error"], "No combination to write: nothing has been opened in this room yet");
+
+  Ndmspc::gNdmspcHttpHandlers = previousHandlers;
+  Ndmspc::gNdmspcMcpTools      = previousTools;
+  delete fresh;
   delete server;
 }
 

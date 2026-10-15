@@ -16,46 +16,57 @@ std::string LabelValue(const json & value)
   return value.dump();
 }
 
-/// @brief A label template with each `{{ arg }}` filled from the node's arguments.
-std::string RenderLabel(const std::string & tmpl, const json & params)
+/// @brief One argument as a C++ literal (what an exported macro's step has to be written as).
+std::string MacroValue(const json & value)
+{
+  if (value.is_null()) return "nullptr";
+  if (value.is_boolean()) return value.get<bool>() ? "true" : "false";
+  if (value.is_string()) {
+    std::string out = "\"";
+    for (const char c : value.get<std::string>()) {
+      switch (c) {
+        case '\\': out += "\\\\"; break;
+        case '"': out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default: out.push_back(c); break;
+      }
+    }
+    return out + "\"";
+  }
+  if (value.is_array()) {
+    // A C++ initializer, so `levels` reads as the argument type it is: [[0],[1]] -> {{0}, {1}}.
+    std::string out   = "{";
+    bool        first = true;
+    for (const auto & item : value) {
+      if (!first) out += ", ";
+      first = false;
+      out += MacroValue(item);
+    }
+    return out + "}";
+  }
+  // A number as it stands, an object as compact JSON (a recipe that wants one reads it as a literal).
+  return value.dump();
+}
+
+/// @brief Collapse the gaps an unfilled placeholder leaves, so a label never reads "b0 (  )".
+std::string Tidy(const std::string & text)
 {
   std::string out;
-  std::size_t pos = 0;
-  while (pos < tmpl.size()) {
-    const std::size_t open = tmpl.find("{{", pos);
-    if (open == std::string::npos) {
-      out += tmpl.substr(pos);
-      break;
-    }
-    out += tmpl.substr(pos, open - pos);
-    const std::size_t close = tmpl.find("}}", open + 2);
-    if (close == std::string::npos) {
-      out += tmpl.substr(open); // an unterminated placeholder is left as written
-      break;
-    }
-    std::string key = tmpl.substr(open + 2, close - open - 2);
-    key.erase(0, key.find_first_not_of(" \t"));
-    key.erase(key.find_last_not_of(" \t") + 1);
-    if (params.is_object() && params.contains(key)) out += LabelValue(params[key]);
-    pos = close + 2;
-  }
-
-  // A missing argument leaves a gap, and the space around it: tidy the result so a label never
-  // reads "b0 (  )".
-  std::string tidy;
   bool        pendingSpace = false;
-  for (char c : out) {
+  for (char c : text) {
     if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-      pendingSpace = !tidy.empty();
+      pendingSpace = !out.empty();
       continue;
     }
     if (pendingSpace) {
-      tidy += ' ';
+      out += ' ';
       pendingSpace = false;
     }
-    tidy += c;
+    out += c;
   }
-  return tidy;
+  return out;
 }
 
 /// @brief The label guessed from the arguments, for an action that declares no template.
@@ -81,6 +92,54 @@ std::string GuessedLabel(const std::string & action, const json & params)
 }
 
 } // namespace
+
+std::string RenderTemplate(const std::string & tmpl, const json & params, NTemplateStyle style,
+                           const json & state)
+{
+  std::string out;
+  std::size_t pos = 0;
+  while (pos < tmpl.size()) {
+    const std::size_t open = tmpl.find("{{", pos);
+    if (open == std::string::npos) {
+      out += tmpl.substr(pos);
+      break;
+    }
+    out += tmpl.substr(pos, open - pos);
+    const std::size_t close = tmpl.find("}}", open + 2);
+    if (close == std::string::npos) {
+      out += tmpl.substr(open); // an unterminated placeholder is left as written
+      break;
+    }
+    std::string key = tmpl.substr(open + 2, close - open - 2);
+    key.erase(0, key.find_first_not_of(" \t"));
+    key.erase(key.find_last_not_of(" \t") + 1);
+
+    // A placeholder may say how its value reads: `{{ name:bare }}` inserts it as it stands rather than as the
+    // C++ literal of its type. A recipe that casts to a class the node recorded needs the name itself
+    // (`(TH1D *) file->Get(…)`), where the literal would come out `("TH1D" *)`.
+    bool              bare     = false;
+    const std::size_t modifier = key.rfind(':');
+    if (modifier != std::string::npos) {
+      bare = key.substr(modifier + 1) == "bare";
+      key  = key.substr(0, modifier);
+    }
+
+    // ... and it may name the node's own state rather than its arguments: `{{ state.point }}` is what the
+    // step recorded for itself, which a form never sends.
+    const json & source = key.rfind("state.", 0) == 0 ? state : params;
+    if (key.rfind("state.", 0) == 0) key = key.substr(6);
+
+    if (source.is_object() && source.contains(key)) {
+      if (bare) out += LabelValue(source[key]); // as it stands
+      else out += style == NTemplateStyle::Cpp ? MacroValue(source[key]) : LabelValue(source[key]);
+    }
+    pos = close + 2;
+  }
+
+  // A missing argument leaves a gap, and the space around it, which a label has to tidy away. Code is
+  // left exactly as the tool wrote it: an exported macro's line breaks and indentation are its own.
+  return style == NTemplateStyle::Cpp ? out : Tidy(out);
+}
 
 NInstanceTree::NInstanceTree(json & store) : fStore(store) { Ensure(); }
 
@@ -171,14 +230,22 @@ json NInstanceTree::State(const std::string & id) const
 
 void NInstanceTree::SetState(const std::string & id, const json & state)
 {
-  if (Has(id)) fStore["nodes"][id]["state"] = state;
+  if (Has(id)) {
+    fStore["nodes"][id]["state"] = state;
+    // ... and the name follows it, for a step whose label reads what it recorded (`{{ state.point }}`).
+    fStore["nodes"][id]["label"] =
+        LabelFor(Action(id), fStore["nodes"][id]["params"], fStore["nodes"][id]["state"]);
+  }
 }
 
 void NInstanceTree::SetParams(const std::string & id, const json & params)
 {
   if (!Has(id)) return;
   fStore["nodes"][id]["params"] = params.is_null() ? json::object() : params;
-  fStore["nodes"][id]["label"]  = LabelFor(Action(id), fStore["nodes"][id]["params"]);
+  // The label is rendered again from what the node now holds, its state included: a step whose name is the
+  // object it recorded (`{{ state.key }}`) is named by the pick, not by the form's last value.
+  fStore["nodes"][id]["label"] =
+      LabelFor(Action(id), fStore["nodes"][id]["params"], fStore["nodes"][id].value("state", json::object()));
 }
 
 std::vector<std::string> NInstanceTree::Children(const std::string & id) const
@@ -548,15 +615,16 @@ std::string NInstanceTree::ParentActionFor(const std::string & action)
   return "";
 }
 
-std::string NInstanceTree::LabelFor(const std::string & action, const json & params)
+std::string NInstanceTree::LabelFor(const std::string & action, const json & params, const json & state)
 {
   // What a node is called is the action's own business - a tool says it with a template, or the
   // arguments are guessed. A session's name is the room's, kept apart from this (see SessionList).
-  // A macro can say what a node is called, e.g. "{{ binningName }} ({{ levels }})".
+  // A macro can say what a node is called, e.g. "{{ binningName }} ({{ levels }})" - or read what the step
+  // recorded for itself, e.g. "{{ state.key }}" for the object a browse step is on.
   if (gNdmspcMcpTools != nullptr) {
     const auto info = gNdmspcMcpTools->find(action);
     if (info != gNdmspcMcpTools->end() && !info->second.label.empty()) {
-      const std::string rendered = RenderLabel(info->second.label, params);
+      const std::string rendered = RenderTemplate(info->second.label, params, NTemplateStyle::Json, state);
       if (!rendered.empty()) return rendered;
     }
   }
