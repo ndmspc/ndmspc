@@ -416,6 +416,92 @@ TEST(NHttpServerCombinationTest, PostCreatesNodesAndBranchesUnderAParent)
   delete server;
 }
 
+/// How many times each step of {@link ATransientClickCostsNoHistoryEntryAndNoRebuild} was run: a step that
+/// is replayed to restore a chain is run a second time, which is exactly what that test is about.
+int gOpenRuns = 0, gReshapeRuns = 0, gMapRuns = 0, gSpectraRuns = 0;
+
+void CountStep(int & runs, std::string method, json & out)
+{
+  if (method == "POST") runs++;
+  out["result"] = "success";
+}
+
+void CountOpen(std::string method, json &, json & out, json &, std::map<std::string, TObject *> &)
+{
+  CountStep(gOpenRuns, method, out);
+}
+
+void CountReshape(std::string method, json &, json & out, json &, std::map<std::string, TObject *> &)
+{
+  CountStep(gReshapeRuns, method, out);
+}
+
+void CountMap(std::string method, json &, json & out, json &, std::map<std::string, TObject *> &)
+{
+  CountStep(gMapRuns, method, out);
+}
+
+void CountSpectra(std::string method, json &, json & out, json &, std::map<std::string, TObject *> &)
+{
+  CountStep(gSpectraRuns, method, out);
+}
+
+/**
+ * A click's **transient** POST is not a step: it records no history entry, and it must not cost the chain
+ * it ran on anything. It used to do both — the entry it left made the group's entry count disagree with
+ * its chain, and the next request tore the chain down and replayed it, re-opening the file and re-running
+ * the reshape to serve a click on a histogram.
+ */
+TEST(NHttpServerCombinationTest, ATransientClickCostsNoHistoryEntryAndNoRebuild)
+{
+  gOpenRuns = gReshapeRuns = gMapRuns = gSpectraRuns = 0;
+
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/open"]    = CountOpen;
+  handlers["ndmspc/ngnt/reshape"] = CountReshape;
+  handlers["ndmspc/ngnt/map"]     = CountMap;
+  handlers["ndmspc/ngnt/spectra"] = CountSpectra;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
+  Ndmspc::NMcpToolMap   tools;
+  tools["ndmspc/ngnt/open"]    = {};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+  tools["ndmspc/ngnt/map"]     = {.dependsOn = {"ndmspc/ngnt/reshape"}};
+  tools["ndmspc/ngnt/spectra"] = {.dependsOn = {"ndmspc/ngnt/map"}};
+  Ndmspc::gNdmspcMcpTools      = &tools;
+
+  // The chain a user works: open the file, reshape it, map it.
+  const json        opened   = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "a.root"}}));
+  const std::string i1       = opened["combination"]["id"];
+  const json        reshaped = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"binningName", "x"}}));
+  const std::string i2       = reshaped["combination"]["id"];
+  const json        mapped   = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/map", {}));
+  const std::string i3       = mapped["combination"]["id"];
+  ASSERT_EQ(gOpenRuns, 1);
+  ASSERT_EQ(gReshapeRuns, 1);
+  ASSERT_EQ(gMapRuns, 1);
+
+  // A click on the map draws its spectra - a transient POST, which is not a step of the combination.
+  RequestJson(server, "POST", "ndmspc/ngnt/spectra", {{"path", json::array({i1, i2, i3})}, {"transient", true}});
+  ASSERT_EQ(gSpectraRuns, 1);
+
+  // And the drill that follows it - a click on another cell, which PATCHes the map's own node - must find
+  // the chain where it was: nothing re-opened, nothing re-reshaped, nothing re-mapped.
+  RequestJson(server, "PATCH", "ndmspc/ngnt/map",
+              {{"path", json::array({i1, i2, i3})}, {"point", json::array({1})}, {"level", 1}});
+  EXPECT_EQ(gOpenRuns, 1) << "the file was opened again";
+  EXPECT_EQ(gReshapeRuns, 1) << "the reshape was run again";
+  EXPECT_EQ(gMapRuns, 1) << "the map was drawn again";
+  EXPECT_EQ(gSpectraRuns, 1) << "the click's own drawing was replayed";
+  EXPECT_EQ(server->GetCombinations()["active"], json::array({i1, i2, i3}));
+
+  Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
+}
+
 /**
  * A combination written out as a macro (ndmspc/macro), and the promise that asking for one costs the
  * room nothing: no step is replayed, no node is created and no history entry is appended, so a room

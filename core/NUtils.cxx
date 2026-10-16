@@ -885,16 +885,23 @@ bool NUtils::SaveRawFile(std::string filename, std::string content)
 std::vector<std::string> NUtils::ResolveMacroList(std::string_view list, const std::string & defaultDir)
 {
   std::vector<std::string> resolved;
-  // The directory a bare name takes: the one the entry before it named. It starts at the caller's
-  // macro directory, so a list that begins with a bare name still resolves.
+  // The directory a bare name takes: the one the entry before it named, else the caller's macro
+  // directory - but only for a name nothing local answers to (see below).
   std::string dir = defaultDir;
 
   for (const auto & entry : Tokenize(list, ',')) {
     if (entry.empty()) continue;
 
-    // A name that names no directory of its own takes the directory in hand; one that names a
-    // directory (a path, or a URL) is used as it is, and becomes the directory the next name takes.
+    // A name that names no directory of its own is the file of that name where the caller stands,
+    // when there is one: a macro named on the command line (`ndmspc-run sum.C`) is run from the
+    // current directory, and the tool directory is only the fallback for a name there is nothing
+    // local for. One that names a directory (a path, or a URL) is used as it is, and becomes the
+    // directory the next name takes.
     if (entry.find('/') == std::string::npos) {
+      if (!gSystem->AccessPathName(entry.c_str())) {
+        resolved.push_back(entry);
+        continue;
+      }
       resolved.push_back(dir.empty() ? entry : dir + "/" + entry);
       continue;
     }
@@ -1335,6 +1342,11 @@ TH1 * NUtils::ProjectTHnSparse(THnSparse * sparse, const std::vector<int> & axes
 
     axisHist->SetName(axisSparse->GetName());
     axisHist->SetTitle(axisSparse->GetTitle());
+    // ROOT's Projection carries neither name nor title onto the histogram, and an axis declared without
+    // a title (a bare `Age` axis, say) would leave the projection's axis unlabelled: fall back on the
+    // axis name, so a projection always reads.
+    const char * title = axisHist->GetTitle();
+    if (title == nullptr || *title == '\0') axisHist->SetTitle(axisSparse->GetName());
 
     // Copy bin labels if alphanumeric
     if (axisSparse->IsAlphanumeric()) {

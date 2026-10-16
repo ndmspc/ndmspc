@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <ctime>
 #include <numbers>
@@ -1128,7 +1129,7 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       NLogDebug("NGnTree::Process: [BEGIN] ------------------------------------------------");
       binningIn->GetDefinition(name)->GetIds().clear();
       for (size_t i = 0; i < threadDataVector.size(); ++i) {
-        NLogDebug("NGnTree::Process: -> Thread %zu processed %lld entries", i, threadDataVector[i].GetNProcessed());
+        NLogDebug("NGnTree::Process: -> Worker %zu processed %lld entries", i, threadDataVector[i].GetNProcessed());
       }
       if (useProcessIpc) {
         // Keep full definition membership (including overlaps) while scheduling
@@ -1900,7 +1901,319 @@ bool NGnTree::InitParameters(const std::vector<std::string> & paramNames)
   return true;
 }
 
-NGnTree * NGnTree::Import(const std::string & jsonFile)
+namespace {
+
+/// \brief Build the in-file object path by prepending an optional directory.
+std::string NormalizeObjectPath(const std::string & directory, const std::string & objectName)
+{
+  ///
+  /// Prepend a (normalized) directory inside the ROOT file before the object name
+  ///
+
+  std::string d = directory;
+  while (!d.empty() && d.front() == '/') d.erase(d.begin());
+  while (!d.empty() && d.back() == '/') d.pop_back();
+  if (d.empty()) return objectName;
+  return d + "/" + objectName;
+}
+
+/// \brief Check that two THnSparse objects have identical binnings.
+bool HaveSameBinning(THnSparse * a, THnSparse * b)
+{
+  ///
+  /// Make sure THnSparse objects share the same dimensions, axis names, binning and labels
+  ///
+
+  if (a == nullptr || b == nullptr) return false;
+  if (a->GetNdimensions() != b->GetNdimensions()) {
+    NLogError("NGnTree::Import: THnSparse '%s' (%d dims) and '%s' (%d dims) have different dimensions !!!",
+              a->GetName(), a->GetNdimensions(), b->GetName(), b->GetNdimensions());
+    return false;
+  }
+  for (int i = 0; i < a->GetNdimensions(); i++) {
+    TAxis * aa = a->GetAxis(i);
+    TAxis * ba = b->GetAxis(i);
+    if (std::string(aa->GetName()) != std::string(ba->GetName()) || aa->GetNbins() != ba->GetNbins() ||
+        std::abs(aa->GetXmin() - ba->GetXmin()) > 1e-9 || std::abs(aa->GetXmax() - ba->GetXmax()) > 1e-9) {
+      NLogError("NGnTree::Import: Axis %d ('%s') binning differs between THnSparse '%s' and '%s' !!!", i,
+                aa->GetName(), a->GetName(), b->GetName());
+      return false;
+    }
+    if (aa->IsAlphanumeric()) {
+      for (int bin = 1; bin <= aa->GetNbins(); bin++) {
+        if (std::string(aa->GetBinLabel(bin)) != std::string(ba->GetBinLabel(bin))) {
+          NLogError("NGnTree::Import: Axis %d ('%s') bin labels differ between THnSparse '%s' and '%s' !!!", i,
+                    aa->GetName(), a->GetName(), b->GetName());
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+/// \brief Create an NGnTree file from THnSparse object(s) stored in a ROOT file.
+NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string & directory,
+                                 const std::vector<std::string> & paramNames, json cfg)
+{
+  ///
+  /// Import THnSparse object(s) as NGnTree and project them per bin
+  ///
+
+  if (!cfg.contains("objects") || !cfg["objects"].is_array() || cfg["objects"].empty()) {
+    NLogError("NGnTree::Import: 'objects' must be a non-empty array in the configuration !!!");
+    return nullptr;
+  }
+  if (!cfg.contains("axes") || !cfg["axes"].is_array() || cfg["axes"].empty()) {
+    NLogError("NGnTree::Import: 'axes' must be a non-empty array in the configuration !!!");
+    return nullptr;
+  }
+  std::vector<std::string> axisNames = cfg["axes"].get<std::vector<std::string>>();
+
+  // Parse the object list (either bare names or {name,type} objects), default type THnSparse
+  std::vector<std::pair<std::string, std::string>> objectSpecs;
+  for (const auto & obj : cfg["objects"]) {
+    if (obj.is_string()) {
+      objectSpecs.emplace_back(obj.get<std::string>(), "THnSparse");
+    }
+    else if (obj.is_object() && obj.contains("name") && obj["name"].is_string()) {
+      objectSpecs.emplace_back(obj["name"].get<std::string>(), obj.value("type", std::string("THnSparse")));
+    }
+    else {
+      NLogError("NGnTree::Import: Invalid entry in 'objects': %s !!!", obj.dump().c_str());
+      return nullptr;
+    }
+  }
+
+  TFile * f = NUtils::OpenFile(inFile, "READ");
+  if (!f || f->IsZombie()) {
+    NLogError("NGnTree::Import: Cannot open input file '%s' !!!", inFile.c_str());
+    return nullptr;
+  }
+
+  // Resolve and validate all objects: same type and same binning
+  THnSparse * first = nullptr;
+  for (const auto & [name, type] : objectSpecs) {
+    std::string objPath = NormalizeObjectPath(directory, name);
+    TObject *   obj     = f->Get(objPath.c_str());
+    if (obj == nullptr) {
+      NLogError("NGnTree::Import: Object '%s' not found in file '%s' !!!", objPath.c_str(), inFile.c_str());
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+    if (!obj->InheritsFrom("THnSparse") || (!type.empty() && !obj->InheritsFrom(type.c_str()))) {
+      NLogError("NGnTree::Import: Object '%s' is a '%s' and does not match expected type '%s' !!!", objPath.c_str(),
+                obj->ClassName(), type.c_str());
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+    THnSparse * hns = (THnSparse *)obj;
+    if (first == nullptr) {
+      first = hns;
+    }
+    else if (!first->InheritsFrom(hns->ClassName()) || !hns->InheritsFrom(first->ClassName())) {
+      NLogError("NGnTree::Import: Objects '%s' ('%s') and '%s' ('%s') are not the same type !!!", first->GetName(),
+                first->ClassName(), hns->GetName(), hns->ClassName());
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+    else if (!HaveSameBinning(first, hns)) {
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+  }
+
+  // Build NGnTree axes from the first object, remembering the mapping to the input axes
+  TObjArray *      axes = new TObjArray();
+  std::vector<int> axesOrder;
+  for (const auto & axisName : axisNames) {
+    int idx = -1;
+    for (int i = 0; i < first->GetNdimensions(); i++) {
+      if (axisName == first->GetAxis(i)->GetName()) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) {
+      NLogError("NGnTree::Import: Axis '%s' not found in THnSparse '%s' !!!", axisName.c_str(), first->GetName());
+      delete axes;
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+    TAxis * axisIn = first->GetAxis(idx);
+    TAxis * axis   = (TAxis *)axisIn->Clone();
+    if (axisIn->IsAlphanumeric()) {
+      for (int bin = 1; bin <= axisIn->GetNbins(); bin++) {
+        axis->SetBinLabel(bin, axisIn->GetBinLabel(bin));
+      }
+    }
+    // Axis title: imported from the THnSparse axis (Clone copies it), overridable via cfg["titles"]
+    if (cfg.contains("titles") && cfg["titles"].is_object() && cfg["titles"].contains(axisName) &&
+        cfg["titles"][axisName].is_string()) {
+      axis->SetTitle(cfg["titles"][axisName].get<std::string>().c_str());
+    }
+    axes->Add(axis);
+    axesOrder.push_back(idx);
+  }
+
+  f->Close();
+  delete f;
+
+  // An axis present in the binning map is variable; default is fully variable with rebin 1
+  std::map<std::string, std::vector<std::vector<int>>> b;
+  for (const auto & axisName : axisNames) {
+    if (cfg.contains("binning") && cfg["binning"].contains(axisName)) {
+      b[axisName] = cfg["binning"][axisName].get<std::vector<std::vector<int>>>();
+    }
+    else {
+      b[axisName] = {{1}};
+    }
+  }
+
+  std::string outputFile = cfg.value("outputFile", std::string("imported_ngnt.root"));
+  NGnTree *   ngnt       = new NGnTree(axes, outputFile);
+  if (ngnt->IsZombie()) {
+    NLogError("NGnTree::Import: Failed to create NGnTree for output file '%s' !!!", outputFile.c_str());
+    delete ngnt;
+    return nullptr;
+  }
+  ngnt->GetBinning()->AddBinningDefinition("default", b);
+  if (!paramNames.empty()) {
+    ngnt->InitParameters(paramNames);
+  }
+
+  cfg["inputFile"]      = inFile;
+  cfg["inputDirectory"] = directory;
+  cfg["_axesOrder"]     = axesOrder;
+
+  Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
+                                             int /*threadId*/) {
+    if (point == nullptr) {
+      NLogError("NGnTree::Import: Binning point is nullptr !!!");
+      return;
+    }
+    json        cfg = point->GetCfg();
+    std::string dir = cfg.value("inputDirectory", std::string(""));
+
+    TFile * fIn = (TFile *)point->GetTempObject("inFile");
+    if (!fIn) {
+      std::string inFilename = cfg["inputFile"].get<std::string>();
+      TFile *     fTmp       = gFile;
+      fIn                    = TFile::Open(inFilename.c_str());
+      if (!fIn || fIn->IsZombie()) {
+        NLogError("NGnTree::Import: Cannot open input file '%s' !!!", inFilename.c_str());
+        return;
+      }
+      point->SetTempObject("inFile", fIn);
+      gFile = fTmp; // restore global file pointer (multi-threaded context)
+    }
+
+    // Cut map keyed by INPUT THnSparse axis index (base axis ranges are keyed by NGnTree axis index)
+    std::vector<int>               axesOrder = cfg["_axesOrder"].get<std::vector<int>>();
+    std::map<int, std::vector<int>> cut;
+    for (const auto & [ngntIdx, mm] : point->GetBaseAxisRanges()) {
+      cut[axesOrder[ngntIdx]] = mm;
+    }
+
+    json projections = cfg.value("projections", json::array());
+    json titles      = cfg.value("titles", json::object());
+
+    for (const auto & obj : cfg["objects"]) {
+      std::string objName = obj.is_string() ? obj.get<std::string>() : obj["name"].get<std::string>();
+      std::string objPath = NormalizeObjectPath(dir, objName);
+
+      THnSparse * hns = (THnSparse *)point->GetTempObject("obj:" + objPath);
+      if (!hns) {
+        hns = (THnSparse *)fIn->Get(objPath.c_str());
+        if (hns == nullptr) {
+          NLogError("NGnTree::Import: THnSparse '%s' not found in input file !!!", objPath.c_str());
+          continue;
+        }
+        point->SetTempObject("obj:" + objPath, hns);
+      }
+
+      // Cut on all variable axes for this bin
+      NUtils::SetAxisRanges(hns, cut, true);
+
+      int projId = 0;
+      for (const auto & spec : projections) {
+        std::vector<int>         dims;
+        std::vector<std::string> dimNames;
+        for (const auto & dimName : spec) {
+          std::string axisName = dimName.get<std::string>();
+          for (int i = 0; i < hns->GetNdimensions(); i++) {
+            if (axisName == hns->GetAxis(i)->GetName()) {
+              dims.push_back(i);
+              dimNames.push_back(axisName);
+              break;
+            }
+          }
+        }
+        if (dims.empty()) {
+          NLogWarning("NGnTree::Import: Projection %d of object '%s' has no valid axes !!!", projId, objName.c_str());
+          projId++;
+          continue;
+        }
+
+        TH1 * hProj = NUtils::ProjectTHnSparse(hns, dims, "O");
+        if (hProj == nullptr) {
+          projId++;
+          continue;
+        }
+        hProj->SetName(TString::Format("%s_proj_%s", objName.c_str(), NUtils::Join(dimNames, '_').c_str()).Data());
+        hProj->SetTitle(point->GetString("", false).c_str());
+        // Projection axis titles: from the THnSparse axis, overridable via cfg["titles"], falling back
+        // on the axis name (ROOT's Projection carries no title of its own).
+        for (size_t k = 0; k < dims.size() && k < 3; k++) {
+          TAxis *     srcAxis = hns->GetAxis(dims[k]);
+          TAxis *     dstAxis = (k == 0) ? hProj->GetXaxis() : (k == 1) ? hProj->GetYaxis() : hProj->GetZaxis();
+          std::string title   = srcAxis->GetTitle();
+          if (titles.is_object() && titles.contains(srcAxis->GetName()) && titles[srcAxis->GetName()].is_string()) {
+            title = titles[srcAxis->GetName()].get<std::string>();
+          }
+          if (title.empty()) title = srcAxis->GetName();
+          dstAxis->SetTitle(title.c_str());
+        }
+        if (hProj->GetEntries() > 0) {
+          outputPoint->Add(hProj);
+        }
+        else {
+          delete hProj;
+        }
+        projId++;
+      }
+    }
+  };
+
+  Ndmspc::NGnBeginFuncPtr beginFunc = [](Ndmspc::NBinningPoint * /*point*/, int /*threadId*/) {
+    NUtils::DisableObjectAutoRegistration();
+  };
+
+  Ndmspc::NGnEndFuncPtr endFunc = [](Ndmspc::NBinningPoint * point, int /*threadId*/) {
+    TFile * f = (TFile *)point->GetTempObject("inFile");
+    if (f) {
+      f->Close();
+      point->SetTempObject("inFile", nullptr);
+    }
+  };
+
+  bool rc = ngnt->Process(processFunc, cfg, "default", beginFunc, endFunc);
+  delete ngnt;
+  if (!rc) {
+    NLogError("NGnTree::Import: Failed to process THnSparse import !!!");
+    return nullptr;
+  }
+  return NGnTree::Open(outputFile);
+}
+
+} // namespace
+
+NGnTree * NGnTree::Import(const std::string & jsonFile, const std::string & filename, const std::string & directory)
 {
 
   json cfg;
@@ -1908,17 +2221,25 @@ NGnTree * NGnTree::Import(const std::string & jsonFile)
     NLogError("NGnTree::Import: Failed to load JSON file '%s'", jsonFile.c_str());
     return nullptr;
   }
-  std::string findPath = cfg.value("basedir", "");
-  std::string fileName = cfg.value("filename", "");
-  if (findPath.empty() || fileName.empty()) {
-    NLogError("NGnTree::Import: 'basedir' and 'filename' must be specified in the configuration !!!");
-    return nullptr;
-  }
+  return Import(cfg, filename, directory);
+}
+
+NGnTree * NGnTree::Import(const json & cfg, const std::string & filename, const std::string & directory)
+{
+  ///
+  /// Import from a configuration already in memory (a form's filled JSON) rather than from a JSON file
+  ///
+
+  std::string type       = cfg.value("type", "simple");
+  std::string basedir    = cfg.value("basedir", "");
+  std::string fileName   = filename.empty() ? cfg.value("filename", "") : filename;
+  std::string dir        = directory.empty() ? cfg.value("directory", "") : directory;
+  std::string outputFile = cfg.value("outputFile", "imported_ngnt.root");
+
   std::vector<std::string> headers = cfg.value("axes", std::vector<std::string>{});
   if (headers.empty()) {
     NLogWarning("NGnTree::Import: No 'axes' specified in configuration, proceeding with empty axes list ...");
   }
-  std::string outputFile = cfg.value("outputFile", "imported_ngnt.root");
 
   std::map<std::string, std::vector<std::string>> filterAxes;
   std::vector<std::string>                        paramNames;
@@ -1946,13 +2267,29 @@ NGnTree * NGnTree::Import(const std::string & jsonFile)
     }
   }
 
-  std::string type = cfg.value("type", "simple");
+  if (type == "thnsparse") {
+    if (fileName.empty()) {
+      NLogError("NGnTree::Import: 'filename' must be specified for THnSparse import !!!");
+      return nullptr;
+    }
+    std::string inFile = fileName;
+    if (!basedir.empty() && inFile.front() != '/') {
+      inFile = basedir + "/" + inFile;
+    }
+    return ImportTHnSparseObjects(inFile, dir, paramNames, cfg);
+  }
+
+  if (basedir.empty() || fileName.empty()) {
+    NLogError("NGnTree::Import: 'basedir' and 'filename' must be specified in the configuration !!!");
+    return nullptr;
+  }
+
   if (type == "simple") {
     std::string paramsHistoName = cfg.value("paramsObjectName", "hParameters");
-    return ImportSimple(findPath, fileName, headers, paramNames, filterAxes, outputFile, paramsHistoName);
+    return ImportSimple(basedir, fileName, headers, paramNames, filterAxes, outputFile, paramsHistoName);
   }
   else if (type == "ngnt") {
-    return ImportNgnt(findPath, fileName, headers, paramNames, filterAxes, outputFile);
+    return ImportNgnt(basedir, fileName, headers, paramNames, filterAxes, outputFile);
   }
   else {
     NLogError("NGnTree::Import: Unknown import type '%s' specified in configuration !!!", type.c_str());

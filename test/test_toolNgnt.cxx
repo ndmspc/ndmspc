@@ -12,15 +12,22 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <TAxis.h>
+#include <TH1.h>
 #include <THttpCallArg.h>
+#include <TList.h>
+#include <TObjArray.h>
 
 #include "05_single_bining/NSingleBinning01Gaus.C"
 
+#include "ndmspc/core/NBinning.h"
+#include "ndmspc/core/NGnTree.h"
 #include "ndmspc/http/NInstanceTree.h"
 #include "ndmspc/http/NMacroBuilder.h"
 
@@ -51,6 +58,31 @@ const ToolAction kChain[] = {
 
 /// The file the map test opens: the tutorial's own example, written when it is not there yet.
 const char * kNgntFile = "test_toolNgnt_single.root";
+
+/// The file the no-parameter test opens: a tree with an axis but no parameters (a plain tree, opened
+/// without `InitParameters`), so the spectra step has nothing to draw for.
+const char * kNoParamNgntFile = "test_toolNgnt_noparams.root";
+
+/// Write a minimal NGnTree with one axis and **no** parameters: what the workflow tour has to cope with.
+void WriteNoParameterNgnt(const char * file)
+{
+  TObjArray * axes = new TObjArray();
+  TAxis *     axis = new TAxis(5, 0, 5);
+  axis->SetName("x");
+  axis->SetTitle("X");
+  axes->Add(axis);
+  Ndmspc::NGnTree * ngnt = new Ndmspc::NGnTree(axes, file);
+  delete axes;
+
+  std::map<std::string, std::vector<std::vector<int>>> binning;
+  binning["x"] = {{1}};
+  ngnt->GetBinning()->AddBinningDefinition("default", binning);
+
+  Ndmspc::NGnProcessFuncPtr func = [](Ndmspc::NBinningPoint * /*point*/, TList * /*output*/, TList * outputPoint,
+                                      int /*threadId*/) { outputPoint->Add(new TH1F("h", "h", 10, 0, 10)); };
+  ngnt->Process(func, json::object(), "default");
+  delete ngnt;
+}
 
 /// A tool under test: its macro, loaded, with the handlers it registered.
 class ToolNgnt : public ::testing::Test {
@@ -165,6 +197,9 @@ TEST_F(ToolNgnt, EveryStepThatKnowsItsCodeDeclaresIt)
   ASSERT_NE(point, nullptr);
   EXPECT_TRUE(point->macroSilent);
   EXPECT_TRUE(point->macroLines.empty());
+  // A helper the drill calls on the room's behalf, not a step a person creates: it is published and
+  // callable, but nothing offers it as a next step.
+  EXPECT_FALSE(point->explorer);
 
   // The includes belong to the tool whose steps need them, and only to it.
   ASSERT_NE(fTool->ToolInfo("ndmspc/ngnt/open"), nullptr);
@@ -252,6 +287,126 @@ TEST_F(ToolNgnt, AMapRunRecordsTheLayerItStandsOn)
   EXPECT_NE(doc.text.find("  auto * projection = nav->GetNavigator({})->GetProjection();\n"), std::string::npos)
       << doc.text;
   EXPECT_EQ(doc.text.find("GetNavigator()"), std::string::npos) << doc.text;
+}
+
+/**
+ * A tree with no parameters ends the workflow at the map: spectra has nothing to draw for, so the tour is
+ * republished on open without the spectra step — the map is the last step, with no Save & Run after it.
+ */
+TEST_F(ToolNgnt, NoParametersEndsTheWorkflowTourAtTheMap)
+{
+  WriteNoParameterNgnt(kNoParamNgntFile);
+
+  Ndmspc::NHttpServer * server = fTool->Server();
+  const json            opened = Dispatch(server, "POST", "ndmspc/ngnt/open", {{"file", kNoParamNgntFile}});
+  ASSERT_EQ(opened["result"], "success") << opened.dump();
+
+  // The tour rides on the last step the chain offers: with no spectra to draw for, that is the map.
+  const Ndmspc::NMcpToolInfo * spectra = fTool->ToolInfo("ndmspc/ngnt/spectra");
+  ASSERT_NE(spectra, nullptr);
+  const Ndmspc::NMcpToolInfo * map = fTool->ToolInfo("ndmspc/ngnt/map");
+  ASSERT_NE(map, nullptr) << "the map carries the workflow tour when spectra is not offered";
+  ASSERT_TRUE(map->tutorial.is_object());
+  ASSERT_TRUE(map->tutorial.contains("steps"));
+  const json & steps = map->tutorial["steps"];
+  ASSERT_TRUE(steps.is_array());
+  ASSERT_FALSE(steps.empty());
+
+  const std::string lastShow = steps.back().value("show", std::string());
+  EXPECT_NE(lastShow, "saveAndRun") << "the tour must not end on a Save & Run: " << steps.dump();
+
+  bool sawMap = false;
+  for (const auto & step : steps) {
+    const std::string action = step.value("action", std::string());
+    EXPECT_NE(action, "ndmspc/ngnt/spectra") << "the tour still opens the spectra step: " << steps.dump();
+    if (action == "ndmspc/ngnt/map") sawMap = true;
+  }
+  EXPECT_TRUE(sawMap) << "the tour must still reach the map: " << steps.dump();
+}
+
+/**
+ * A tree with no parameters leaves no spectra step at all: the map publishes no spectra schema, so the
+ * step has nothing to offer (rather than an empty parameter list).
+ */
+TEST_F(ToolNgnt, NoParametersPublishesNoSpectraStep)
+{
+  WriteNoParameterNgnt(kNoParamNgntFile);
+
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/open", "POST", {{"file", kNoParamNgntFile}}).reply["result"], "success");
+  // The tool is not offered to a person either: the client's next-step list drops an `explorer:false`
+  // tool, so the step is gone rather than shown with an empty list.
+  const Ndmspc::NMcpToolInfo * spectra = fTool->ToolInfo("ndmspc/ngnt/spectra");
+  ASSERT_NE(spectra, nullptr);
+  EXPECT_FALSE(spectra->explorer) << "spectra must not be offered for a tree with no parameters";
+  // And the tour moves to the step the chain does offer: a tour left on a step nobody is offered is a tour
+  // nobody is shown (the Explorer reads the tours out of the tools it lists).
+  const Ndmspc::NMcpToolInfo * map = fTool->ToolInfo("ndmspc/ngnt/map");
+  ASSERT_NE(map, nullptr);
+  EXPECT_TRUE(map->tutorial.contains("steps")) << "the map carries the tour when spectra is not offered";
+  EXPECT_FALSE(spectra->tutorial.contains("steps")) << "spectra keeps no tour it cannot offer";
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/reshape", "POST",
+                        {{"binningName", "default"}, {"levels", json::array({json::array({0})})}})
+                .reply["result"],
+            "success");
+  const Ndmspc::Test::ToolCall mapped = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(mapped.reply["result"], "success") << mapped.reply.dump();
+
+  const json workspace = mapped.ws.contains("workspace") ? mapped.ws["workspace"] : json::object();
+  EXPECT_FALSE(workspace.contains("spectra")) << "no parameters means no spectra step: " << workspace.dump();
+}
+
+/** The other side: a tree with parameters keeps the spectra step, with its parameters to pick from. */
+TEST_F(ToolNgnt, ParametersKeepTheSpectraStep)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/open", "POST", {{"file", kNgntFile}}).reply["result"], "success");
+  EXPECT_TRUE(fTool->ToolInfo("ndmspc/ngnt/spectra")->explorer) << "spectra stays offered for a tree with parameters";
+  // The tour rides on the last step the chain offers: with parameters to draw for, that is the spectra step.
+  EXPECT_TRUE(fTool->ToolInfo("ndmspc/ngnt/spectra")->tutorial.contains("steps"));
+  EXPECT_FALSE(fTool->ToolInfo("ndmspc/ngnt/map")->tutorial.contains("steps"))
+      << "the map hands the tour to the step above it when there is one";
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/reshape", "POST",
+                        {{"binningName", "default"},
+                         {"levels", json::array({json::array({0}), json::array({1, 2})})}})
+                .reply["result"],
+            "success");
+  const Ndmspc::Test::ToolCall mapped = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(mapped.reply["result"], "success") << mapped.reply.dump();
+
+  const json workspace = mapped.ws.contains("workspace") ? mapped.ws["workspace"] : json::object();
+  ASSERT_TRUE(workspace.contains("spectra")) << workspace.dump();
+  EXPECT_FALSE(workspace["spectra"]["properties"]["parameters"]["items"]["enum"].empty())
+      << workspace["spectra"].dump();
+}
+
+/**
+ * The reshape's `levels` name the file's axes, so a level is built by picking an axis rather than by
+ * counting them out: the levels editor reads `axisLabels` for its Multi / Names / IDs switch.
+ */
+TEST_F(ToolNgnt, TheReshapeLevelsNameTheirAxes)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  const auto call = fTool->Call("ndmspc/ngnt/open", "POST", json{{"file", kNgntFile}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  const json & levels = call.ws["workspace"]["reshape"]["properties"]["levels"];
+  ASSERT_TRUE(levels.contains("axisLabels")) << levels.dump();
+  ASSERT_GE(levels["axisLabels"].size(), 1u);
+  EXPECT_NE(levels["axisLabels"][0].get<std::string>().find("[0] mean"), std::string::npos)
+      << levels["axisLabels"].dump();
+  // A chosen axis is said by its own name, and a navigator's axes are **unique**: each is one level's,
+  // so the editor keeps a level from taking an axis another already has.
+  EXPECT_EQ(levels["axisNames"][0], "mean");
+  EXPECT_EQ(levels["unique"], true);
+  // The words stay the widget's own: a reshape's rows are levels.
+  EXPECT_FALSE(levels.contains("groupLabel"));
+  EXPECT_FALSE(levels.contains("itemLabel"));
 }
 
 } // namespace
