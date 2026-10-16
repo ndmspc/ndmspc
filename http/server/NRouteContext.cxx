@@ -241,6 +241,12 @@ void NRouteContext::ShowRoot(TObject * object, const std::string & pad, const st
 void NRouteContext::Dialog(const std::string & title, const json & schema, const json & action,
                            const json & options)
 {
+  Dialog(title, schema, action, options, json());
+}
+
+void NRouteContext::Dialog(const std::string & title, const json & schema, const json & action,
+                           const json & options, const json & tabs)
+{
   if (!schema.is_object()) {
     Error("Dialog: the form schema must be a JSON object");
     return;
@@ -251,6 +257,16 @@ void NRouteContext::Dialog(const std::string & title, const json & schema, const
   dialog["schema"] = schema;
   dialog["action"] = action;
   if (!options.empty()) dialog["options"] = options;
+  // What the dialog offers, when it offers more than one thing to do: an array, one entry per tab.
+  if (tabs.is_array() && !tabs.empty()) dialog["tabs"] = tabs;
+
+  // The combination the dialog was opened from — the request's own `path` — so its form is submitted in the
+  // same session however the room has moved on since: a redirect into another tool (an import handing its
+  // file to the NGNT explorer) changes which session the room is on, and a dialog that followed that would
+  // be filled in against the wrong one — "no file is open" for a file that is open.
+  if (fIn.is_object() && fIn.contains("path") && fIn["path"].is_array() && !fIn["path"].empty()) {
+    dialog["path"] = fIn["path"];
+  }
 
   // One dialog at a time: the slot is a value, so a tool opening a second one replaces the first.
   fWsOut["payload"]["dialog"] = std::move(dialog);

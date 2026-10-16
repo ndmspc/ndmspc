@@ -56,6 +56,7 @@
 #include <TBranch.h>
 #include <TCanvas.h>
 #include <TClass.h>
+#include <algorithm>
 #include <TColor.h>
 #include <TDirectory.h>
 #include <TObjString.h>
@@ -71,6 +72,7 @@
 #include <TSystem.h>
 #include <TTree.h>
 
+#include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NUtils.h>
 #include <ndmspc/http/NHttpServer.h>
 #include <ndmspc/http/NInstanceTree.h>
@@ -92,6 +94,11 @@ const char * kBrowseKey = "browse";
 /// The internal helper group. It declares no `dependsOn`, so the server keeps no combination node for
 /// it: expanding and drawing are the tree's own doing, not steps of the analysis.
 const char * kInternals = "ndmspc/rbrowser";
+/// The group whose `open` takes an NGNT file (`ndmspc/ngnt/open`): where a click on the NGNT tree
+/// redirects, so the file is opened in the tool that can walk it rather than drawn here.
+const char * kNgntGroup = "ndmspc/ngnt";
+/// The `TTree` name an NGNT file is built on — the object the browser offers the redirect for.
+const char * kNgntTree = "ngnt";
 /// How many curves a named overlay canvas keeps; projecting one more drops the oldest (a canvas of many
 /// curves is memory, and an unreadable picture). The deployment may set `NDMSPC_BROWSER_MAX_CURVES`;
 /// anything that is not a positive number falls back to 10.
@@ -126,6 +133,55 @@ void Release(TObject * object)
 {
   delete object;
 }
+
+/**
+ * One environment variable set for as long as the object lives, and put back as it was after — unset
+ * again when it was unset. The room's environment is process-wide and it runs other things too, so a run
+ * that configures its own execution (how many processes an import uses) must not leave that behind.
+ */
+class ScopedEnv {
+  public:
+  ScopedEnv(const std::string & name, const std::string & value) : fName(name)
+  {
+    const char * was = gSystem->Getenv(name.c_str());
+    fWas             = was != nullptr ? was : "";
+    fHad             = was != nullptr;
+    gSystem->Setenv(fName.c_str(), value.c_str());
+  }
+  ~ScopedEnv()
+  {
+    if (fHad) gSystem->Setenv(fName.c_str(), fWas.c_str());
+    else gSystem->Unsetenv(fName.c_str());
+  }
+  ScopedEnv(const ScopedEnv &)            = delete;
+  ScopedEnv & operator=(const ScopedEnv &) = delete;
+
+  private:
+  std::string fName;
+  std::string fWas;
+  bool        fHad{false};
+};
+
+/**
+ * The room's **run output** held on (or off) for as long as the object lives, and put back after. That is
+ * the setting a run's progress prints under (`NUtils::ProgressBar` checks it), and it is the environment's
+ * `NDMSPC_LOG_RUN` — but the logger reads that **once, at startup**, so a single run cannot turn it on
+ * through the environment alone. The flag is set directly here; the environment is still set for the
+ * processes an import forks, which read it for themselves.
+ */
+class ScopedRunOutput {
+  public:
+  explicit ScopedRunOutput(bool on) : fWas(Ndmspc::NLogger::GetRunOutput())
+  {
+    Ndmspc::NLogger::SetRunOutput(on);
+  }
+  ~ScopedRunOutput() { Ndmspc::NLogger::SetRunOutput(fWas); }
+  ScopedRunOutput(const ScopedRunOutput &)            = delete;
+  ScopedRunOutput & operator=(const ScopedRunOutput &) = delete;
+
+  private:
+  bool fWas{false};
+};
 
 /// Whether a key's class is a TTree (or a TNtuple, a TTree subclass).
 bool IsTreeClass(const std::string & className)
@@ -183,6 +239,20 @@ json SparseAction(const std::string & key)
                                        json{{"key", key}});
 }
 
+/// The action a click on an NGNT tree dispatches: open the same file in the NGNT explorer.
+///
+/// Root: `ndmspc/ngnt/open` starts a session of its own, so the client leaves off the combination the
+/// click was made in (`root`), and the reply names the group and session to follow instead.
+json NgntOpenAction(TDirectory * dir)
+{
+  TFile * file = dir != nullptr ? dir->GetFile() : nullptr;
+  json    action =
+      Ndmspc::NRouteContext::Action(std::string(kNgntGroup) + "/open", "POST",
+                                    json{{"file", file != nullptr ? std::string(file->GetName()) : std::string()}});
+  action["root"] = true;
+  return action;
+}
+
 /// The signature of a THnSparse's axes - name, title, bin count and bounds, in order. Two objects with
 /// the same axes (the unlike-sign and mixed-event spectra of one analysis, say) share it, which is what
 /// lets a saved projection configuration be applied to either.
@@ -217,6 +287,13 @@ json SparseSaved(Ndmspc::NRouteContext & ctx, const std::string & signature)
 void StoreSparse(Ndmspc::NRouteContext & ctx, const std::string & signature, const json & entry)
 {
   ctx.State()["browser"]["sparse"][signature] = entry;
+}
+
+/// The signature an **import**'s settings are kept under, for an object with these axes: the projection
+/// dialog keeps its own under the axes' signature, and the two must not overwrite each other.
+std::string ImportSignature(const std::string & signature)
+{
+  return signature + "#import";
 }
 
 /// The projections kept for an opened file — every one drawn from it, "same canvas" or not. Keyed by
@@ -420,6 +497,437 @@ json SparseDialogSchema(THnSparse * sparse, const json & saved = json())
   return json{{"type", "object"}, {"order", {"name", "axes", "drawOpts", "same"}}, {"properties", properties}};
 }
 
+/// How many processes the room may use: its own CPU count as its cgroup allows — a room in a container is
+/// bounded by what it was given, not by the host's cores — and never fewer than one.
+int RoomCpuCount()
+{
+  const double cores = Ndmspc::NUtils::AvailableCpuCount();
+  return cores > 1 ? static_cast<int>(cores + 0.5) : 1;
+}
+
+/// The settings `NGnTree::Import` takes for a THnSparse, as the import tab's form: which axes the tree
+/// varies over, what each is called and how coarsely it is binned, the projections to make for every bin,
+/// and where the file is written. The fields are the configuration's own keys — `objects` is the object
+/// being looked at, so it is not asked for, and `type` is the importer's name for this shape of file.
+json SparseImportSchema(THnSparse * sparse, const std::string & key, const json & saved = json())
+{
+  const int ndim = sparse != nullptr ? sparse->GetNdimensions() : 0;
+
+  // What was filled in for these axes last time (this object's, or another's with the same): it overlays
+  // the sparse' own, so the same import is not typed twice.
+  std::map<std::string, json> savedRows;
+  if (saved.is_object() && saved.contains("axesTitles") && saved["axesTitles"].is_array()) {
+    for (const auto & row : saved["axesTitles"]) {
+      if (row.is_object() && row.contains("axis") && row["axis"].is_string()) {
+        savedRows[row["axis"].get<std::string>()] = row;
+      }
+    }
+  }
+
+  json axisNames  = json::array();
+  json axisRows   = json::array();
+  json axisLabels = json::array();
+  for (int i = 0; i < ndim; i++) {
+    TAxis *     axis  = sparse->GetAxis(i);
+    std::string name  = (axis != nullptr && axis->GetName() != nullptr) ? axis->GetName() : "";
+    std::string title = (axis != nullptr && axis->GetTitle() != nullptr) ? axis->GetTitle() : "";
+    // A file that names its axes but titles none (cernstaff.root does) still gets a title to start from:
+    // the axis' own name, which is what the importer falls back on for a projection anyway.
+    if (title.empty()) title = name;
+
+    const int bins = axis != nullptr ? axis->GetNbins() : 0;
+    axisNames.push_back(name);
+    axisLabels.push_back(TString::Format("[%d] %s: %d bins", i, name.c_str(), bins).Data());
+
+    // The title starts as the sparse' own, so the import carries what the file already says; the user
+    // changes it only where the tree should read differently — or where it was changed last time.
+    json row = {{"axis", name}, {"axisTitle", title}, {"bins", bins}, {"title", title}, {"rebin", 1}};
+    auto kept = savedRows.find(name);
+    if (kept != savedRows.end()) {
+      if (kept->second.contains("title") && kept->second["title"].is_string()) row["title"] = kept->second["title"];
+      if (kept->second.contains("rebin") && kept->second["rebin"].is_number_integer()) {
+        row["rebin"] = kept->second["rebin"];
+      }
+    }
+    // A **categorical** axis — one that carries a label per bin — cannot be rebinned: ROOT's `Rebin` wants
+    // fixed widths, and the importer refuses a binning on a labelled axis. Its cell is turned off rather
+    // than taking a number that would be refused (the table's own per-row `disabled` list).
+    if (axis != nullptr && axis->IsAlphanumeric()) {
+      row["disabled"] = json::array({"rebin"});
+      row["rebin"]    = 1; // a remembered one is not one the axis can take
+    }
+    axisRows.push_back(row);
+  }
+
+  // The axes the tree varies over: what was picked last time for these axes, else the **first** one.
+  json axesDefault = json::array();
+  if (saved.is_object() && saved.contains("axes") && saved["axes"].is_array() && !saved["axes"].empty()) {
+    axesDefault = saved["axes"];
+  }
+  else if (!axisNames.empty()) {
+    axesDefault.push_back(axisNames[0]);
+  }
+
+  // The projections made last time and where the file was written, else one projection on the first axis
+  // (the user widens it) and a file named after the object.
+  json projectionsDefault = json::array({json::array({0})});
+  if (saved.is_object() && saved.contains("projections") && saved["projections"].is_array() &&
+      !saved["projections"].empty()) {
+    projectionsDefault = saved["projections"];
+  }
+  std::string outputDefault = StripCycle(key) + "_ngnt.root";
+  if (saved.is_object() && saved.contains("outputFile") && saved["outputFile"].is_string() &&
+      !saved["outputFile"].get<std::string>().empty()) {
+    outputDefault = saved["outputFile"].get<std::string>();
+  }
+
+  json properties = json::object();
+  properties["axes"] = {{"type", "array"},
+                        {"format", "multiselect"},
+                        {"items", {{"type", "string"}, {"enum", axisNames}}},
+                        // The list spells each axis out — its number, its name, its bins — and a chosen one
+                        // is said by its name (the same wording the projections' rows use).
+                        {"axisLabels", axisLabels},
+                        {"axisNames", axisNames},
+                        {"title", "Axes"},
+                        {"description", "The axes the tree varies over: every bin of the result is one of "
+                                        "their combinations, and each projection is cut on them."},
+                        {"default", axesDefault}};
+  properties["axesTitles"] = {
+      {"type", "array"},
+      {"format", "table"},
+      {"title", "Titles and rebin"},
+      {"description", "What each axis is called in the tree, and the rebin it takes (1 keeps every bin; a "
+                      "categorical axis cannot be rebinned). Only the axes picked above are shown."},
+      // The table follows the axes picked above: a row for an axis that is not picked is not offered,
+      // so the settings on screen are exactly the ones the import will take (see the UI's `filterBy`).
+      {"filterBy", "axes"},
+      {"filterKey", "axis"},
+      {"columns", json::array({
+                      {{"key", "axis"}, {"title", "Axis"}, {"type", "string"}, {"readOnly", true}, {"hint", "axisTitle"}},
+                      {{"key", "bins"}, {"title", "bins"}, {"type", "integer"}, {"readOnly", true}, {"width", "w-16"}},
+                      {{"key", "title"}, {"title", "Title"}, {"type", "string"}},
+                      {{"key", "rebin"}, {"title", "rebin"}, {"type", "integer"}},
+                  })},
+      {"default", axisRows}};
+  // One projection per row, built like the NGNT explorer's levels: the axes it is made on, by number —
+  // up to three, which is all a projection can hold — added and removed a row at a time.
+  properties["projections"] = {
+      {"type", "array"},
+      {"title", "Projections"},
+      {"description", "One per row: the projection made for every bin, on the axes named by number "
+                      "(up to three). Add a row for another one."},
+      {"items", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
+      // What the rows are called, what each number reads as (in the list), and what a **chosen** axis is
+      // said as (its own name); and that a projection may name the same axis more than once — unlike a
+      // navigator's levels, whose axes are each one level's (the editor's `unique`).
+      {"groupLabel", "Projections"},
+      {"itemLabel", "Projection"},
+      {"axisLabels", axisLabels},
+      {"axisNames", axisNames},
+      {"unique", false},
+      {"default", projectionsDefault}};
+  properties["outputFile"] = {{"type", "string"},
+                              {"title", "Output file"},
+                              {"description", "Where the NGnTree file is written."},
+                              {"default", outputDefault}};
+  // How many processes the import runs with: the room's own CPU count to begin with, and the user may
+  // lower it (a small import needs no more) or raise it within what the room has.
+  properties["nProcesses"] = {{"type", "integer"},
+                              {"title", "Processes"},
+                              {"description", "Worker processes the import is split over. The room's own "
+                                              "CPU count to begin with."},
+                              {"default", RoomCpuCount()}};
+
+  // The axes are spelled out where they are picked (the `axisLabels` above), so no separate hint.
+  return json{{"type", "object"},
+              {"order", {"axes", "axesTitles", "projections", "outputFile", "nProcesses"}},
+              {"properties", properties}};
+}
+
+/// Whether nlohmann would read a braced list as an **object** rather than an array: it makes an object of a
+/// list whose every element is a two-element list of which the first is a string — which is exactly what an
+/// array of string pairs looks like. Such a value is written as `json::array(…)`, so the reading says what
+/// it is; everything else may be written as plain braces.
+bool ReadsAsObject(const json & value)
+{
+  if (!value.is_array() || value.empty()) return false;
+  for (const auto & item : value) {
+    if (!item.is_array() || item.size() != 2 || !item[0].is_string()) return false;
+  }
+  return true;
+}
+
+/// A JSON value as the C++ that makes it, so a configuration reads as the assignments it is: a string
+/// quoted, a list or a map as plain braces (`{"hns"}`, `{"mass", "pt"}`, `{"mass", "m"}`), the explicit
+/// `json::array(…)` only where braces would be read another way.
+std::string JsonLiteral(const json & value)
+{
+  if (value.is_string()) {
+    std::string quoted = "\"";
+    for (const char c : value.get<std::string>()) {
+      if (c == '"' || c == '\\') quoted += '\\';
+      if (c == '\n') {
+        quoted += "\\n";
+        continue;
+      }
+      quoted += c;
+    }
+    return quoted + "\"";
+  }
+  if (value.is_array()) {
+    if (value.empty()) return "json::array()";
+    std::string out;
+    for (size_t i = 0; i < value.size(); i++) {
+      if (i > 0) out += ", ";
+      out += JsonLiteral(value[i]);
+    }
+    return (ReadsAsObject(value) ? "json::array({" : "{") + out + "}";
+  }
+  if (value.is_object()) {
+    if (value.empty()) return "json::object()";
+    // A map is written as its **pairs** — `{{"mass", "m"}, {"grade", "g"}}`. A flat list of its keys and
+    // values would be read back as an array, which is the one shape nlohmann cannot tell from a pair list.
+    std::string out;
+    bool        first = true;
+    for (const auto & item : value.items()) {
+      if (!first) out += ", ";
+      first = false;
+      out += "{" + JsonLiteral(json(item.key())) + ", " + JsonLiteral(item.value()) + "}";
+    }
+    return "{" + out + "}";
+  }
+  return value.dump(); // a number, a boolean or null: as it is written
+}
+
+/// The macro the import tab's form would run: the configuration it built, **set line by line**, and then
+/// handed to the importer — the same call the handler makes, spelled out so it can be read and copied out
+/// of the dialog before the run (see the `macro` action). The same call the room makes, not a script of
+/// its own: what is previewed is what would run.
+std::string ImportMacroText(const json & cfg, const std::string & file, long long nProcesses)
+{
+  // The keys a reader expects first, then anything else the configuration carries, so the settings read
+  // in the order they are understood rather than in the order a map happens to hold them.
+  static const std::vector<std::string> first = {"type",    "filename", "directory",   "objects", "axes",
+                                                 "titles",  "binning",  "projections", "outputFile"};
+  std::vector<std::string>              keys;
+  for (const auto & key : first) {
+    if (cfg.contains(key)) keys.push_back(key);
+  }
+  for (const auto & item : cfg.items()) {
+    if (std::find(keys.begin(), keys.end(), item.key()) == keys.end()) keys.push_back(item.key());
+  }
+
+  size_t widest = 0;
+  for (const auto & key : keys) widest = std::max(widest, key.size());
+
+  // The body of the unnamed macro: what the run sets for parallel processing, then the configuration, then
+  // the call. Every line is indented under the block's braces (see below).
+  std::vector<std::string> lines;
+  lines.push_back("// How it runs - the import tab's Processes: split over that many workers, in process");
+  lines.push_back("// mode, with the run's progress printed. The same settings the room's own run makes.");
+  lines.push_back("gSystem->Setenv(\"NDMSPC_MAX_PROCESSES\", \"" + std::to_string(nProcesses) + "\");");
+  lines.push_back("gSystem->Setenv(\"NDMSPC_EXECUTION_MODE\", \"" +
+                  std::string(nProcesses > 1 ? "ipc" : "thread") + "\");");
+  lines.push_back("gSystem->Setenv(\"NDMSPC_LOG_RUN\", \"1\");");
+  lines.push_back("");
+  lines.push_back("json cfg;");
+  for (const auto & key : keys) {
+    const std::string field = "cfg[\"" + key + "\"]";
+    lines.push_back(field + std::string(widest - key.size(), ' ') + " = " + JsonLiteral(cfg[key]) + ";");
+  }
+  lines.push_back("");
+  lines.push_back("auto * ngnt = Ndmspc::NGnTree::Import(cfg, " + JsonLiteral(json(file)) + ");");
+
+  // An **unnamed macro**: its includes and `using` first - a preprocessor directive does not belong inside
+  // a block - then the braces with the work in them, so what the dialog shows can be saved as a `.C` and
+  // run as it stands (`root -l -b -q import.C`), which is the point of previewing it.
+  std::string text = "// The import this dialog would run, as an unnamed macro.\n"
+                     "#include <TSystem.h>\n"
+                     "#include <nlohmann/json.hpp>\n"
+                     "#include <ndmspc/core/NGnTree.h>\n"
+                     "\n"
+                     "using json = nlohmann::json;\n\n"
+                     "{\n";
+  for (const auto & line : lines) {
+    text += line.empty() ? "\n" : "  " + line + "\n";
+  }
+  return text + "}\n";
+}
+
+/// What the project tab's axes table asks for: the axes to project (their indices, in table order), the
+/// ranges that narrow any axis, and the rebin each projected axis wants. The run and the macro preview both
+/// read the table through this, so a preview cannot project something the run would not.
+struct NProjectSelection {
+  std::vector<int>                axes;
+  std::map<int, std::vector<int>> ranges;
+  std::map<int, int>              rebins;
+};
+
+NProjectSelection ProjectSelection(THnSparse * sparse, const json & rows)
+{
+  NProjectSelection selection;
+  if (sparse == nullptr) return selection;
+
+  const int ndim = sparse->GetNdimensions();
+  for (int i = 0; i < static_cast<int>(rows.size()) && i < ndim; i++) {
+    if (!rows[i].is_object()) continue;
+    TAxis * axis = sparse->GetAxis(i);
+    if (axis == nullptr) continue;
+
+    if (rows[i].value("use", false)) {
+      selection.axes.push_back(i);
+      const int rebin = rows[i].value("rebin", 1);
+      if (rebin > 1) selection.rebins[i] = rebin;
+    }
+
+    const double lo = rows[i].value("min", axis->GetXmin());
+    const double hi = rows[i].value("max", axis->GetXmax());
+    if (!(hi > lo)) continue;
+    // A cut only when it actually narrows the axis: setting an explicit range drops the axis' under/overflow
+    // bins — ROOT folds them into the first and last bin only while no range is set — and the dialog seeds
+    // min/max from the axis' own bounds, so an untouched "project the whole axis" row must not become a cut
+    // that throws the overflow (and so the data) away.
+    if (lo <= axis->GetXmin() && hi >= axis->GetXmax()) continue;
+    int binLo = axis->FindBin(lo);
+    int binHi = axis->FindBin(hi);
+    if (binLo < 1) binLo = 1;
+    if (binHi > axis->GetNbins()) binHi = axis->GetNbins();
+    if (binHi < binLo) continue;
+    selection.ranges[i] = {binLo, binHi};
+  }
+  return selection;
+}
+
+/// The macro the project tab's form would run: the call the handler makes, with the axes and ranges it
+/// derived — the same ones, both reading the table through {@link ProjectSelection} — and the drawing the
+/// room makes of it, so what is previewed can be pasted and run as it stands. Includes first: a preprocessor
+/// directive does not belong inside a block.
+std::string ProjectMacroText(const std::string & file, const std::string & key, const NProjectSelection & selection,
+                             const std::string & drawOpts)
+{
+  std::vector<std::string> lines;
+  lines.push_back("auto * file   = TFile::Open(" + JsonLiteral(json(file)) + ");");
+  lines.push_back("auto * sparse = (THnSparse *) file->Get(" + JsonLiteral(json(key)) + ");");
+  lines.push_back("");
+
+  if (!selection.ranges.empty()) {
+    std::string ranges;
+    for (const auto & range : selection.ranges) {
+      if (!ranges.empty()) ranges += ", ";
+      ranges += "{" + std::to_string(range.first) + ", {" + std::to_string(range.second[0]) + ", " +
+                std::to_string(range.second[1]) + "}}";
+    }
+    lines.push_back("// The cuts the table's min/max make on the axes it narrows.");
+    lines.push_back("Ndmspc::NUtils::SetAxisRanges(sparse, {" + ranges + "}, false, false, true);");
+  }
+
+  std::string axes;
+  for (const size_t index : selection.axes) {
+    if (!axes.empty()) axes += ", ";
+    axes += std::to_string(index);
+  }
+  lines.push_back("auto * h = Ndmspc::NUtils::ProjectTHnSparse(sparse, {" + axes + "}, \"\");");
+
+  // The rebin sits on the projected histogram, so its axes are the projection's (X, Y then Z), not the
+  // sparse'. ROOT answers nothing when it cannot rebin an axis (a variable-width one), and the run keeps
+  // the projection it had in that case — so does this.
+  for (size_t pos = 0; pos < selection.axes.size(); pos++) {
+    const auto rebin = selection.rebins.find(selection.axes[pos]);
+    if (rebin == selection.rebins.end()) continue;
+    const std::string factor = std::to_string(rebin->second);
+    if (pos == 0) lines.push_back("if (TH1 * rebinned = h->RebinX(" + factor + ")) h = rebinned;");
+    else if (pos == 1) lines.push_back("if (TH1 * rebinned = ((TH2 *) h)->RebinY(" + factor + ")) h = rebinned;");
+    else lines.push_back("if (TH1 * rebinned = ((TH3 *) h)->RebinZ(" + factor + ")) h = rebinned;");
+  }
+
+  lines.push_back("");
+  lines.push_back(drawOpts.empty() ? "h->Draw();" : "h->Draw(" + JsonLiteral(json(drawOpts)) + ");");
+
+  std::string text = "// The projection this dialog would run, as an unnamed macro.\n"
+                     "#include <TFile.h>\n"
+                     "#include <TH1.h>\n"
+                     "#include <TH2.h>\n"
+                     "#include <TH3.h>\n"
+                     "#include <THnSparse.h>\n"
+                     "#include <ndmspc/core/NUtils.h>\n"
+                     "\n"
+                     "{\n";
+  for (const auto & line : lines) {
+    text += line.empty() ? "\n" : "  " + line + "\n";
+  }
+  return text + "}\n";
+}
+
+/// The configuration the import tab's form holds, as `NGnTree::Import` takes it: the object being looked
+/// at, the axes the tree varies over, each axis' title and rebin, the projections to make per bin, and the
+/// file to write. Anything a field leaves out is left out of the configuration too, so the importer's own
+/// defaults apply.
+json SparseImportConfig(const json & form, THnSparse * sparse, const std::string & key)
+{
+  json cfg;
+  cfg["type"]    = "thnsparse";
+  cfg["objects"] = json::array({StripCycle(key)});
+
+  // The axes the tree varies over, as picked (the first one to begin with).
+  std::vector<std::string> chosen;
+  if (form.contains("axes") && form["axes"].is_array()) {
+    cfg["axes"] = form["axes"];
+    for (const auto & one : form["axes"]) {
+      if (one.is_string()) chosen.push_back(one.get<std::string>());
+    }
+  }
+
+  // One row per axis the user picked: the title it gave it (when it says anything) and the rebin it takes
+  // (when it is not 1). A row for an axis that is not among the picked ones is not the import's — the form
+  // only shows the picked ones, so this only guards a stale value that arrived with the submit.
+  if (form.contains("axesTitles") && form["axesTitles"].is_array()) {
+    json titles  = json::object();
+    json binning = json::object();
+    for (const auto & row : form["axesTitles"]) {
+      if (!row.is_object()) continue;
+      const std::string axis = row.value("axis", std::string());
+      if (axis.empty()) continue;
+      if (!chosen.empty() && std::find(chosen.begin(), chosen.end(), axis) == chosen.end()) continue;
+
+      const std::string title = row.value("title", std::string());
+      if (!title.empty()) titles[axis] = title;
+
+      if (row.contains("rebin") && row["rebin"].is_number_integer() && row["rebin"].get<int>() > 1) {
+        binning[axis] = json::array({json::array({row["rebin"].get<int>()})});
+      }
+    }
+    if (!titles.empty()) cfg["titles"] = titles;
+    if (!binning.empty()) cfg["binning"] = binning;
+  }
+
+  // One projection per row, by axis number (at most three): the numbers are the sparse' own axes, so one
+  // that names no axis is dropped rather than guessed at.
+  if (form.contains("projections") && form["projections"].is_array()) {
+    const int ndim      = sparse != nullptr ? sparse->GetNdimensions() : 0;
+    json      projections = json::array();
+    for (const auto & row : form["projections"]) {
+      if (!row.is_array()) continue;
+      std::vector<std::string> names;
+      for (const auto & entry : row) {
+        if (!entry.is_number_integer()) continue;
+        const int index = entry.get<int>();
+        if (index < 0 || index >= ndim) continue;
+        TAxis * axis = sparse->GetAxis(index);
+        if (axis == nullptr || axis->GetName() == nullptr) continue;
+        names.push_back(axis->GetName());
+        if (names.size() == 3) break; // a projection holds at most three axes
+      }
+      if (!names.empty()) projections.push_back(names);
+    }
+    if (!projections.empty()) cfg["projections"] = projections;
+  }
+
+  // Always named: the reply says where the file went, so the two must not disagree.
+  cfg["outputFile"] = form.value("outputFile", std::string(StripCycle(key) + "_ngnt.root"));
+  return cfg;
+}
+
 /// A TTree's branches as nodes that draw themselves: a click makes `draw` project the branch into a
 /// histogram (the tree itself, clicked on its own row, shows jsroot's tree view instead).
 json BranchNodes(TTree * tree, const std::string & key)
@@ -459,6 +967,7 @@ json ListDirectory(TDirectory * dir, const std::string & prefix, const std::set<
     const std::string path   = ChildKey(prefix, name);
     const bool        folder = IsDirectoryClass(key->GetClassName());
     const bool        tree   = !folder && IsTreeClass(key->GetClassName());
+    const bool        ngnt   = tree && name == kNgntTree;
     const bool        sparse = !folder && !tree && IsSparseClass(key->GetClassName());
 
     json node;
@@ -483,6 +992,13 @@ json ListDirectory(TDirectory * dir, const std::string & prefix, const std::set<
       // Clicking the tree draws it (jsroot's tree view); the chevron lists its branches.
       node["action"]     = DrawAction(path);
       node["loadAction"] = LsAction(path);
+      if (ngnt) {
+        // The NGNT tree stays an ordinary tree — it expands to its branches — and carries a **badge**
+        // beside it: a click on the badge opens the same file in the tool that walks it, rather than
+        // drawing it here. The badge's action is `root`, because `ndmspc/ngnt/open` starts a session of
+        // its own (the client leaves this combination off it; see `dispatchFieldAction`).
+        node["badge"] = json{{"label", "Open in NGNT explorer"}, {"action", NgntOpenAction(dir)}};
+      }
       if (expanded.count(path) != 0) {
         TTree * t        = dynamic_cast<TTree *>(dir->Get(name.c_str()));
         json    children = BranchNodes(t, path);
@@ -1050,6 +1566,16 @@ void toolBrowser()
                        {{"key", {{"type", "string"}, {"description", "ROOT key path of the THnSparse."}}}}}},
   });
 
+  Ndmspc::RegisterMcpTool(std::string(kInternals) + "/macro", {
+      .description = "The macro the import tab's form would run, with the configuration it makes, for the "
+                     "dialog to preview before the run. Internal: it changes nothing.",
+      .methods     = {"POST"},
+      .hidden      = true,
+      .inputSchema = {{"properties",
+                       {{"for", {{"type", "string"}, {"description", "The tab's own action, being previewed."}}},
+                        {"key", {{"type", "string"}, {"description", "ROOT key path of the THnSparse."}}}}}},
+  });
+
   Ndmspc::RegisterMcpTool(std::string(kInternals) + "/project", {
       .description = "Project a THnSparse onto 1-3 axes (use0/use1/...), with an optional per-axis "
                      "min/max and rebin, and draw the result. Internal: the projection dialog's submit "
@@ -1060,6 +1586,24 @@ void toolBrowser()
                        {{"key", {{"type", "string"}, {"description", "ROOT key path of the THnSparse."}}},
                         {"drawOpts",
                          {{"type", "string"}, {"description", "jsroot draw options, e.g. 'colz'."}}}}}},
+  });
+
+  Ndmspc::RegisterMcpTool(std::string(kInternals) + "/import", {
+      .description = "Import a THnSparse to an NGnTree file with the settings the import tab fills in, "
+                     "and hand the user to the NGNT explorer with it. Internal: the dialog's second tab "
+                     "drives it.",
+      .methods     = {"POST"},
+      .hidden      = true,
+      .inputSchema = {{"properties",
+                       {{"key", {{"type", "string"}, {"description", "ROOT key path of the THnSparse."}}},
+                        {"axes", {{"type", "array"}, {"items", {{"type", "string"}}}}},
+                        {"axesTitles",
+                         {{"type", "array"}, {"description", "One row per axis: its title and rebin."}}},
+                        {"projections",
+                         {{"type", "array"},
+                          {"description", "One row per projection: the axes it is made on."}}},
+                        {"outputFile",
+                         {{"type", "string"}, {"description", "Where the NGnTree file is written."}}}}}},
   });
 
   // The family is named once for every tool in it: a step added to this macro later is offered under the
@@ -1265,16 +1809,168 @@ void toolBrowser()
           return;
         }
 
-        // The dialog lists the axes and projects the chosen ones; its submit runs ndmspc/rbrowser/project. A
-        // configuration kept for this axis signature (this object, or another with the same axes) — the
-        // axes, the draw options and the SAME choice — is what it opens on.
-        ctx.Dialog("Project " + StripCycle(sparse->GetName()),
-                   SparseDialogSchema(sparse, SparseSaved(ctx, SparseSignature(sparse))),
-                   Ndmspc::NRouteContext::Action(std::string(kInternals) + "/project", "POST",
-                                                 json{{"key", key}}),
-                   json{{"submit", "Project"}});
+        // The dialog offers two things to do with the object: **project** it onto chosen axes — the shape
+        // kept for its axis signature (the axes, the draw options and the SAME choice) is what it opens on
+        // — or **import** it to an NGnTree, with the importer's own settings. Each tab submits to its own
+        // action; the dialog's own schema and action are the first tab's, so a client that knows nothing
+        // of tabs still projects.
+        // The configuration kept for this object's axes (or another's with the same): the projection dialog
+        // and the import tab each keep their own, and both open on what was last used for them.
+        const std::string signature = SparseSignature(sparse);
+
+        const json projectTab = {{"label", "Project"},
+                                 {"schema", SparseDialogSchema(sparse, SparseSaved(ctx, signature))},
+                                 {"action", Ndmspc::NRouteContext::Action(std::string(kInternals) + "/project", "POST",
+                                                                          json{{"key", key}})},
+                                 {"submit", "Project"},
+                                 // What the dialog asks for the macro it previews before the run (see the
+                                 // `macro` action): the tab names it, so the client knows nothing of macros.
+                                 {"macro", std::string(kInternals) + "/macro"}};
+        json importAction = Ndmspc::NRouteContext::Action(std::string(kInternals) + "/import", "POST",
+                                                          json{{"key", key}});
+        // An import over a sparse of unknown size takes as long as it takes: the client is told to wait
+        // for the reply rather than give up on it (see the client's `timeoutMs: 0`).
+        importAction["timeoutMs"] = 0;
+
+        const json importTab = {
+            {"label", "Import to NGnTree"},
+            {"schema", SparseImportSchema(sparse, key, SparseSaved(ctx, ImportSignature(signature)))},
+            {"action", importAction},
+            {"submit", "Import"},
+            // What the dialog asks for the macro it previews before the run: the tab names it, so the
+            // client needs to know nothing about what makes one.
+            {"macro", std::string(kInternals) + "/macro"}};
+
+        ctx.Dialog(StripCycle(sparse->GetName()), projectTab["schema"], projectTab["action"],
+                   json{{"submit", "Project"}}, json::array({projectTab, importTab}));
         Release(sparse); // only its axes were needed; a sparse is big, so do not keep it
         if (ctx.HasError()) return;
+        ctx.Success();
+      };
+
+  // ===========================================================================
+  //  /api/rbrowser/import — import a THnSparse to an NGnTree file (internal)
+  // ===========================================================================
+  handlers[std::string(kInternals) + "/import"] =
+      [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+         std::map<std::string, TObject *> & objects) {
+        Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+        wsOut["group"] = "ndmspc/browser";
+        TFile * file   = RequireOpenFile(ctx);
+        if (file == nullptr) return;
+
+        const std::string key = ctx.GetString("key");
+        if (key.empty()) {
+          ctx.Result("Missing 'key' parameter for the NGnTree import");
+          return;
+        }
+
+        THnSparse * sparse = dynamic_cast<THnSparse *>(file->Get(key.c_str()));
+        if (sparse == nullptr) {
+          ctx.Result("No THnSparse at key: " + key);
+          return;
+        }
+
+        // The form's own settings, as the importer takes them. The object is read from the file being
+        // browsed, so the configuration names it and the file supplies it.
+        const json        cfg = SparseImportConfig(httpIn, sparse, key);
+        const std::string out = cfg["outputFile"].get<std::string>();
+        NLogInfo("[Server] browser import: '%s' -> '%s'", key.c_str(), out.c_str());
+
+        // Keep what the form held, under this object's axes' signature, so importing the same object (or
+        // another with the same axes) opens on it — the way the projection dialog remembers its own. Stored
+        // before the sparse is released: the signature is read off its axes.
+        json remembered;
+        remembered["axes"]        = httpIn.contains("axes") ? httpIn["axes"] : json::array();
+        remembered["axesTitles"]  = httpIn.contains("axesTitles") ? httpIn["axesTitles"] : json::array();
+        remembered["projections"] = httpIn.contains("projections") ? httpIn["projections"] : json::array();
+        remembered["outputFile"]  = out;
+        StoreSparse(ctx, ImportSignature(SparseSignature(sparse)), remembered);
+
+        // Run the import the way `ndmspc-run` would: with the process count the form asks for (the room's
+        // own CPU count by default), in process mode, and with the run's **progress on the console**.
+        // `NDMSPC_LOG_RUN=1` is what prints it — for this run and for the processes it forks, which read
+        // the environment for themselves — and the logger's own flag is set too, since it reads that
+        // environment once at startup. The environment is process-wide and the room runs other things, so
+        // every setting is put back when the run is over.
+        const int nProcesses = std::max(1, httpIn.value("nProcesses", 1));
+        NLogInfo("[Server] browser import: '%s' with %d process(es)", key.c_str(), nProcesses);
+        ScopedEnv       maxProcessesEnv("NDMSPC_MAX_PROCESSES", std::to_string(nProcesses));
+        ScopedEnv       executionModeEnv("NDMSPC_EXECUTION_MODE", nProcesses > 1 ? "ipc" : "thread");
+        ScopedEnv       logRunEnv("NDMSPC_LOG_RUN", "1");
+        ScopedRunOutput runOutput(true);
+
+        Ndmspc::NGnTree * imported = Ndmspc::NGnTree::Import(cfg, file->GetName());
+        Release(sparse); // only its axes were needed; a sparse is big, so do not keep it
+        if (imported == nullptr) {
+          ctx.Result("Could not import '" + key + "' to an NGnTree; see the room's log");
+          return;
+        }
+        delete imported; // the file it wrote is what was wanted, not the object
+
+        // Hand the user to the tool that walks the file: the server cannot open a step, the client can. It
+        // goes in the **HTTP** envelope, which is what a websocket reply carries back to the asker — a
+        // broadcast carries `wsOut`, and an import's answer is the caller's own. `ndmspc/ngnt/open` is a
+        // root action: it starts a session of its own. The reply **labels** the step and names the file it
+        // wrote, so the client raises it as a notice the user acts on: what was written is worth reading
+        // before the room moves on, and the step is offered rather than taken.
+        httpOut["open"] = {{"action", "ndmspc/ngnt/open"},
+                           {"params", {{"file", out}}},
+                           {"file", out},
+                           {"what", "Import finished"},
+                           {"label", "Open in NGNT explorer"}};
+        httpOut["outputFile"] = out;
+        ctx.Success();
+      };
+
+  // ===========================================================================
+  //  /api/rbrowser/macro — the macro a dialog's form would run (internal)
+  // ===========================================================================
+  handlers[std::string(kInternals) + "/macro"] =
+      [](std::string method, json & httpIn, json & httpOut, json & wsOut,
+         std::map<std::string, TObject *> & objects) {
+        Ndmspc::NRouteContext ctx(method, httpIn, httpOut, wsOut, objects);
+        wsOut["group"] = "ndmspc/browser";
+
+        // Which form is being previewed: the tab's own action, since what it makes is derived the same way
+        // the run derives it — the cfg the importer is handed, the axes and ranges a projection is cut with.
+        const std::string forAction = httpIn.value("for", std::string());
+        const bool        importing = forAction == std::string(kInternals) + "/import";
+        const bool        projecting = forAction == std::string(kInternals) + "/project";
+        if (!importing && !projecting) {
+          ctx.Result("No macro to preview for '" + forAction + "'");
+          return;
+        }
+
+        TFile * file = RequireOpenFile(ctx);
+        if (file == nullptr) return;
+
+        const std::string key = ctx.GetString("key");
+        if (key.empty()) {
+          ctx.Result("Missing 'key' parameter for the macro preview");
+          return;
+        }
+
+        THnSparse * sparse = dynamic_cast<THnSparse *>(file->Get(key.c_str()));
+        if (sparse == nullptr) {
+          ctx.Result("No THnSparse at key: " + key);
+          return;
+        }
+
+        // The form as it stands, as the run would take it — the preview is the run's own call, so the two
+        // cannot drift. The file is the one being browsed, the process count the form asks for, and the axes
+        // and ranges the table derives. It goes in the **HTTP** envelope, which is what a websocket reply
+        // carries back to the asker (`wsOut` is what is broadcast), and a preview is the asker's own answer.
+        if (projecting) {
+          httpOut["macro"] = ProjectMacroText(file->GetName(), key,
+                                              ProjectSelection(sparse, httpIn.value("axes", json::array())),
+                                              httpIn.value("drawOpts", std::string()));
+        }
+        else {
+          httpOut["macro"] = ImportMacroText(SparseImportConfig(httpIn, sparse, key), file->GetName(),
+                                             std::max(1, httpIn.value("nProcesses", 1)));
+        }
+        Release(sparse);
         ctx.Success();
       };
 
@@ -1301,57 +1997,27 @@ void toolBrowser()
           return;
         }
 
-        const int ndim = sparse->GetNdimensions();
-
         // The projection the dialog asked for: its `axes` table has one row per axis, in ascending
         // index order. A row marked `use` is projected (and its rebin is applied after the projection);
         // a row's min/max become a bin range when they narrow the axis — for *every* axis, projected or
         // not, since narrowing a non-projected axis (a pT cut while projecting mass) carves the sample
         // the projection is built from. `reset` restores every axis first, so a row left at full is full.
-        const json rows = httpIn.value("axes", json::array());
+        // Read through the one function the macro preview reads too, so a preview cannot project something
+        // else than this run would.
+        const json            rows      = httpIn.value("axes", json::array());
+        const NProjectSelection selection = ProjectSelection(sparse, rows);
 
-        std::vector<int>                axes;
-        std::map<int, std::vector<int>> ranges;
-        std::map<int, int>              rebins;
-
-        for (int i = 0; i < static_cast<int>(rows.size()) && i < ndim; i++) {
-          if (!rows[i].is_object()) continue;
-          TAxis * axis = sparse->GetAxis(i);
-          if (axis == nullptr) continue;
-
-          if (rows[i].value("use", false)) {
-            axes.push_back(i);
-            const int rebin = rows[i].value("rebin", 1);
-            if (rebin > 1) rebins[i] = rebin;
-          }
-
-          const double lo = rows[i].value("min", axis->GetXmin());
-          const double hi = rows[i].value("max", axis->GetXmax());
-          if (!(hi > lo)) continue;
-          // A cut only when it actually narrows the axis. Setting an explicit range drops the axis'
-          // under/overflow bins — ROOT folds them into the first and last bin only while no range is set
-          // — and the dialog seeds min/max from the axis' own bounds, so an untouched "project the whole
-          // axis" row must not become a cut that throws the overflow (and so the data) away.
-          if (lo <= axis->GetXmin() && hi >= axis->GetXmax()) continue;
-          int binLo = axis->FindBin(lo);
-          int binHi = axis->FindBin(hi);
-          if (binLo < 1) binLo = 1;
-          if (binHi > axis->GetNbins()) binHi = axis->GetNbins();
-          if (binHi < binLo) continue;
-          ranges[i] = {binLo, binHi};
-        }
-
-        if (axes.empty()) {
+        if (selection.axes.empty()) {
           ctx.Result("Select at least one axis to project");
           return;
         }
-        if (axes.size() > 3) {
+        if (selection.axes.size() > 3) {
           ctx.Result("A projection uses at most three axes");
           return;
         }
-        if (!ranges.empty()) Ndmspc::NUtils::SetAxisRanges(sparse, ranges, false, false, true);
+        if (!selection.ranges.empty()) Ndmspc::NUtils::SetAxisRanges(sparse, selection.ranges, false, false, true);
 
-        TH1 * projection = Ndmspc::NUtils::ProjectTHnSparse(sparse, axes, "");
+        TH1 * projection = Ndmspc::NUtils::ProjectTHnSparse(sparse, selection.axes, "");
         if (projection == nullptr) {
           ctx.Result("Failed to project " + key);
           return;
@@ -1360,9 +2026,9 @@ void toolBrowser()
         // An optional per-axis rebin, on the projected histogram (axis position 0 -> X, 1 -> Y, 2 -> Z).
         // The rebin returns the histogram it produced (the same one, or a new one), so the return is
         // what the rest of the handler uses.
-        for (size_t pos = 0; pos < axes.size() && projection != nullptr; pos++) {
-          const auto it = rebins.find(axes[pos]);
-          if (it == rebins.end()) continue;
+        for (size_t pos = 0; pos < selection.axes.size() && projection != nullptr; pos++) {
+          const auto it = selection.rebins.find(selection.axes[pos]);
+          if (it == selection.rebins.end()) continue;
           const int factor = it->second;
           // A rebin ROOT cannot do — a variable-width axis — leaves the projection as it was: `Rebin`
           // answers `nullptr` rather than refusing, so the result is taken only when it produced a
@@ -1392,7 +2058,7 @@ void toolBrowser()
         // reader - and the object is named too, because two objects with the same axes are otherwise
         // two identical titles over one canvas.
         std::string axesLabel;
-        for (const auto position : axes) {
+        for (const auto position : selection.axes) {
           TAxis * axis = sparse->GetAxis(static_cast<int>(position));
           if (axis == nullptr) continue;
           const char * axisName = axis->GetName();

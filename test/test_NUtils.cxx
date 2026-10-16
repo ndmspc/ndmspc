@@ -8,12 +8,33 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include "ndmspc/core/NUtils.h"
 
 using Ndmspc::NUtils;
+
+TEST(ResolveMacroList, ABareNameTakesTheLocalFileWhenThereIsOne)
+{
+  // A file beside the caller is run as named - `ndmspc-run sum.C` runs the macro in the current
+  // directory - and the tool directory the caller named is only the fallback for a name nothing local
+  // answers to.
+  const std::string local = "test_ResolveMacroList_local.C";
+  {
+    std::ofstream out(local);
+    out << "// local macro\n";
+  }
+
+  EXPECT_EQ(NUtils::ResolveMacroList(local, "/usr/share/ndmspc/macros/tools"),
+            (std::vector<std::string>{local}));
+  EXPECT_EQ(NUtils::ResolveMacroList("test_ResolveMacroList_missing.C", "/usr/share/ndmspc/macros/tools"),
+            (std::vector<std::string>{"/usr/share/ndmspc/macros/tools/test_ResolveMacroList_missing.C"}));
+
+  std::remove(local.c_str());
+}
 
 TEST(ResolveMacroList, ABareNameTakesTheDirectoryOfTheEntryBeforeIt)
 {

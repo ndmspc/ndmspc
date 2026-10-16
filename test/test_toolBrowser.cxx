@@ -21,7 +21,11 @@
 #include <THnSparse.h>
 #include <THttpCallArg.h>
 #include <TNtuple.h>
+#include <TSystem.h>
+#include <TTree.h>
 
+#include "ndmspc/core/NGnTree.h"
+#include "ndmspc/core/NLogger.h"
 #include "ndmspc/http/NInstanceTree.h"
 #include "ndmspc/http/NMacroBuilder.h"
 
@@ -54,6 +58,14 @@ void WriteTestFile()
   TNtuple ntuple("ntuple", "ntuple", "px:py:pz");
   ntuple.Fill(1.0f, 2.0f, 3.0f);
   ntuple.Write();
+
+  // The NGNT tree: an NGNT analysis keeps its state in a tree of this name. It browses like any tree and
+  // carries a badge that opens the file in the tool that walks it (see `TheNgntTreeCarriesABadge…`).
+  TTree ngnt("ngnt", "ngnt;an NGNT analysis");
+  Int_t ngntValue = 1;
+  ngnt.Branch("value", &ngntValue, "value/I");
+  ngnt.Fill();
+  ngnt.Write();
 
   TDirectory * dir = file->mkdir("sub");
   if (dir != nullptr) {
@@ -92,6 +104,19 @@ void WriteTestFile()
   sparse2.GetAxis(2)->SetTitle("centrality");
   sparse2.Fill(a, 1.0);
   sparse2.Write();
+
+  // A sparse with a **categorical** axis (a label per bin): it cannot be rebinned, so the import tab turns
+  // its rebin cell off rather than taking a number the importer would refuse.
+  const Int_t    catBins[1] = {3};
+  const Double_t catMin[1]  = {0.0};
+  const Double_t catMax[1]  = {3.0};
+  THnSparseF     categorical("hcat", "hcat", 1, catBins, catMin, catMax);
+  categorical.GetAxis(0)->SetName("type");
+  categorical.GetAxis(0)->SetBinLabel(1, "a");
+  categorical.GetAxis(0)->SetBinLabel(2, "b");
+  categorical.GetAxis(0)->SetBinLabel(3, "c");
+  categorical.Fill(0.5);
+  categorical.Write();
 
   // A sparse whose data lies outside its axis' bounds (in the overflow). ROOT folds the under/overflow
   // bins into the first and last bin while no range is set, so projecting it must keep them — a range
@@ -330,6 +355,46 @@ TEST_F(ToolBrowser, OpenPublishesTheFileTreeOntoTheBrowseStep)
   EXPECT_EQ((*sub)["action"]["path"], "ndmspc/rbrowser/ls");
 }
 
+/// The NGNT tree stays an **ordinary tree** — it expands to its branches like any other — and carries a
+/// **badge** beside it: a click on the badge opens the same file in the NGNT explorer. The badge's action
+/// is a **root** one, so the client leaves the browser's combination off it (`ndmspc/ngnt/open` starts a
+/// session of its own). A plain tree carries no badge.
+TEST_F(ToolBrowser, TheNgntTreeCarriesABadgeToTheNgntExplorer)
+{
+  const auto call = fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success");
+
+  const json & nodes = call.ws["workspace"]["browse"]["properties"]["key"]["nodes"];
+  const json * ngnt  = FindNode(nodes, "ngnt;1");
+  ASSERT_NE(ngnt, nullptr) << "the ngnt tree is missing from the tree";
+
+  // Still a tree: it expands (its own click draws it, the chevron loads its branches) ...
+  EXPECT_EQ((*ngnt)["expandable"], true);
+  EXPECT_EQ((*ngnt)["action"]["path"], "ndmspc/rbrowser/draw");
+  EXPECT_EQ((*ngnt)["loadAction"]["path"], "ndmspc/rbrowser/ls");
+
+  // ... and carries the badge: the button to the tool that walks the file.
+  ASSERT_TRUE(ngnt->contains("badge")) << "the ngnt tree carries no badge";
+  const json & badge = (*ngnt)["badge"];
+  EXPECT_EQ(badge.value("label", std::string()), "Open in NGNT explorer");
+  EXPECT_EQ(badge["action"].value("method", std::string()), "POST");
+  EXPECT_EQ(badge["action"].value("path", std::string()), "ndmspc/ngnt/open");
+  EXPECT_EQ(badge["action"]["payload"].value("file", std::string()), kFile);
+  EXPECT_EQ(badge["action"].value("root", false), true) << "the redirect starts a combination of its own";
+
+  // Expanding it lists its branches, as any tree does.
+  const auto   expanded = fTool->Call("ndmspc/rbrowser/ls", "POST", json{{"key", "ngnt"}});
+  const json * opened   = FindNode(expanded.ws["workspace"]["browse"]["properties"]["key"]["nodes"], "ngnt;1");
+  ASSERT_NE(opened, nullptr);
+  ASSERT_TRUE(opened->contains("children")) << "the ngnt tree did not list its branches";
+  EXPECT_GE((*opened)["children"].size(), 1u);
+
+  // A plain tree is untouched: no badge.
+  const json * ntuple = FindNode(nodes, "ntuple;1");
+  ASSERT_NE(ntuple, nullptr);
+  EXPECT_FALSE(ntuple->contains("badge"));
+}
+
 TEST_F(ToolBrowser, LsSendsTheTreeWithTheFolderExpanded)
 {
   fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
@@ -438,7 +503,9 @@ TEST_F(ToolBrowser, ASparseNodeOpensAProjectionDialog)
   EXPECT_EQ(ToolHarness::Pads(call).size(), 0u);
 
   const json & dialog = call.ws["payload"]["dialog"];
-  EXPECT_EQ(dialog.value("title", std::string()), "Project hns");
+  // The dialog is titled by the object; what is done with it is what its tabs say (see
+  // `TheSparseDialogOffersProjectAndImportTabs`).
+  EXPECT_EQ(dialog.value("title", std::string()), "hns");
   EXPECT_EQ(dialog["action"]["path"], "ndmspc/rbrowser/project");
   EXPECT_EQ(dialog["action"]["payload"]["key"], "hns");
   // The fields read name-first, then the axes (a JSON object's keys would come out sorted).
@@ -867,6 +934,293 @@ TEST_F(ToolBrowser, ProjectingWhatTheDialogSentKeepsTheData)
   const json plainPads = ToolHarness::Pads(plain);
   ASSERT_EQ(plainPads.size(), 1u);
   EXPECT_DOUBLE_EQ(BinTotal(dialogPads[0]), BinTotal(plainPads[0]));
+}
+
+/// A THnSparse's click opens a dialog with **two tabs**: project it (as before), or import it to an
+/// NGnTree. The dialog's own form and submit stay the Project tab's, so a client that knows nothing of
+/// tabs behaves exactly as it did.
+TEST_F(ToolBrowser, TheSparseDialogOffersProjectAndImportTabs)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const auto call = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  const json & dialog = call.ws["payload"]["dialog"];
+  EXPECT_EQ(dialog["action"]["path"], "ndmspc/rbrowser/project");
+  EXPECT_TRUE(dialog["schema"].contains("order")) << "the dialog's own form is the Project tab's";
+
+  ASSERT_TRUE(dialog.contains("tabs")) << "the dialog offers no tabs";
+  ASSERT_EQ(dialog["tabs"].size(), 2u);
+  EXPECT_EQ(dialog["tabs"][0]["label"], "Project");
+  EXPECT_EQ(dialog["tabs"][0]["action"]["path"], "ndmspc/rbrowser/project");
+  EXPECT_EQ(dialog["tabs"][1]["label"], "Import to NGnTree");
+  EXPECT_EQ(dialog["tabs"][1]["action"]["path"], "ndmspc/rbrowser/import");
+
+  // The import tab's own settings: this object's axes, the **first** of them picked to begin with, a
+  // title/rebin row per axis whose titles start as the sparse' own, and one projection to begin with —
+  // built like the NGNT explorer's levels, the axes by number (see the schema's own `hint`).
+  const json & props = dialog["tabs"][1]["schema"]["properties"];
+  EXPECT_EQ(props["axes"]["items"]["enum"], json::array({"mass", "pt", "ce"}));
+  EXPECT_EQ(props["axes"]["default"], json::array({"mass"}));
+  EXPECT_EQ(props["axesTitles"]["filterBy"], "axes") << "the titles follow the axes that are picked";
+  ASSERT_EQ(props["axesTitles"]["default"].size(), 3u);
+  EXPECT_EQ(props["axesTitles"]["default"][0]["axis"], "mass");
+  EXPECT_EQ(props["axesTitles"]["default"][0]["title"], "invariant mass");
+  // The table says how big each axis is (read-only) and lets it be rebinned.
+  EXPECT_EQ(props["axesTitles"]["default"][0]["bins"], 20);
+  const json & columns = props["axesTitles"]["columns"];
+  EXPECT_EQ(columns[1]["key"], "bins");
+  EXPECT_EQ(columns[1]["readOnly"], true);
+  EXPECT_EQ(columns[3]["key"], "rebin");
+  ASSERT_EQ(props["projections"]["default"].size(), 1u) << "one projection to begin with";
+  EXPECT_EQ(props["projections"]["default"][0], json::array({0}));
+  // What the rows are called, and what each number reads as: the editor shows "Projection 1:" and picks
+  // its axes by name (see the UI's levels editor).
+  EXPECT_EQ(props["projections"]["groupLabel"], "Projections");
+  EXPECT_EQ(props["projections"]["itemLabel"], "Projection");
+  ASSERT_EQ(props["projections"]["axisLabels"].size(), 3u);
+  EXPECT_EQ(props["projections"]["axisLabels"][0], "[0] mass: 20 bins");
+  // A chosen axis is said by its own name, and a projection may name an axis more than once.
+  EXPECT_EQ(props["projections"]["axisNames"][0], "mass");
+  EXPECT_EQ(props["projections"]["unique"], false);
+  EXPECT_EQ(props["outputFile"]["default"], "hns_ngnt.root");
+  // The import is split over processes, the room's own CPU count to begin with.
+  EXPECT_EQ(props["nProcesses"]["type"], "integer");
+  EXPECT_GT(props["nProcesses"]["default"].get<int>(), 0);
+  // An import takes as long as it takes, and says so: the client waits for the reply without a limit.
+  EXPECT_EQ(dialog["tabs"][1]["action"]["timeoutMs"], 0);
+  // The axes are spelled out where they are picked — no separate hint — and a chosen one is said by name.
+  EXPECT_FALSE(dialog["tabs"][1]["schema"].contains("hint")) << "the axes are spelled out in the picker";
+  ASSERT_EQ(props["axes"]["axisLabels"].size(), 3u);
+  EXPECT_EQ(props["axes"]["axisLabels"][2], "[2] ce: 4 bins");
+  EXPECT_EQ(props["axes"]["axisNames"][2], "ce");
+}
+
+/// The import tab's submit writes the NGnTree file the settings name, and the reply hands the client the
+/// step that opens it in the NGNT explorer — the server cannot open a step, the client can.
+TEST_F(ToolBrowser, TheImportTabWritesTheFileAndHandsOverTheStep)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  const std::string out = "/tmp/browser_import_test_ngnt.root";
+  std::remove(out.c_str());
+
+  const auto call = fTool->Call(
+      "ndmspc/rbrowser/import", "POST",
+      json{{"key", "hns"},
+           {"axes", json::array({"mass", "pt"})},
+           // Two rows: one for an axis that was picked (title kept, rebin 2), one for an axis that was
+           // not — the pick is the authority, so the second row is not the import's.
+           {"axesTitles", json::array({json{{"axis", "mass"}, {"title", "m"}, {"rebin", 2}},
+                                       json{{"axis", "ce"}, {"title", "dropped"}, {"rebin", 0}}})},
+           // Two projections by number, and one that names no axis of this object.
+           {"projections", json::array({json::array({0}), json::array({1, 2}), json::array({9})})},
+           {"outputFile", out}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  // The file is where the form said, and it holds the tree the picked axes describe.
+  EXPECT_FALSE(gSystem->AccessPathName(out.c_str())) << "the import wrote no file";
+  EXPECT_EQ(call.reply["outputFile"], out);
+
+  Ndmspc::NGnTree * imported = Ndmspc::NGnTree::Open(out);
+  ASSERT_NE(imported, nullptr) << "the imported file does not open as an NGnTree";
+  ASSERT_NE(imported->GetBinning(), nullptr);
+  ASSERT_EQ(imported->GetBinning()->GetAxes().size(), 2u);
+  EXPECT_EQ(imported->GetBinning()->GetAxes()[0]->GetName(), std::string("mass"));
+  EXPECT_EQ(imported->GetBinning()->GetAxes()[1]->GetName(), std::string("pt"));
+  EXPECT_EQ(imported->GetBinning()->GetAxes()[0]->GetTitle(), std::string("m"));
+  delete imported;
+
+  // And the reply names the step that opens it — labelled, and with the file it wrote, so the client can
+  // raise it as a notice the user acts on: what happened, what it wrote, and the step that opens it. It is
+  // read from the **HTTP** envelope: that is what a websocket reply carries, `wsOut` being the broadcast.
+  EXPECT_EQ(call.reply["open"]["action"], "ndmspc/ngnt/open");
+  EXPECT_EQ(call.reply["open"]["params"]["file"], out);
+  EXPECT_EQ(call.reply["open"]["file"], out);
+  EXPECT_EQ(call.reply["open"]["what"], "Import finished");
+  EXPECT_EQ(call.reply["open"]["label"], "Open in NGNT explorer");
+
+  std::remove(out.c_str());
+}
+
+/**
+ * The dialog's tabs: each says what its submit makes, and the import tab also names the action the client
+ * asks for the **macro it previews** — the call the room would make, with the cfg JSON in it, so the whole
+ * thing can be read and copied before a long import runs.
+ */
+TEST_F(ToolBrowser, TheImportTabPreviewsTheMacroItWouldRun)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  const auto dialog = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
+  EXPECT_EQ(dialog.ws["payload"]["dialog"]["tabs"][1]["macro"], "ndmspc/rbrowser/macro");
+
+  const auto preview = fTool->Call(
+      "ndmspc/rbrowser/macro", "POST",
+      json{{"for", "ndmspc/rbrowser/import"},
+           {"key", "hns"},
+           {"axes", json::array({"mass", "pt"})},
+           {"axesTitles", json::array({json{{"axis", "mass"}, {"title", "m"}, {"rebin", 2}}})},
+           {"projections", json::array({json::array({0})})},
+           {"nProcesses", 4},
+           {"outputFile", "/tmp/preview_ngnt.root"}});
+  ASSERT_EQ(preview.reply.value("result", std::string()), "success") << preview.reply.dump();
+
+  const std::string macro = preview.reply["macro"].get<std::string>();
+  // A macro that runs as it stands: the includes, the variables the run sets for parallel processing, the
+  // configuration **set line by line**, and the call the room makes.
+  EXPECT_NE(macro.find("#include <TSystem.h>"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("#include <nlohmann/json.hpp>"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("#include <ndmspc/core/NGnTree.h>"), std::string::npos) << macro;
+  // An unnamed macro's includes go **before** its braces: a preprocessor directive does not belong inside a
+  // block, and the file has to be read as it stands.
+  EXPECT_LT(macro.find("#include"), macro.find("{")) << macro;
+  EXPECT_NE(macro.find("#include <ndmspc/core/NGnTree.h>\n\nusing json = nlohmann::json;\n\n{\n"),
+            std::string::npos)
+      << macro;
+  EXPECT_NE(macro.find("gSystem->Setenv(\"NDMSPC_MAX_PROCESSES\", \"4\");"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("gSystem->Setenv(\"NDMSPC_EXECUTION_MODE\", \"ipc\");"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("gSystem->Setenv(\"NDMSPC_LOG_RUN\", \"1\");"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("json cfg;"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("cfg[\"type\"]"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("\"thnsparse\""), std::string::npos) << macro;
+  EXPECT_NE(macro.find("cfg[\"axes\"]"), std::string::npos) << macro;
+  // Written as the braces nlohmann reads them as, rather than wrapped in `json::array(…)`.
+  EXPECT_NE(macro.find("cfg[\"axes\"]        = {\"mass\", \"pt\"};"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("cfg[\"objects\"]     = {\"hns\"};"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("cfg[\"projections\"]"), std::string::npos) << macro;
+  // A projection names its axes (`{"mass"}`), which is what the configuration carries.
+  EXPECT_NE(macro.find("= {{\"mass\"}};"), std::string::npos) << macro;
+  // A map is written as its pairs, not as a flat list of keys and values: `{"mass", "m"}` would be read
+  // back as an array.
+  EXPECT_NE(macro.find("cfg[\"titles\"]      = {{\"mass\", \"m\"}};"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("cfg[\"outputFile\"]"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("/tmp/preview_ngnt.root"), std::string::npos) << macro;
+  // And the last line hands the configuration to the importer, with the file being browsed — the same
+  // argument the run passes, and never an empty one.
+  EXPECT_NE(macro.find(std::string("Ndmspc::NGnTree::Import(cfg, \"") + kFile + "\")"), std::string::npos) << macro;
+
+  // It previews and does nothing: no combination node, no session of its own.
+  const json combinations = fTool->Server()->GetCombinations();
+  const json nodes = combinations.is_object() ? combinations.value("nodes", json::object()) : json::object();
+  EXPECT_TRUE(nodes.empty()) << combinations.dump();
+
+  // A form the macro action does not make one for is refused rather than answered with a guess.
+  const auto unknown = fTool->Call("ndmspc/rbrowser/macro", "POST",
+                                   json{{"for", "ndmspc/rbrowser/draw"}, {"key", "hns"}});
+  EXPECT_FALSE(unknown.reply.value("error", std::string()).empty());
+
+  // The **project** tab previews the same way, and the projection is the one the run would make: the axes
+  // it projects, the cuts the table's min/max make, and the drawing the room shows. Both read the table
+  // through the same derivation, so a preview cannot project something else than the run.
+  EXPECT_EQ(dialog.ws["payload"]["dialog"]["tabs"][0]["macro"], "ndmspc/rbrowser/macro");
+  const auto projected = fTool->Call(
+      "ndmspc/rbrowser/macro", "POST",
+      json{{"for", "ndmspc/rbrowser/project"},
+           {"key", "hns"},
+           {"drawOpts", "colz"},
+           {"axes", json::array({json{{"axis", "mass"}, {"use", true}, {"min", 0}, {"max", 1}, {"rebin", 2}},
+                                 json{{"axis", "pt"}, {"use", false}, {"min", 2}, {"max", 4}, {"rebin", 1}}})}});
+  ASSERT_EQ(projected.reply.value("result", std::string()), "success") << projected.reply.dump();
+  const std::string projection = projected.reply["macro"].get<std::string>();
+  EXPECT_NE(projection.find("#include <THnSparse.h>"), std::string::npos) << projection;
+  EXPECT_NE(projection.find("#include <ndmspc/core/NUtils.h>"), std::string::npos) << projection;
+  EXPECT_LT(projection.find("#include"), projection.find("{")) << projection;
+  EXPECT_NE(projection.find("(THnSparse *) file->Get(\"hns\")"), std::string::npos) << projection;
+  // Only the second axis is narrowed (2..4 out of its range): the first is left whole, so it is no cut.
+  EXPECT_NE(projection.find("SetAxisRanges(sparse, {"), std::string::npos) << projection;
+  EXPECT_NE(projection.find("ProjectTHnSparse(sparse, {0}, \"\")"), std::string::npos) << projection;
+  EXPECT_NE(projection.find("RebinX(2)"), std::string::npos) << projection;
+  EXPECT_NE(projection.find("h->Draw(\"colz\");"), std::string::npos) << projection;
+}
+
+/// What the import tab was given is remembered for the object's **axes**, so the same import is not filled
+/// in twice — the way the projection dialog remembers its own configuration for the same signature.
+TEST_F(ToolBrowser, TheImportRemembersWhatItWasGiven)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  const std::string out = "/tmp/browser_import_remember_ngnt.root";
+  std::remove(out.c_str());
+
+  const auto run = fTool->Call(
+      "ndmspc/rbrowser/import", "POST",
+      json{{"key", "hns"},
+           {"axes", json::array({"mass", "pt"})},
+           {"axesTitles", json::array({json{{"axis", "mass"}, {"title", "m"}, {"rebin", 4}}})},
+           {"projections", json::array({json::array({1, 2})})},
+           {"outputFile", out}});
+  ASSERT_EQ(run.reply.value("result", std::string()), "success") << run.reply.dump();
+  std::remove(out.c_str());
+
+  // Opening the dialog again opens on what was run.
+  const auto   again = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns"}});
+  const json & props = again.ws["payload"]["dialog"]["tabs"][1]["schema"]["properties"];
+  EXPECT_EQ(props["axes"]["default"], json::array({"mass", "pt"}));
+  EXPECT_EQ(props["axesTitles"]["default"][0]["title"], "m");
+  EXPECT_EQ(props["axesTitles"]["default"][0]["rebin"], 4);
+  EXPECT_EQ(props["projections"]["default"], json::array({json::array({1, 2})}));
+  EXPECT_EQ(props["outputFile"]["default"], out);
+
+  // And so does another object whose axes are the same (`hns2` shares `hns`' axes).
+  const auto   sibling = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hns2"}});
+  const json & sib     = sibling.ws["payload"]["dialog"]["tabs"][1]["schema"]["properties"];
+  EXPECT_EQ(sib["axes"]["default"], json::array({"mass", "pt"}));
+  EXPECT_EQ(sib["outputFile"]["default"], out);
+  // The projection tab's own configuration is not what the import remembered: the two are kept apart.
+  EXPECT_FALSE(again.ws["payload"]["dialog"]["tabs"][0]["schema"]["properties"]["axes"]["default"][0].is_string());
+}
+
+/// A **categorical** axis (one that carries a label per bin) cannot be rebinned: ROOT's `Rebin` wants fixed
+/// widths and the importer refuses a binning on a labelled axis, so the import tab's rebin cell is off.
+TEST_F(ToolBrowser, ACategoricalAxisOffersNoRebinInTheImportTab)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const auto call = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hcat"}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  const json & rows =
+      call.ws["payload"]["dialog"]["tabs"][1]["schema"]["properties"]["axesTitles"]["default"];
+  ASSERT_EQ(rows.size(), 1u) << rows.dump();
+  EXPECT_EQ(rows[0]["axis"], "type");
+  EXPECT_EQ(rows[0]["bins"], 3);
+  ASSERT_TRUE(rows[0].contains("disabled")) << "a categorical axis must not offer a rebin";
+  EXPECT_EQ(rows[0]["disabled"], json::array({"rebin"}));
+}
+
+/// The import is split over the processes the form asks for — and the room's own environment is put back
+/// as it was afterwards (the environment is process-wide, and the room runs other things too).
+TEST_F(ToolBrowser, TheImportRunsWithTheProcessesTheFormAsksFor)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  const std::string out = "/tmp/browser_import_processes_ngnt.root";
+  std::remove(out.c_str());
+
+  // A setting of the room's own, which this run must leave alone — as must the logger's run-output flag,
+  // which is what the run's progress prints under (`NDMSPC_LOG_RUN=1`).
+  gSystem->Setenv("NDMSPC_MAX_PROCESSES", "1");
+  const bool runOutputWas = Ndmspc::NLogger::GetRunOutput();
+  {
+    const auto run = fTool->Call(
+        "ndmspc/rbrowser/import", "POST",
+        json{{"key", "hns"},
+             {"axes", json::array({"mass", "pt"})},
+             {"projections", json::array({json::array({0}), json::array({1})})},
+             {"nProcesses", 2},
+             {"outputFile", out}});
+    ASSERT_EQ(run.reply.value("result", std::string()), "success") << run.reply.dump();
+    EXPECT_FALSE(gSystem->AccessPathName(out.c_str())) << "the import wrote no file";
+  }
+
+  // Back to what the room had, not what the run set.
+  const char * left = gSystem->Getenv("NDMSPC_MAX_PROCESSES");
+  EXPECT_NE(left, nullptr) << "the run left the room's environment unset";
+  if (left != nullptr) EXPECT_EQ(std::string(left), "1");
+  gSystem->Unsetenv("NDMSPC_MAX_PROCESSES");
+  EXPECT_EQ(Ndmspc::NLogger::GetRunOutput(), runOutputWas);
+
+  std::remove(out.c_str());
 }
 
 } // namespace

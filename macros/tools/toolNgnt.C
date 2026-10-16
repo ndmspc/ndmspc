@@ -536,24 +536,34 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
     currentBinningName = binningNames.front();
   }
 
-  std::string hint;
+  json        axisLabels = json::array();
+  json        axisNames  = json::array();
   int         idx = 0;
   for (auto axis : axes) {
-    hint += TString::Format("[%d] %s: %d bins \n", idx++, axis->GetName(), axis->GetNbins()).Data();
+    axisLabels.push_back(TString::Format("[%d] %s: %d bins", idx, axis->GetName(), axis->GetNbins()).Data());
+    axisNames.push_back(axis->GetName());
+    idx++;
   }
 
-  return Ndmspc::NSchemaBuilder()
-      .Hint(hint)
-      .Array("levels")
-      .Title("Levels")
-      .Description("A nested array of integers representing levels.")
-      .Items("array")
-      .ItemItems("integer")
-      .Default(defaultLevels)
-      .Select("binningName", binningNames)
-      .Title("Binning")
-      .Default(currentBinningName)
-      .Build();
+  json schema = Ndmspc::NSchemaBuilder()
+                    .Array("levels")
+                    .Title("Levels")
+                    .Description("A nested array of integers representing levels.")
+                    .Items("array")
+                    .ItemItems("integer")
+                    .Default(defaultLevels)
+                    .Select("binningName", binningNames)
+                    .Title("Binning")
+                    .Default(currentBinningName)
+                    .Build();
+  // What each level's numbers read as, so a level is built by picking an axis by name rather than by
+  // counting them out (the levels editor's Multi / Names / IDs switch reads these) — and that a
+  // navigator's axes are **unique**: each is one level's, all of them have to be represented, and the
+  // editor says when they are.
+  schema["properties"]["levels"]["axisLabels"] = axisLabels;
+  schema["properties"]["levels"]["axisNames"]  = axisNames;
+  schema["properties"]["levels"]["unique"]     = true;
+  return schema;
 }
 
 json BuildMapSchema(const std::string & mappingPad = "pad1", const std::string & contentPad = "pad2")
@@ -604,6 +614,130 @@ json BuildSpectraSchema(Ndmspc::NGnTree * ngnt, const std::vector<std::string> &
       .Title("Edge margin")
       .Default(axismargin)
       .Build();
+}
+
+// ============================================================================
+
+/// The NGNT workflow tour's steps, in order: the chain of actions a reader runs, one Save & Run at a
+/// time. The spectra step (and its Save & Run) is only there when the tree has parameters to draw for:
+/// a tree without them ends at the map, which is then the last step.
+json NgntWorkflowTourSteps(const std::string & group, bool withSpectra)
+{
+  json steps = json::array({
+      json{{"show", "group"}, {"body", "Choose the NGNT explorer."}},
+      // No session lead-in card: running the first step is what starts the
+      // session, and the tour says so at that step's own run card — one card
+      // for it, not two.
+      // The file is the room's own example, so the step is run as it stands.
+      json{{"show", "stepBlock"},
+           {"action", group + "/open"},
+           {"body",
+            "The first step of the chain: opening the file. What it "
+            "takes sits below it, already filled in."}},
+      json{{"show", "field:file"},
+           {"body",
+            "The file to open — the room's own example, "
+            "`NSingleBinning01Gaus.root`. Leave it as it is: a "
+            "single-binning cube with two parameters, mean and sigma."}},
+      json{{"show", "saveAndRun"},
+           {"body",
+            "Run the step: it starts the session and reads the file, "
+            "and the next step is added for it."}},
+      // The navigator: the axes the form lists, the binning, the levels.
+      json{{"show", "stepBlock"},
+           {"action", group + "/reshape"},
+           {"body",
+            "A navigator is the tree cut into nested levels — what the "
+            "analysis walks and what the pads draw."}},
+      json{{"show", "stepForm"},
+           {"body",
+            "The list is the axes this file has, with the bins each "
+            "one holds — `[0] mean: 5 bins`, `[1] sigma: 6 bins`."}},
+      json{{"show", "field:binningName"},
+           {"body",
+            "Which **binning definition** to cut by. The file's own is "
+            "already chosen."}},
+      json{{"show", "field:levels"},
+           {"body",
+            "And how the axes are grouped into levels: each level is "
+            "one cut the navigator can walk into. Three axes per level "
+            "is fine — run it with these defaults."}},
+      json{{"show", "saveAndRun"},
+           {"body",
+            "Run it: the navigator is built from the file, and "
+            "everything below works on it."}},
+      // The map: the two pads, then the run.
+      json{{"show", "stepBlock"},
+           {"action", group + "/map"},
+           {"body",
+            "Mapping draws the navigator's current level into a pad — "
+            "one histogram per parameter, tiled."}},
+      json{{"show", "field:mappingPad"}, {"body", "The pad the map itself is drawn in — `pad1`."}},
+      json{{"show", "field:contentPad"},
+           {"body",
+            "And the pad a picked point's **content** goes to — "
+            "`pad2`. It stays empty until something is picked."}},
+      json{{"show", "saveAndRun"}, {"body", "Run it: the mapping appears in the pads, beside us."}},
+      // The map is in pad1 now.
+      json{{"show", "pad:pad1"},
+           {"body",
+            "The mapping, in `pad1`: one histogram per parameter of "
+            "this level. Its bins are a live map — each one stands for "
+            "a slice of the data below it."}},
+      // A bin click drills: pad2 is created/redrawn. The whole pane, since the
+      // pad is dynamic and appears beside the map.
+      json{{"show", "pads"},
+           {"body",
+            "Click a bin of the mapping: what it stands for is drilled "
+            "into and drawn beside it, in `pad2` — a pad that exists "
+            "only once something has been picked. Click another bin and "
+            "`pad2` is redrawn for that one; click deeper and it "
+            "follows the level you are on."}},
+  });
+
+  // The spectra: the parameters (several at once) and the pad they start at. Only when the tree has
+  // parameters — a tree without them ends the tour at the map, with no Save & Run after it.
+  if (withSpectra) {
+    steps.push_back(json{{"show", "stepBlock"},
+                         {"action", group + "/spectra"},
+                         {"body",
+                          "The last step: a spectrum per parameter, drawn from the "
+                          "place you are holding in the navigator."}});
+    steps.push_back(json{{"show", "field:parameters"},
+                         {"body",
+                          "Which parameters to draw for — **several may be picked at "
+                          "once**, and each gets a spectrum of its own. The first is "
+                          "picked to begin with."}});
+    steps.push_back(json{{"show", "field:startPad"},
+                         {"body",
+                          "The pad the spectra **start** at — `pad3`, the next free "
+                          "one, so they land beside the mapping rather than over it. "
+                          "One pad per parameter picked, onwards from here."}});
+    steps.push_back(json{{"show", "saveAndRun"},
+                         {"body",
+                          "Run it: the spectra are added under the mapping, one "
+                          "after another."}});
+    steps.push_back(json{{"show", "pad:pad3"},
+                         {"body",
+                          "The spectra, from `pad3` on — one per parameter you "
+                          "picked."}});
+  }
+  return steps;
+}
+
+/// The NGNT workflow tour: open, reshape, map, and — when the tree has parameters — spectra. With none,
+/// the map is the last step and there is no Save & Run after it, because there is nothing to draw.
+json NgntWorkflowTour(const std::string & group, bool withSpectra = true)
+{
+  std::string description =
+      withSpectra
+          ? "Open the room's example NGnTree, reshape it into a navigator, map that onto pads and draw "
+            "spectra for its parameters — the analysis end to end."
+          : "Open the room's example NGnTree, reshape it into a navigator and map that onto pads. This "
+            "tree has no parameters, so the workflow ends at the map.";
+  return json{{"name", "The NGNT workflow"},
+              {"description", description},
+              {"steps", NgntWorkflowTourSteps(group, withSpectra)}};
 }
 
 // ============================================================================
@@ -750,92 +884,9 @@ void toolNgnt()
           .macroIncludes = {"ndmspc/core/NGnNavigator.h"},
           // The tour of the whole workflow — open, reshape, map, spectra — carried by the last action of
           // the chain. Which tool carries it only decides where it sits; the steps name their own actions.
-          .tutorial    = json{{"name", "The NGNT workflow"},
-                              {"description",
-                               "Open the room's example NGnTree, reshape it into a navigator, map that onto "
-                               "pads and draw spectra for its parameters — the analysis end to end."},
-                              {"steps",
-                               json::array({
-                                   json{{"show", "group"}, {"body", "Choose the NGNT explorer."}},
-                                   // No session lead-in card: running the first step is what starts the
-                                   // session, and the tour says so at that step's own run card — one card
-                                   // for it, not two.
-                                   // The file is the room's own example, so the step is run as it stands.
-                                   json{{"show", "stepBlock"},
-                                        {"action", group + "/open"},
-                                        {"body", "The first step of the chain: opening the file. What it "
-                                                 "takes sits below it, already filled in."}},
-                                   json{{"show", "field:file"},
-                                        {"body", "The file to open — the room's own example, "
-                                                 "`NSingleBinning01Gaus.root`. Leave it as it is: a "
-                                                 "single-binning cube with two parameters, mean and sigma."}},
-                                   json{{"show", "saveAndRun"},
-                                        {"body", "Run the step: it starts the session and reads the file, "
-                                                 "and the next step is added for it."}},
-                                   // The navigator: the axes the form lists, the binning, the levels.
-                                   json{{"show", "stepBlock"},
-                                        {"action", group + "/reshape"},
-                                        {"body", "A navigator is the tree cut into nested levels — what the "
-                                                 "analysis walks and what the pads draw."}},
-                                   json{{"show", "stepForm"},
-                                        {"body", "The list is the axes this file has, with the bins each "
-                                                 "one holds — `[0] mean: 5 bins`, `[1] sigma: 6 bins`."}},
-                                   json{{"show", "field:binningName"},
-                                        {"body", "Which **binning definition** to cut by. The file's own is "
-                                                 "already chosen."}},
-                                   json{{"show", "field:levels"},
-                                        {"body", "And how the axes are grouped into levels: each level is "
-                                                 "one cut the navigator can walk into. Three axes per level "
-                                                 "is fine — run it with these defaults."}},
-                                   json{{"show", "saveAndRun"},
-                                        {"body", "Run it: the navigator is built from the file, and "
-                                                 "everything below works on it."}},
-                                   // The map: the two pads, then the run.
-                                   json{{"show", "stepBlock"},
-                                        {"action", group + "/map"},
-                                        {"body", "Mapping draws the navigator's current level into a pad — "
-                                                 "one histogram per parameter, tiled."}},
-                                   json{{"show", "field:mappingPad"},
-                                        {"body", "The pad the map itself is drawn in — `pad1`."}},
-                                   json{{"show", "field:contentPad"},
-                                        {"body", "And the pad a picked point's **content** goes to — "
-                                                 "`pad2`. It stays empty until something is picked."}},
-                                   json{{"show", "saveAndRun"},
-                                        {"body", "Run it: the mapping appears in the pads, beside us."}},
-                                   // The map is in pad1 now.
-                                   json{{"show", "pad:pad1"},
-                                        {"body", "The mapping, in `pad1`: one histogram per parameter of "
-                                                 "this level. Its bins are a live map — each one stands for "
-                                                 "a slice of the data below it."}},
-                                   // A bin click drills: pad2 is created/redrawn. The whole pane, since the
-                                   // pad is dynamic and appears beside the map.
-                                   json{{"show", "pads"},
-                                        {"body", "Click a bin of the mapping: what it stands for is drilled "
-                                                 "into and drawn beside it, in `pad2` — a pad that exists "
-                                                 "only once something has been picked. Click another bin and "
-                                                 "`pad2` is redrawn for that one; click deeper and it "
-                                                 "follows the level you are on."}},
-                                   // The spectra: the parameters (several at once) and the pad they start at.
-                                   json{{"show", "stepBlock"},
-                                        {"action", group + "/spectra"},
-                                        {"body", "The last step: a spectrum per parameter, drawn from the "
-                                                 "place you are holding in the navigator."}},
-                                   json{{"show", "field:parameters"},
-                                        {"body", "Which parameters to draw for — **several may be picked at "
-                                                 "once**, and each gets a spectrum of its own. The first is "
-                                                 "picked to begin with."}},
-                                   json{{"show", "field:startPad"},
-                                        {"body", "The pad the spectra **start** at — `pad3`, the next free "
-                                                 "one, so they land beside the mapping rather than over it. "
-                                                 "One pad per parameter picked, onwards from here."}},
-                                   json{{"show", "saveAndRun"},
-                                        {"body", "Run it: the spectra are added under the mapping, one "
-                                                 "after another."}},
-                                   json{{"show", "pad:pad3"},
-                                        {"body", "The spectra, from `pad3` on — one per parameter you "
-                                                 "picked."}},
-                               })},
-                          },
+          // A tree with no parameters has no spectra to draw for, so the tour ends at the map (see
+          // NgntWorkflowTour); the open action republishes it once it knows which tree is open.
+          .tutorial    = NgntWorkflowTour(group),
       });
   Ndmspc::RegisterMcpTool(
       group + "/point",
@@ -853,6 +904,9 @@ void toolNgnt()
           // have to guess at one. What it stands for is recorded as state (`state.point`, written by the drill
           // itself and by a spectra run) and read by the lines of the steps that do make objects.
           .macroSilent = true,
+          // A helper, not a step a person creates: the drill calls it on the room's behalf, so it is
+          // published and callable but never offered as a next step after the map.
+          .explorer    = false,
       });
 
   // Every tool of this family is named the same way where a user reads it: said once, so a tool added to
@@ -937,14 +991,51 @@ void toolNgnt()
         ctx.Workspace()[reshapeKey] = BuildReshapeSchema(ngnt);
       }
       else {
-        // The schema stays - it carries the defaults the reshapes so far set - but its hint lists the
-        // axes of the file that is open, so it is refreshed with this one rather than left describing
-        // whichever file was open when the schema was first built.
-        ctx.Workspace()[reshapeKey]["hint"] = BuildReshapeSchema(ngnt)["hint"];
+        // The schema stays - it carries the defaults the reshapes so far set - but the axes its picker names
+        // are the open file's, so they are refreshed with this one rather than left describing whichever file
+        // was open when the schema was first built. The axes used to be listed in a `hint` as well; the
+        // picker says them now, so there is one place for them.
+        const json built = BuildReshapeSchema(ngnt);
+        for (const std::string name : {"axisLabels", "axisNames"}) {
+          if (built.contains("properties") && built["properties"].contains("levels") &&
+              built["properties"]["levels"].contains(name)) {
+            ctx.Workspace()[reshapeKey]["properties"]["levels"][name] = built["properties"]["levels"][name];
+          }
+        }
       }
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
       server->AddInputObject(ctx.ObjectName("ngnt"), ngnt);
+
+      // The workflow tour follows what the opened tree can do: with no parameters there is nothing to
+      // draw spectra for, so it ends at the map (map last, no Save & Run after it) rather than offering a
+      // step that could not run. The parameters live on the tree's `_params` entry, which `GetEntry`
+      // loads, so it is read once here.
+      Ndmspc::NParameters * params = nullptr;
+      if (ngnt->GetEntries() > 0) {
+        ngnt->GetEntry(0);
+        params = ngnt->GetParameters();
+      }
+      const bool hasParams = params != nullptr && !params->GetNames().empty();
+      if (Ndmspc::gNdmspcMcpTools != nullptr) {
+        auto * tools   = Ndmspc::gNdmspcMcpTools;
+        auto   spectra = tools->find("ndmspc/ngnt/spectra");
+        auto   map     = tools->find("ndmspc/ngnt/map");
+        // A tree with no parameters has no spectra step to offer: the tool is not offered to a person
+        // (the Explorer's next step after the map), so the step is simply not there.
+        if (spectra != tools->end()) spectra->second.explorer = hasParams;
+        // The tour rides on the **last step the chain offers** — the spectra step when the tree has
+        // parameters to draw for, the map when it has none. A tour left on a step that is not offered is a
+        // tour nobody is shown: the Explorer lists what it offers and reads the tours out of those.
+        const json tour = NgntWorkflowTour("ndmspc/ngnt", hasParams);
+        if (spectra != tools->end()) spectra->second.tutorial = hasParams ? tour : json();
+        if (map != tools->end()) map->second.tutorial = hasParams ? json() : tour;
+      }
+      // A tree with no parameters has no spectra step at all: drop any schema an earlier file left in
+      // this session, so the step is not offered with an empty list to pick from.
+      if (!hasParams) {
+        ctx.Workspace().erase("spectra");
+      }
       return;
     }
 
@@ -1034,6 +1125,7 @@ void toolNgnt()
       if (!ctx.Workspace()[mapKey].contains("type")) {
         ctx.Workspace()[mapKey] = BuildMapSchema();
       }
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "binningName", binningName);
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
 
       ctx.Success();
@@ -1119,10 +1211,19 @@ void toolNgnt()
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "averages", averages);
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
 
-      if (!ctx.Workspace()[spectraKey].contains("type")) {
-        ctx.Workspace()[spectraKey] = BuildSpectraSchema(ngnt);
+      // The spectra step is offered only when there is something to draw for: a tree with no parameters
+      // has nothing to pick, so its schema is not published and the step is not offered — the workflow
+      // ends at the map (see NgntWorkflowTour). The parameters come from the tree; a navigator that has
+      // its own (a tree opened without `InitParameters`) counts too.
+      Ndmspc::NParameters * nparams   = ngnt->GetParameters();
+      const bool            hasParams = (nparams != nullptr && !nparams->GetNames().empty()) ||
+                             !nav->GetParameterNames().empty();
+      if (hasParams) {
+        if (!ctx.Workspace()[spectraKey].contains("type")) {
+          ctx.Workspace()[spectraKey] = BuildSpectraSchema(ngnt);
+        }
+        wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
       }
-      wsOut["workspace"][spectraKey] = ctx.Workspace()[spectraKey];
 
       // Where this step stands, so its line can walk there (see RecordLayerPoint): a map makes its projection on
       // the navigator it was given, so with nothing drilled it is on the navigator itself.
@@ -1259,9 +1360,11 @@ void toolNgnt()
         Ndmspc::NParameters * nparams = ngnt->GetParameters();
         if (nparams) parameters = nparams->GetNames();
       }
+      // A tree with no parameters has nothing to draw spectra for: the workflow ends at the map (the tour
+      // is trimmed to it, see the open action), so this is not an error - the step simply draws nothing.
       if (parameters.empty()) {
-        NLogWarning("No parameter name provided for spectra !!!");
-        ctx.Result("No parameter name provided for spectra");
+        NLogWarning("No parameters to draw spectra for; nothing to do");
+        ctx.Success();
         return;
       }
 

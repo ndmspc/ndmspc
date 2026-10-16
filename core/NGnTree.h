@@ -384,9 +384,30 @@ class NGnTree : public TObject {
    * configuration and data sources described within it.
    *
    * @param jsonFile Path to the JSON file describing the import configuration.
+   * @param filename Optional input ROOT file name. If empty, the 'filename' key
+   *                 from the JSON configuration is used.
+   * @param directory Optional directory inside the ROOT file prepended before
+   *                  each object name. If empty, the 'directory' key from the JSON
+   *                  configuration is used (default: top level).
    * @return A pointer to the imported NGnTree object, or nullptr on failure.
    */
-  static NGnTree * Import(const std::string & jsonFile);
+  static NGnTree * Import(const std::string & jsonFile, const std::string & filename = "",
+                          const std::string & directory = "");
+
+  /**
+   * @brief Imports an NGnTree from a configuration already in memory.
+   *
+   * The same work as the JSON-file overload, from a configuration the caller built itself — a form's
+   * filled JSON, say — rather than from a JSON file. (A bare string literal is ambiguous at a call site
+   * once this overload exists, since nlohmann's `json` also constructs from `const char *`: pass a
+   * `std::string` to reach the file overload.)
+   *
+   * @param cfg The configuration, in the same shape the JSON file holds.
+   * @param filename Optional input ROOT file name; empty takes the configuration's own.
+   * @param directory Optional directory inside the ROOT file prepended before each object name.
+   * @return A pointer to the imported NGnTree object, or nullptr on failure.
+   */
+  static NGnTree * Import(const json & cfg, const std::string & filename = "", const std::string & directory = "");
 
   /**
    * @brief Imports an NGnTree from a specified file.

@@ -218,6 +218,23 @@ public:
               const json & options = json::object());
 
   /**
+   * @brief Ask the client to open a dialog that offers **several things to do**, one per tab.
+   *
+   * The four-argument overload with `tabs`: an array of `{"label", "schema", "action", "submit"}`, where
+   * only the label is required — a tab without a form or an action uses the dialog's own. The dialog's
+   * `schema`/`action` should be the **first** tab's, so a client that knows nothing of tabs (an older
+   * build) still does the first thing.
+   *
+   * @param title Dialog heading.
+   * @param schema JSON Schema of the first tab's form — what a tab-less client shows.
+   * @param action The request the first tab's submit makes.
+   * @param options Extra dialog options, e.g. `{{"submit", "Project"}}`.
+   * @param tabs The tabs, in order.
+   */
+  void Dialog(const std::string & title, const json & schema, const json & action, const json & options,
+              const json & tabs);
+
+  /**
    * @brief An action a click can carry out, shaped the way the UI expects one.
    *
    * The UI adds the click's own `args` (the clicked bin, the container) beside `payload` when it

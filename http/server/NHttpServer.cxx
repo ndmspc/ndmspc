@@ -2452,7 +2452,13 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     // fObjectsMap["_httpServer"] = this;
 
     NHistoryEntry * historyEntry = nullptr;
-    if (fUseHistory) {
+    // A **transient** POST is not a step: it runs on the node it hangs off, adds nothing to the combination
+    // tree and its drawing belongs to the click that made it. Recording one would leave an entry no node
+    // accounts for - restored, the room would replay a click nobody made - and it is what used to push a
+    // group's entry count out of step with its chain, which cost a rebuild (and a reshape) for a click.
+    const bool transientPost =
+        !method.CompareTo("POST") && in.is_object() && in.value("transient", false);
+    if (fUseHistory && !transientPost) {
       if (!method.CompareTo("POST")) {
         NLogTrace("Adding history entry for path: %s", fullpath.Data());
         historyEntry = new NHistoryEntry(fullpath.Data(), method.Data());
@@ -2484,7 +2490,11 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
       }
       else {
         if (!method.CompareTo("POST")) {
-          fWorkspace.RemoveEntry(static_cast<int>(fWorkspace.GetEntries().size()) - 1);
+          // Only the entry this request added is taken back: a request that added none (a transient click)
+          // must not take the step before it.
+          if (historyEntry != nullptr) {
+            fWorkspace.RemoveEntry(static_cast<int>(fWorkspace.GetEntries().size()) - 1);
+          }
         }
       }
     }
@@ -2657,24 +2667,30 @@ bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, 
   Ndmspc::NInstanceTree tree(fWorkspace.GetCombinations());
 
   // Only this group's live chain moves: another group's combination - and the file it has open - is its
-  // own, and materializing this one must leave it alone. The removal is scoped to the route's group
-  // (NWorkspace::RemoveEntry), so taking this group's divergent entry takes its chain with it and
-  // nothing else. `fEntries` holds one entry per live node; if that ever disagrees with the group's
-  // active path, rebuild from scratch rather than truncate the wrong node.
-  const auto                   active = tree.Active(group);
+  // own, and materializing this one must leave it alone. Removal is by the **node** each entry was made
+  // for, which is what tells one session of a group from another when both ran the same route.
   std::vector<NHistoryEntry *> mine;
   for (auto * entry : fWorkspace.GetEntries()) {
     if (Ndmspc::NInstanceTree::GroupOf(entry->GetName()) == group) mine.push_back(entry);
   }
 
-  size_t keep = 0;
-  while (keep < active.size() && keep < path.size() && active[keep] == path[keep]) keep++;
-  if (mine.size() != active.size()) {
-    if (!mine.empty()) fWorkspace.RemoveEntry(mine.front()->GetName());
-    keep = 0;
+  // How much of the path the room already holds: the longest prefix whose every node has a live entry.
+  // Asked of the **nodes**, not of how many entries this group has: a group holds several sessions at
+  // once - two browser files, a step run twice - so a disagreement in counts says nothing about *this*
+  // chain, and rebuilding one for that would re-run its steps to serve a click: a reshape, minutes of
+  // work, for a histogram nobody asked to be redrawn.
+  std::set<std::string> live;
+  for (auto * entry : mine) {
+    if (entry != nullptr && !entry->GetNode().empty()) live.insert(entry->GetNode());
   }
-  else if (keep < mine.size()) {
-    fWorkspace.RemoveEntry(mine[keep]->GetName());
+
+  size_t keep = 0;
+  while (keep < path.size() && live.count(path[keep]) == 1) keep++;
+
+  // Un-run what this chain holds beyond the live prefix, newest first and each by its own node, so the
+  // replay below rebuilds exactly what is missing.
+  for (size_t i = path.size(); i > keep; i--) {
+    if (live.count(path[i - 1]) == 1) fWorkspace.RemoveEntryByNode(path[i - 1]);
   }
 
   // Replay what is not live yet.

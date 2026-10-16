@@ -1,0 +1,19 @@
+{
+  "type": "thnsparse",
+  "objects": [
+    {
+      "name": "hsparse",
+      "type": "THnSparse"
+    }
+  ],
+  "axes": ["Children", "Grade"],
+  "titles": {
+    "Children": "Number of Children",
+    "Grade": "Grade"
+  },
+  "binning": {
+    "Service": [[3]]
+  },
+  "projections": [["Age"], ["Age", "Nation"]],
+  "outputFile": "/tmp/cernstaff_ngnt.root"
+}
