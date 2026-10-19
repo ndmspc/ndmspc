@@ -1484,13 +1484,24 @@ void toolBrowser()
                     // The dialog opens on its fields, one at a time: what each is, then the first
                     // task. The spotlight lands on the dialog's own anchors — `field:<name>`
                     // for a field, `field:<name>:<column>` for a column of its axes table.
+                    json{{"show", "dialog-tabs"},
+                         {"body", "The dialog offers two things to do with this sparse: **Project** it — "
+                                  "this tour — and **Import to NGnTree**, which has a tour of its own. "
+                                  "The strip above the form picks one."}},
+                    // The tab this tour is about, before its form: what the thing is, then the fields that
+                    // make it. The other tab is left to its own tour rather than described twice.
+                    json{{"show", "dialog-tab:0"},
+                         {"body", "**Project** is the tab this tour uses: its form *is* the projection — "
+                                  "the axes to project, the range to cut, the bins to group — and the "
+                                  "button at its foot runs it."}},
                     json{{"show", "field:name"},
                          {"body", "The projection's name — the tab it gets in the pads view, and "
                                   "the histogram's name. Leave it `projection`, or name it to "
                                   "give the projection a canvas of its own."}},
                     json{{"show", "field:axes:axis"},
-                         {"body", "The axes table: one row per axis, here its number (where the "
-                                  "projection will put it) and its name."}},
+                         {"body", "The axes table: one row per axis, by **name** (`2, Age` is row 2, "
+                                  "the axis named Age). The `#` beside it is where the projection "
+                                  "will put it."}},
                     json{{"show", "field:axes:bins"},
                          {"body", "How many bins the axis has — what the projection keeps unless "
                                   "you rebin it."}},
@@ -1523,7 +1534,144 @@ void toolBrowser()
                          {"body", "Tick THREE axes (e.g. 2, Age, 3, Service, 4, Children), then "
                                   "press Project for the 3D projection."}},
                     json{{"show", "pads"},
-                         {"body", "A 3D projection — the tour ends here."}},
+                         {"body", "A 3D projection — and with that, all three. One last round: the same "
+                                  "sparse with a rebin, and the macro read before it runs."}},
+                    // The same dialog again, now with a setting that the macro has to show: the rebin is
+                    // what the code turns into a `RebinX`, so it is the one thing worth doing to it.
+                    json{{"action", group + "/browse"},
+                         {"click", "hsparse"},
+                         {"advanceOn", "action-dialog"}},
+                    json{{"show", "field:axes:rebin"},
+                         {"body", "On the `2, Age` row, set rebin to `5`: five of its bins become one. "
+                                  "That is the setting the next card reads out of the form."}},
+                    json{{"show", "dialog-preview"},
+                         {"advanceOn", "dialog-macro"},
+                         {"next", false},
+                         {"body", "**Preview the macro**: the call the room would make with *these* "
+                                  "settings, in a pane of its own so the form stays as you left it — "
+                                  "nothing is run, the room only writes the macro. Click it: the pane "
+                                  "opening is what carries the tour on."}},
+                    json{{"show", "dialog-macro"},
+                         {"body", "The macro for this form: the axes it projects, the ranges and rebins it "
+                                  "cuts with — the rebin you just set is the `RebinX(5)` line — and the "
+                                  "drawing at the end. This is what the room makes of the settings."}},
+                    json{{"show", "macro-copy"},
+                         {"body", "**Copy** takes the whole macro as text: what to paste into a macro of "
+                                  "your own."}},
+                    json{{"show", "macro-download"},
+                         {"body", "**Download** saves it as `hsparse_project.C` — an unnamed macro that "
+                                  "runs as it stands (`root -l -b -q hsparse_project.C`)."}},
+                    json{{"show", "dialog-macro"},
+                         {"body", "Close the pane with the ✕ above, or Escape. The form is where you left "
+                                  "it, rebin and all."}},
+                    json{{"show", "dialog"},
+                         {"body", "Now press **Project**: the same projection as the 3D one before, with "
+                                  "Age rebinned."}},
+                    json{{"show", "pads"},
+                         {"body", "The Age axis is five times coarser in the drawing — what the macro "
+                                  "called a `RebinX(5)`. The tour ends here."}},
+                })}},
+          // The third: the same sparse, imported to an NGnTree file and walked in the NGNT explorer — the
+          // other thing the same dialog offers. Its own tour rather than steps added to the one above: the
+          // two are alternatives, and a reader picks the one they came for.
+          json{{"name", "Import a THnSparse (cernstaff.root) to NGnTree (ngnt)"},
+               {"description",
+                "Open the local cernstaff.root and import its 11-dimensional hsparse to an NGnTree file — "
+                "the axes the tree varies over, their titles and rebins, and the projections made for every "
+                "bin — then take the room's offer to open it in the NGNT explorer."},
+               {"order", 3},
+               {"steps",
+                json::array({
+                    json{{"show", "stepBlock"},
+                         {"action", group + "/open"},
+                         {"params", {{"file", "cernstaff.root"}}},
+                         {"body", "Open the local cernstaff.root — its path is already in the form. "
+                                  "Press Save & Run."}},
+                    json{{"show", "saveAndRun"}, {"body", "Run it to open the file."}},
+                    // Straight to the object: the sparse is clicked and the dialog opens, with no card
+                    // between the two saying so. The dialog is then on its second tab — the same object,
+                    // the other thing to do with it.
+                    json{{"action", group + "/browse"},
+                         {"click", "hsparse"},
+                         {"advanceOn", "action-dialog"}},
+                    // The tab this tour is about: the user presses it, so the card has no Next. What moves
+                    // it on is the form appearing — and the field it waits for is one only *this* tab has
+                    // (`axesTitles`), so the tour cannot take the Project tab's own `axes` for it.
+                    json{{"show", "dialog-tab:1"},
+                         {"advanceOn", "field:axesTitles"},
+                         {"next", false},
+                         {"body", "**Import to NGnTree**: the form is the configuration the importer is "
+                                  "handed — the same shape as the JSON a batch job would be given. Click "
+                                  "the tab: its form appearing is what carries the tour on."}},
+                    json{{"show", "field:axes"},
+                         // The card waits on the form itself: `needs` is what the next steps depend on, and
+                         // Next stays disabled until exactly those axes are picked (`needsMet`).
+                         {"needs", {{"field", "axes"}, {"equals", {"Service", "Children", "Grade", "Step"}}}},
+                         {"body", "The list of axes the tree will vary over. Click it and select **four** "
+                                  "of them — one dimension per axis, so four axes make a 4D space: "
+                                  "**Service**, **Children**, **Grade**, **Step**. Next comes alive once "
+                                  "those four are picked."}},
+                    json{{"show", "field:axesTitles"},
+                         {"body", "One row per chosen axis: the title it gets in the tree, and a rebin. "
+                                  "The titles start from the sparse' own, so edit only the ones you want "
+                                  "to read differently."}},
+                    json{{"show", "field:projections"},
+                         {"body", "What is projected **for every bin**: add a combination of axes per "
+                                  "projection. This is what you will look at when walking the tree."}},
+                    json{{"show", "field:outputFile"},
+                         {"body", "Where the NGnTree file is written. A plain name lands in the room's own "
+                                  "**Storage** — the button in the room's toolbar — which is local to the "
+                                  "room and lives only as long as it does. Any URL with write access to "
+                                  "remote storage that `TFile` supports will work — an EOS/xrootd URL such "
+                                  "as `root://<host>/<path>`, for example — but only when the room holds "
+                                  "credentials for that storage, which by default it does not, and the "
+                                  "import then fails at the write."}},
+                    json{{"show", "field:nProcesses"},
+                         {"body", "How many worker processes the import is split over — the room's own "
+                                  "CPU count to begin with. It is what the room's log shows progress "
+                                  "against."}},
+                    json{{"show", "dialog-bins"},
+                         {"body", "Processing millions of bins can take a long time — the resources for "
+                                  "it are not there — so a limit on how many bins one import may make has "
+                                  "been set. This form says what it would make against that limit, and "
+                                  "holds the button over it: rebin an axis, or pick fewer, before a long "
+                                  "run rather than after it."}},
+                    json{{"show", "dialog-preview"},
+                         {"advanceOn", "dialog-macro"},
+                         {"next", false},
+                         {"body", "**Preview the macro** reads the exact call the importer would be given "
+                                  "— the configuration the form set, and the variables the parallel run "
+                                  "sets. Click it: the pane opening is what carries the tour on."}},
+                    // The content, not the pane: what its buttons do is the macro tour's subject (the
+                    // fourth round), and this one is about what *this* form turns into.
+                    // Read, then close: the card has no Next, and a card whose target goes away is what
+                    // moves the tour on — so closing the pane is the way forward, into pressing Import.
+                    json{{"show", "dialog-macro"},
+                         {"next", false},
+                         {"body", "The macro this form describes: the configuration the importer is handed "
+                                  "— the axes the tree varies over, their titles and rebins, the projections "
+                                  "made for every bin, where the file is written — and then the call itself, "
+                                  "with the variables the parallel run sets (`NDMSPC_MAX_PROCESSES`). This is "
+                                  "what the import becomes, and it runs as it stands elsewhere. Close the "
+                                  "pane when you have read it: the tour carries on from there."}},
+                    // The button itself, told at the foot of the dialog: the user presses it, so there is no
+                    // Next — and reading on is what the dialog closing does, which is when the import it
+                    // ran has finished (the card follows its target going away, as the macro pane's does).
+                    json{{"show", "dialog-submit"},
+                         {"next", false},
+                         {"body", "Press **Import**. It can take a while: the room's log shows the "
+                                  "progress, the dialog waits for the answer, and Cancel stops waiting."}},
+                    // The notice the run leaves behind, pointed at once it is there: the card waits for it
+                    // (a target that is not on screen yet is what `await` is for), so the ring lands on the
+                    // answer — the file it wrote and the step it offers — rather than on nothing.
+                    json{{"show", "notice"},
+                         {"body", "When it finishes, this notice names the file it wrote — "
+                                  "`<object>_ngnt.root`, the name the form gave it — and offers to open it. "
+                                  "**Leave it for now**: the NGNT explorer has a tour of its own (*The NGNT "
+                                  "workflow*, from Help), and it is better walked first — open this file "
+                                  "from the room's **Storage** when you get there. The notice is the "
+                                  "shortcut for when you already know your way around. The tour ends "
+                                  "here."}},
                 })}},
       }),
   });
