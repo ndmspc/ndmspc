@@ -75,6 +75,10 @@ configure_file(
   "${CMAKE_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh"
 )
 
+# Runs all tutorial macros in the current directory; shipped so a fresh installation
+# can reproduce the set of files the tutorials produce (see ci/Dockerfile.base).
+INSTALL(PROGRAMS scripts/ndmspc-tutorials.sh DESTINATION bin RENAME ndmspc-tutorials)
+
 if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
   INSTALL(FILES ${CMAKE_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh DESTINATION /etc/profile.d/)
   INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)

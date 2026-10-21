@@ -51,15 +51,7 @@ RUN --mount=type=bind,from=builder,source=/builder/build/RPMS/x86_64,target=/rpm
 # ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
 USER 1000
 WORKDIR /ndmspc
-RUN export NDMSPC_LOG_CONSOLE=0; export NDMSPC_LOG_RUN=1; root -b -q /usr/share/ndmspc/tutorial/02_storage/NStorage01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/03_parameter/NParameter01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/04_customization/NCustomization01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/05_single_bining/NSingleBinning01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/05_single_bining/NSingleBinning01Gaus.C'("NNested01Gaus.root")' && \
-  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C && \
-  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01Gaus.C'("NBinnings01Gaus_odd.root",true)' && \
-  root -b -q /usr/share/ndmspc/tutorial/06_binnings/NBinnings01GausStress.C && \
-  root -b -q /usr/share/ndmspc/macros/root/cernstaff/tree500_cernbuild.C
+RUN ndmspc-tutorials
 
 # Copy only the React build from Stage 1
 
