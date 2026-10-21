@@ -10,6 +10,32 @@ The main documentation is hosted at:
 
 Please use the docs site for installation, usage guides, architecture, and examples.
 
+## OpenSSL
+
+HTTP/AI builds need OpenSSL ≥ 3 (httplib 0.54). CMake chooses it with `NDMSPC_OPENSSL`:
+
+- `auto` (default) — system OpenSSL ≥ 3; falls back to 1.1 if no 3.x is installed;
+- `3` — require OpenSSL ≥ 3;
+- `1.1` — compatibility build (a small gated shim in `cmake/deps.cmake`; uses the bundled
+  httplib, so keep `USE_SYSTEM_HTTPLIB=OFF`).
+
+In an aliBuild environment OpenSSL 1.1 is used by ROOT. The recipe's default (`v1`) builds
+ndmspc against that same 1.1; `system` links the system OpenSSL 3 while ROOT keeps 1.1. In the
+mixed case both libraries coexist (`libssl.so.3` vs `libssl.so.1.1`, matched by exact SONAME),
+so the v1 entry can stay in `LD_LIBRARY_PATH`. The aliBuild recipe (`ci/ndmspc.sh`) selects the
+mode with `NDMSPC_OPENSSL_MODE`:
+
+- `v1` (default) — OpenSSL from `OPENSSL_ROOT` (the aliBuild/ROOT 1.1);
+- `system` — ignore `OPENSSL_ROOT`, use the system OpenSSL ≥ 3;
+- `env` — use OpenSSL ≥ 3 from `OPENSSL_ROOT` (`prefix` is an alias).
+
+Check what a build produced with:
+
+```bash
+scripts/check-openssl.sh        # report the linked OpenSSL versions
+scripts/check-openssl.sh 3      # fail unless ndmspc uses OpenSSL 3
+```
+
 ## Run locally
 
 ```bash

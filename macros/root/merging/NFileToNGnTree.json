@@ -1,0 +1,12 @@
+{
+  "outFile": "merging_ngnt.root",
+  "files": [],
+  "objects": [
+    "*"
+  ],
+  "split": true,
+  "splitBase": ".ndmspc/merge",
+  "chunkAxes": [],
+  "chunkMinBytes": 67108864,
+  "reset": false
+}

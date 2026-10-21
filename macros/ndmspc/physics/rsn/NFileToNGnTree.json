@@ -1,0 +1,20 @@
+{
+  "outFile": "chunk_merging_ngnt.root",
+  "files": [],
+  "objects": ["phianalysis-t-hn-sparse_tpctof/*"],
+  "split": true,
+  "splitBase": ".ndmspc/chunktest",
+  "chunkAxes": [
+    {
+      "objects": ["phianalysis-t-hn-sparse_tpctof/rotation"],
+      "axes": [
+        {
+          "axis": 2,
+          "bins": 4
+        }
+      ],
+      "chunkMinBytes": 0
+    }
+  ],
+  "chunkMinBytes": 67108864
+}

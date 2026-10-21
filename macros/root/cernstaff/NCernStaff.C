@@ -13,7 +13,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
 {
 
   std::string fn = filename;
-  if (gSystem->AccessPathName(fn.c_str())) {
+  if (!Ndmspc::NUtils::AccessPathName(fn)) {
     // If the file is not found in the current directory, try to find it in the macro directory
     fn = gSystem->DirName(gInterpreter->GetCurrentMacroName());
     fn += "/";
@@ -21,7 +21,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
   }
 
   // Open the file
-  TFile * file = TFile::Open(fn.c_str());
+  TFile * file = Ndmspc::NUtils::OpenFile(fn);
   if (!file || file->IsZombie()) {
     NLogError("NCernStaff::Failed to open file %s", filename.c_str());
     return;
@@ -118,7 +118,7 @@ void NCernStaff(int nThreads = 1, std::string outFile = "/tmp/NCernStaff_ngnt.ro
     std::string filename =
         cfg.contains("input") && cfg["input"].contains("filename") ? cfg["input"]["filename"].get<std::string>() : "";
     if (!filename.empty()) {
-      TFile * file = TFile::Open(filename.c_str());
+      TFile * file = Ndmspc::NUtils::OpenFile(filename);
       if (!file || file->IsZombie()) {
         NLogError("NCernStaff: Cannot open file '%s'", filename.c_str());
         return;

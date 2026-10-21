@@ -3,18 +3,19 @@
 #include <TInterpreter.h>
 #include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 
 void NImportTHnSparse(std::string jsonFile = "import_cernstaff.json", std::string filename = "cernstaff.root")
 {
   std::string macroDir = gSystem->DirName(gInterpreter->GetCurrentMacroName());
 
-  if (gSystem->AccessPathName(jsonFile.c_str())) {
+  if (!Ndmspc::NUtils::AccessPathName(jsonFile)) {
     std::string alt = macroDir + "/" + jsonFile;
-    if (!gSystem->AccessPathName(alt.c_str())) jsonFile = alt;
+    if (Ndmspc::NUtils::AccessPathName(alt)) jsonFile = alt;
   }
-  if (gSystem->AccessPathName(filename.c_str())) {
+  if (!Ndmspc::NUtils::AccessPathName(filename)) {
     std::string alt = macroDir + "/" + filename;
-    if (!gSystem->AccessPathName(alt.c_str())) filename = alt;
+    if (Ndmspc::NUtils::AccessPathName(alt)) filename = alt;
   }
 
   Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Import(jsonFile, filename);

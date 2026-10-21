@@ -3,12 +3,16 @@ cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
 set(PROJECT_VERSION "9999.0.0" CACHE STRING "Project version")
 set(PROJECT_VERSION_RELEASE "1" CACHE STRING "Project release version")
+# Version reported by the binaries. Empty falls back to the numeric PROJECT_VERSION and
+# PROJECT_VERSION_RELEASE; aliBuild (ci/ndmspc.sh) passes the git describe/tag value here.
+set(NDMSPC_VERSION "" CACHE STRING "Version reported by the binaries")
+set(NDMSPC_VERSION_RELEASE "" CACHE STRING "Release reported by the binaries")
 project(ndmspc VERSION ${PROJECT_VERSION} DESCRIPTION "NDMSPC")
 
 message(STATUS "Project version: ${PROJECT_VERSION}-${PROJECT_VERSION_RELEASE}")
 
 option(WITH_HTTP "Compile with HTTP part" ON)
-option(WITH_UI "Compile with UI part" OFF)
+option(WITH_UI "Compile with UI part" ON)
 option(WITH_TUI "Compile the terminal UIs (http/tui)" OFF)
 option(WITH_HEP "Compile with HEP part" ON)
 # option(WITH_PARQUET "Compile with Parquet support" OFF)

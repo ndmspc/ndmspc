@@ -1,0 +1,27 @@
+{
+  "inputFile": ".ndmspc/merge",
+  "outFile": "merged_ngnt.root",
+  "inputSplit": false,
+  "objects": [
+    "*"
+  ],
+  "excludeObjects": [],
+  "mergeTypes": [
+    "TH1",
+    "TH2",
+    "TH3",
+    "TProfile",
+    "THnSparse",
+    "TEfficiency"
+  ],
+  "onUnsupported": "keepFirst",
+  "force": false,
+  "combine": true,
+  "combineChunks": false,
+  "serializeBytes": 67108864,
+  "processes": 2,
+  "mode": "ipc",
+  "port": 5555,
+  "stallTimeout": 3600,
+  "reset": false
+}

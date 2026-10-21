@@ -4,10 +4,14 @@
 #include <jwt-cpp/jwt.h>
 #include <nlohmann/json.hpp>
 #include <openssl/bn.h>
-#include <openssl/core_names.h>
 #include <openssl/evp.h>
-#include <openssl/param_build.h>
+#include <openssl/opensslv.h>
 #include <openssl/pem.h>
+#include <openssl/rsa.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -54,6 +58,11 @@ std::string RsaJwkToPem(const json & jwk)
   const auto exponent = DecodeBase64Url(jwk.at("e").get<std::string>());
   BIGNUM * n = BN_bin2bn(modulus.data(), modulus.size(), nullptr);
   BIGNUM * e = BN_bin2bn(exponent.data(), exponent.size(), nullptr);
+
+  std::string pem;
+
+  // OpenSSL 1.1 compatibility: remove this branch together with OpenSSL 1.1 support.
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
   OSSL_PARAM_BLD * builder = OSSL_PARAM_BLD_new();
   EVP_PKEY_CTX * context = EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr);
   OSSL_PARAM * params = nullptr;
@@ -74,12 +83,39 @@ std::string RsaJwkToPem(const json & jwk)
   }
   char * data = nullptr;
   const auto size = BIO_get_mem_data(bio, &data);
-  std::string pem(data, static_cast<size_t>(size));
+  pem.assign(data, static_cast<size_t>(size));
   BIO_free(bio);
   EVP_PKEY_free(key);
   OSSL_PARAM_free(params);
   EVP_PKEY_CTX_free(context);
   OSSL_PARAM_BLD_free(builder);
+#else
+  RSA * rsa = RSA_new();
+  if (!n || !e || !rsa || RSA_set0_key(rsa, n, e, nullptr) != 1) {
+    RSA_free(rsa);
+    BN_free(n);
+    BN_free(e);
+    throw std::runtime_error("Cannot convert RSA JWK");
+  }
+  n = nullptr;
+  e = nullptr;
+
+  EVP_PKEY * key = EVP_PKEY_new();
+  BIO * bio = BIO_new(BIO_s_mem());
+  if (!key || !bio || EVP_PKEY_set1_RSA(key, rsa) != 1 || PEM_write_bio_PUBKEY(bio, key) != 1) {
+    BIO_free(bio);
+    EVP_PKEY_free(key);
+    RSA_free(rsa);
+    throw std::runtime_error("Cannot convert RSA JWK");
+  }
+  char * data = nullptr;
+  const auto size = BIO_get_mem_data(bio, &data);
+  pem.assign(data, static_cast<size_t>(size));
+  BIO_free(bio);
+  EVP_PKEY_free(key);
+  RSA_free(rsa);
+#endif
+
   BN_free(n);
   BN_free(e);
   return pem;

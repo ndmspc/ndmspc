@@ -30,7 +30,9 @@ std::string gIdentityAttr = "cn";
 std::string ExtractIdentityFromX509(::X509 * cert, const std::string & identityAttr)
 {
   if (!cert) return {};
-  const ::X509_NAME * subject = X509_get_subject_name(cert);
+  // X509_get_subject_name() returns const in OpenSSL 3 and non-const in 1.1; the name is only
+  // read below, so the cast keeps both versions compiling.
+  ::X509_NAME * subject = const_cast<::X509_NAME *>(X509_get_subject_name(cert));
   if (!subject) return {};
   if (identityAttr == "cn") {
     const int idx = X509_NAME_get_index_by_NID(subject, NID_commonName, -1);
