@@ -1,0 +1,16 @@
+{
+  "inputFile": ".ndmspc/chunktest",
+  "outFile": "chunk_merged.root",
+  "inputSplit": false,
+  "objects": ["phianalysis-t-hn-sparse_tpctof/*"],
+  "excludeObjects": ["phianalysis-t-hn-sparse_tpctof/unlikemp"],
+  "mergeTypes": ["TH1", "TH2", "TH3", "TProfile", "THnSparse", "TEfficiency"],
+  "onUnsupported": "keepFirst",
+  "force": false,
+  "combine": true,
+  "combineChunks": false,
+  "serializeBytes": 536870912,
+  "processes": 1,
+  "mode": "ipc",
+  "stallTimeout": 3600
+}

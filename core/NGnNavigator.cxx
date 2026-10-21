@@ -811,7 +811,7 @@ void NGnNavigator::Export(const std::string & filename, std::vector<std::string>
   // if filename ends with .root, remove it
   if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".root") {
     NLogInfo("Exporting NGnNavigator to ROOT file: %s", filename.c_str());
-    TFile * file = TFile::Open(filename.c_str(), "RECREATE");
+    TFile * file = NUtils::OpenFile(filename, "RECREATE");
     if (!file || file->IsZombie()) {
       NLogError("Failed to open file: %s", filename.c_str());
       return;

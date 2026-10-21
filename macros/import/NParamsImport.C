@@ -2,6 +2,7 @@
 #include <vector>
 #include <TFile.h>
 #include <ndmspc/core/NLogger.h>
+#include <ndmspc/core/NUtils.h>
 #include <ndmspc/core/NGnTree.h>
 
 void NParamsImport(bool dryrun = false,
@@ -40,7 +41,7 @@ void NParamsImport(bool dryrun = false,
     cfg["objects"][objName+"MC"]["sufix"]    = "/" + objName;
   }
 
-  TFile * fIn = TFile::Open(filename.c_str());
+  TFile * fIn = Ndmspc::NUtils::OpenFile(filename);
 
   if (!fIn || fIn->IsZombie()) {
     NLogError("NParamsImport: Cannot open file '%s' !!!", filename.c_str());

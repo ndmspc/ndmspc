@@ -1,0 +1,35 @@
+{
+  "inputFile": ".ndmspc/chunktest",
+  "objectDirectory": "phianalysis-t-hn-sparse_tpctof",
+  "objects": ["phianalysis-t-hn-sparse_tpctof/unlikepm"],
+  "excludeObjects": [],
+  "axes": [
+    {
+      "name": "pt",
+      "axis": "axis1-pt"
+    },
+    {
+      "name": "ce",
+      "axis": "axis2-ce"
+    }
+  ],
+  "binnings": {
+    "default": {
+      "pt": [
+        [4, 1],
+        [1, 16],
+        [2, 5],
+        [5, 4],
+        [10, 1],
+        [20, 1],
+        [30, 1]
+      ],
+      "ce": [[1, 1], [4, 1], [5, 3], [10, 3], [20, 1], [30]]
+    }
+  },
+  "projectionAxis": 0,
+  "outFile": "binning_ngnt.root",
+  "processes": 1,
+  "mode": "ipc",
+  "stallTimeout": 3600
+}

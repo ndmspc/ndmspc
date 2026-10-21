@@ -236,7 +236,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
 
   cfg["inputFilename"] = tmpFilename;
   cfg["inputObj"]      = "test";
-  TFile * f            = TFile::Open(tmpFilename.c_str(), "RECREATE");
+  TFile * f            = NUtils::OpenFile(tmpFilename, "RECREATE");
   if (!f || f->IsZombie()) {
     NLogError("NGnTree::Import: Cannot create temporary file '%s' for input !!!", tmpFilename.c_str());
     SafeDelete(ngnt);
@@ -275,7 +275,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       std::string inFilename = cfg["inputFilename"].get<std::string>();
       NLogDebug("NGnTree::Import: Opening input file '%s' ...", inFilename.c_str());
       TFile * fTmp = gFile;
-      fIn          = TFile::Open(inFilename.c_str());
+      fIn          = NUtils::OpenFile(inFilename);
       if (!fIn || fIn->IsZombie()) {
         NLogError("NGnTree::Import: Cannot open input file '%s' !!!", inFilename.c_str());
         return;
@@ -349,7 +349,7 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
           f->Close();
         }
         NLogDebug("NGnTree::Import: Opening file '%s' ...", filename.c_str());
-        f = TFile::Open(filename.c_str());
+        f = NUtils::OpenFile(filename);
         if (!f || f->IsZombie()) {
           NLogError("NGnTree::Import: Cannot open file '%s' !!!", filename.c_str());
           return;
@@ -958,30 +958,39 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const std::vector<std::string> & d
       processWorkers.push_back(&threadDataVector[i]);
     }
     ipcExecutor = std::make_unique<Ndmspc::NDimensionalExecutor>(std::vector<int>{0}, std::vector<int>{0});
-    if (useTcp) {
-      const char * tcpPort           = gSystem->Getenv("NDMSPC_TCP_PORT");
-      std::string  tcpEndpoint       = std::string("tcp://0.0.0.0:") + (tcpPort ? tcpPort : "5555");
-      const char * resultsDirBaseEnv = gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR");
-      std::string  resultsDirBaseAbs;
-      if (resultsDirBaseEnv && resultsDirBaseEnv[0] != '\0') {
-        resultsDirBaseAbs = resultsDirBaseEnv;
-        if (!gSystem->IsAbsoluteFileName(resultsDirBaseAbs.c_str()) && !launchCwd.empty()) {
-          resultsDirBaseAbs = launchCwd + "/" + resultsDirBaseAbs;
+    // Starting the workers can fail — a TCP run with no worker connected times out — and nothing has
+    // been dispatched yet, so report it as a failed run rather than letting the exception escape.
+    try {
+      if (useTcp) {
+        const char * tcpPort           = gSystem->Getenv("NDMSPC_TCP_PORT");
+        std::string  tcpEndpoint       = std::string("tcp://0.0.0.0:") + (tcpPort ? tcpPort : "5555");
+        const char * resultsDirBaseEnv = gSystem->Getenv("NDMSPC_TMP_RESULTS_DIR");
+        std::string  resultsDirBaseAbs;
+        if (resultsDirBaseEnv && resultsDirBaseEnv[0] != '\0') {
+          resultsDirBaseAbs = resultsDirBaseEnv;
+          if (!gSystem->IsAbsoluteFileName(resultsDirBaseAbs.c_str()) && !launchCwd.empty()) {
+            resultsDirBaseAbs = launchCwd + "/" + resultsDirBaseAbs;
+          }
         }
+        const char * macroParams = gSystem->Getenv("NDMSPC_MACRO_PARAMS");
+        // Auto-detect the macro to send to workers: explicit SetWorkerMacro() takes
+        // priority; otherwise fall back to NDMSPC_MACRO set by ndmspc-run.
+        std::string workerMacro = fWorkerMacroList;
+        if (workerMacro.empty()) {
+          if (const char * envMacro = gSystem->Getenv("NDMSPC_MACRO")) workerMacro = envMacro;
+        }
+        ipcExecutor->StartProcessIpc(processWorkers, nProcesses, tcpEndpoint, resultsDir,
+                                     fTreeStorage->GetTree()->GetName(), workerMacro, tmpDir,
+                                     resultsDirBaseAbs.empty() ? "" : resultsDirBaseAbs, macroParams ? macroParams : "");
       }
-      const char * macroParams = gSystem->Getenv("NDMSPC_MACRO_PARAMS");
-      // Auto-detect the macro to send to workers: explicit SetWorkerMacro() takes
-      // priority; otherwise fall back to NDMSPC_MACRO set by ndmspc-run.
-      std::string workerMacro = fWorkerMacroList;
-      if (workerMacro.empty()) {
-        if (const char * envMacro = gSystem->Getenv("NDMSPC_MACRO")) workerMacro = envMacro;
+      else {
+        ipcExecutor->StartProcessIpc(processWorkers, nProcesses);
       }
-      ipcExecutor->StartProcessIpc(processWorkers, nProcesses, tcpEndpoint, resultsDir,
-                                   fTreeStorage->GetTree()->GetName(), workerMacro, tmpDir,
-                                   resultsDirBaseAbs.empty() ? "" : resultsDirBaseAbs, macroParams ? macroParams : "");
     }
-    else {
-      ipcExecutor->StartProcessIpc(processWorkers, nProcesses);
+    catch (const std::exception & ex) {
+      NLogError("NGnTree::Process: failed to start workers: %s", ex.what());
+      ipcExecutor.reset();
+      return false;
     }
   }
 
@@ -1410,7 +1419,7 @@ NGnTree * NGnTree::Open(const std::string & filename, const std::string & branch
   NLogDebug("Opening '%s' with branches='%s' and treename='%s' ...", filename.c_str(), branches.c_str(),
             treename.c_str());
 
-  TFile * file = TFile::Open(filename.c_str());
+  TFile * file = NUtils::OpenFile(filename);
   if (!file) {
     NLogError("NGnTree::Open: Cannot open file '%s'", filename.c_str());
     return nullptr;
@@ -1840,7 +1849,7 @@ std::string NGnTree::ExportResourceStatistics(std::string binningName)
       TString::Format("%p|%s|%p|%.0f", (void *)this, binningName.c_str(), (void *)hns, hns->GetEntries()).Data();
 
   auto it = sResourceNavImportCache.find(cacheKey);
-  if (it != sResourceNavImportCache.end() && gSystem->AccessPathName(it->second.c_str(), kFileExists) == kFALSE) {
+  if (it != sResourceNavImportCache.end() && NUtils::AccessPathName(it->second)) {
     NLogTrace("NGnTree::ExportResourceStatistics: Reusing cached export '%s'", it->second.c_str());
     return it->second;
   }
@@ -2104,7 +2113,7 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
     if (!fIn) {
       std::string inFilename = cfg["inputFile"].get<std::string>();
       TFile *     fTmp       = gFile;
-      fIn                    = TFile::Open(inFilename.c_str());
+      fIn                    = NUtils::OpenFile(inFilename);
       if (!fIn || fIn->IsZombie()) {
         NLogError("NGnTree::Import: Cannot open input file '%s' !!!", inFilename.c_str());
         return;
@@ -2486,7 +2495,7 @@ NGnTree * NGnTree::ImportSimple(const std::string & findPath, const std::string 
            paramsHistoName.c_str());
 
   std::vector<std::string> paramNames;
-  TFile *                  fIn     = TFile::Open(paths[0].c_str());
+  TFile *                  fIn     = NUtils::OpenFile(paths[0]);
   TH1 *                    hParams = (TH1 *)fIn->Get(paramsHistoName.c_str());
   if (!hParams) {
     NLogWarning("NGnTree::ImportSimple: Parameters histogram '%s' not found in file '%s' !!!", paramsHistoName.c_str(),
@@ -2532,7 +2541,7 @@ NGnTree * NGnTree::ImportSimple(const std::string & findPath, const std::string 
     std::vector<std::string> parameterNames = cfg["parameters"].get<std::vector<std::string>>();
 
     NLogInfo("NGnTree::ImportSimple: Opening file '%s' ...", filename.c_str());
-    TFile * fIn = TFile::Open(filename.c_str());
+    TFile * fIn = NUtils::OpenFile(filename);
     if (!fIn) {
       NLogError("NGnTree::ImportSimple: File '%s' was not found or could not be opened ...", filename.c_str());
       return;

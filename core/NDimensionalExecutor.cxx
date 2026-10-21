@@ -6,7 +6,10 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <limits>
 #include <queue>
+#include <thread>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -76,6 +79,58 @@ void RestoreIpcSigIntHandler(const struct sigaction & oldAction, bool hasOldActi
   gIpcSigIntRequested = 0;
 }
 } // namespace
+
+#if defined(__linux__)
+// CPU time (utime+stime, in ticks) and read bytes of a live worker process. Returns false when
+// the process is gone or /proc cannot be read.
+static bool ReadWorkerCounters(pid_t pid, unsigned long long & cpuTicks, unsigned long long & readChars)
+{
+  cpuTicks  = 0;
+  readChars = 0;
+  if (pid <= 0) return false;
+
+  char   path[64];
+  char   buf[4096];
+  FILE * f = nullptr;
+
+  std::snprintf(path, sizeof(path), "/proc/%d/stat", static_cast<int>(pid));
+  f = std::fopen(path, "r");
+  if (f == nullptr) return false;
+  const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+  std::fclose(f);
+  if (n == 0) return false;
+  buf[n] = '\0';
+
+  const char * p = std::strrchr(buf, ')'); // comm can contain spaces and parentheses
+  if (p == nullptr) return false;
+
+  // After ')' the fields start at #3 (state); utime is #14 and stime #15.
+  unsigned long long utime = 0, stime = 0;
+  const char *       tok   = p + 1;
+  for (int field = 3; field <= 15 && *tok != '\0'; ++field) {
+    while (*tok == ' ') ++tok;
+    if (*tok == '\0') break;
+    if (field == 14) utime = std::strtoull(tok, nullptr, 10);
+    if (field == 15) stime = std::strtoull(tok, nullptr, 10);
+    while (*tok != '\0' && *tok != ' ') ++tok;
+  }
+  cpuTicks = utime + stime;
+
+  std::snprintf(path, sizeof(path), "/proc/%d/io", static_cast<int>(pid));
+  f = std::fopen(path, "r");
+  if (f != nullptr) {
+    char line[256];
+    while (std::fgets(line, sizeof(line), f) != nullptr) {
+      if (std::strncmp(line, "rchar:", 6) == 0) {
+        readChars = std::strtoull(line + 6, nullptr, 10);
+        break;
+      }
+    }
+    std::fclose(f);
+  }
+  return true;
+}
+#endif
 
 /**
  * @brief Internal IPC session state used by `NDimensionalExecutor`.
@@ -1122,6 +1177,19 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
       }
     }
   }
+  // IPC: optional cap on in-flight messages per worker (unlimited by default). Setting it to 1
+  // gives each worker exactly one bin at a time, which keeps slow, uneven work balanced.
+  size_t ipcMaxInFlightPerWorker = std::numeric_limits<size_t>::max();
+  if (!fIpcSession->isTcp) {
+    if (const char * envPerWorker = gSystem->Getenv("NDMSPC_IPC_MAX_INFLIGHT_PER_WORKER")) {
+      try {
+        ipcMaxInFlightPerWorker = std::max<size_t>(1, static_cast<size_t>(std::stoull(envPerWorker)));
+      }
+      catch (...) {
+        NLogWarning("NGnTree::Process: Invalid NDMSPC_IPC_MAX_INFLIGHT_PER_WORKER='%s', ignored", envPerWorker);
+      }
+    }
+  }
 
   int stallTimeoutSec = 120;
   if (const char * envStallTimeout = gSystem->Getenv("NDMSPC_IPC_STALL_TIMEOUT")) {
@@ -1134,6 +1202,40 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
     }
   }
   auto lastProgress = std::chrono::steady_clock::now();
+
+  // A single task can legitimately run far longer than the stall timeout (merging multi-GB
+  // THnSparse objects produces no ACK until it finishes). Before declaring a stall, probe the
+  // worker processes: if any is still consuming CPU or reading data, treat it as progress.
+  auto workersAreMakingProgress = [&]() -> bool {
+#if defined(__linux__)
+    if (fIpcSession->isTcp || fIpcSession->childPids.empty()) return false;
+
+    using Counters = std::pair<unsigned long long, unsigned long long>;
+    auto readAll   = [&](std::unordered_map<pid_t, Counters> & out) {
+      out.clear();
+      for (pid_t pid : fIpcSession->childPids) {
+        unsigned long long cpu = 0, io = 0;
+        if (ReadWorkerCounters(pid, cpu, io)) out[pid] = {cpu, io};
+      }
+    };
+
+    std::unordered_map<pid_t, Counters> before, after;
+    readAll(before);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    readAll(after);
+
+    for (const auto & [pid, counters] : after) {
+      const auto it = before.find(pid);
+      if (it != before.end() && (counters.first > it->second.first || counters.second > it->second.second)) {
+        return true;
+      }
+    }
+    return false;
+#else
+    (void)fIpcSession;
+    return false;
+#endif
+  };
 
   fCurrentCoords = fMinBounds;
   bool hasMore = true;
@@ -1327,33 +1429,43 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
     while ((hasMore || fIpcSession->taskStateManager.HasPending()) && outstandingMessages < maxInFlightMessages && firstError.empty()) {
       if (fIpcSession->workerIdentityVec.empty()) break; // no workers yet — wait
       
-      // Skip workers that have been marked as failed
-      size_t workerSlot = dispatchMessageId % fIpcSession->workerIdentityVec.size();
-      std::string identity = fIpcSession->workerIdentityVec[workerSlot];
-      
-      // In TCP mode, skip failed workers and find next available worker
-      if (fIpcSession->isTcp) {
-        size_t attempts = 0;
-        bool   foundCandidate = false;
-        while (attempts < fIpcSession->workerIdentityVec.size()) {
-          const bool isFailed = fIpcSession->failedTcpWorkers.count(identity) > 0;
-          const auto inFlightIt = inFlightMessagesPerWorker.find(identity);
-          const size_t workerInFlight = (inFlightIt != inFlightMessagesPerWorker.end()) ? inFlightIt->second : 0;
-          if (!isFailed && workerInFlight < tcpMaxInFlightPerWorker) {
-            foundCandidate = true;
-            break;
-          }
-          ++dispatchMessageId;
-          ++attempts;
-          workerSlot = dispatchMessageId % fIpcSession->workerIdentityVec.size();
-          identity = fIpcSession->workerIdentityVec[workerSlot];
-        }
-        // If no worker is eligible (failed or already at per-worker in-flight cap),
-        // pause dispatch and wait for ACKs.
-        if (!foundCandidate) {
-          break;
+      // Choose an eligible worker, preferring the least loaded one. Strict round-robin gives
+      // every worker the same *number* of tasks, so one worker can be stuck on a long task
+      // while another sits idle even though it could take more work. Eligibility also covers
+      // the per-worker in-flight cap (see NDMSPC_IPC_MAX_INFLIGHT_PER_WORKER) and failed TCP
+      // workers.
+      const auto inFlightOf = [&](const std::string & id) -> size_t {
+        const auto it = inFlightMessagesPerWorker.find(id);
+        return it == inFlightMessagesPerWorker.end() ? 0 : it->second;
+      };
+      const size_t perWorkerCap = fIpcSession->isTcp ? tcpMaxInFlightPerWorker : ipcMaxInFlightPerWorker;
+      const auto   eligible     = [&](const std::string & id) -> bool {
+        if (fIpcSession->isTcp && fIpcSession->failedTcpWorkers.count(id) > 0) return false;
+        return inFlightOf(id) < perWorkerCap;
+      };
+
+      const size_t nWorkers   = fIpcSession->workerIdentityVec.size();
+      size_t       workerSlot = dispatchMessageId % nWorkers;
+      bool         found      = false;
+      size_t       bestLoad   = 0;
+
+      for (size_t k = 0; k < nWorkers; k++) {
+        const size_t        slot      = (workerSlot + k) % nWorkers;
+        const std::string & candidate = fIpcSession->workerIdentityVec[slot];
+        if (!eligible(candidate)) continue;
+
+        const size_t load = inFlightOf(candidate);
+        if (!found || load < bestLoad) {
+          found      = true;
+          workerSlot = slot;
+          bestLoad   = load;
         }
       }
+
+      // Every worker is at its cap (or failed): pause dispatch and wait for ACKs.
+      if (!found) break;
+
+      const std::string identity = fIpcSession->workerIdentityVec[workerSlot];
       
       std::vector<std::pair<size_t, std::vector<int>>> batchTasks;
       const size_t nw              = fIpcSession->workerIdentityVec.size();
@@ -1585,14 +1697,23 @@ size_t NDimensionalExecutor::ExecuteCurrentBoundsProcessIpc(const std::string & 
         const auto now       = std::chrono::steady_clock::now();
         const auto stallSecs = std::chrono::duration_cast<std::chrono::seconds>(now - lastProgress).count();
         if (stallSecs >= stallTimeoutSec) {
-          const size_t activeWorkers = fIpcSession->workerIdentityVec.size();
-          if (activeWorkers == 0) {
-            firstError = "No workers available. All workers have disconnected/failed with " +
-                         std::to_string(outstanding) + " pending tasks remaining.";
-          } else {
-            firstError = "No IPC/TCP ACK progress for " + std::to_string(stallSecs) + "s with " +
-                         std::to_string(outstanding) + " pending tasks (active workers: " + 
-                         std::to_string(activeWorkers) + ").";
+          if (workersAreMakingProgress()) {
+            NLogDebug("NGnTree::Process: no ACK for %lld s, but the workers are still active - extending "
+                      "the stall timeout",
+                      stallSecs);
+            lastProgress = now;
+          }
+          else {
+            const size_t activeWorkers = fIpcSession->workerIdentityVec.size();
+            if (activeWorkers == 0) {
+              firstError = "No workers available. All workers have disconnected/failed with " +
+                           std::to_string(outstanding) + " pending tasks remaining.";
+            }
+            else {
+              firstError = "No IPC/TCP ACK progress for " + std::to_string(stallSecs) + "s with " +
+                           std::to_string(outstanding) + " pending tasks (active workers: " +
+                           std::to_string(activeWorkers) + ").";
+            }
           }
         }
       }

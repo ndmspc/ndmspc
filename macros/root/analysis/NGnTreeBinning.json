@@ -1,0 +1,14 @@
+{
+  "inputFile": "",
+  "objectDirectory": "",
+  "objects": ["*"],
+  "excludeObjects": [],
+  "axes": [],
+  "binnings": {},
+  "projectionAxis": 0,
+  "outFile": "binning_ngnt.root",
+  "processes": 2,
+  "mode": "ipc",
+  "port": 5555,
+  "stallTimeout": 3600
+}

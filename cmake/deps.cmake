@@ -61,6 +61,9 @@ ndmspc_find_or_fetch(
 )
 
 if (WITH_HTTP OR WITH_AI)
+  # httplib requires OpenSSL >= 3; NDMSPC_OPENSSL=1.1 keeps a gated compatibility build.
+  set(NDMSPC_OPENSSL "auto" CACHE STRING "OpenSSL selection: auto, 3 or 1.1")
+  set(NDMSPC_OPENSSL_ALLOW_1_1 ON CACHE BOOL "Allow the auto mode to fall back to OpenSSL 1.1")
   find_package(OpenSSL REQUIRED)
 
   # httplib >= 0.54 is required for the WebSocket client's client-certificate
@@ -81,6 +84,36 @@ if (WITH_HTTP OR WITH_AI)
     REQUIRED
     NO_ADD_SUBDIRECTORY
   )
+
+  # httplib 0.54 requires OpenSSL >= 3. In the 1.1 compatibility build the only post-1.1
+  # symbol it uses is SSL_get1_peer_certificate, which is the same call as
+  # SSL_get_peer_certificate in 1.1 (both return an incremented reference).
+  # Remove this block together with the OpenSSL 1.1 support.
+  if(NDMSPC_OPENSSL_MAJOR VERSION_LESS 3)
+    if(USE_SYSTEM_HTTPLIB)
+      message(FATAL_ERROR
+        "OpenSSL 1.1 requires the bundled httplib (the compatibility shim patches httplib.h); "
+        "configure with -DUSE_SYSTEM_HTTPLIB=OFF.")
+    endif()
+
+    set(_httplib_header "${HTTPLIB_INCLUDE_DIRS}/httplib.h")
+    if(NOT EXISTS "${_httplib_header}")
+      message(FATAL_ERROR "OpenSSL 1.1: cannot find the fetched httplib header at '${_httplib_header}'")
+    endif()
+
+    file(READ "${_httplib_header}" _httplib_text)
+    string(REPLACE
+      "#error Sorry, OpenSSL versions prior to 3.0.0 are not supported"
+      "#define SSL_get1_peer_certificate SSL_get_peer_certificate /* ndmspc: OpenSSL 1.1 compat; remove with 1.1 support */"
+      _httplib_text "${_httplib_text}")
+    if(_httplib_text MATCHES "OpenSSL versions prior to 3\\.0\\.0")
+      message(FATAL_ERROR
+        "OpenSSL 1.1: the httplib compatibility shim no longer matches the fetched header; "
+        "update the shim in cmake/deps.cmake.")
+    endif()
+    file(WRITE "${_httplib_header}" "${_httplib_text}")
+    message(STATUS "HTTPLIB: applied the OpenSSL 1.1 compatibility shim")
+  endif()
 endif()
 
 if (WITH_HTTP)

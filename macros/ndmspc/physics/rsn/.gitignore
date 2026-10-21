@@ -1,0 +1,5 @@
+.ndmspc/
+*.root
+*.log
+*.txt
+chunk_merged*

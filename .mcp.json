@@ -3,7 +3,7 @@
     "ndmspc-ngnt-http": {
       "transport": "http",
       "enabled": true,
-      "url": "http://localhost:8080/api/mcp"
+      "url": "http://127.0.0.1:8080/api/mcp"
     }
   }
 }

@@ -200,6 +200,16 @@ bool IsDirectoryClass(const std::string & className)
   return cl != nullptr && cl->InheritsFrom(TDirectory::Class());
 }
 
+/// Whether a key's class is a `TList` (or a subclass), i.e. a container the browser shows as a folder.
+///
+/// A list has no `TDirectory` API, but its entries are objects like any other: listing them makes a
+/// `TList` (e.g. a binning's output list) browsable instead of an opaque leaf.
+bool IsListClass(const std::string & className)
+{
+  TClass * cl = TClass::GetClass(className.c_str());
+  return cl != nullptr && cl->InheritsFrom(TList::Class());
+}
+
 /// Whether a key's class is a THnSparse (a `THnSparseT<T>`), which jsroot cannot draw directly.
 ///
 /// A sparse key is a leaf in the tree: clicking it opens the projection dialog rather than drawing,
@@ -950,6 +960,104 @@ json BranchNodes(TTree * tree, const std::string & key)
   return nodes;
 }
 
+/// One entry of a list named by a path segment.
+///
+/// The entry's own name is tried first; `name~<index>` (duplicate names) and `#<index>` (unnamed
+/// entries) are the fallbacks the listing uses to keep ids unique.
+TObject * ListEntryAt(TList * list, const std::string & segment)
+{
+  if (list == nullptr || segment.empty()) return nullptr;
+
+  if (segment[0] == '#') {
+    try {
+      const int index = std::stoi(segment.substr(1));
+      if (index >= 0 && index < list->GetEntries()) return list->At(index);
+    }
+    catch (...) {
+      return nullptr;
+    }
+    return nullptr;
+  }
+
+  if (TObject * found = list->FindObject(segment.c_str())) return found;
+
+  const auto tilde = segment.rfind('~');
+  if (tilde != std::string::npos) {
+    try {
+      const int index = std::stoi(segment.substr(tilde + 1));
+      if (index >= 0 && index < list->GetEntries()) return list->At(index);
+    }
+    catch (...) {
+      // not an index suffix - no entry
+    }
+  }
+  return nullptr;
+}
+
+/// The nodes of a `TList`: its entries, by the same rules a directory applies to its keys.
+///
+/// An entry keeps its own name as the node id; a name held more than once gets `~<index>` appended
+/// (the list index), so ids stay unique and `ListEntryAt` can find the entry again from a click.
+json ListEntries(TList * list, const std::string & prefix, const std::set<std::string> & expanded)
+{
+  json nodes = json::array();
+  if (list == nullptr) return nodes;
+
+  std::map<std::string, int> occurrences;
+  for (int i = 0; i < list->GetEntries(); i++) {
+    TObject * entry = list->At(i);
+    if (entry != nullptr) occurrences[entry->GetName()]++;
+  }
+
+  for (int i = 0; i < list->GetEntries(); i++) {
+    TObject * entry = list->At(i);
+    if (entry == nullptr) continue;
+
+    const std::string name = entry->GetName() != nullptr ? entry->GetName() : "";
+    std::string       id   = name.empty() ? "#" + std::to_string(i) : name;
+    if (!name.empty() && occurrences[name] > 1) id += "~" + std::to_string(i);
+
+    const std::string path = ChildKey(prefix, id);
+    const std::string cls  = entry->ClassName() != nullptr ? entry->ClassName() : "";
+
+    json node;
+    node["id"]     = path;
+    node["label"]  = name.empty() ? id : name;
+    node["detail"] = cls;
+
+    if (IsSparseClass(cls)) {
+      node["action"] = SparseAction(path);
+    }
+    else if (IsListClass(cls)) {
+      node["expandable"] = true;
+      node["action"]     = LsAction(path);
+      node["loadAction"] = LsAction(path);
+      if (expanded.count(path) != 0) {
+        node["children"] = ListEntries(dynamic_cast<TList *>(entry), path, expanded);
+        node["loaded"]   = true;
+      }
+    }
+    else if (IsTreeClass(cls)) {
+      node["expandable"] = true;
+      node["action"]     = DrawAction(path);
+      node["loadAction"] = LsAction(path);
+      if (expanded.count(path) != 0) {
+        json children = BranchNodes(dynamic_cast<TTree *>(entry), path);
+        if (!children.empty()) {
+          node["children"] = children;
+          node["loaded"]   = true;
+        }
+      }
+    }
+    else {
+      node["action"] = DrawAction(path);
+    }
+
+    nodes.push_back(node);
+  }
+  return nodes;
+}
+
 /// One level of a directory: a node per key. A folder recurses only into the paths the caller has
 /// expanded; a TTree lists its branches when expanded. A leaf's action draws it.
 json ListDirectory(TDirectory * dir, const std::string & prefix, const std::set<std::string> & expanded)
@@ -968,7 +1076,8 @@ json ListDirectory(TDirectory * dir, const std::string & prefix, const std::set<
     const bool        folder = IsDirectoryClass(key->GetClassName());
     const bool        tree   = !folder && IsTreeClass(key->GetClassName());
     const bool        ngnt   = tree && name == kNgntTree;
-    const bool        sparse = !folder && !tree && IsSparseClass(key->GetClassName());
+    const bool        list   = !folder && !tree && IsListClass(key->GetClassName());
+    const bool        sparse = !folder && !tree && !list && IsSparseClass(key->GetClassName());
 
     json node;
     node["id"]     = path;
@@ -1008,6 +1117,17 @@ json ListDirectory(TDirectory * dir, const std::string & prefix, const std::set<
         }
       }
     }
+    else if (list) {
+      // A TList has no TDirectory API, but its entries are ordinary objects: list them the way a
+      // folder lists its keys, so a binning's output list is browsable instead of an opaque leaf.
+      node["expandable"] = true;
+      node["action"]     = LsAction(path);
+      node["loadAction"] = LsAction(path);
+      if (expanded.count(path) != 0) {
+        node["children"] = ListEntries(dynamic_cast<TList *>(dir->Get(name.c_str())), path, expanded);
+        node["loaded"]   = true;
+      }
+    }
     else if (sparse) {
       // A THnSparse has no jsroot renderer, so a click opens the projection dialog rather than drawing
       // the object itself; the dialog lists its axes and projects the chosen ones.
@@ -1019,6 +1139,53 @@ json ListDirectory(TDirectory * dir, const std::string & prefix, const std::set<
     nodes.push_back(node);
   }
   return nodes;
+}
+
+/// The object a key names, descending into `TList` entries as well as directories.
+///
+/// `TFile::Get` only walks `TDirectory` levels, so a key like `outputs/default/unlikepm` stops at the
+/// list. The walk here continues into list entries (see {@link ListEntryAt}). When it had to pass
+/// through a list it returns a **clone**, so the caller owns the result (the handlers `Release` what
+/// they read from a file); a plain directory key still returns exactly what `TFile::Get` returned.
+TObject * ObjectAt(TFile * file, const std::string & key)
+{
+  if (file == nullptr || key.empty()) return nullptr;
+
+  std::vector<std::string> parts;
+  for (size_t start = 0; start <= key.size();) {
+    const auto slash = key.find('/', start);
+    parts.push_back(key.substr(start, slash == std::string::npos ? std::string::npos : slash - start));
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+
+  TObject * current = file;
+  bool      viaList = false;
+
+  for (size_t i = 0; i < parts.size(); i++) {
+    if (current == nullptr) return nullptr;
+
+    if (auto * dir = dynamic_cast<TDirectory *>(current)) {
+      // Try the remaining path in one Get first - that is what the plain case always did.
+      std::string rest;
+      for (size_t j = i; j < parts.size(); j++) rest = rest.empty() ? parts[j] : rest + "/" + parts[j];
+      if (TObject * object = dir->Get(rest.c_str())) return viaList ? object->Clone() : object;
+
+      current = dir->Get(parts[i].c_str());
+      continue;
+    }
+
+    if (auto * list = dynamic_cast<TList *>(current)) {
+      viaList = true;
+      current = ListEntryAt(list, parts[i]);
+      continue;
+    }
+
+    return nullptr; // a leaf has no children
+  }
+
+  if (current == nullptr) return nullptr;
+  return viaList ? current->Clone() : current;
 }
 
 /// The node ids a request names as its own step (`path`), in order, or none when it names none.
@@ -1242,7 +1409,7 @@ bool RecordPick(Ndmspc::NRouteContext & ctx, const std::vector<std::string> & pa
   std::string cls = "TObject";
   if (!key.empty()) {
     if (TFile * file = OpenFileOf(ctx)) {
-      if (TObject * object = file->Get(key.c_str())) cls = object->ClassName();
+      if (TObject * object = ObjectAt(file, key)) cls = object->ClassName();
     }
   }
 
@@ -1799,7 +1966,7 @@ void toolBrowser()
 
       if (file != nullptr) CloseBrowserFile(ctx);
 
-      TFile * opened = TFile::Open(filename.c_str());
+      TFile * opened = Ndmspc::NUtils::OpenFile(filename);
       if (opened == nullptr || opened->IsZombie()) {
         if (opened != nullptr) delete opened;
         NLogError("[browser] Failed to open ROOT file: %s", filename.c_str());
@@ -1893,7 +2060,7 @@ void toolBrowser()
         TObject *   object = nullptr;
         std::string label  = key;
         if (!branch.empty()) {
-          TTree * tree = dynamic_cast<TTree *>(file->Get(key.c_str()));
+          TTree * tree = dynamic_cast<TTree *>(ObjectAt(file, key));
           if (tree == nullptr) {
             ctx.Result("No tree at key: " + key);
             return;
@@ -1906,7 +2073,7 @@ void toolBrowser()
           label  = branch;
         }
         else {
-          object = file->Get(key.c_str());
+          object = ObjectAt(file, key);
           if (object != nullptr) label = StripCycle(object->GetName());
         }
 
@@ -1951,7 +2118,7 @@ void toolBrowser()
           return;
         }
 
-        THnSparse * sparse = dynamic_cast<THnSparse *>(file->Get(key.c_str()));
+        THnSparse * sparse = dynamic_cast<THnSparse *>(ObjectAt(file, key));
         if (sparse == nullptr) {
           ctx.Result("No THnSparse at key: " + key);
           return;
@@ -2013,7 +2180,7 @@ void toolBrowser()
           return;
         }
 
-        THnSparse * sparse = dynamic_cast<THnSparse *>(file->Get(key.c_str()));
+        THnSparse * sparse = dynamic_cast<THnSparse *>(ObjectAt(file, key));
         if (sparse == nullptr) {
           ctx.Result("No THnSparse at key: " + key);
           return;
@@ -2099,7 +2266,7 @@ void toolBrowser()
           return;
         }
 
-        THnSparse * sparse = dynamic_cast<THnSparse *>(file->Get(key.c_str()));
+        THnSparse * sparse = dynamic_cast<THnSparse *>(ObjectAt(file, key));
         if (sparse == nullptr) {
           ctx.Result("No THnSparse at key: " + key);
           return;
@@ -2139,7 +2306,7 @@ void toolBrowser()
           return;
         }
 
-        THnSparse * sparse = dynamic_cast<THnSparse *>(file->Get(key.c_str()));
+        THnSparse * sparse = dynamic_cast<THnSparse *>(ObjectAt(file, key));
         if (sparse == nullptr) {
           ctx.Result("No THnSparse at key: " + key);
           return;

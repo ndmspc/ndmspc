@@ -2,6 +2,8 @@
 #define NdmspcCoreNUtils_H
 
 #include <set>
+#include <string>
+#include <utility>
 #include <vector>
 #include <TFile.h>
 #include <TCanvas.h>
@@ -15,6 +17,19 @@
 #include "NLogger.h"
 
 namespace Ndmspc {
+
+/// Default configuration of NUtils::FileToNGnTree() — the contents of
+/// `macros/root/merging/NFileToNGnTree.json`.
+extern const json NFileToNGnTreeDefaults;
+
+/// Default configuration of NUtils::NGnTreeMerge() — the contents of
+/// `macros/root/merging/NGnTreeMerge.json`.
+extern const json NGnTreeMergeDefaults;
+
+/// Default configuration of NUtils::NGnTreeBinning() — the contents of
+/// `macros/root/analysis/NGnTreeBinning.json`.
+extern const json NGnTreeBinningDefaults;
+
 ///
 /// \class NUtils
 ///
@@ -50,6 +65,18 @@ class NUtils : TObject {
    * @return True if accessible, false otherwise.
    */
   static bool AccessPathName(std::string path);
+
+  /**
+   * @brief Check whether a path is a split-output directory (a local directory with
+   *        `manifest.json`).
+   *
+   * Remote URLs are never treated as split bases: the split output is written locally
+   * (partials, locks, resume checks all use the local filesystem).
+   *
+   * @param path Path to check.
+   * @return True when @p path is a local split-output directory.
+   */
+  static bool IsSplitBase(const std::string & path);
 
   /**
    * @brief Check if a file is supported.
@@ -114,6 +141,20 @@ class NUtils : TObject {
    * @return true if the file was loaded and parsed successfully, false otherwise.
    */
   static bool LoadJsonFile(json & cfg, std::string filename);
+
+  /**
+   * @brief Load a JSON file, resolving a relative path against a base directory.
+   *
+   * The path is expanded ('~' and environment variables) and tried as given; when it does not
+   * exist, `<baseDir>/<path>` is tried next. This is the "relative to the macro directory" lookup
+   * the merging macros use; the file is merged over whatever @p cfg already holds (the defaults).
+   *
+   * @param cfg      json object the file is merged into.
+   * @param filename Path of the JSON file (may be relative).
+   * @param baseDir  Fallback directory (e.g. the macro directory); may be empty.
+   * @return true when the file was found and parsed.
+   */
+  static bool LoadJsonFileRelative(json & cfg, const std::string & filename, const std::string & baseDir);
 
   /**
    * @brief Type describing raw JSON injections.
@@ -253,6 +294,40 @@ class NUtils : TObject {
    */
   static TAxis * CreateAxisFromLabelsSet(const std::string & name, const std::string & title,
                                          const std::set<std::string> & labels);
+
+  /// Return the chunk labels (e.g. "0_1") whose ranges overlap the requested box.
+  ///
+  /// \param h          Any histogram carrying the original axes (e.g. a chunk file's object).
+  /// \param chunkAxes  The `chunks.axes` spec from the split manifest / merge sidecar. Accepted
+  ///                   forms: `[{"axis":0,"bins":4}]` (equal ranges), `[{"axis":0,
+  ///                   "bins":["25_1_1","25_1_2"]}]` (explicit descriptors) or
+  ///                   `[{"axis":0,"rebin":25,"start":1,"ids":[1,2]}]` or
+  ///                   `[{"axis":0,"groups":[{"rebin":10,"start":1,"ids":[1]}, ...]}]`. A chunk
+  ///                   label is the bin's ordinal in the axis definition (1..K), in spec order
+  ///                   (`1_2`); `CreateChunkBinning` gives the `<rebin>_<start>_<id>` descriptors.
+  /// \param box        Requested `[lo, hi]` per chunk axis, in spec order. Missing entries mean
+  ///                   the full axis range; `lo > hi` yields no chunks.
+  ///
+  /// Range edges are inclusive on the upper side (ROOT's FindBin convention), so a request ending
+  /// exactly on a chunk boundary also selects the next chunk (conservative, never misses data).
+  static std::vector<std::string> FindChunks(THnBase * h, const json & chunkAxes,
+                                             const std::vector<std::pair<double, double>> & box = {});
+
+  /// Same, taking the manifest object entry (`objectEntry["chunks"]["axes"]`). Returns an empty
+  /// vector when the object has no chunks.
+  static std::vector<std::string> FindChunks(const json & objectEntry, THnBase * h,
+                                             const std::vector<std::pair<double, double>> & box = {});
+
+  /// Build the chunk bin labels (`<rebin>_<start>_<id>`) for one axis from a binning
+  /// specification — the same way a binning definition is created, but **without** creating or
+  /// filling the mapping histogram. Accepted specs:
+  ///   `{"bins": K}`                        K equal ranges
+  ///   `{"bins": [1, 26, 51, ...]}`         explicit 1-based bin edges (last = nbins+1)
+  ///   `{"bins": ["25_1_1", ...]}`          explicit `{rebin, start, id}` descriptors
+  ///   `{"widths": [[25, 4], ...]}`         width groups, as in a binning definition
+  ///   `{"rebin": R, "start": S, "ids": [...]}` or `{"rebin": R, "start": S, "id": I}`
+  /// Returns an empty vector when the spec is invalid or does not tile the axis.
+  static std::vector<std::string> CreateChunkBinning(TAxis * axis, const json & spec);
 
   /**
    * @brief Convert TH1 to THnSparse.
@@ -638,6 +713,64 @@ class NUtils : TObject {
    * @param obj Pointer reference to the object. Set to nullptr after deletion.
    */
   static void SafeDeleteObject(TObject *& obj);
+
+  /**
+   * @brief Build a 1D NGnTree from a list of ROOT files and the objects they hold.
+   *
+   * Creates a 1D NGnTree whose categorical axis carries the input file names as bin labels and
+   * runs a process that opens each file and writes the selected objects as one branch per object
+   * (one entry per file). The resulting file is the input of NGnTreeMerge().
+   *
+   * @param cfg        Configuration object (files[], objects[], outFile); the defaults are
+   *                   NFileToNGnTreeDefaults.
+   * @param outFile    Output file; overrides the configuration's 'outFile' when non-empty.
+   * @param filesTxt   Optional text file with one input file path per line, overriding 'files'.
+   * @param objectsCsv Optional comma-separated object list appended to 'objects'.
+   * @param macroDir   Directory used as a fallback when resolving relative paths.
+   * @return true when the processing completed successfully.
+   */
+  static bool FileToNGnTree(const json & cfg = NFileToNGnTreeDefaults, const std::string & outFile = "",
+                            const std::string & filesTxt = "", const std::string & objectsCsv = "",
+                            const std::string & macroDir = "");
+
+  /**
+   * @brief Merge the objects of an NGnTree file across all of its entries.
+   *
+   * Uses one NGnTree process whose axis is the object names: each bin merges one object and
+   * writes its partial file (`<outFile>.<object>.root`, restoring the source directory layout),
+   * and the partials are combined into `<outFile>` at the end. Bins run in parallel when the
+   * configuration or the NDMSPC_* environment asks for several processes.
+   *
+   * @param cfg            Configuration object (inputFile, outFile, objects[], mergeTypes[],
+   *                       onUnsupported, force, combine, processes, mode, port); the defaults are
+   *                       NGnTreeMergeDefaults.
+   * @param outFile        Base name for the partials and the combined file; overrides 'outFile'.
+   * @param objectsCsv     Optional comma-separated object list appended to 'objects'.
+   * @param deletePartials Remove the requested objects' partials (and the combined file) first.
+   * @param macroDir       Directory used as a fallback when resolving relative paths.
+   * @return true when the processing completed successfully.
+   */
+  static bool NGnTreeMerge(const json & cfg = NGnTreeMergeDefaults, const std::string & outFile = "",
+                           const std::string & objectsCsv = "", bool deletePartials = false,
+                           const std::string & macroDir = "");
+
+  /**
+   * @brief Build an NGnTree from selected THnSparse objects, with several binnings, and project
+   *        each object to one chosen observable axis per bin.
+   *
+   * Input is either a ROOT file (objects at `<objectDirectory>/<name>`) or a split base
+   * (a directory with `manifest.json`): in the latter case each object's chunks and per-input
+   * files are added into one in-memory object, cached per worker.
+   *
+   * The NGnTree axes are clones of the requested source axes (renamed), several binning
+   * definitions are added from `binnings`, and the process function sets the bin's axis ranges,
+   * projects every object (`THnSparse::Projection`) and stores its entries as a parameter.
+   *
+   * @param cfg      Configuration (see NGnTreeBinningDefaults).
+   * @param macroDir Directory used as a fallback when resolving relative paths.
+   * @return true when the processing completed successfully.
+   */
+  static bool NGnTreeBinning(const json & cfg = NGnTreeBinningDefaults, const std::string & macroDir = "");
 
   /// \cond CLASSIMP
   ClassDef(NUtils, 0);
