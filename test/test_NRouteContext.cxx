@@ -115,6 +115,20 @@ TEST(NRouteContextShow, ShowRootPacksAJsrootObject)
   EXPECT_FALSE(c.ctx.HasError());
 }
 
+TEST(NRouteContextShow, ShowRootCarriesExtraMembers)
+{
+  TH1D histogram("h", "h;x;y", 4, 0.0, 1.0);
+  Ctx  c;
+
+  const json nested = {{"children", {{"mean", json::array({json{{"fName", "hMean"}}})}}}};
+  c.ctx.ShowRoot(&histogram, "pad1", "", "", json::object(), false, {{"nested", nested}});
+
+  const json written = pads(c);
+  ASSERT_EQ(written.size(), 1u);
+  EXPECT_EQ(written[0]["value"]["_typename"], "TH1D");
+  EXPECT_EQ(written[0]["value"]["nested"]["children"]["mean"][0]["fName"], "hMean");
+}
+
 TEST(NRouteContextShow, ShowRootWithoutAnObjectIsAnError)
 {
   Ctx c;

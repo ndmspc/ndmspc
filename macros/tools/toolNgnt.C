@@ -309,7 +309,7 @@ std::string DrillLabel(Ndmspc::NGnNavigator * navCurrent, const std::vector<int>
  * @return How many layers were drawn; none at all is a failure the caller reports.
  */
 size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, const std::string & pad,
-                       const json & drill, bool replace)
+                       const json & drill, bool replace, const json & nested = json())
 {
   const size_t           nLevels = nav->GetNLevels();
   Ndmspc::NGnNavigator * at      = nav;
@@ -341,7 +341,12 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
       // another combination included); a drill appends its layers to what is there.
       // The tab keeps the layer's own label: it is what identifies the tab, so anything that changes
       // with a drill would make a new tab instead of replacing the same one.
-      ctx.ShowRoot(proj, pad, LayersLabel(proj), "", json{{"click", clicks}}, replace && drew == 0);
+      // The first layer is the mapping histogram; it carries the navigator's nested export, as the
+      // older `httpNgnt` map did on its list. The deeper layers are projections of the same data and
+      // do not repeat it.
+      const json extra =
+          (drew == 0 && nested.is_object() && !nested.empty()) ? json{{"nested", nested}} : json::object();
+      ctx.ShowRoot(proj, pad, LayersLabel(proj), "", json{{"click", clicks}}, replace && drew == 0, extra);
       drew++;
     }
     // The next layer down: the first child this level has. Not `GetChild(0)` - a bin is a ROOT bin
@@ -1175,8 +1180,8 @@ void toolNgnt()
       }
       if (httpIn.contains("averages") && httpIn["averages"].is_boolean()) averages = httpIn["averages"].get<bool>();
 
+      json nested;
       if (nav->GetLevel() == 0) {
-        json nested;
         json exportCfg;
         exportCfg["averages"] = averages;
         nav->ExportToJson(nested, nav, std::vector<std::string>{}, exportCfg);
@@ -1191,7 +1196,7 @@ void toolNgnt()
       // One envelope per layer, so the pad tabs them: the projection at this level and then the first
       // child's at each level below. The object goes as the projection itself, never as a list, which
       // jsroot would draw into one canvas, item on top of item.
-      if (RenderMapLayers(ctx, nav, mappingPad, json::array(), /*replace=*/true) == 0) {
+      if (RenderMapLayers(ctx, nav, mappingPad, json::array(), /*replace=*/true, nested) == 0) {
         NLogError("[Server] map POST: no projection to show for nav=%p", (void *)nav);
         ctx.Result("Failed to get projection for the current navigator level " + std::to_string(nav->GetLevel()) +
                    ", cannot render map");

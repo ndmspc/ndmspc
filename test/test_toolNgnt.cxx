@@ -241,6 +241,36 @@ TEST_F(ToolNgnt, TheChainReadsAsARunnableMacro)
 }
 
 /**
+ * The map's first histogram carries the navigator's nested export (`children` per deeper level), which
+ * the old `httpNgnt` map attached as `listJson["nested"]`. The new layered render must not lose it.
+ */
+TEST_F(ToolNgnt, AMapSendsTheNestedNavigatorExport)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/open", "POST", {{"file", kNgntFile}}).reply["result"], "success");
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/reshape", "POST",
+                        {{"binningName", "default"},
+                         {"levels", json::array({json::array({0}), json::array({1, 2})})}})
+                .reply["result"],
+            "success");
+
+  const Ndmspc::Test::ToolCall mapped = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(mapped.reply["result"], "success") << mapped.reply.dump();
+
+  const json & pads = mapped.ws["payload"]["pad"];
+  ASSERT_TRUE(pads.is_array()) << mapped.ws.dump();
+  ASSERT_FALSE(pads.empty()) << mapped.ws.dump();
+  // The mapping histogram is the first layer; it carries the navigator export the old map attached
+  // as `nested`, with one entry per deeper level.
+  const json & value = pads[0]["value"];
+  ASSERT_TRUE(value.contains("nested")) << mapped.ws.dump();
+  EXPECT_TRUE(value["nested"].contains("children")) << value["nested"].dump();
+}
+
+/**
  * A map run records the layer it stands on, which is what the line it hands on walks to.
  *
  * The line is `nav->GetNavigator({{ state.point }})->GetProjection()` — a walk to the layer the step is on.

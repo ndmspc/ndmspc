@@ -209,7 +209,8 @@ void NRouteContext::Show(const json & value, const std::string & kind, const std
 }
 
 void NRouteContext::ShowRoot(TObject * object, const std::string & pad, const std::string & label,
-                             const std::string & drawOptions, const json & handlers, bool replace)
+                             const std::string & drawOptions, const json & handlers, bool replace,
+                             const json & extra)
 {
   if (object == nullptr) {
     Error("ShowRoot: no object to show");
@@ -228,6 +229,12 @@ void NRouteContext::ShowRoot(TObject * object, const std::string & pad, const st
   } catch (const std::exception & e) {
     Error(std::string("ShowRoot: ") + e.what());
     return;
+  }
+
+  // Members the caller wants on the object but ROOT's serializer does not know about (the map's
+  // nested navigator export is one): they travel beside the histogram's own members.
+  if (extra.is_object()) {
+    for (auto it = extra.begin(); it != extra.end(); ++it) value[it.key()] = it.value();
   }
 
   json options = json::object();
