@@ -52,6 +52,7 @@ Testing
 #*.txt
 compile_commands.json
 .cache
+.precompiled/
 .ndmspc_cache_dir*
 *.root
 !macros/root/cernstaff/cernstaff.root

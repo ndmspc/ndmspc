@@ -79,9 +79,14 @@ configure_file(
 # can reproduce the set of files the tutorials produce (see ci/Dockerfile.base).
 INSTALL(PROGRAMS scripts/ndmspc-tutorials.sh DESTINATION bin RENAME ndmspc-tutorials)
 
+# Builds the ACLiC libraries the server loads for the installed tool macros; the container image
+# runs it once, and a non-container installation can run it after an upgrade.
+INSTALL(PROGRAMS scripts/precompile-macros.sh DESTINATION share/${PROJECT_NAME}/scripts)
+
 if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
   INSTALL(FILES ${CMAKE_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh DESTINATION /etc/profile.d/)
-  INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)
+  INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS
+          PATTERN ".precompiled" EXCLUDE)
   INSTALL(DIRECTORY tutorial DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)
   if(WITH_HTTP)
     INSTALL(FILES etc/systemd/ndmspc-http@.service DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system/)
@@ -100,6 +105,7 @@ if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
     INSTALL(FILES etc/systemd/notebook.default DESTINATION /etc/${PROJECT_NAME}/)
   endif(WITH_JUPYROOT)
 else()
-  INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS)
+  INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS
+          PATTERN ".precompiled" EXCLUDE)
   INSTALL(DIRECTORY tutorial DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS)
 endif()

@@ -24,6 +24,7 @@ include_directories(${MY_INCLUDE_DIRS})
 set(MY_EXTERNAL_LIBS
   ${NLOHMANN_JSON_LIBRARIES}
   ${OpenSSL_LIBRARIES}
+  ${HTTPLIB_PLATFORM_LIBS}
   RHTTP
   NdmspcCore
 )

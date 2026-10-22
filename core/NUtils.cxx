@@ -16,7 +16,10 @@
 #include <chrono>
 #include <TSystem.h>
 #include <TROOT.h>
+#include <TInterpreter.h>
 #include <TPad.h>
+#include <cctype>
+#include <memory>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -1007,6 +1010,134 @@ TMacro * NUtils::OpenMacro(std::string filename)
   m->SetName(basefilename.c_str());
   m->AddLine(content.c_str());
   return m;
+}
+
+namespace {
+
+/// A macro whose content is not a local file cannot have a sibling precompiled library.
+bool IsRemoteMacro(const std::string & filename)
+{
+  return filename.rfind("http://", 0) == 0 || filename.rfind("https://", 0) == 0 || filename.rfind("root://", 0) == 0;
+}
+
+} // namespace
+
+std::string NUtils::PrecompiledMacro(const std::string & filename, std::string & entry, std::string * sourceRoot)
+{
+  entry.clear();
+  if (sourceRoot != nullptr) sourceRoot->clear();
+
+  TString expanded(filename.c_str());
+  gSystem->ExpandPathName(expanded);
+  const std::string path = expanded.Data();
+  if (IsRemoteMacro(path)) return "";
+
+  FileStat_t macroStat;
+  if (gSystem->GetPathInfo(path.c_str(), macroStat) != 0) return "";
+
+  std::string macroDir = gSystem->DirName(path.c_str());
+  if (macroDir.empty()) macroDir = ".";
+
+  std::string cacheDir;
+  const char * envCacheDir = gSystem->Getenv("NDMSPC_MACRO_PRECOMPILED_DIR");
+  if (envCacheDir != nullptr && *envCacheDir != '\0') {
+    cacheDir = envCacheDir;
+  }
+  else {
+    cacheDir = macroDir + "/.precompiled/" + std::to_string(gROOT->GetVersionInt());
+  }
+
+  std::ifstream in(cacheDir + "/precompiled.json");
+  if (!in) return "";
+
+  json manifest;
+  try {
+    in >> manifest;
+  }
+  catch (const std::exception &) {
+    return "";
+  }
+  if (!manifest.is_object()) return "";
+  if (manifest.value("version", 0) != 1) return "";
+  if (manifest.value("root", 0) != gROOT->GetVersionInt()) return "";
+
+  const auto macros = manifest.find("macros");
+  if (macros == manifest.end() || !macros->is_object()) return "";
+
+  const std::string name = gSystem->BaseName(path.c_str());
+  const auto record = macros->find(name);
+  if (record == macros->end() || !record->is_object()) return "";
+
+  const std::string library = record->value("library", "");
+  const std::string function = record->value("entry", "");
+  if (library.empty() || function.empty()) return "";
+  if (record->value("size", static_cast<long long>(-1)) != static_cast<long long>(macroStat.fSize)) return "";
+  if (record->value("mtime", static_cast<long long>(-1)) != static_cast<long long>(macroStat.fMtime)) return "";
+
+  const std::string libraryPath = cacheDir + "/" + library;
+  if (gSystem->AccessPathName(libraryPath.c_str()) != 0) return "";
+
+  entry = function;
+  if (sourceRoot != nullptr) *sourceRoot = manifest.value("sourceRoot", "");
+  return libraryPath;
+}
+
+bool NUtils::ExecMacro(const std::string & filename)
+{
+  TString expanded(filename.c_str());
+  gSystem->ExpandPathName(expanded);
+  const std::string path = expanded.Data();
+
+  bool usePrecompiled = true;
+  if (const char * flag = gSystem->Getenv("NDMSPC_MACRO_PRECOMPILED")) {
+    std::string value(flag);
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
+    if (value == "0" || value == "false" || value == "no" || value == "off") usePrecompiled = false;
+  }
+
+  if (usePrecompiled) {
+    std::string entry;
+    std::string sourceRoot;
+    const std::string library = PrecompiledMacro(path, entry, &sourceRoot);
+    if (!library.empty()) {
+      // The ACLiC dictionary refers to the macro by its path relative to the directory it was
+      // compiled in. That directory is in the image (the installed macro tree), so load from there;
+      // otherwise the dictionary cannot find the source it describes.
+      TString previousDir = gSystem->pwd();
+      if (!sourceRoot.empty() && gSystem->cd(sourceRoot.c_str()) == 0) {
+        NLogWarning("Cannot enter precompiled macro source root '%s' for '%s'", sourceRoot.c_str(), path.c_str());
+      }
+      const int loaded = gSystem->Load(library.c_str());
+      gSystem->cd(previousDir);
+
+      if (loaded < 0) {
+        NLogWarning("Cannot load precompiled macro '%s' from '%s'; interpreting it ...", path.c_str(), library.c_str());
+      }
+      else {
+        const std::string call = entry + "();";
+        long              rc   = gInterpreter->ProcessLine(call.c_str());
+        if (rc < 0) {
+          // A cache from an older build may have no PCM (or one that does not match this tree):
+          // declare the entry explicitly, so cling links the call against the exported symbol.
+          gInterpreter->Declare(("void " + entry + "();").c_str());
+          rc = gInterpreter->ProcessLine(call.c_str());
+        }
+        if (rc >= 0) {
+          NLogInfo("Loaded precompiled macro '%s' from '%s' (ROOT %s)", entry.c_str(), library.c_str(),
+                   gROOT->GetVersion());
+          return true;
+        }
+        NLogWarning("Precompiled macro '%s' from '%s' did not run; interpreting it ...", entry.c_str(),
+                    library.c_str());
+      }
+    }
+  }
+
+  NLogInfo("Executing macro '%s' (interpreted)", path.c_str());
+  std::unique_ptr<TMacro> m(OpenMacro(path));
+  if (!m) return false;
+  m->Exec();
+  return true;
 }
 
 bool NUtils::LoadJsonFile(json & cfg, std::string filename)

@@ -114,6 +114,18 @@ if (WITH_HTTP OR WITH_AI)
     file(WRITE "${_httplib_header}" "${_httplib_text}")
     message(STATUS "HTTPLIB: applied the OpenSSL 1.1 compatibility shim")
   endif()
+
+  # On macOS httplib enables its keychain trust-store backend as soon as OpenSSL support is
+  # compiled in (CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN in httplib.h): its
+  # tls::load_system_certs() then calls CoreFoundation and Security. Those frameworks are not
+  # linked implicitly, so every target that compiles httplib with OpenSSL must link them or
+  # the link fails with undefined _CF*/_Sec* symbols.
+  set(HTTPLIB_PLATFORM_LIBS "")
+  if(APPLE)
+    find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
+    find_library(SECURITY_LIBRARY Security REQUIRED)
+    set(HTTPLIB_PLATFORM_LIBS ${COREFOUNDATION_LIBRARY} ${SECURITY_LIBRARY})
+  endif()
 endif()
 
 if (WITH_HTTP)
@@ -142,6 +154,20 @@ endif()
 
 message(STATUS "Compiling with ZeroMQ IPC support")
 find_package(ZEROMQ REQUIRED)
+
+# aliBuild's ZeroMQ is built with an @rpath install name, and it reaches the link line only as
+# the absolute library path through NdmspcCore's interface - which, unlike a --link-path
+# directory, does not add a runtime search entry. Without this the installed binaries fail with
+# "Library not loaded: @rpath/libzmq.5.dylib".
+if(APPLE)
+  foreach(_zeromq_lib IN LISTS ZEROMQ_LIBRARIES)
+    if(IS_ABSOLUTE "${_zeromq_lib}")
+      get_filename_component(_zeromq_libdir "${_zeromq_lib}" DIRECTORY)
+      list(APPEND CMAKE_INSTALL_RPATH "${_zeromq_libdir}")
+    endif()
+  endforeach()
+  list(REMOVE_DUPLICATES CMAKE_INSTALL_RPATH)
+endif()
 
 find_package(Root REQUIRED)
 include(ROOTMacros)

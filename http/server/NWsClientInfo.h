@@ -19,6 +19,8 @@ class NWsClientInfo {
   std::string fSubject;      ///< Verified token subject ("sub" claim)
   std::string fUsername;     ///< Username associated with the client
   std::string fRole{"owner"}; ///< Allowlist role: "owner" (may write) or "guest" (may only read)
+  std::string fClient;        ///< The client that connected (e.g. ndmspc-ui), from the upgrade query
+  std::string fClientVersion; ///< That client's version, from the upgrade query
   int         fMessageCount; ///< Number of messages sent/received
   std::chrono::system_clock::time_point fConnectedAt; ///< Connection start time
   std::chrono::system_clock::time_point fTokenExpiresAt; ///< Expiry of the client's access token
@@ -108,6 +110,20 @@ class NWsClientInfo {
    * @param username New username.
    */
   void SetUsername(const std::string & username);
+
+  /**
+   * @brief The client that opened the connection (e.g. ndmspc-ui), and its version.
+   * @return The client name ("" when the connection named none).
+   */
+  const std::string & GetClient() const;
+  /// @brief The client's version ("" when the connection named none).
+  const std::string & GetClientVersion() const;
+  /**
+   * @brief Records the client and version a connection identified itself with.
+   * @param client Client name, e.g. ndmspc-ui.
+   * @param version That client's version.
+   */
+  void SetClient(std::string client, std::string version);
 
   /**
    * @brief Increment the message count for the client.

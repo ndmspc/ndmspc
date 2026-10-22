@@ -23,6 +23,9 @@ bool                 NLogger::fgConsoleOutput = true;
 bool                 NLogger::fgFileOutput    = false; // Default: no file logging
 bool                 NLogger::fgRunOutput     = false; // Default: no run-mode console output
 std::string          NLogger::fgProcessName   = "";
+std::deque<NLogger::LogLine> NLogger::fgRecentLines;
+unsigned long long           NLogger::fgLogSeq = 0;
+std::mutex                   NLogger::fgRecentMutex;
 
 NLogger::NLogger()
 {
@@ -380,6 +383,15 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
 
   log_line << message_buf;
 
+  // Keep the newest lines in memory too, so a running server can show them (RecentLines) without
+  // depending on console or file output being enabled.
+  {
+    std::lock_guard<std::mutex> lock(fgRecentMutex);
+    ++fgLogSeq;
+    fgRecentLines.push_back({fgLogSeq, log_line.str()});
+    if (fgRecentLines.size() > kRecentLinesMax) fgRecentLines.pop_front();
+  }
+
   // Thread-safe file output (only if enabled)
   if (fgFileOutput) {
     auto & stream = Instance()->GetThreadStream();
@@ -394,6 +406,69 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
     std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
     std::cout << log_line.str() << std::endl;
   }
+}
+
+std::vector<std::string> NLogger::RecentLines(size_t limit)
+{
+  std::lock_guard<std::mutex> lock(fgRecentMutex);
+  if (limit == 0 || limit > fgRecentLines.size()) limit = fgRecentLines.size();
+  std::vector<std::string> lines;
+  lines.reserve(limit);
+  for (auto it = fgRecentLines.end() - static_cast<std::ptrdiff_t>(limit); it != fgRecentLines.end(); ++it) {
+    lines.push_back(it->text);
+  }
+  return lines;
+}
+
+std::vector<std::string> NLogger::LogSince(unsigned long long after, size_t limit,
+                                           unsigned long long & last, bool & reset)
+{
+  std::lock_guard<std::mutex> lock(fgRecentMutex);
+  last  = fgLogSeq;
+  reset = false;
+
+  const size_t max = (limit == 0 || limit > kRecentLinesMax) ? kRecentLinesMax : limit;
+  if (fgRecentLines.empty()) {
+    // Nothing kept (never logged, or cleared). A cursor at 0 is a first request: there is simply
+    // nothing to send, and the next lines will arrive as a diff.
+    return {};
+  }
+
+  const unsigned long long oldest = fgRecentLines.front().seq;
+  // A first request, a cursor ahead of this process (a restart), or one so far behind that the
+  // lines it missed are gone: answer with the newest tail and let the caller replace its list.
+  if (after == 0 || after > last || after < oldest - 1) {
+    reset = true;
+    std::vector<std::string> lines;
+    const size_t start = fgRecentLines.size() > max ? fgRecentLines.size() - max : 0;
+    lines.reserve(fgRecentLines.size() - start);
+    for (size_t i = start; i < fgRecentLines.size(); ++i) lines.push_back(fgRecentLines[i].text);
+    return lines;
+  }
+
+  std::vector<std::string> lines;
+  for (const auto & entry : fgRecentLines) {
+    if (entry.seq > after) lines.push_back(entry.text);
+  }
+  if (lines.size() > max) {
+    lines.erase(lines.begin(), lines.end() - static_cast<std::ptrdiff_t>(max));
+    reset = true;
+  }
+  return lines;
+}
+
+unsigned long long NLogger::LastLogSeq()
+{
+  std::lock_guard<std::mutex> lock(fgRecentMutex);
+  return fgLogSeq;
+}
+
+void NLogger::ClearRecentLines()
+{
+  std::lock_guard<std::mutex> lock(fgRecentMutex);
+  // The sequence is deliberately not reset: a client's cursor keeps pointing past the lines that
+  // were cleared, so it does not ask for them again and does not receive them if they are gone.
+  fgRecentLines.clear();
 }
 
 void NLogger::RunLog(const char * format, ...)

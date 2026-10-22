@@ -6,6 +6,7 @@
 
 #include <THttpCallArg.h>
 #include <TNamed.h>
+#include <TROOT.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -129,6 +130,9 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
   // A combination written out as a macro the user can run locally: a read, so a room's whole
   // combination is handed on without anything being run again.
   EXPECT_NE(handlers.find("ndmspc/macro"), handlers.end());
+  // The room's recent log lines: what the room view's Logs dialog shows beside the websocket traffic.
+  EXPECT_NE(handlers.find("ndmspc/logs"), handlers.end());
+  EXPECT_NE(tools.find("ndmspc/logs"), tools.end());
   EXPECT_NE(tools.find("ndmspc/health"), tools.end());
   EXPECT_NE(tools.find("ndmspc/state"), tools.end());
   EXPECT_NE(tools.find("ndmspc/group"), tools.end());
@@ -144,7 +148,7 @@ TEST(NBaseActionsTest, RegistersTheServersOwnActionsAndNotTheDebugHelper)
 
   // Registering twice is what a deployment that also loads the deprecated toolBase.C shim does.
   EXPECT_TRUE(Ndmspc::RegisterBaseActions());
-  EXPECT_EQ(handlers.size(), 8u);
+  EXPECT_EQ(handlers.size(), 9u);
 
   // A process that never wired a handler map is told so rather than crashing.
   Ndmspc::gNdmspcHttpHandlers = nullptr;
@@ -292,6 +296,20 @@ std::string RequestAsUser(Ndmspc::NHttpServer * server, const char * method, con
 }
 
 } // namespace
+
+TEST(NHttpServerStateTest, TheRootBootstrapReportsTheRunningRoot)
+{
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  server->SetHttpHandlers(handlers);
+
+  const json state = json::parse(Request(server, "GET", ""));
+  ASSERT_EQ(state["result"], "success") << state.dump();
+  ASSERT_TRUE(state["state"]["server"].contains("root")) << state.dump();
+  EXPECT_EQ(state["state"]["server"]["root"].get<std::string>(), gROOT->GetVersion());
+
+  delete server;
+}
 
 TEST(NHttpServerToolDependencyTest, ADependentActionIsRefusedUntilItsPrerequisiteRuns)
 {

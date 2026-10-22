@@ -4,11 +4,13 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <unordered_map>
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NRoomAccess.h"
+#include "ndmspc/ndmspc.h"
 
 namespace Ndmspc {
 namespace {
@@ -29,6 +31,79 @@ bool IsAuthorizationHeader(std::string name)
   return name == "authorization" || name == "x-ndmspc-user" || name == "x-ndmspc-subject" ||
          name == "x-ndmspc-token-expires" || name == "x-ndmspc-authenticated" ||
          name == "x-ndmspc-room-token";
+}
+
+/// @brief Percent/plus decoding for the two values a websocket upgrade names.
+std::string DecodeQueryValue(const std::string & value)
+{
+  std::string out;
+  out.reserve(value.size());
+  for (size_t i = 0; i < value.size(); ++i) {
+    if (value[i] == '+') {
+      out += ' ';
+    }
+    else if (value[i] == '%' && i + 2 < value.size()) {
+      const std::string hex = value.substr(i + 1, 2);
+      char *            end = nullptr;
+      const long        code = std::strtol(hex.c_str(), &end, 16);
+      if (end != nullptr && *end == '\0') {
+        out += static_cast<char>(code);
+        i += 2;
+      }
+      else {
+        out += value[i];
+      }
+    }
+    else {
+      out += value[i];
+    }
+  }
+  return out;
+}
+
+/// @brief One parameter of a raw query string ("" when absent).
+std::string QueryParam(const std::string & query, const std::string & name)
+{
+  size_t start = 0;
+  while (start <= query.size()) {
+    const size_t      end  = query.find('&', start);
+    const std::string part = query.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    const size_t      equal = part.find('=');
+    if (equal != std::string::npos && part.substr(0, equal) == name) {
+      return DecodeQueryValue(part.substr(equal + 1));
+    }
+    if (end == std::string::npos) break;
+    start = end + 1;
+  }
+  return {};
+}
+
+/// @brief The version every usage event names, so a room's rows say which build produced them.
+std::string UsageServerVersion()
+{
+  return std::string(NDMSPC_VERSION) + "-" + NDMSPC_VERSION_RELEASE;
+}
+
+/// @brief One usage event, in the shape the router's recorder reads.
+json UsageEvent(const char * type, const NWsClientInfo & client, int messages = 0)
+{
+  json event;
+  event["type"]           = type;
+  event["user"]           = client.GetUsername();
+  event["role"]           = client.GetRole();
+  event["session"]        = std::to_string(client.GetWsId());
+  event["client"]         = client.GetClient();
+  event["client_version"] = client.GetClientVersion();
+  event["server_version"] = UsageServerVersion();
+  if (messages > 0) event["messages"] = messages;
+  return event;
+}
+
+/// @brief Reports one usage event to the router (a no-op outside a router-managed room).
+void PushUsage(const char * type, const NWsClientInfo & client, int messages = 0)
+{
+  if (Ndmspc::gNHttpServer == nullptr) return;
+  Ndmspc::gNHttpServer->RoomUsagePush(json::array({UsageEvent(type, client, messages)}));
 }
 
 } // namespace
@@ -98,11 +173,20 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
 
   if (arg->IsMethod("WS_CONNECT")) {
     NLogTrace("WS_CONNECT received for path: /%s", arg->GetPathName());
+    const std::string upgradeQuery = arg->GetQuery() != nullptr ? arg->GetQuery() : "";
     // A server that carries a policy (the room router) decides here: refusing the upgrade is how a
     // client is kept from being served a session by the wrong process - see gNdmspcWsConnectFilter.
     if (Ndmspc::gNdmspcWsConnectFilter != nullptr) {
-      const std::string query = arg->GetQuery() != nullptr ? arg->GetQuery() : "";
-      if (!Ndmspc::gNdmspcWsConnectFilter(query)) return kFALSE;
+      if (!Ndmspc::gNdmspcWsConnectFilter(upgradeQuery)) return kFALSE;
+    }
+    // What this connection is, kept until it is activated (WS_READY has no upgrade request): the
+    // usage statistics record the client and its version beside the user's room session.
+    std::string client        = QueryParam(upgradeQuery, "client");
+    std::string clientVersion = QueryParam(upgradeQuery, "clientVersion");
+    if (clientVersion.empty()) clientVersion = QueryParam(upgradeQuery, "client_version");
+    {
+      std::lock_guard lock(fMutex);
+      fConnectInfo[wsId] = {client, clientVersion};
     }
     // ... and a room refuses an upgrade that carries no access token of its own.
     if (!ApplyRoomAccessToUpgrade(arg)) return kFALSE;
@@ -338,9 +422,11 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
     }
   }
 
-  bool activated = false;
-  bool usernameChanged = false;
-  bool identityChanged = false;
+  bool        activated = false;
+  bool        usernameChanged = false;
+  bool        identityChanged = false;
+  std::string clientName;
+  std::string clientVersion;
   {
     std::lock_guard lock(fMutex);
     if (initial) {
@@ -349,6 +435,13 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
           wsId, NWsClientInfo(wsId, result.identity->subject, result.identity->preferredUsername,
                               result.identity->expiresAt));
       client->second.SetRole(role);
+      const auto info = fConnectInfo.find(wsId);
+      if (info != fConnectInfo.end()) {
+        client->second.SetClient(info->second.first, info->second.second);
+        clientName    = info->second.first;
+        clientVersion = info->second.second;
+        fConnectInfo.erase(info);
+      }
       activated = true;
     } else {
       const auto client = fClients.find(wsId);
@@ -378,18 +471,34 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
   authenticated["payload"]["expiresAt"] = std::chrono::duration_cast<std::chrono::milliseconds>(
       result.identity->expiresAt.time_since_epoch()).count();
   SendFrame(wsId, authenticated.dump());
-  if (activated) SendWelcomeAndAnnounce(wsId, result.identity->preferredUsername);
-  else if (usernameChanged) Broadcast(BuildClientsMessage().dump());
+  if (activated) {
+    SendWelcomeAndAnnounce(wsId, result.identity->preferredUsername);
+    NWsClientInfo connected(wsId, result.identity->subject, result.identity->preferredUsername,
+                            result.identity->expiresAt);
+    connected.SetRole(role);
+    connected.SetClient(clientName, clientVersion);
+    PushUsage("connect", connected);
+  }
+  else if (usernameChanged) {
+    Broadcast(BuildClientsMessage().dump());
+  }
 }
 
 void NWsHandler::ActivateAnonymousClient(ULong_t wsId)
 {
-  const auto username = "User_" + std::to_string(wsId);
+  const auto   username = "User_" + std::to_string(wsId);
+  NWsClientInfo info(wsId, username);
   {
     std::lock_guard lock(fMutex);
-    fClients[wsId] = NWsClientInfo(wsId, username);
+    const auto      it = fConnectInfo.find(wsId);
+    if (it != fConnectInfo.end()) {
+      info.SetClient(it->second.first, it->second.second);
+      fConnectInfo.erase(it);
+    }
+    fClients[wsId] = info;
   }
   SendWelcomeAndAnnounce(wsId, username);
+  PushUsage("connect", info);
 }
 
 void NWsHandler::SendWelcomeAndAnnounce(ULong_t wsId, const std::string & username)
@@ -429,14 +538,17 @@ void NWsHandler::SendAuthenticationError(ULong_t wsId, const std::string & code,
 
 void NWsHandler::RemoveClientAndAnnounce(ULong_t wsId)
 {
-  std::string username;
+  std::string   username;
+  NWsClientInfo removed;
   {
     std::lock_guard lock(fMutex);
     fPendingClients.erase(wsId);
+    fConnectInfo.erase(wsId);
     fAccessLevels.erase(wsId);
     const auto client = fClients.find(wsId);
     if (client == fClients.end()) return;
     username = client->second.GetUsername();
+    removed  = client->second;
     fClients.erase(client);
   }
   json goodbye;
@@ -444,6 +556,8 @@ void NWsHandler::RemoveClientAndAnnounce(ULong_t wsId)
   goodbye["payload"] = "Goodbye, " + username + "!";
   Broadcast(goodbye.dump());
   Broadcast(BuildClientsMessage().dump());
+  // The session ended: the router pairs this with the connect to get the time spent in the room.
+  PushUsage("disconnect", removed, removed.GetMessageCount());
 }
 
 void NWsHandler::ExpireConnections()
@@ -487,10 +601,16 @@ json NWsHandler::BuildClientsMessage() const
   for (const auto & [wsId, client] : fClients) {
     if (!client.IsTokenValidAt(now)) continue;
     ++count;
-    data["payload"]["users"].push_back({
-        {"wsId", wsId},
-        {"username", client.GetUsername()},
-        {"connectedAt", std::chrono::duration_cast<std::chrono::milliseconds>(client.GetConnectedAt().time_since_epoch()).count()}});
+    json user;
+    user["wsId"]        = wsId;
+    user["username"]    = client.GetUsername();
+    user["role"]        = client.GetRole();
+    user["client"]      = client.GetClient();
+    user["clientVersion"] = client.GetClientVersion();
+    user["connectedAt"] = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              client.GetConnectedAt().time_since_epoch())
+                              .count();
+    data["payload"]["users"].push_back(std::move(user));
   }
   data["payload"]["count"] = count;
   return data;

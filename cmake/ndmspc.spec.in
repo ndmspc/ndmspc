@@ -43,8 +43,9 @@ BuildRequires: cpp-httplib-devel, cli11-devel
 BuildRequires: root, root-net-http, root-net-httpsniff
 BuildRequires: root-roofit root-roofit-more
 Requires:      root, root-netx, root-net-http, root-net-httpsniff, %{root_net_pkg}, xrootd-client
+Requires:      root-roofit root-roofit-more
+# ndmspc-tutorials fetches ROOT's hsimple.C from the ROOT source on GitHub.
 Requires:      curl
-Requires:      root-roofit root-roofit-more 
 
 %if %{with_taxi}
 BuildRequires: parquet-libs-devel

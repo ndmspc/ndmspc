@@ -192,12 +192,10 @@ int main(int argc, char ** argv)
   else {
     for (const auto & macro : Ndmspc::NUtils::ResolveMacroList(macroFilename, NdmspcDir() + "/macros/tools")) {
       NLogInfo("ndmspc-mcp: loading macro '%s'", macro.c_str());
-      TMacro * m = Ndmspc::NUtils::OpenMacro(macro);
-      if (m == nullptr) {
+      if (!Ndmspc::NUtils::ExecMacro(macro)) {
         NLogError("ndmspc-mcp: failed to open macro '%s'", macro.c_str());
         return 1;
       }
-      m->Exec();
     }
   }
 

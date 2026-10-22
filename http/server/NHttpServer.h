@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -42,6 +43,19 @@ using NHttpFuncPtr = void (*)(std::string, json &, json &, json &, std::map<std:
  * @brief Map of HTTP handler names to their corresponding function pointers.
  */
 using NHttpHandlerMap = std::map<std::string, NHttpFuncPtr>;
+
+/**
+ * @brief Resolver called when an action has no handler yet.
+ *
+ * This is how a server can keep a tool macro out of startup and load it on the first request that
+ * needs it: the resolver loads the macro, installs the handlers it registered, and answers true.
+ * The server then retries the lookup and runs the now-registered handler. It is called on the action
+ * worker, so it never runs beside another action; a resolver must be set before the engine starts.
+ *
+ * @param action The full action path (`ndmspc/browser/open`, ...).
+ * @return True when the action can now be handled.
+ */
+using NActionResolver = bool (*)(const std::string & action);
 
 /**
  * @brief Global pointer to the HTTP handler map.
@@ -188,6 +202,15 @@ using NMcpToolMap = std::map<std::string, NMcpToolInfo>;
 
 /// @brief Global pointer to the MCP metadata map, set by the CLI before macros load.
 extern NMcpToolMap * gNdmspcMcpTools;
+
+/**
+ * @brief Called before an MCP `tools/list` is built, to load any tool macro the server deferred.
+ *
+ * A server that keeps an optional tool out of startup installs this so the tool's metadata and
+ * handlers are present by the time a client asks what it can call. Null when nothing is deferred.
+ * @return True when the deferred tools are ready (or there were none).
+ */
+extern bool (*gNdmspcToolLoader)();
 
 /// @brief Why a tool key does not follow the naming rule, phrased for a log line (`""` when it does).
 ///
@@ -460,6 +483,17 @@ class NHttpServer : public THttpServer {
   void RoomSessionPush();
 
   /**
+   * @brief Report room usage events (who connected, who left) to the room router.
+   *
+   * Only active inside a room (NDMSPC_ROOM_STATE_URL is set). Sent from a worker thread, like the
+   * session push, so a router that is busy or cold never delays the connection itself. The router's
+   * usage recorder writes them to its CSV log.
+   *
+   * @param events The events to report (an array of objects).
+   */
+  void RoomUsagePush(const json & events);
+
+  /**
    * @brief Fetch the stored session from the router and replay it, before serving.
    *
    * A room wakes as an empty process, so this brings back the session it had before it
@@ -543,6 +577,30 @@ class NHttpServer : public THttpServer {
   /// @brief Look up a handler by path without inserting (thread-safe).
   /// @return The handler function pointer, or nullptr when not registered.
   Ndmspc::NHttpFuncPtr FindHttpHandler(const std::string & name) const;
+
+  /**
+   * @brief Install the resolver used when an action has no handler.
+   *
+   * Set it before the engine starts. The resolver runs on the action worker; when it answers true,
+   * the server retries the lookup and runs the handler it installed.
+   *
+   * @param resolver The resolver, or nullptr to remove one.
+   */
+  void SetActionResolver(Ndmspc::NActionResolver resolver);
+
+  /**
+   * @brief Exempt an action from the OIDC gate for every caller.
+   *
+   * A deployment that serves a public page needs a few actions readable before sign-in (the
+   * aggregate usage summary on the landing page, say). The action still runs its own checks - this
+   * only says the server does not require a bearer token for it - so callers must keep what it
+   * answers free of anything user-specific.
+   *
+   * @param action The handler key, e.g. "ndmspc/stats/summary".
+   */
+  void AddPublicAction(const std::string & action);
+  /// @brief Whether an action was registered with {@link AddPublicAction} (thread-safe).
+  bool IsPublicAction(const std::string & action) const;
 
   /**
    * @brief Register an input object under a name for handlers to use.
@@ -947,6 +1005,9 @@ class NHttpServer : public THttpServer {
 
   mutable std::mutex                            fHandlersMutex;    ///<! Guards fHttpHandlers
   std::map<std::string, Ndmspc::NHttpFuncPtr> fHttpHandlers;       ///<! HTTP handlers map
+  NActionResolver                               fActionResolver{nullptr}; ///<! Loads a deferred tool on first use
+  mutable std::mutex                            fPublicActionsMutex; ///<! Guards fPublicActions
+  std::set<std::string>                         fPublicActions;      ///<! Actions readable without OIDC
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
   std::string                                   fCurrentInstance;    ///<! Combination node this request targets ("" = none)
   std::string                                   fCurrentSession;     ///<! Root of the combination this request belongs to ("" = none)

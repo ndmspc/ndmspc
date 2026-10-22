@@ -23,6 +23,7 @@
 #include "ndmspc/http/NHttpRequest.h"
 #include "ndmspc/http/NRoomSession.h"
 #include "ndmspc/core/NLogger.h"
+#include "ndmspc/ndmspc.h"
 
 #include "NRoomRouter.h"
 
@@ -155,6 +156,12 @@ static long NdmspcRoomNow()
   return static_cast<long>(
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
           .count());
+}
+
+/// @brief This build's version, as the usage rows record it.
+static std::string NdmspcServerVersion()
+{
+  return std::string(NDMSPC_VERSION) + "-" + NDMSPC_VERSION_RELEASE;
 }
 
 /**
@@ -819,6 +826,19 @@ bool NRoomRouter::IsAdmin(const NRequestIdentity & identity) const
     if (identity.Matches(admin)) return true;
   }
   return false;
+}
+
+// Records that a caller used the router (throttled inside NRoomStats): this is how a UI user who
+// only browses the room list - without entering a room - still appears in the usage statistics.
+void NRoomRouter::NoteUi(json & in)
+{
+  if (!in.is_object() || !fStats.Enabled()) return;
+  const NRequestIdentity identity = RequestIdentity(in);
+  if (identity.Empty()) return;
+  const std::string role =
+      IsAdmin(identity) ? "admin" : (GuestCaller(identity) ? "guest" : "owner");
+  fStats.SeenUi(identity.Owner(), role, in.value("client", std::string()),
+                in.value("client_version", std::string()));
 }
 
 // Whether a caller is a guest of the deployment: authenticated, but not on the allowed-user list. The
@@ -1982,6 +2002,9 @@ void NRoomRouter::Sweep()
       fRooms.erase(it);
     }
     NLogInfo("[room] expiring idle room %s (idle > %lds)", room.name.c_str(), cfg.idleTtlSec);
+    fStats.RoomEvent("expire", room.value, room.owner, room.profile, room.image,
+                     room.image.empty() ? "" : NdmspcImageTag(room.image), NdmspcServerVersion(),
+                     "idle_s=" + std::to_string(NdmspcRoomNow() - room.lastSeen));
     Delete(room.name);
   }
 }
@@ -2113,23 +2136,36 @@ void NRoomRouter::EnsureFinish(const std::string & name, const std::string & rev
                                    const std::string & session, const std::string & error,
                                    const std::string & code)
 {
-  std::lock_guard<std::mutex> lock(fMutex);
-  const auto                  it = fRooms.find(name);
-  if (it == fRooms.end()) return;
+  std::string value, owner, profile, image;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it == fRooms.end()) return;
 
-  it->second.preparing  = false;
-  it->second.finishedAt = NdmspcRoomNow();
-  if (error.empty()) {
-    it->second.phase = "ready";
-    it->second.error.clear();
-    it->second.code.clear();
-    it->second.session = session;
-    if (!revision.empty()) it->second.revision = revision;
+    it->second.preparing  = false;
+    it->second.finishedAt = NdmspcRoomNow();
+    if (error.empty()) {
+      it->second.phase = "ready";
+      it->second.error.clear();
+      it->second.code.clear();
+      it->second.session = session;
+      if (!revision.empty()) it->second.revision = revision;
+    }
+    else {
+      it->second.phase = "failed";
+      it->second.error = error;
+      it->second.code  = code;
+      value   = it->second.value;
+      owner   = it->second.owner;
+      profile = it->second.profile;
+      image   = it->second.image;
+    }
   }
-  else {
-    it->second.phase = "failed";
-    it->second.error = error;
-    it->second.code  = code;
+
+  // One row per failed creation, whichever path it came from (a waiting call or a background one).
+  if (!error.empty()) {
+    fStats.RoomEvent("fail", value, owner, profile, image, image.empty() ? "" : NdmspcImageTag(image),
+                     NdmspcServerVersion(), "reason=" + code + ";error=" + error);
   }
 }
 
@@ -2731,6 +2767,7 @@ void NRoomRouter::WatchTopics(long wsId, const std::vector<std::string> & topics
 // - a view sends the topics it is showing, and the router replaces what that socket is pushed.
 void NRoomRouter::HandleWatch(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("POST") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/watch";
@@ -3021,7 +3058,8 @@ NHttpResponse NRoomClusterClient::Request(const std::string & method, const std:
 // ===========================================================================
 
 NRoomRouter::NRoomRouter()
-    : fConfig(NRoomConfig::FromEnv()), fCluster(std::make_shared<NRoomClusterClient>(fConfig))
+    : fConfig(NRoomConfig::FromEnv()), fCluster(std::make_shared<NRoomClusterClient>(fConfig)),
+      fStats(NRoomStatsConfig::FromEnv())
 {
 }
 
@@ -3140,7 +3178,12 @@ bool NRoomRouter::Register(NHttpServer * server)
   }
 
   // The policy is process-wide for now; the handler asks this router (see NRoomRouter.h).
-  (void)server;
+  NHttpServer * http = server != nullptr ? server : Ndmspc::gNHttpServer;
+  if (http != nullptr && fStats.Public()) {
+    // The landing page reads the aggregate summary before anybody signs in; it carries no
+    // usernames, which is what NDMSPC_STATS_PUBLIC opts into.
+    http->AddPublicAction("ndmspc/stats/summary");
+  }
 
   auto & handlers = *(Ndmspc::gNdmspcHttpHandlers);
 
@@ -3331,6 +3374,63 @@ bool NRoomRouter::Register(NHttpServer * server)
                            "the skeleton's."}}}}}},
   });
 
+  Ndmspc::RegisterMcpTool("ndmspc/stats/summary", {
+      .description = "Aggregate room and UI usage: distinct users in the last 24h, 7d and 30d, rooms "
+                     "opened/active, average time spent in a room, idle time in a room and in the UI, "
+                     "and the client/server/image versions seen. 'range' picks the window whose "
+                     "breakdown and series are reported (24h, 7d, 30d or all of what is on disk; the "
+                     "day/week/month user counts are always present). Anonymous where "
+                     "NDMSPC_STATS_PUBLIC is on, and it "
+                     "never carries a user name.",
+      .methods     = {"GET"},
+      .inputSchema = {{"properties",
+                       {{"range",
+                         {{"type", "string"},
+                          {"enum", {"24h", "7d", "30d", "all"}},
+                          {"description",
+                           "Window for the breakdown and series (default 24h; all = everything on disk)."}}}}}},
+  });
+  Ndmspc::RegisterMcpTool("ndmspc/stats/users", {
+      .description = "Per-user usage for a window: first/last seen, room sessions and seconds, UI "
+                     "sessions, seconds and idle time, the rooms entered and the client versions "
+                     "used. Restricted to NDMSPC_ROOM_ADMINS, because it names people.",
+      .methods     = {"GET"},
+      .inputSchema = {{"properties",
+                       {{"range",
+                         {{"type", "string"},
+                          {"enum", {"24h", "7d", "30d", "all"}},
+                          {"description", "Window to report (default 24h)."}}}}}},
+  });
+  Ndmspc::RegisterMcpTool("ndmspc/stats/export", {
+      .description = "The raw usage records for a window as CSV (type=users or type=rooms). "
+                     "Restricted to NDMSPC_ROOM_ADMINS: it is what the router wrote, user names "
+                     "included.",
+      .methods     = {"GET"},
+      .inputSchema = {{"properties",
+                       {{"range",
+                         {{"type", "string"},
+                          {"enum", {"24h", "7d", "30d", "all"}},
+                          {"description", "Window to export (default 24h)."}}},
+                        {"type",
+                         {{"type", "string"},
+                          {"enum", {"users", "rooms"}},
+                          {"description", "Which event family to export (default users)."}}}}}},
+  });
+  Ndmspc::RegisterMcpTool("ndmspc/stats/presence", {
+      .description = "Internal: a UI tab reports whether it is visible or hidden, so UI sessions and "
+                     "idle time can be measured.",
+      .methods     = {"POST"},
+      .hidden      = true,
+      .inputSchema = {{"properties",
+                       {{"state",
+                         {{"type", "string"},
+                          {"enum", {"visible", "hidden", "offline"}},
+                          {"description", "What the tab is doing now."}}},
+                        {"instance",
+                         {{"type", "string"},
+                          {"description", "One id per tab (kept for the life of that tab)."}}}}}},
+  });
+
   // -------------------------------------------------------------------------
   //  /api/ndmspc/room/open — ensure a room and hand back its URL
   // -------------------------------------------------------------------------
@@ -3460,6 +3560,25 @@ bool NRoomRouter::Register(NHttpServer * server)
                                std::map<std::string, TObject *> &) {
     NRoomRouter::Instance().HandleImport(method, in, out);
   };
+  // -------------------------------------------------------------------------
+  //  /api/ndmspc/stats/* — what the router recorded about rooms and the people in them
+  // -------------------------------------------------------------------------
+  handlers["ndmspc/stats/summary"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                                std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleStatsSummary(method, in, out);
+  };
+  handlers["ndmspc/stats/users"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                              std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleStatsUsers(method, in, out);
+  };
+  handlers["ndmspc/stats/export"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                               std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleStatsExport(method, in, out);
+  };
+  handlers["ndmspc/stats/presence"] = [](std::string method, json & in, json & out, json & /*wsOut*/,
+                                 std::map<std::string, TObject *> &) {
+    NRoomRouter::Instance().HandleStatsPresence(method, in, out);
+  };
   return true;
 }
 
@@ -3476,6 +3595,8 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
     out["error"]  = "Unsupported HTTP method for room/open";
     return;
   }
+
+  NoteUi(in);
 
   const std::string id = RequestId(in);
   if (id.empty()) {
@@ -3576,6 +3697,15 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   // A watcher sees the room the moment it is opened: the watch thread is woken to publish it.
   PublishNow();
 
+  // Usage: one row per successful open, whichever way the room was created (the room/open call is
+  // also the entry point of the UI's create button).
+  const std::string usageOwner   = payload.value("owner", identity.Owner());
+  const std::string usageProfile = payload.value("profile", profile);
+  const std::string usageImage   = payload.value("image", std::string());
+  const std::string usageTag     = payload.value("imageTag", usageImage.empty() ? "" : NdmspcImageTag(usageImage));
+  fStats.RoomEvent("open", ref.value, usageOwner, usageProfile, usageImage, usageTag, NdmspcServerVersion(),
+                   std::string(created ? "created" : "reopened") + ";state=" + state);
+
   out["result"]  = "success";
   out["payload"] = payload;
 }
@@ -3614,6 +3744,8 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
     out["error"]  = "Unsupported HTTP method for room/upgrade";
     return;
   }
+
+  NoteUi(in);
 
   const std::string id = RequestId(in);
   if (id.empty()) {
@@ -3745,6 +3877,19 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
 
   const bool wait = NRoomRouter::WaitFlag(fConfig, in);
 
+  std::string previousTag;
+  std::string roomOwner;
+  std::string roomProfile;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it != fRooms.end()) {
+      previousTag = it->second.image.empty() ? "" : NdmspcImageTag(it->second.image);
+      roomOwner   = it->second.owner;
+      roomProfile = it->second.profile;
+    }
+  }
+
   json        payload;
   std::string error;
   std::string code;
@@ -3769,6 +3914,11 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
   payload["room"] = ref.value;
   payload["name"] = name;
   NLogInfo("[room] room '%s' is being rolled onto %s", ref.value.c_str(), image.c_str());
+
+  const std::string newTag = payload.value("imageTag", NdmspcImageTag(image));
+  fStats.RoomEvent("upgrade", ref.value, roomOwner.empty() ? identity.Owner() : roomOwner, roomProfile, image,
+                   newTag, NdmspcServerVersion(), "from=" + previousTag + ";to=" + newTag);
+
   PublishNow();
   out["result"]  = "success";
   out["payload"] = payload;
@@ -3779,6 +3929,7 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
 // ===========================================================================
 void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("GET") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/status";
@@ -3932,6 +4083,7 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
 // ===========================================================================
 void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("GET") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/list";
@@ -4239,6 +4391,7 @@ json Amounts(long cpuMillis, long bytes)
 
 void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   (void)in;
   if (method.find("GET") == std::string::npos) {
     out["result"] = "failure";
@@ -4458,6 +4611,8 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
     return;
   }
 
+  NoteUi(in);
+
   const std::string id = RequestId(in);
   if (id.empty()) {
     out["result"] = "failure";
@@ -4483,7 +4638,20 @@ void NRoomRouter::HandleClose(const std::string & method, json & in, json & out)
     }
   }
 
+  std::string owner, profile, image;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(ref.name);
+    if (it != fRooms.end()) {
+      owner   = it->second.owner;
+      profile = it->second.profile;
+      image   = it->second.image;
+    }
+  }
+
   CloseRoom(ref.value); // a room that is being created is cancelled on the way out
+  fStats.RoomEvent("close", ref.value, owner, profile, image, image.empty() ? "" : NdmspcImageTag(image),
+                   NdmspcServerVersion(), "");
   // A watcher sees it gone now: the watch thread is woken to publish it.
   PublishNow();
   out["result"]  = "success";
@@ -4526,6 +4694,17 @@ void NRoomRouter::HandleState(const std::string & method, json & in, json & out)
   const bool isGet    = method.find("GET") != std::string::npos;
   const json snapshot = (in.is_object() && in.contains("snapshot")) ? in["snapshot"] : json();
 
+  // The room also reports its usage on this channel - the websocket users it sees and their
+  // client versions - so the router records room sessions without having to reach into the room.
+  if (isPost && in.is_object() && in.contains("usage")) {
+    const int recorded = fStats.RecordUsage(in["usage"]);
+    out["result"]          = "success";
+    out["payload"]["room"] = id;
+    out["payload"]["name"] = name;
+    out["payload"]["recorded"] = recorded;
+    return;
+  }
+
   if (isPost && snapshot.is_object() && !snapshot.empty()) {
     const std::string text = Ndmspc::NRoomSession::Encode(snapshot);
     if (text.empty()) {
@@ -4563,6 +4742,7 @@ void NRoomRouter::HandleState(const std::string & method, json & in, json & out)
 // ===========================================================================
 void NRoomRouter::HandleClear(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("DELETE") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/clear";
@@ -4653,6 +4833,7 @@ void NRoomRouter::HandleClear(const std::string & method, json & in, json & out)
 // ===========================================================================
 void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("GET") == std::string::npos && method.find("POST") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/backup";
@@ -4753,6 +4934,7 @@ void NRoomRouter::HandleBackup(const std::string & method, json & in, json & out
 // ===========================================================================
 void NRoomRouter::HandleRestore(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("POST") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/restore";
@@ -4995,6 +5177,7 @@ static json NdmspcRoomConfigEntry(const json & config)
 // ===========================================================================
 void NRoomRouter::HandleImport(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("POST") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/import";
@@ -5216,6 +5399,7 @@ void NRoomRouter::HandleImport(const std::string & method, json & in, json & out
 // ===========================================================================
 void NRoomRouter::HandleConfig(const std::string & method, json & in, json & out)
 {
+  NoteUi(in);
   if (method.find("GET") == std::string::npos && method.find("POST") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/config";
@@ -5307,6 +5491,132 @@ void NRoomRouter::HandleConfig(const std::string & method, json & in, json & out
   NLogInfo("[room] exported the config of '%s'", room.value.c_str());
   out["result"]  = "success";
   out["payload"] = config;
+}
+
+// ===========================================================================
+//  Usage statistics
+// ===========================================================================
+
+/// @brief The window a stats request asks for: body `range`, query `range`, or the last day.
+static std::string NdmspcStatsRange(json & in)
+{
+  if (in.is_object()) {
+    if (in.contains("range") && in["range"].is_string()) return in["range"].get<std::string>();
+    if (in.contains("_query") && in["_query"].is_string()) {
+      const auto params = NRoomRouter::ParseQuery(in["_query"].get<std::string>());
+      const auto it     = params.find("range");
+      if (it != params.end() && !it->second.empty()) return it->second;
+    }
+  }
+  return "24h";
+}
+
+void NRoomRouter::HandleStatsSummary(const std::string & method, json & in, json & out)
+{
+  if (method.find("GET") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for ndmspc/stats/summary";
+    return;
+  }
+  NoteUi(in);
+
+  json summary = fStats.Summary(NdmspcStatsRange(in));
+  if (!summary.contains("rooms") || !summary["rooms"].is_object()) summary["rooms"] = json::object();
+  if (!summary.contains("server") || !summary["server"].is_object()) summary["server"] = json::object();
+
+  size_t tracked = 0;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    tracked = fRooms.size();
+  }
+  summary["rooms"]["tracked"] = static_cast<int>(tracked);
+  summary["server"]["name"]   = "ndmspc-router";
+  summary["server"]["version"] = NdmspcServerVersion();
+  summary["server"]["public"]  = fStats.Public();
+
+  out["result"]  = "success";
+  out["payload"] = summary;
+}
+
+void NRoomRouter::HandleStatsUsers(const std::string & method, json & in, json & out)
+{
+  if (method.find("GET") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for ndmspc/stats/users";
+    return;
+  }
+  const NRequestIdentity identity = RequestIdentity(in);
+  if (!IsAdmin(identity)) {
+    out["result"] = "failure";
+    out["code"]   = "not_admin";
+    out["error"]  = "Only a room admin (NDMSPC_ROOM_ADMINS) may read the per-user usage breakdown.";
+    return;
+  }
+
+  out["result"]  = "success";
+  out["payload"] = fStats.Users(NdmspcStatsRange(in));
+}
+
+void NRoomRouter::HandleStatsExport(const std::string & method, json & in, json & out)
+{
+  if (method.find("GET") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for ndmspc/stats/export";
+    return;
+  }
+  const NRequestIdentity identity = RequestIdentity(in);
+  if (!IsAdmin(identity)) {
+    out["result"] = "failure";
+    out["code"]   = "not_admin";
+    out["error"]  = "Only a room admin (NDMSPC_ROOM_ADMINS) may export the raw usage records.";
+    return;
+  }
+
+  std::string family = in.is_object() ? in.value("type", std::string()) : std::string();
+  if (family.empty() && in.is_object()) family = in.value("family", std::string());
+  if (family != "rooms" && family != "users") family = "users";
+
+  const std::string range = NdmspcStatsRange(in);
+  const std::string csv   = fStats.Export(range, family);
+  out["result"]              = "success";
+  out["payload"]["type"]     = family;
+  out["payload"]["range"]    = range;
+  out["payload"]["csv"]      = csv;
+}
+
+void NRoomRouter::HandleStatsPresence(const std::string & method, json & in, json & out)
+{
+  if (method.find("POST") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for ndmspc/stats/presence";
+    return;
+  }
+
+  const NRequestIdentity identity = RequestIdentity(in);
+  std::string            user     = identity.Owner();
+  if (user.empty()) user = NRoomRouter::RequestOwner(in);
+  if (user.empty()) {
+    out["result"] = "failure";
+    out["error"]  = "A presence report needs a user (sign in, or send 'owner').";
+    return;
+  }
+
+  const std::string role    = IsAdmin(identity) ? "admin" : (GuestCaller(identity) ? "guest" : "owner");
+  const std::string state   = in.value("state", std::string("visible"));
+  std::string       instance = in.value("instance", std::string());
+  if (instance.empty()) instance = in.value("session", std::string());
+  if (instance.empty()) {
+    out["result"] = "failure";
+    out["error"]  = "A presence report needs an 'instance' (one id per UI tab).";
+    return;
+  }
+
+  const bool recorded = fStats.Presence(user, role, instance, state, in.value("client", std::string("ndmspc-ui")),
+                                        in.value("client_version", std::string()));
+  out["result"]            = "success";
+  out["payload"]["user"]   = user;
+  out["payload"]["state"]  = state;
+  out["payload"]["recorded"] = recorded;
 }
 
 } // namespace Ndmspc

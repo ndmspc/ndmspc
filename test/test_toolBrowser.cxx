@@ -218,7 +218,7 @@ TEST_F(ToolBrowser, RegistersTheBrowseStepAndItsHiddenInternals)
   EXPECT_EQ(open->label, "{{ file }}");
   EXPECT_EQ(open->order, 1);
   EXPECT_EQ(open->inputSchema["properties"]["file"].value("default", std::string()),
-            "https://root.cern/js/files/hsimple.root");
+            "root://eos.ndmspc.io//eos/ndmspc/examples/hsimple.root");
   // The tool names no pad: the pad view routes what it shows.
   EXPECT_FALSE(open->inputSchema["properties"].contains("pad"));
 

@@ -146,6 +146,33 @@ Available settings:
 
 If either issuer or audience is configured, both are required. The server performs OIDC discovery and loads the initial JWKS during startup. Invalid configuration or an unavailable provider causes startup to fail rather than falling back to anonymous access.
 
+### Precompiled tool macros
+
+A room starts by executing its `-m` macros through cling. The installed tool macros are read-only, so
+an image can compile them once into ACLiC libraries and load those at startup instead:
+
+- `scripts/precompile-macros.sh [macro-dir]` compiles every no-argument `<stem>()` macro in
+  `macros/tools` into `<macro-dir>/.precompiled/<gROOT->GetVersionInt()>/<stem>_C.so` and writes the
+  manifest `precompiled.json` beside them. The container image runs it after installing the RPMs; a
+  non-container installation can run the installed copy once.
+- At startup `NUtils::ExecMacro` loads the library and calls the entry when the manifest matches the
+  running ROOT and the macro's size and mtime. A changed macro, a different ROOT, a missing library or
+  a macro with arguments falls back to interpreting the macro exactly as before.
+- `NDMSPC_MACRO_PRECOMPILED=0` (`false`, `no`, `off` also work) forces the interpreted path;
+  `NDMSPC_MACRO_PRECOMPILED_DIR` points at a cache directory other than the macro's own.
+- User macros, remote (`http://`, `https://`, `root://`) macros and macros that take arguments are
+  never precompiled and keep working interpreted.
+- The server logs how long each macro took (`Macro '…' loaded in N ms`) and the total
+  (`Tool macros: N loaded in M ms, K deferred`), so the startup cost is visible without a profiler.
+- The **ROOT file browser** is the default room's optional tool and is deferred: only
+  `ndmspc/browser/open` is registered at startup, and the macro is loaded on the first browser
+  request (its own `Deferred macro … loaded in N ms` line). A client's first MCP `tools/list` also
+  loads it, so discovery sees the browser's tools. `NDMSPC_DEFER_TOOLS=0` loads every listed macro at
+  startup instead, exactly as before.
+
+The `/api` root bootstrap also reports the interpreter in `state.server.root`, beside the
+ndmspc-server version in `state.server.version`; the room's **Server info** panel shows both.
+
 ### Who may enter (owners and guests)
 
 After a user authenticates — an OIDC bearer token, or an x509 client certificate — `NDMSPC_ALLOWED_USERS`
@@ -760,7 +787,7 @@ Ndmspc::RegisterMcpTool("ndmspc/browser/browse", {
         {"description", "Open a file and draw a few of its objects."},
         {"steps", json::array({
             json{{"action", "ndmspc/browser/open"},
-                 {"params", {{"file", "https://root.cern/js/files/hsimple.root"}}}},
+                 {"params", {{"file", "root://eos.ndmspc.io//eos/ndmspc/examples/hsimple.root"}}}},
             json{{"action", "ndmspc/browser/browse"}},
         })},
     },
@@ -1892,3 +1919,135 @@ ansible-playbook playbooks/local.yml --tags restore ... -e ndmspc_rooms_restore_
 Neither tag runs as part of `install`/`apply` unless asked: a restore creates rooms, so it
 needs `ndmspc_rooms_restore_enabled=true` — with that set, `install`/`init`/`apply` bring the
 rooms back too, which is how a fresh deployment comes up with its room set.
+
+## Room usage statistics
+
+The router records what happens to rooms and who uses them, and answers the aggregates the UI's
+**Usage** pane is built from. Recording is part of the router (`ndmspc-server --rooms`), so it is
+only active where `NRoomRouter` is registered.
+
+### Where it goes
+
+Append-only CSV, one file per day per event family, under `NDMSPC_STATS_DIR` (default
+`<cwd>/.ndmspc/stats`; the devops role mounts a PVC at `/var/lib/ndmspc/stats`):
+
+`rooms-YYYY-MM-DD.csv`
+
+```
+ts,time,event,room,owner,profile,image,image_tag,server_version,detail
+```
+
+| event | when |
+| --- | --- |
+| `open` | `room/open` created or found a room (`detail` says which, and the state) |
+| `upgrade` | `room/upgrade` rolled it (`from=…;to=…`) |
+| `close` | `room/close` deleted it |
+| `expire` | the idle sweep deleted it (`idle_s=…`) |
+| `fail` | a creation failed (`reason=…;error=…`) |
+
+`users-YYYY-MM-DD.csv`
+
+```
+ts,time,event,room,user,role,client,client_version,server_version,session,detail
+```
+
+| event | when |
+| --- | --- |
+| `connect` / `disconnect` | a websocket user joined or left a room (`session` is the ws id; a disconnect carries `messages=<n>`) |
+| `ui_seen` | an authenticated user called a router action (at most once per user per 15 minutes) |
+| `ui_online` / `ui_hidden` / `ui_visible` / `ui_offline` | a UI tab's presence transitions (`session` is that tab's instance id) |
+
+The room side reports `connect`/`disconnect` to the router over the same authenticated channel it
+reports its session on (`ndmspc/room/state`, with a `usage` array), including the client name and
+version the websocket upgrade carried (`?client=ndmspc-ui&clientVersion=…`). The UI sends its build
+version with every MCP call as well, so a user who only browses the room list is still counted.
+
+`NDMSPC_STATS` (default `true`) turns recording on or off; a directory that cannot be created or
+written disables it (with one warning) rather than failing a room operation.
+`NDMSPC_STATS_RETENTION` (default `90d`) prunes whole days; `NDMSPC_STATS_SUMMARY_TTL` (default
+`30s`) caches a computed summary; `NDMSPC_STATS_PRESENCE_INTERVAL` (default `60s`) is the expected
+UI ping, after which a tab is considered gone.
+
+### What the numbers mean
+
+- **Users** in a window: distinct users seen in a room or in the UI (`connect`, `ui_seen`,
+  `ui_online`). The summary always carries the day/week/month counts, whatever window was asked for.
+- **Rooms**: `opened`/`closed`/`expired`/`failed`/`upgraded` count the events in the window;
+  `active` is the number with at least one user connected right now (an open but empty room is
+  idle, not active), and `tracked` is every room the router currently holds — including idle
+  rooms with nobody connected.
+- **Average time spent**: the length of a user's room session (`connect` → `disconnect`); a session
+  still open at the end of the window is counted up to it.
+- **Idle in a room**: within each room's open interval, the time with nobody connected.
+- **UI session / idle**: `ui_online` → `ui_offline` per (user, tab); idle is the time the tab was
+  `hidden`. A tab that stops reporting is closed as `ui_offline` after 3× the presence interval,
+  with the state it was last in ending at its last report.
+- **Versions**: the client versions (`ndmspc-ui` build), the room server versions, and the room
+  image tags.
+- **Tools used**: one row per successful tool action a room reports (`ndmspc/ngnt/open`,
+  `ndmspc/browser/browse`, ...), counted by action in the window. The server's own control routes
+  (`health`, `state`, `group`, `session`, `logs`, ...) and the room/stats plumbing are not counted.
+
+### The endpoints
+
+| action | methods | who |
+| --- | --- | --- |
+| `ndmspc/stats/summary` | GET (`range=24h|7d|30d|all`) | anyone when `NDMSPC_STATS_PUBLIC` is on, otherwise authenticated |
+| `ndmspc/stats/users` | GET | `NDMSPC_ROOM_ADMINS` |
+| `ndmspc/stats/export` | GET (`type=rooms|users`) | `NDMSPC_ROOM_ADMINS` |
+| `ndmspc/stats/presence` | POST (`state`, `instance`) | authenticated (or an asserted `owner` where nothing verifies) |
+
+`summary` is the only action that can be public: it carries counts, durations and version
+distributions, never a user name. `users` and `export` name people, so they stay admin-only. The
+public exemption is granted by the router (`NHttpServer::AddPublicAction`) only when
+`NDMSPC_STATS_PUBLIC` is set, and it is what the landing page's usage strip reads before sign-in.
+
+The summary shape (abridged):
+
+```json
+{"result":"success","payload":{
+  "enabled":true,
+  "range":{"name":"24h","from":1700000000,"to":1700086400,"bucket":3600},
+  "users":{"distinct":12,"last24h":12,"last7d":31,"last30d":44,
+           "sessions":57,"avgSessionSeconds":930.5,"totalSessionSeconds":53038},
+  "rooms":{"opened":9,"closed":4,"expired":1,"failed":0,"upgraded":2,
+           "active":4,"tracked":6,"avgLifetimeSeconds":5400,"avgIdleSeconds":2100},
+  "ui":{"distinct":10,"sessions":14,"avgSessionSeconds":1800,"avgIdleSeconds":600},
+  "versions":{"client":{"1.4.0":18},"server":{"1.4.0-25-g0e7510b":9},"imageTag":{"v1.4.0":9}},
+  "series":[{"ts":1699999200,"users":5,"sessions":7,"rooms":2}],
+  "server":{"name":"ndmspc-router","version":"1.4.0-25-g0e7510b","public":false}}}
+```
+
+The export answers the raw rows as `payload.csv` (the ROOT engine cannot attach a `text/csv` body;
+the UI downloads the string).
+
+### Assumptions and privacy
+
+- **One writer.** Files are appended under a single in-process lock, which matches the deployed
+  router (`min-scale = max-scale = 1`). Scaling the router out would interleave writers on one
+  volume.
+- **No emails, tokens or payloads.** `user` is the verified username/subject, or the asserted
+  `owner` where nothing verifies the request. Keep the volume's retention as the privacy boundary;
+  the per-user rows and the raw export are admin-only for the same reason.
+
+## Room logs
+
+`GET /api/ndmspc/logs?after=<cursor>&limit=<n>` answers the room's own log lines from an in-memory
+ring (`NLogger::LogSince`) - the same text the console shows, kept without enabling file output.
+`after=0` asks for the newest tail; every later request asks for **only the lines newer than the
+cursor**, so an idle poll carries no lines. The answer is
+`{lines, count, last, reset}`: store `last` and send it as the next `after`; when `reset` is true the
+returned lines replace the local list (a first request, a cursor older than the ring, or more new
+lines than `limit`). `limit` defaults to 100 and is capped at 1000. `DELETE /api/ndmspc/logs` forgets
+the lines kept so far (logging carries on) and answers with `last`, the cursor to continue from. The
+room view's **Logs** dialog shows all this in its **Server** tab beside the websocket **Messages**,
+polling while the tab is open, with a **Clear** button for each tab (the server's ring, or the
+browser's message list).
+
+How much each tab shows is configurable and defaults to 100: the page reads `VITE_NDMSPC_LOG_LINES`
+(server lines) and `VITE_NDMSPC_LOG_MESSAGES` (websocket frames kept), and a component embedding the
+room sets the `logLines` / `maxMessages` props.
+
+The action is part of the server's base actions, so every room serves it; the router does not (it
+loads no base actions). The room's own access gate applies as it does to every other API call (a
+read-only token cannot clear).
