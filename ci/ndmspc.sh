@@ -1,6 +1,6 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v1.4.0-rc48"
+tag: "v1.4.0-rc51"
 requires:
   - ROOT
   - JAliEn-ROOT

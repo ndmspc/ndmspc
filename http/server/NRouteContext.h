@@ -195,10 +195,12 @@ public:
    * @param handlers Click/hover actions.
    * @param replace Whether the pad should drop what it was showing first — the object replaces the
    *        pad's previous one rather than joining it (a new drawing over the last).
+   * @param extra Members merged into the serialized object (e.g. the navigator's `nested` export on
+   *        a map projection, which jsroot would otherwise drop).
    */
   void ShowRoot(TObject * object, const std::string & pad = "pad1", const std::string & label = "",
                 const std::string & drawOptions = "", const json & handlers = json::object(),
-                bool replace = false);
+                bool replace = false, const json & extra = json::object());
 
   /**
    * @brief Show a modal dialog whose form is `schema` and whose submit carries out `action`.
