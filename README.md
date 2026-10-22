@@ -82,6 +82,12 @@ ansible-playbook playbooks/local.yml --tags apply \
     -e ndmspc_image=localhost:5001/ndmspc/base:dev
 ```
 
+The image build runs `scripts/precompile-macros.sh` after installing the RPMs, so a room loads the
+tool macros from ACLiC libraries instead of interpreting them on every cold start. An RPM-only
+installation can get the same cache by running `/usr/share/ndmspc/scripts/precompile-macros.sh`
+once; without it, the server interprets the macros as before. See
+[`http/README.md`](http/README.md#precompiled-tool-macros).
+
 ### Only the Knative Service
 
 If Knative Serving and a reachable ingress are already there, a plain Service is

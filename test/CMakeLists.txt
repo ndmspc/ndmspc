@@ -19,6 +19,7 @@ set(MY_EXTERNAL_LIBS
   ${OPENTELEMETRY_CPP_LIBRARIES}
   ${CURL_LIBRARIES}
   ${OpenSSL_LIBRARIES}
+  ${HTTPLIB_PLATFORM_LIBS}
   # nlohmann_json::nlohmann_json
   NdmspcCore
 )
@@ -52,7 +53,7 @@ foreach(src ${SRCS})
   if(src MATCHES "test_toolBrowser")
     target_compile_definitions(${testname} PRIVATE NDMSPC_TOOL_BROWSER_MACRO="${CMAKE_SOURCE_DIR}/macros/tools/toolBrowser.C")
   endif()
-  if(WITH_HTTP AND src MATCHES "test_NAccessPolicy|test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator|test_NX509|test_NOidcToken|test_NMcpServer|test_NRoomClient|test_NRoomSession|test_NRoomRouter|test_NHttpRequest|test_NRequestIdentity|test_NHttpServer|test_NInstanceTree|test_NMacroBuilder|test_NRouteContext|test_toolNgnt|test_toolBrowser")
+  if(WITH_HTTP AND src MATCHES "test_NAccessPolicy|test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator|test_NX509|test_NOidcToken|test_NMcpServer|test_NRoomClient|test_NRoomSession|test_NRoomRouter|test_NRoomStats|test_NHttpRequest|test_NRequestIdentity|test_NHttpServer|test_NInstanceTree|test_NMacroBuilder|test_NRouteContext|test_toolNgnt|test_toolBrowser")
     target_link_libraries(${testname} NdmspcHttp)
     target_compile_definitions(${testname} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
     set_target_properties(${testname} PROPERTIES BUILD_RPATH "${CMAKE_BINARY_DIR}/http;${CMAKE_BINARY_DIR}/core")
@@ -118,7 +119,7 @@ foreach(src ${SRCS})
 
   else()
     add_test(NAME ${testname} COMMAND ${testname})
-    if(WITH_HTTP AND src MATCHES "test_NAccessPolicy|test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator|test_NX509|test_NOidcToken|test_NMcpServer|test_NRoomClient|test_NRoomSession|test_NRoomRouter|test_NHttpRequest|test_NRequestIdentity|test_NHttpServer|test_NInstanceTree|test_NMacroBuilder|test_NRouteContext|test_toolNgnt|test_toolBrowser")
+    if(WITH_HTTP AND src MATCHES "test_NAccessPolicy|test_NOidc|test_NWsAuthentication|test_NOidcHttpAuthenticator|test_NX509|test_NOidcToken|test_NMcpServer|test_NRoomClient|test_NRoomSession|test_NRoomRouter|test_NRoomStats|test_NHttpRequest|test_NRequestIdentity|test_NHttpServer|test_NInstanceTree|test_NMacroBuilder|test_NRouteContext|test_toolNgnt|test_toolBrowser")
       if(src MATCHES "test_NWsClient|test_NOidcToken")
         set_tests_properties(${testname} PROPERTIES
           ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/utils:${CMAKE_BINARY_DIR}/http:${CMAKE_BINARY_DIR}/core:$ENV{LD_LIBRARY_PATH}")

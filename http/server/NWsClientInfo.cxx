@@ -44,6 +44,19 @@ void NWsClientInfo::SetRole(const std::string & role)
 {
   fRole = role;
 }
+const std::string & NWsClientInfo::GetClient() const
+{
+  return fClient;
+}
+const std::string & NWsClientInfo::GetClientVersion() const
+{
+  return fClientVersion;
+}
+void NWsClientInfo::SetClient(std::string client, std::string version)
+{
+  fClient        = std::move(client);
+  fClientVersion = std::move(version);
+}
 std::chrono::system_clock::time_point NWsClientInfo::GetTokenExpiresAt() const
 {
   return fTokenExpiresAt;

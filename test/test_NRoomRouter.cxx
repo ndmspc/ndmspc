@@ -8,6 +8,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <thread>
@@ -3534,4 +3537,142 @@ TEST(NRoomRouterWatchTest, AWatchWithNoSocketOrNoPushesIsRefused)
   quiet.HandleWatch("POST", quietIn, out);
   EXPECT_EQ(out["result"], "failure");
   EXPECT_EQ(out.value("code", std::string()), "watching_off");
+}
+
+// ===========================================================================
+//  Usage statistics
+// ===========================================================================
+
+namespace {
+
+/// @brief A temporary stats directory, removed when the test ends.
+class StatsDir {
+  public:
+  StatsDir()
+  {
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    fPath = std::filesystem::temp_directory_path() / ("ndmspc-router-stats-" + std::to_string(stamp));
+    std::filesystem::create_directories(fPath);
+  }
+  ~StatsDir()
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(fPath, ec);
+  }
+  std::string          path() const { return fPath.string(); }
+  std::filesystem::path file() const
+  {
+    for (const auto & entry : std::filesystem::directory_iterator(fPath)) {
+      if (entry.path().extension() == ".csv" && entry.path().filename().string().rfind("rooms-", 0) == 0) {
+        return entry.path();
+      }
+    }
+    return {};
+  }
+
+  private:
+  std::filesystem::path fPath;
+};
+
+/// @brief Configures a router's recorder to write into `dir`, with no summary cache.
+void RecordInto(NRoomRouter & router, const StatsDir & dir, bool publicSummary = true)
+{
+  Ndmspc::NRoomStatsConfig config;
+  config.enabled       = true;
+  config.dir           = dir.path();
+  config.summaryTtlSec = 0;
+  config.publicSummary = publicSummary;
+  router.Stats().Configure(config);
+}
+
+} // namespace
+
+TEST(NRoomStatsActionsTest, RecordsRoomLifecycleAndServesTheSummary)
+{
+  StatsDir    dir;
+  Router      test;
+  RecordInto(*test.router, dir);
+
+  auto open = test.OpenBy(Verified("alice", "alice@example.com"), "mine", /*wait=*/true);
+  ASSERT_EQ(open["result"], "success");
+
+  json summary;
+  json in{{"range", "24h"}};
+  test.router->HandleStatsSummary("GET", in, summary);
+  ASSERT_EQ(summary["result"], "success");
+  ASSERT_TRUE(summary["payload"].value("enabled", false));
+  EXPECT_EQ(summary["payload"]["rooms"]["tracked"], 1);
+  EXPECT_GE(summary["payload"]["rooms"]["opened"].get<int>(), 1);
+  EXPECT_EQ(summary["payload"]["server"]["public"], true);
+
+  const auto csv = dir.file();
+  ASSERT_FALSE(csv.empty());
+  {
+    std::ifstream file(csv);
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    EXPECT_NE(text.find(",open,alice-mine,alice,"), std::string::npos) << text;
+  }
+
+  json close = Verified("alice", "alice@example.com", {{"room", "mine"}});
+  json closed;
+  test.router->HandleClose("DELETE", close, closed);
+  ASSERT_EQ(closed["result"], "success");
+
+  summary = json::object();
+  test.router->HandleStatsSummary("GET", in, summary);
+  EXPECT_GE(summary["payload"]["rooms"]["closed"].get<int>(), 1);
+
+  // A UI tab's presence is recorded on the same channel and shows up as a session.
+  json presence = Verified("alice", "alice@example.com", json{{"state", "visible"}, {"instance", "tab-1"}});
+  json recorded;
+  test.router->HandleStatsPresence("POST", presence, recorded);
+  EXPECT_EQ(recorded["result"], "success");
+  EXPECT_EQ(recorded["payload"]["recorded"], true);
+
+  summary = json::object();
+  test.router->HandleStatsSummary("GET", in, summary);
+  EXPECT_GE(summary["payload"]["ui"]["sessions"].get<int>(), 1);
+  EXPECT_GE(summary["payload"]["ui"]["distinct"].get<int>(), 1);
+}
+
+TEST(NRoomStatsActionsTest, DetailsAndExportNeedAnAdmin)
+{
+  StatsDir dir;
+  Router   test(/*readyTimeoutSec=*/2, /*admins=*/{"alice@example.com"});
+  RecordInto(*test.router, dir, /*publicSummary=*/false);
+
+  const json opened = test.OpenBy(Verified("alice", "alice@example.com"), "mine", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+
+  // The aggregate summary needs no admin (and is anonymous unless made public).
+  json in{{"range", "24h"}};
+  json summary;
+  test.router->HandleStatsSummary("GET", in, summary);
+  EXPECT_EQ(summary["result"], "success");
+  EXPECT_EQ(summary["payload"]["server"]["public"], false);
+
+  json alice = Verified("alice", "alice@example.com", in);
+  json out;
+  test.router->HandleStatsUsers("GET", alice, out);
+  EXPECT_EQ(out["result"], "success");
+  ASSERT_EQ(out["payload"]["users"].size(), 1u);
+  EXPECT_EQ(out["payload"]["users"][0]["user"].get<std::string>(), "alice");
+
+  json bob = Verified("bob", "bob@example.com", in);
+  out      = json::object();
+  test.router->HandleStatsUsers("GET", bob, out);
+  EXPECT_EQ(out["result"], "failure");
+  EXPECT_EQ(out["code"], "not_admin");
+
+  json exportIn = Verified("alice", "alice@example.com", json{{"range", "24h"}, {"type", "rooms"}});
+  out           = json::object();
+  test.router->HandleStatsExport("GET", exportIn, out);
+  EXPECT_EQ(out["result"], "success");
+  EXPECT_NE(out["payload"]["csv"].get<std::string>().find("ts,time,event"), std::string::npos);
+
+  json bobExport = Verified("bob", "bob@example.com", json{{"range", "24h"}, {"type", "rooms"}});
+  out            = json::object();
+  test.router->HandleStatsExport("GET", bobExport, out);
+  EXPECT_EQ(out["result"], "failure");
+  EXPECT_EQ(out["code"], "not_admin");
 }

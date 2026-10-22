@@ -1,16 +1,15 @@
 #ifndef NdmspcCoreNLogger_H
 #define NdmspcCoreNLogger_H
 
-#include <memory>
-#include <mutex>
-#include <string>
-#include <unordered_map>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <unordered_map>
+#include <cstddef>
+#include <deque>
 #include <fstream>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 // using json = nlohmann::ordered_json;
@@ -757,7 +756,55 @@ class NLogger {
   static std::string  GetLogDirectory() { return fgLogDirectory; }   ///< Get log directory path
   static std::recursive_mutex & GetLoggerMutex() { return fgLoggerMutex; }     ///< Get logger mutex reference
 
+  /**
+   * @brief The most recent log lines this process emitted, oldest first.
+   *
+   * Kept in memory (the last @ref kRecentLinesMax), independently of console/file output, so a
+   * running server can show what it is doing without writing a log file or reading the pod's
+   * stdout. Lines carry the same text the console would show.
+   *
+   * @param limit How many of the newest lines to return (0 or more than are kept = all of them).
+   * @return The lines, oldest first.
+   */
+  static std::vector<std::string> RecentLines(size_t limit = 200);
+
+  /**
+   * @brief The log lines newer than a cursor, for a client that already has the older ones.
+   *
+   * Each emitted line carries a monotonic sequence number. A caller that remembers the `last` it
+   * was given asks for everything after it and receives only what is new, so a polling view moves
+   * no traffic while nothing is logged.
+   *
+   * @param after  The cursor: only lines with a greater sequence number are returned (0 = from the
+   *               tail, as a first request).
+   * @param limit  How many of the newest lines to return at most (0 or too large = the ring's cap).
+   * @param last   Set to the sequence number of the newest line this process has emitted; the
+   *               caller stores it as its next cursor.
+   * @param reset  Set when the caller cannot simply append: a first request, a cursor older than
+   *               what is still kept, or more new lines than `limit` - then `lines` is the tail and
+   *               replaces the local list.
+   * @return The lines to add (or, with `reset`, to replace the local list with), oldest first.
+   */
+  static std::vector<std::string> LogSince(unsigned long long after, size_t limit,
+                                           unsigned long long & last, bool & reset);
+
+  /// @brief The sequence number of the newest emitted line (0 before anything was logged).
+  static unsigned long long LastLogSeq();
+
+  /// @brief Forgets the lines kept for {@link RecentLines}/{@link LogSince}; logging carries on and
+  ///        the sequence keeps increasing, so a client's cursor never has to restart.
+  static void ClearRecentLines();
+
   private:
+  /// How many log lines are kept for {@link RecentLines}.
+  static constexpr size_t kRecentLinesMax = 1000;
+
+  /// One line in the ring, with the sequence number that lets a client ask for only what is new.
+  struct LogLine {
+    unsigned long long seq{0};
+    std::string        text;
+  };
+
   static std::recursive_mutex     fgLoggerMutex;   ///< Mutex for thread-safe singleton access (recursive to avoid re-entrant lock issues)
   static logs::Severity           fgMinSeverity;   ///< Minimum severity level for logging
   static std::string              fgLogDirectory;  ///< Directory for log files
@@ -766,6 +813,9 @@ class NLogger {
   static bool                     fgRunOutput;     ///< Flag for run-mode console output
   static std::string              fgProcessName;   ///< Process name prefix for log files
   static std::unique_ptr<NLogger> fgLogger;        ///< Singleton instance
+  static std::deque<LogLine>      fgRecentLines;   ///< The newest log lines, for RecentLines
+  static unsigned long long       fgLogSeq;        ///< Sequence of the newest line (never reset)
+  static std::mutex               fgRecentMutex;   ///< Guards fgRecentLines and fgLogSeq
 
   /**
    * @brief Initializes the logger.

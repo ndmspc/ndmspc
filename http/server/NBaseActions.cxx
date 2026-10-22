@@ -357,6 +357,76 @@ bool RegisterBaseActions()
       .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
 
+  Ndmspc::RegisterMcpTool("ndmspc/logs", {
+      .description = "The room's recent log lines - what the server has been doing (processing steps, "
+                     "warnings, errors), oldest first. `after` is the cursor from the previous answer: "
+                     "only newer lines are returned, so polling moves no traffic while nothing is "
+                     "logged. `limit` caps the answer (default 100, at most 1000). DELETE forgets the "
+                     "lines kept so far and answers with the cursor to continue from.",
+      .methods     = {"GET", "DELETE"},
+      .inputSchema = {{"properties",
+                       {{"after",
+                         {{"type", "integer"},
+                          {"description", "Return only lines newer than this cursor (from the previous "
+                                          "answer's `last`; 0 asks for the tail)."}}},
+                        {"limit",
+                         {{"type", "integer"},
+                          {"description", "How many of the newest lines to return (default 100)."}}}}}},
+      .control     = "logs",
+      .explorer    = false, // a platform control: the room's own chrome reads it, no tool to offer
+  });
+
+  handlers["ndmspc/logs"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
+                               std::map<std::string, TObject *> & /*inputs*/) {
+    if (method.find("DELETE") != std::string::npos) {
+      Ndmspc::NLogger::ClearRecentLines();
+      httpOut["result"]             = "success";
+      httpOut["payload"]["cleared"] = true;
+      // The sequence keeps increasing across a clear, so this is the cursor to continue from: a
+      // client that stores it asks only for what is logged from now on.
+      httpOut["payload"]["last"] = Ndmspc::NLogger::LastLogSeq();
+      return;
+    }
+    if (method.find("GET") == std::string::npos) {
+      httpOut["result"] = "failure";
+      httpOut["error"]  = "Unsupported HTTP method for ndmspc/logs: use GET to read, DELETE to clear";
+      return;
+    }
+
+    // A GET is usually called with `?after=…&limit=…`, which the server passes as `_query` rather
+    // than as the body; a programmatic caller may post the same values instead.
+    auto numberArgument = [&httpIn](const char * name) -> long long {
+      if (!httpIn.is_object()) return 0;
+      if (httpIn.contains(name) && httpIn[name].is_number_integer()) {
+        return httpIn[name].get<long long>();
+      }
+      if (httpIn.contains("_query") && httpIn["_query"].is_string()) {
+        const std::string query = httpIn["_query"].get<std::string>();
+        const std::string key   = std::string(name) + "=";
+        const auto        at    = query.find(key);
+        if (at != std::string::npos) {
+          return std::strtoll(query.c_str() + at + key.size(), nullptr, 10);
+        }
+      }
+      return 0;
+    };
+
+    const long long requestedAfter  = numberArgument("after");
+    const long long requestedLimit  = numberArgument("limit");
+    const unsigned long long after  = requestedAfter > 0 ? static_cast<unsigned long long>(requestedAfter) : 0;
+    size_t                   limit  = requestedLimit > 0 ? static_cast<size_t>(requestedLimit) : 100;
+    if (limit > 1000) limit = 1000;
+
+    unsigned long long last  = 0;
+    bool               reset = false;
+    const std::vector<std::string> lines = Ndmspc::NLogger::LogSince(after, limit, last, reset);
+    httpOut["result"]            = "success";
+    httpOut["payload"]["lines"]  = lines;
+    httpOut["payload"]["count"]  = lines.size();
+    httpOut["payload"]["last"]   = last;
+    httpOut["payload"]["reset"]  = reset;
+  };
+
   handlers["ndmspc/macro"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
                                 std::map<std::string, TObject *> & /*inputs*/) {
     auto server = Ndmspc::gNHttpServer;

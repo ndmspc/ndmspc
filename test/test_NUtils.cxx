@@ -9,13 +9,49 @@
 #include <gtest/gtest.h>
 
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#include <sys/stat.h>
+#include <TROOT.h>
+#include <utility>
 #include <vector>
 
 #include "ndmspc/core/NUtils.h"
 
 using Ndmspc::NUtils;
+
+namespace {
+
+std::string MakeTempDir()
+{
+  char tmpl[] = "/tmp/ndmspc-precompiled-XXXXXX";
+  char * dir = mkdtemp(tmpl);
+  return dir != nullptr ? std::string(dir) : std::string();
+}
+
+void WriteFile(const std::string & path, const std::string & content)
+{
+  std::ofstream out(path);
+  out << content;
+}
+
+std::pair<long long, long long> SizeAndMtime(const std::string & path)
+{
+  struct stat st {};
+  if (stat(path.c_str(), &st) != 0) return {0, 0};
+  return {static_cast<long long>(st.st_size), static_cast<long long>(st.st_mtime)};
+}
+
+std::string Manifest(const std::string & name, long long size, long long mtime, int root, int version = 1)
+{
+  return "{\"version\":" + std::to_string(version) + ",\"root\":" + std::to_string(root) + ",\"macros\":{\"" + name +
+         ".C\":{\"library\":\"" + name + "_C.so\",\"entry\":\"" + name + "\",\"size\":" + std::to_string(size) +
+         ",\"mtime\":" + std::to_string(mtime) + "}}}";
+}
+
+} // namespace
 
 TEST(ResolveMacroList, ABareNameTakesTheLocalFileWhenThereIsOne)
 {
@@ -76,4 +112,75 @@ TEST(ResolveMacroList, APathWithoutADirectoryComponentIsABareName)
   // not, and takes the directory in hand.
   EXPECT_EQ(NUtils::ResolveMacroList("sub/one.C,two.C", "/base"),
             (std::vector<std::string>{"sub/one.C", "sub/two.C"}));
+}
+
+TEST(PrecompiledMacro, ACurrentManifestNamesTheLibraryAndEntry)
+{
+  const std::string dir = MakeTempDir();
+  ASSERT_FALSE(dir.empty());
+  const std::string macro = dir + "/toolTest.C";
+  WriteFile(macro, "void toolTest() {}\n");
+  const auto [size, mtime] = SizeAndMtime(macro);
+
+  const std::string cache = dir + "/.precompiled/" + std::to_string(gROOT->GetVersionInt());
+  std::filesystem::create_directories(cache);
+  WriteFile(cache + "/toolTest_C.so", "not a real library");
+  WriteFile(cache + "/precompiled.json", Manifest("toolTest", size, mtime, gROOT->GetVersionInt()));
+
+  std::string entry;
+  EXPECT_EQ(NUtils::PrecompiledMacro(macro, entry), cache + "/toolTest_C.so");
+  EXPECT_EQ(entry, "toolTest");
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST(PrecompiledMacro, AStaleMacroFallsBackToInterpretation)
+{
+  const std::string dir = MakeTempDir();
+  ASSERT_FALSE(dir.empty());
+  const std::string macro = dir + "/toolTest.C";
+  WriteFile(macro, "void toolTest() {}\n");
+  const auto [size, mtime] = SizeAndMtime(macro);
+
+  const std::string cache = dir + "/.precompiled/" + std::to_string(gROOT->GetVersionInt());
+  std::filesystem::create_directories(cache);
+  WriteFile(cache + "/toolTest_C.so", "not a real library");
+  WriteFile(cache + "/precompiled.json", Manifest("toolTest", size + 1, mtime, gROOT->GetVersionInt()));
+
+  std::string entry;
+  EXPECT_EQ(NUtils::PrecompiledMacro(macro, entry), "");
+  EXPECT_EQ(entry, "");
+
+  WriteFile(cache + "/precompiled.json", Manifest("toolTest", size, mtime, gROOT->GetVersionInt() - 1));
+  EXPECT_EQ(NUtils::PrecompiledMacro(macro, entry), "");
+
+  WriteFile(cache + "/precompiled.json", Manifest("toolTest", size, mtime, gROOT->GetVersionInt(), 2));
+  EXPECT_EQ(NUtils::PrecompiledMacro(macro, entry), "");
+
+  WriteFile(cache + "/precompiled.json", Manifest("toolTest", size, mtime, gROOT->GetVersionInt()));
+  std::filesystem::remove(cache + "/toolTest_C.so");
+  EXPECT_EQ(NUtils::PrecompiledMacro(macro, entry), "");
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST(PrecompiledMacro, RemoteMacrosNeverUseACache)
+{
+  std::string entry;
+  EXPECT_EQ(NUtils::PrecompiledMacro("https://example.org/toolTest.C", entry), "");
+  EXPECT_EQ(NUtils::PrecompiledMacro("root://example.org//toolTest.C", entry), "");
+}
+
+TEST(ExecMacro, WithoutACacheTheMacroIsInterpreted)
+{
+  const std::string dir = MakeTempDir();
+  ASSERT_FALSE(dir.empty());
+  const std::string macro = dir + "/fallback.C";
+  const std::string marker = dir + "/fallback-ran";
+  WriteFile(macro, "#include <fstream>\nvoid fallback() { std::ofstream(\"" + marker + "\") << \"ran\"; }\n");
+
+  EXPECT_TRUE(NUtils::ExecMacro(macro));
+  EXPECT_TRUE(std::filesystem::exists(marker));
+
+  std::filesystem::remove_all(dir);
 }

@@ -68,6 +68,7 @@ namespace Ndmspc {
 
 NHttpHandlerMap *    gNdmspcHttpHandlers   = nullptr;
 NMcpToolMap *          gNdmspcMcpTools       = nullptr;
+bool (*gNdmspcToolLoader)()                 = nullptr;
 NHttpServer *          gNHttpServer        = nullptr;
 NdmspcWsConnectFilter  gNdmspcWsConnectFilter = nullptr;
 
@@ -756,6 +757,23 @@ NHttpFuncPtr NHttpServer::FindHttpHandler(const std::string & name) const
   return it != fHttpHandlers.end() ? it->second : nullptr;
 }
 
+void NHttpServer::SetActionResolver(NActionResolver resolver)
+{
+  fActionResolver = resolver;
+}
+
+void NHttpServer::AddPublicAction(const std::string & action)
+{
+  std::lock_guard<std::mutex> lock(fPublicActionsMutex);
+  fPublicActions.insert(action);
+}
+
+bool NHttpServer::IsPublicAction(const std::string & action) const
+{
+  std::lock_guard<std::mutex> lock(fPublicActionsMutex);
+  return fPublicActions.count(action) != 0;
+}
+
 void NHttpServer::Print(Option_t * option) const
 {
   THttpServer::Print(option);
@@ -1287,6 +1305,38 @@ void NHttpServer::RoomSessionPush()
       fRoomPushed = text;
     }
     NLogInfo("Reported the session of room '%s' (file '%s')", room.c_str(), file.c_str());
+  }).detach();
+}
+
+void NHttpServer::RoomUsagePush(const json & events)
+{
+  if (fRoomId.empty() || fRoomStateUrl.empty() || !events.is_array() || events.empty()) return;
+
+  json message;
+  message["room"]  = fRoomId;
+  message["usage"] = events;
+
+  const std::string url  = RoomStateUrl(fRoomStateUrl, RoomAccessToken());
+  const std::string body = message.dump();
+  const std::string room = fRoomId;
+
+  // Like the session push: a worker thread, so the router's own latency never sits on the
+  // websocket connection path. A failed report costs the statistics one row, never the session.
+  std::thread([url, body, room]() {
+    std::map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/json";
+
+    NHttpRequest http;
+    http.SetTimeout(kRoomRouterConnectMs, kRoomRouterReadMs);
+    try {
+      const NHttpResponse response = http.request("POST", url, body, headers);
+      if (response.status < 200 || response.status >= 300) {
+        NLogWarning("Cannot report usage for room '%s' (HTTP %d)", room.c_str(), response.status);
+      }
+    }
+    catch (const std::exception & e) {
+      NLogWarning("Cannot report usage for room '%s': %s", room.c_str(), e.what());
+    }
   }).detach();
 }
 
@@ -1963,6 +2013,20 @@ bool ResolveTargetInstance(Ndmspc::NInstanceTree & tree, const std::string & act
   return true;
 }
 
+/// A tool action worth counting: not the server's own control routes, the room/stats plumbing, or
+/// the OpenAPI helpers. Every tool macro's actions (ngnt, browser, slurm, ...) pass.
+bool IsToolUsageAction(const std::string & action)
+{
+  if (action.empty()) return false;
+  if (action == "ndmspc/health" || action == "ndmspc/heartbeat" || action == "ndmspc/state" ||
+      action == "ndmspc/group" || action == "ndmspc/session" || action == "ndmspc/pads" ||
+      action == "ndmspc/reload" || action == "ndmspc/macro" || action == "ndmspc/logs")
+    return false;
+  return action.rfind("ndmspc/room/", 0) != 0 && action.rfind("ndmspc/stats/", 0) != 0 &&
+         action.rfind("ndmspc/tools/", 0) != 0 && action.rfind("openapi/", 0) != 0 &&
+         action.rfind("inspector/", 0) != 0;
+}
+
 } // namespace
 
 void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIdentity * statedIdentity)
@@ -2056,8 +2120,12 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   const bool isWsBridged = arg->GetWSId() != 0;
   const bool isRoomState = fullpath == "ndmspc/room/state";
   const bool isRoomOwner = RoomAccessLevel(RequestAccessToken(arg.get())) == NRoomAccess::kReadWrite;
+  // A deployment can mark an action public (see AddPublicAction): the landing page reads the
+  // aggregate usage summary before anybody signs in.
+  const bool isPublicAction = fullpath == "openapi/inspector" || fullpath == "inspector/openapi" ||
+                              (!fullpath.IsNull() && IsPublicAction(fullpath.Data()));
   if (fOidcVerifier && !isWsBridged && !identityStated && !isRoomState && !isRoomOwner && !fullpath.IsNull() &&
-      fullpath != "openapi/inspector" && fullpath != "inspector/openapi") {
+      !isPublicAction) {
     NOidcSession session;
     if (!NOidcHttpAuthenticator::ApplyToRequest(fOidcVerifier, arg.get(), &session)) {
       NLogDebug("OIDC authentication failed for %s request to /api/%s", method.Data(), fullpath.Data());
@@ -2113,9 +2181,12 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     out["state"]["workspace"] = GetWorkspace();
     out["state"]["combinations"] = Ndmspc::NInstanceTree(GetCombinations()).ToTree();
 
-    // Server identity (same string as the CLI --version banner).
+    // Server identity (same string as the CLI --version banner), plus the interpreter it runs:
+    // the room's Server info shows both, and the precompiled-macro cache is keyed by the same
+    // gROOT->GetVersionInt().
     out["state"]["server"]["name"]    = NDMSPC_NAME;
     out["state"]["server"]["version"] = std::string(NDMSPC_VERSION) + "-" + NDMSPC_VERSION_RELEASE;
+    out["state"]["server"]["root"]    = gROOT->GetVersion();
 
     // Expose current authentication mode to clients (bootstrap endpoint stays
     // anonymous so UIs can discover whether a token is required).
@@ -2248,7 +2319,12 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     else {
       // Resolve the registered handler without inserting (a request-time
       // insertion would mutate the map and race with concurrent lookups).
-      const Ndmspc::NHttpFuncPtr handlerFn = FindHttpHandler(fullpath.Data());
+      Ndmspc::NHttpFuncPtr handlerFn = FindHttpHandler(fullpath.Data());
+      if (handlerFn == nullptr && fActionResolver != nullptr && fActionResolver(fullpath.Data())) {
+        // The resolver loaded the deferred macro and installed its handlers; look the action up
+        // again. This runs on the action worker, so a macro load never overlaps another action.
+        handlerFn = FindHttpHandler(fullpath.Data());
+      }
       if (handlerFn == nullptr) {
         NLogError("Unsupported action: %s", fullpath.Data());
         arg->SetContentType("application/json");
@@ -2369,6 +2445,22 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
           }
 
           handlerFn(method.Data(), in, out, wsOut, fObjectsMap);
+
+          // What tool was actually run: recorded only for a room, and only when the action did not
+          // fail. The router rolls the rows up into the usage summary.
+          const bool failed = out.contains("result") && out["result"].is_string() &&
+                              out["result"].get<std::string>() == "failure";
+          if (!failed && IsToolUsageAction(action)) {
+            json event;
+            event["event"]          = "tool";
+            event["tool"]           = action;
+            event["server_version"] = std::string(NDMSPC_VERSION) + "-" + NDMSPC_VERSION_RELEASE;
+            const std::string user  = identity.Owner();
+            if (!user.empty()) event["user"] = user;
+            else if (arg->GetUserName() != nullptr) event["user"] = arg->GetUserName();
+            if (arg->GetWSId() != 0) event["session"] = std::to_string(arg->GetWSId());
+            RoomUsagePush(json::array({event}));
+          }
         }
       }
 

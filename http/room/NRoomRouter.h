@@ -13,6 +13,7 @@
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NHttpRequest.h"
 #include "NRoomAccess.h"
+#include "NRoomStats.h"
 
 namespace Ndmspc {
 
@@ -402,6 +403,18 @@ class NRoomRouter {
   ///        describes. The room is deleted if it is there, then created carrying that configuration,
   ///        so what comes back is the configuration's room and nothing of the one that was there.
   void HandleImport(const std::string & method, json & in, json & out);
+
+  /// @brief ndmspc/stats/summary: aggregate usage for a window (public when NDMSPC_STATS_PUBLIC).
+  void HandleStatsSummary(const std::string & method, json & in, json & out);
+  /// @brief ndmspc/stats/users: the per-user breakdown (admins only).
+  void HandleStatsUsers(const std::string & method, json & in, json & out);
+  /// @brief ndmspc/stats/export: the raw CSV rows for a window (admins only).
+  void HandleStatsExport(const std::string & method, json & in, json & out);
+  /// @brief ndmspc/stats/presence: a UI tab reports itself visible or hidden.
+  void HandleStatsPresence(const std::string & method, json & in, json & out);
+
+  /// @brief The usage recorder (tests configure a temporary directory through it).
+  NRoomStats & Stats() { return fStats; }
 
   // ---------------------------------------------------------------- the router's own vocabulary
   /// @brief Whether this websocket upgrade may be served here (see the class note).
@@ -806,6 +819,9 @@ class NRoomRouter {
 
   /// @brief Whether a caller is one of NDMSPC_ROOM_ADMINS (by email or user name, case-insensitively).
   bool IsAdmin(const NRequestIdentity & identity) const;
+
+  /// @brief Records that a caller used the router, for the UI-usage statistics.
+  void NoteUi(json & in);
 
   /**
    * @brief Whether a caller is a guest of the deployment: authenticated but not on the allowed list.
@@ -1290,6 +1306,7 @@ class NRoomRouter {
 
   NRoomConfig                       fConfig;         ///< Configuration (from the environment, or injected by a test)
   std::shared_ptr<IRoomCluster>     fCluster;        ///< The cluster the router talks to (the real one, or a test's)
+  NRoomStats                        fStats;          ///< Usage recorder (disabled for an injected test router unless configured)
   std::map<std::string, NRoomState> fRooms;          ///< The registry: room name -> its state
   mutable std::mutex                fMutex;          ///< Guards fRooms
   bool                              fAdopted{false}; ///< Whether Adopt() has already run in this process

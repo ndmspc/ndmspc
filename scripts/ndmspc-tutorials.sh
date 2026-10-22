@@ -7,14 +7,14 @@
 #   ndmspc-tutorials
 #
 # The tutorial macros are read from the ndmspc installation (next to this script,
-# or from NDMSPC_ROOT / NDMSPC_DIR when set). The hsimple.root sample is also
-# fetched here with curl, as a local fallback for when ROOT cannot read files
-# over HTTP (e.g. root-net-http is not installed).
+# or from NDMSPC_ROOT / NDMSPC_DIR when set). hsimple.root is generated here from
+# ROOT's hsimple.C, taken from the ROOT source on GitHub, so no ROOT tutorial
+# package has to be installed.
 
 set -u
 set -o pipefail
 
-HSIMPLE_URL="https://root.cern/js/files/hsimple.root"
+HSIMPLE_MACRO_URL="https://raw.githubusercontent.com/root-project/root/master/tutorials/hsimple.C"
 
 export NDMSPC_LOG_CONSOLE="${NDMSPC_LOG_CONSOLE:-0}"
 export NDMSPC_LOG_RUN="${NDMSPC_LOG_RUN:-1}"
@@ -27,6 +27,8 @@ STEPS=(
   'tutorial/05_single_bining/NSingleBinning01Gaus.C("NNested01Gaus.root")'
   "tutorial/06_binnings/NBinnings01Gaus.C"
   'tutorial/06_binnings/NBinnings01Gaus.C("NBinnings01Gaus_odd.root",true)'
+  "tutorial/08_systematics/NSystematics01Gaus.C"
+  "tutorial/08_systematics/NSystematics02Gaus.C"
   "tutorial/06_binnings/NBinnings01GausStress.C"
   "macros/root/cernstaff/tree500_cernbuild.C"
 )
@@ -39,9 +41,9 @@ Usage: $(basename "$0") [OPTIONS]
 Run the ndmspc tutorials in the current directory. All files the tutorials
 produce are written here, so start in an empty, writable directory.
 
-The hsimple.root sample is downloaded from
-$HSIMPLE_URL
-as a local fallback for when ROOT cannot open files over HTTP.
+hsimple.root is generated from ROOT's hsimple.C, fetched from the
+ROOT source on GitHub:
+$HSIMPLE_MACRO_URL
 
 Options:
   -h, --help   Show this help and exit
@@ -68,33 +70,49 @@ find_ndmspc_root()
   return 1
 }
 
-download_hsimple()
+generate_hsimple()
 {
-  local tmp=".hsimple.root.part"
-
   if [ -s hsimple.root ]; then
     echo "hsimple.root already present, keeping it"
     return 0
   fi
 
-  echo "Downloading hsimple.root from $HSIMPLE_URL"
+  local tutorial
+  tutorial="$(mktemp "${TMPDIR:-/tmp}/hsimple.XXXXXX.C")" || {
+    echo "Cannot create a temporary file for hsimple.C" >&2
+    return 1
+  }
+
+  echo "Fetching hsimple.C from $HSIMPLE_MACRO_URL"
   if command -v curl >/dev/null 2>&1; then
-    if curl -fsSL --retry 3 -o "$tmp" "$HSIMPLE_URL"; then
-      mv -f "$tmp" hsimple.root
-      return 0
-    fi
+    curl -fsSL --retry 3 -o "$tutorial" "$HSIMPLE_MACRO_URL" || {
+      rm -f "$tutorial"
+      echo "Could not fetch hsimple.C; continuing without hsimple.root" >&2
+      return 1
+    }
   elif command -v wget >/dev/null 2>&1; then
-    if wget -q -O "$tmp" "$HSIMPLE_URL"; then
-      mv -f "$tmp" hsimple.root
-      return 0
-    fi
+    wget -q -O "$tutorial" "$HSIMPLE_MACRO_URL" || {
+      rm -f "$tutorial"
+      echo "Could not fetch hsimple.C; continuing without hsimple.root" >&2
+      return 1
+    }
   else
-    echo "Neither curl nor wget found, cannot download hsimple.root" >&2
+    rm -f "$tutorial"
+    echo "Neither curl nor wget found, cannot fetch hsimple.C" >&2
     return 1
   fi
 
-  rm -f "$tmp"
-  echo "Could not download hsimple.root, continuing without it" >&2
+  echo "Generating hsimple.root from $tutorial"
+  rm -f hsimple.root
+  # ROOT's macro can return a non-zero exit status after writing the file; the file is what matters.
+  root -l -b -q "$tutorial" >/dev/null 2>&1 || true
+  rm -f "$tutorial"
+  if [ -s hsimple.root ]; then
+    return 0
+  fi
+
+  rm -f hsimple.root
+  echo "Could not generate hsimple.root, continuing without it" >&2
   return 1
 }
 
@@ -135,7 +153,7 @@ fi
 echo "ndmspc tutorials from $NDMSPC_ROOT"
 echo "Writing output to $PWD"
 
-download_hsimple || true
+generate_hsimple || true
 
 failed=()
 index=0

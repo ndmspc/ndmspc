@@ -138,6 +138,10 @@ json NMcpServer::BuildTools() const
   json tools = json::array();
   if (!fServer) return json{{"tools", tools}};
 
+  // A server may keep an optional tool macro out of startup; publish it now, before a client reads
+  // the list, so discovery and the handlers it names are both there.
+  if (gNdmspcToolLoader != nullptr) gNdmspcToolLoader();
+
   json inspectorProperties = json::object();
   try {
     const json schema = fServer->GetInspectorSchema();

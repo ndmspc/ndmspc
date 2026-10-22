@@ -136,6 +136,16 @@ if(CMAKE_INSTALL_PREFIX STREQUAL "/usr" AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   set(CMAKE_INSTALL_LIBDIR lib64)
 endif()
 
+# CMAKE_INSTALL_RPATH_USE_LINK_PATH covers the external dependencies, not NDMSPC's own library
+# directory. On macOS the shared libraries are recorded with an @rpath install name, so the
+# installed binaries and libraries need an explicit rpath entry for it; without one dyld
+# searches only the dependency directories and fails with "Library not loaded:
+# @rpath/libNdmspc*.so". @loader_path makes the install tree relocatable and resolves
+# correctly from both bin/ and lib/.
+if(APPLE)
+  set(CMAKE_INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
+endif()
+
 configure_file(
   "${CMAKE_SOURCE_DIR}/cmake/uninstall.cmake.in"
   "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake"

@@ -1444,7 +1444,7 @@ void toolBrowser()
                        {{"file",
                          {{"type", "string"},
                           {"description", "Path or URL of the ROOT file to open."},
-                          {"default", "https://root.cern/js/files/hsimple.root"}}}}}},
+                          {"default", "root://eos.ndmspc.io//eos/ndmspc/examples/hsimple.root"}}}}}},
       .order       = 1,
       .label       = "{{ file }}",
       // What this step is in C++, for a combination written out as a macro (ndmspc/macro): the file it
@@ -1474,7 +1474,7 @@ void toolBrowser()
                                // because the tour carries the step forward from card to card.
                                json{{"show", "stepBlock"},
                                     {"action", group + "/open"},
-                                    {"params", {{"file", "https://root.cern/js/files/hsimple.root"}}},
+                                    {"params", {{"file", "root://eos.ndmspc.io//eos/ndmspc/examples/hsimple.root"}}},
                                     {"body", "This is a step: one action of the session, with the settings "
                                              "it runs with below it."}},
                                json{{"show", "stepIdentifier"},

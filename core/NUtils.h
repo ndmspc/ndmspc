@@ -134,6 +134,37 @@ class NUtils : TObject {
   static TMacro * OpenMacro(std::string filename);
 
   /**
+   * @brief The current precompiled library for a macro, when one was built for it.
+   *
+   * A precompiled library is produced at image build time by `scripts/precompile-macros.sh` and
+   * recorded in `<macro-dir>/.precompiled/<root-version>/precompiled.json`. This returns the library
+   * only while a manifest matches the running ROOT and the macro's size and mtime; a changed macro,
+   * a different ROOT, or a missing manifest answers an empty string, so the caller interprets the
+   * macro instead. Remote macros never have a cache.
+   *
+   * @param filename Macro file name (may contain environment variables).
+   * @param entry Receives the entry function recorded for the library.
+   * @param sourceRoot Receives the directory the library was compiled from; its ACLiC dictionary
+   *        refers to the macro by that relative path, so the caller loads it from there.
+   * @return Absolute library path, or an empty string when there is no usable cache.
+   */
+  static std::string PrecompiledMacro(const std::string & filename, std::string & entry,
+                                      std::string * sourceRoot = nullptr);
+
+  /**
+   * @brief Run a macro, from its precompiled library when one is current, else interpreted.
+   *
+   * Loading a library and calling its entry does not execute the macro's source through cling, which
+   * is what makes a room start faster. Macros with arguments, user macros, remote macros and stale
+   * caches fall back to OpenMacro()/TMacro::Exec(), exactly as before. Set
+   * `NDMSPC_MACRO_PRECOMPILED=0` to force the interpreted path.
+   *
+   * @param filename Macro file name.
+   * @return True when the macro was executed (either way), false when it could not be opened.
+   */
+  static bool ExecMacro(const std::string & filename);
+
+  /**
    * @brief Loads a JSON configuration file into the provided json object.
    *
    * @param cfg Reference to a json object where the file contents will be loaded.

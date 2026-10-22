@@ -242,6 +242,9 @@ class NWsHandler : public THttpWSHandler {
 
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
   std::map<ULong_t, NWsPendingClient> fPendingClients; ///<! Runtime pending authentication state
+  /// What each upgrade said about itself (`client`, `clientVersion`), kept from WS_CONNECT until the
+  /// connection is activated: the activation itself has no access to the upgrade request.
+  std::map<ULong_t, std::pair<std::string, std::string>> fConnectInfo;
   std::map<ULong_t, std::string>   fAccessLevels; ///<! Room-access level per admitted connection
   mutable std::mutex               fMutex;      ///<! Mutex for thread-safe client map access
   /// Serializes sends: ROOT's engine allows one in flight per connection, so a send waits for the
