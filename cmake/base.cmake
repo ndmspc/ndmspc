@@ -79,6 +79,14 @@ if(NDMSPC_VERSION MATCHES "^v?([0-9]+(\\.[0-9]+)*)(-(.+))?$")
   set(NDMSPC_RPM_VERSION "${CMAKE_MATCH_1}")
   set(_rpm_suffix "${CMAKE_MATCH_4}")
   set(_rpm_release "${NDMSPC_VERSION_RELEASE}")
+  # Building exactly at a tag makes the git fallback name that tag's commit here, which is what
+  # the binaries report - but an RPM Release must be ordered, so keep the numeric project release
+  # instead: a stable build is 1.4.2-1, never 1.4.2-ccf8279. A "<n>-g<hash>" release (a commit
+  # after the tag) and a pre-release suffix keep their own value.
+  string(LENGTH "${_rpm_release}" _rpm_release_length)
+  if(NOT _rpm_suffix AND _rpm_release_length GREATER_EQUAL 7 AND _rpm_release MATCHES "^[0-9a-f]+$")
+    set(_rpm_release "${PROJECT_VERSION_RELEASE}")
+  endif()
   if(_rpm_suffix)
     set(_rpm_release "0.${_rpm_suffix}")
     if(NDMSPC_VERSION_RELEASE)
