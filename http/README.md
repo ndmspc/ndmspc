@@ -1512,6 +1512,11 @@ which `ndmspc/room/list` reports alongside `currentTag` (the skeleton image's ow
 "currentTag": "v1.5.0-rc12"
 ```
 
+That list is exhaustive: it is the skeleton's `imageTags` with the current tag first, and the router does
+not add tags from its own Knative revisions. A deployment therefore decides its whole version history
+(the devops role's `ndmspc_room_image_tags`) and it does not grow with every deploy — add an older tag
+explicitly to make it a revert target.
+
 `ndmspc/room/upgrade` takes `room`, `tag`, `image`, `force`, `wait` and `autoUpdate` (body or MCP arguments;
 `tag`/`image` may also come as `?tag=`/`?image=`). `autoUpdate` is the room's own answer to what it does the
 *next* time it is entered: `false` locks it to whatever it is rolled onto, `true` lets it follow the
