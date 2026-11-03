@@ -8,15 +8,8 @@
 #
 # See https://gitlab.com/ndmspc/ndmspc-ui for the available versions.
 
-# Version of the prebuilt ndmspc-ui page to install. Selectable with
-# -DNDMSPC_UI_VERSION=..., the NDMSPC_UI_VERSION environment variable, or
-# `scripts/make.sh ui=<version>`.
-if(DEFINED ENV{NDMSPC_UI_VERSION} AND NOT "$ENV{NDMSPC_UI_VERSION}" STREQUAL "")
-  set(_ndmspc_ui_default_version "$ENV{NDMSPC_UI_VERSION}")
-else()
-  set(_ndmspc_ui_default_version "next")
-endif()
-set(NDMSPC_UI_VERSION "${_ndmspc_ui_default_version}" CACHE STRING "ndmspc-ui page version to download (e.g. next, v1.2.3)")
+# NDMSPC_UI_VERSION (which page to install) is resolved in cmake/base.cmake so the
+# RPM spec can bake it even when this directory is not configured.
 
 # ndmspc-ui uploads the page tarball to its Generic Package Registry; the same
 # path serves `next` and released tags.

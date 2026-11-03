@@ -119,6 +119,7 @@ cmake ../ \
 -DWITH_TEST=OFF \
 %if %{with_ui}
 -DWITH_UI=ON \
+-DNDMSPC_UI_VERSION=@NDMSPC_UI_VERSION@ \
 %else
 -DWITH_UI=OFF \
 %endif

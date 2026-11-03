@@ -14,6 +14,11 @@ version at configure time and installs it to `share/ndmspc/ndmspc-ui` (the
 - `next` — the latest `main` build of ndmspc-ui, republished on every push.
 - a tag such as `v1.2.3` — a fixed release.
 
+The packaged builds pin the version automatically: `scripts/make.sh` (and so the RPM
+and the base image) uses the release tag when the build comes from one, and `next` for
+branches and pre-release tags (e.g. `v1.4.0-rc51`); the aliBuild recipe does the same
+from its checked-out tag. An explicit value always overrides that.
+
 It can be set the usual ways:
 
 ```bash
