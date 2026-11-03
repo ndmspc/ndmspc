@@ -45,11 +45,6 @@ struct NRoomConfig {
   std::string prefix{"ndmspc-room-"};           ///< Room resource name prefix
   std::string param{"room"};                    ///< Query parameter that identifies a room
   std::string skeleton{"ndmspc-room-skeleton"}; ///< Skeleton ConfigMap name
-  /**
-   * This router's own Knative Service: its Revisions are the images this deployment has rolled, one per
-   * deploy, so its history is the tag history a room can be moved along (`ImageTags` reads it).
-   */
-  std::string service{"ndmspc-router"};
   std::string urlBase;                          ///< External base URL for the room links
   long        idleTtlSec{86400};                ///< Idle time before an unused room is swept, in seconds
   long        readyTimeoutSec{45};              ///< How long to wait for a room to become Ready, in seconds
@@ -489,19 +484,19 @@ class NRoomRouter {
    */
   static std::string WithTag(const std::string & image, const std::string & tag);
   /**
-   * @brief The image tags a room may be upgraded or reverted to: every tag this deployment has rolled.
+   * @brief The image tags a room may be upgraded or reverted to: what the deployment lists.
    *
    * The skeleton image's own tag first (the deployment's current image, which an update targets), then
-   * the tags the deployment has rolled (`deployed`, newest first, from {@link DeployedTags}), then
-   * whatever the skeleton advertises - an alias like `local`, which the current tag may repeat. Deduped,
-   * so the same tag never appears twice. Empty when there is nothing to name: no image, no history, no
-   * advertised tags.
+   * whatever the skeleton advertises as `imageTags` (the devops role's `ndmspc_room_image_tags`, e.g.
+   * "v1.4.0", "v1.3.2"). Deduped, so the same tag never appears twice. The list is exhaustive on
+   * purpose: tags are not discovered from Knative revisions, so a deployment decides its whole version
+   * history and it does not grow with every deploy. Empty when there is nothing to name: no image and
+   * no advertised tags.
    *
    * @param skeleton The room skeleton JSON.
-   * @param deployed The tags of the deployment's own Revisions, newest first (see {@link DeployedTags}).
    * @return An array of tag strings (possibly empty).
    */
-  static json ImageTags(const json & skeleton, const json & deployed);
+  static json ImageTags(const json & skeleton);
   /**
    * @brief A Kubernetes timestamp (RFC 3339, seconds precision) as epoch seconds.
    * @return The instant, or 0 when the value is not one - so "the cluster did not say" stays
@@ -882,18 +877,6 @@ class NRoomRouter {
    */
   json RoomVersions(const std::string & name, const std::string & currentRevision);
 
-  /**
-   * @brief The tags this deployment has rolled: the Revisions of the router's own Knative Service.
-   *
-   * Every deploy rolls the router, so its Revisions carry one image per deploy — the deployment's tag
-   * history, newest first. A room is independent of the router it sits next to, so this is what a room
-   * can be moved along to: any tag the deployment has run, not only the one it runs now. Read with the
-   * same call a room's own versions come from, so it needs no permission the router does not already
-   * use; Knative's garbage collector prunes old Revisions, so this is "what is still recorded".
-   *
-   * @return An array of tag strings, newest first; empty when the cluster will not say (or offline).
-   */
-  json DeployedTags();
   /// @brief The path of the skeleton ConfigMap.
   std::string SkeletonPath() const;
   /**

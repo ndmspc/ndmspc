@@ -124,7 +124,6 @@ NRoomConfig NRoomConfig::FromEnv()
   c.prefix          = NRoomEnv("NDMSPC_ROOM_PREFIX", "ndmspc-room-");
   c.param           = NRoomEnv("NDMSPC_ROOM_PARAM", "room");
   c.skeleton        = NRoomEnv("NDMSPC_ROOM_SKELETON", "ndmspc-room-skeleton");
-  c.service         = NRoomEnv("NDMSPC_ROOM_SERVICE", "ndmspc-router");
   c.urlBase         = NRoomEnv("NDMSPC_ROOM_URL_BASE", "");
   c.idleTtlSec      = ParseDuration(NRoomEnv("NDMSPC_ROOM_IDLE_TTL", "24h"), 86400);
   c.readyTimeoutSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_READY_TIMEOUT", "45s"), 45);
@@ -249,10 +248,11 @@ std::string NRoomRouter::WithTag(const std::string & image, const std::string & 
   return image + ":" + tag;
 }
 
-// The image tags a room may be upgraded or reverted to: the tag the deployment is on now, the tags the
-// deployment has actually rolled (`deployed` — the router's own Revisions, newest first), and finally
-// whatever the skeleton advertises (an alias such as `local`, which the skeleton's own tag may repeat).
-json NRoomRouter::ImageTags(const json & skeleton, const json & deployed)
+// The image tags a room may be upgraded or reverted to: the tag the deployment is on now, then whatever
+// the skeleton advertises (`ndmspc_room_image_tags` in the devops role, e.g. "v1.4.0", "v1.3.2"). The
+// list is exhaustive on purpose - the router does not discover tags from its own Knative revisions, so a
+// deployment decides the whole history it offers, and that history does not grow with every deploy.
+json NRoomRouter::ImageTags(const json & skeleton)
 {
   json tags = json::array();
   auto has  = [&tags](const std::string & tag) {
@@ -268,40 +268,12 @@ json NRoomRouter::ImageTags(const json & skeleton, const json & deployed)
   // The skeleton's own tag first: it is the deployment's current image, which is what an update targets.
   const std::string image = NdmspcRoomImage(skeleton);
   if (!image.empty()) add(NdmspcImageTag(image));
-  // Then every tag this deployment has rolled, newest first: what a room can be moved back along.
-  if (deployed.is_array()) {
-    for (const auto & entry : deployed) {
-      if (entry.is_string()) add(entry.get<std::string>());
-    }
-  }
+  // Then the tags the deployment lists: what a room can be moved back along.
   const json advertised = skeleton.value("imageTags", json::array());
   if (advertised.is_array()) {
     for (const auto & entry : advertised) {
       if (entry.is_string()) add(entry.get<std::string>());
     }
-  }
-  return tags;
-}
-
-// The tags this deployment has rolled: the Revisions of the router's own Service (see the header note).
-// Every deploy rolls the router, so this is the deployment's image history - the tags a room can be moved
-// along to, whether or not this room ever ran them.
-json NRoomRouter::DeployedTags()
-{
-  json tags = json::array();
-  if (fConfig.service.empty() || fConfig.apiServer.empty()) return tags;
-  for (const auto & version : RoomVersions(fConfig.service, "")) {
-    if (!version.is_object()) continue;
-    const std::string tag = version.value("imageTag", "");
-    if (tag.empty()) continue;
-    bool seen = false;
-    for (const auto & entry : tags) {
-      if (entry.is_string() && entry.get<std::string>() == tag) {
-        seen = true;
-        break;
-      }
-    }
-    if (!seen) tags.push_back(tag);
   }
   return tags;
 }
@@ -3836,7 +3808,7 @@ void NRoomRouter::HandleUpgrade(const std::string & method, json & in, json & ou
   }
   else {
     std::string tag      = RequestImageTag(in);
-    const json  offered  = ImageTags(skeleton, DeployedTags());
+    const json  offered  = ImageTags(skeleton);
     auto        offers   = [&offered](const std::string & value) {
       for (const auto & entry : offered) {
         if (entry.is_string() && entry.get<std::string>() == value) return true;
@@ -4341,9 +4313,9 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
     // The image tags a room may be rolled onto (room/upgrade), and the deployment's current one, so a
     // view can offer an update/revert without knowing the tags in advance. A room's own tag is on the
     // room itself (`imageTag`), which is what a view compares against `currentTag` to say one is due.
-    // The list carries every tag this deployment has rolled (see `ImageTags`), never only the current
-    // one: a room is independent of the router beside it, so any of them is a place to move it to.
-    const json tags = NRoomRouter::ImageTags(skeleton, DeployedTags());
+    // The list is the skeleton's `imageTags` (the deployment's configured history) with the current tag
+    // first; it never grows on its own from the revisions the router or a room has rolled.
+    const json tags = NRoomRouter::ImageTags(skeleton);
     if (!tags.empty()) {
       out["payload"]["imageTags"] = tags;
       const std::string image = NdmspcRoomImage(skeleton);
@@ -5300,7 +5272,7 @@ void NRoomRouter::HandleImport(const std::string & method, json & in, json & out
     }
     else {
       const std::string tag = NdmspcImageTag(wantedImage);
-      for (const auto & choice : ImageTags(skeleton, DeployedTags())) {
+      for (const auto & choice : ImageTags(skeleton)) {
         const bool matches = !base.empty() && !tag.empty() && choice.is_string() &&
                              choice.get<std::string>() == tag;
         if (!matches) continue;

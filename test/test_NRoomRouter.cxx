@@ -3000,6 +3000,22 @@ TEST(NRoomRouterActionsTest, TheListReportsTheImageTagsARoomMayBeRolledOnto)
   EXPECT_EQ(list["payload"]["currentTag"], "v1.5.0");
 }
 
+TEST(NRoomRouterActionsTest, TheListDoesNotOfferTagsFromTheRouterRevisions)
+{
+  Router test;
+  test.cluster->skeleton = SkeletonWithImageTags("registry.example.com/ndmspc/base:v1.5.0",
+                                                 json::array({"v1.4.0"}));
+  // The router's own revision history - one image per deploy - must not become part of what a room can
+  // be rolled onto. The list is exactly the skeleton's `imageTags` plus the current tag, so a deployment
+  // decides its whole version history and it does not grow by itself from every deploy.
+  test.cluster->RecordRevision("ndmspc-router", "registry.example.com/ndmspc/base:v0.9.0");
+
+  const json list = test.Call("list", "GET");
+  ASSERT_TRUE(list["payload"].contains("imageTags"));
+  EXPECT_EQ(list["payload"]["imageTags"], json::array({"v1.5.0", "v1.4.0"}));
+  EXPECT_EQ(list["payload"]["currentTag"], "v1.5.0");
+}
+
 TEST(NRoomRouterActionsTest, TheStatusReportsTheImagesTheRoomHasRun)
 {
   Router test;
