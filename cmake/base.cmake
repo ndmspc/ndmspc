@@ -58,6 +58,19 @@ if(NOT NDMSPC_VERSION_RELEASE)
   set(NDMSPC_VERSION_RELEASE "${PROJECT_VERSION_RELEASE}")
 endif()
 
+# ndmspc-ui page version: the build entry points pin the release tag when this is a
+# tagged build (scripts/make.sh from MY_PROJECT_VER, aliBuild from the checked-out tag)
+# and `next` otherwise. -DNDMSPC_UI_VERSION and the environment override it. Defined
+# here, not in ui/CMakeLists.txt, because cmake/ndmspc.spec.in bakes it and the spec is
+# generated even when WITH_UI is off.
+if(DEFINED ENV{NDMSPC_UI_VERSION} AND NOT "$ENV{NDMSPC_UI_VERSION}" STREQUAL "")
+  set(_ndmspc_ui_default_version "$ENV{NDMSPC_UI_VERSION}")
+else()
+  set(_ndmspc_ui_default_version "next")
+endif()
+set(NDMSPC_UI_VERSION "${_ndmspc_ui_default_version}" CACHE STRING
+    "ndmspc-ui page version to download (e.g. next, v1.2.3)")
+
 # RPM needs a numeric Version (no '-'); a tag-style suffix and the commits/hash go to Release.
 # e.g. 1.4.0-rc46 + 24-g6a9867d -> Version 1.4.0, Release 0.rc46.24.g6a9867d.
 set(NDMSPC_RPM_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")

@@ -1,6 +1,6 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v1.4.0-rc51"
+tag: "v1.4.0"
 requires:
   - ROOT
   - JAliEn-ROOT
@@ -89,9 +89,25 @@ fi
 NDMSPC_RELEASE_STRING=${NDMSPC_RELEASE_STRING%-dirty}
 NDMSPC_VERSION_STRING=${NDMSPC_VERSION_STRING#v}
 
+# ndmspc-ui page version: pin the release tag when this build comes from one, else
+# `next` (the latest ndmspc-ui main build). An explicit NDMSPC_UI_VERSION in the
+# environment wins.
+if [ -z "${NDMSPC_UI_VERSION:-}" ]; then
+  NDMSPC_UI_VERSION="next"
+  UI_TAG=""
+  if [ -d "$SOURCEDIR/.git" ]; then
+    UI_TAG=$(cd "$SOURCEDIR" && git describe --tags --exact-match 2>/dev/null || true)
+  fi
+  [ -n "$UI_TAG" ] || UI_TAG="${PKG_VERSION:-}"
+  if [[ "$UI_TAG" =~ ^v?[0-9]+(\.[0-9]+)*$ ]]; then
+    NDMSPC_UI_VERSION="v${UI_TAG#v}"
+  fi
+fi
+
 VERSION_ARGS=()
 [ -n "$NDMSPC_VERSION_STRING" ] && VERSION_ARGS+=("-DNDMSPC_VERSION=$NDMSPC_VERSION_STRING")
 [ -n "$NDMSPC_RELEASE_STRING" ] && VERSION_ARGS+=("-DNDMSPC_VERSION_RELEASE=$NDMSPC_RELEASE_STRING")
+VERSION_ARGS+=("-DNDMSPC_UI_VERSION=$NDMSPC_UI_VERSION")
 
 cmake "$SOURCEDIR" "-DCMAKE_INSTALL_PREFIX=$INSTALLROOT"                \
       -G Ninja                                                          \

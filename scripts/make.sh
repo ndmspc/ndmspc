@@ -215,6 +215,25 @@ if [[ -n "$MY_PROJECT_VER_RELEASE" ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DPROJECT_VERSION_RELEASE:STRING=${MY_PROJECT_VER_RELEASE} -DNDMSPC_VERSION_RELEASE:STRING=${MY_PROJECT_VER_RELEASE}"
 fi
 
+# ndmspc-ui page version: pin the release tag when this build comes from one, else use
+# `next` (the latest ndmspc-ui main build). An explicit NDMSPC_UI_VERSION always wins.
+if [[ -z "$NDMSPC_UI_VERSION" ]]; then
+  _ui_tag=""
+  if [[ -n "$MY_PROJECT_VER" ]]; then
+    if [[ -z "$MY_PROJECT_VER_RELEASE" ]]; then
+      _ui_tag="v${MY_PROJECT_VER#v}"
+    fi
+  else
+    _ui_tag=$(git -C "$PROJECT_DIR" describe --tags --exact-match 2>/dev/null || true)
+  fi
+  if [[ "$_ui_tag" =~ ^v?[0-9]+(\.[0-9]+)*$ ]]; then
+    NDMSPC_UI_VERSION="v${_ui_tag#v}"
+  else
+    NDMSPC_UI_VERSION="next"
+  fi
+fi
+echo "Using ndmspc-ui page version: $NDMSPC_UI_VERSION"
+
 if [[ $WITH_TEST == true ]]; then
   echo "Building with testing support"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_TEST:bool=ON"
@@ -227,10 +246,10 @@ if [[ $WITH_HTTP == true ]]; then
 fi
 if [[ $WITH_UI == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_UI:bool=ON"
-  if [[ -n "$NDMSPC_UI_VERSION" ]]; then
-    MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DNDMSPC_UI_VERSION:STRING=${NDMSPC_UI_VERSION}"
-  fi
 fi
+# Always pass it: cmake/ndmspc.spec.in bakes this value into the rpmbuild configure, so
+# the RPM downloads the same page even when the spec was generated with UI off.
+MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DNDMSPC_UI_VERSION:STRING=${NDMSPC_UI_VERSION}"
 if [[ $WITH_NUMCAL == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_NUMCAL:bool=ON"
 fi
