@@ -1192,9 +1192,10 @@ json NHttpServer::RoomSessionSnapshot()
     snapshot["combinations"] = combinations;
   }
 
-  // The room's own session state - the names it holds and what each session has drawn - rides beside the
-  // tree: a room that wakes comes back with the names it was using, not ones derived again from whatever
-  // each file happens to be, and with the pads it was showing.
+  // The room's own session state - the names it holds - rides beside the tree: a room that wakes comes
+  // back with the names it was using, not ones derived again from whatever each file happens to be.
+  // Pads are left out: a drawing is a rendering cache, rebuilt when a combination is materialized (see
+  // MaterializeCombination), and carrying them is what made snapshots outgrow the Service annotation.
   const json sessionState = SessionStateSnapshot();
   for (auto it = sessionState.begin(); it != sessionState.end(); ++it) {
     snapshot[it.key()] = it.value();
@@ -1212,9 +1213,9 @@ json NHttpServer::SessionStateSnapshot() const
     }
     state["sessionNames"] = names;
   }
-  if (fPads.is_object() && !fPads.empty()) {
-    state["pads"] = fPads;
-  }
+  // Pads are deliberately left out: each one is a rendered envelope, and together they are what pushed
+  // snapshots past the size a Service annotation can hold. A materialized combination rebuilds them
+  // (see MaterializeCombination); an inactive session's drawings come back when it is materialized.
   return state;
 }
 
@@ -1227,6 +1228,8 @@ void NHttpServer::AdoptSessionState(const json & state)
       if (it.value().is_string()) fSessionNames[it.key()] = it.value().get<std::string>();
     }
   }
+  // An older snapshot still carries the pads; adopt them, so a session stored before they were dropped
+  // keeps its drawings until the combination is materialized. New snapshots leave them out.
   const json pads = JsonMember(state, "pads");
   if (pads.is_object()) fPads = pads;
 }
@@ -1239,12 +1242,28 @@ void NHttpServer::RoomSessionPush()
   if (snapshot.is_null()) return; // nothing open: never report an empty session
 
   const std::string text = NRoomSession::Encode(snapshot);
-  if (text.empty()) return;
+
+  // Say what the snapshot is made of, so an oversized one names the part to trim rather than only the
+  // total. A null component is 0 bytes. These dumps are only paid on a change, or when Encode refused.
+  const auto componentSize = [&snapshot](const char * key) {
+    const json value = JsonMember(snapshot, key);
+    return value.is_null() ? std::size_t{0} : value.dump().size();
+  };
+  if (text.empty()) {
+    NLogInfo("Room session snapshot composition: actions %zu, point %zu, combinations %zu, sessionNames %zu",
+             componentSize("actions"), componentSize("point"), componentSize("combinations"),
+             componentSize("sessionNames"));
+    return;
+  }
 
   {
     std::lock_guard<std::mutex> lock(fRoomMutex);
     if (fRoomPushed == text) return; // unchanged since the last report
   }
+
+  NLogInfo("Room session snapshot is %zu bytes (actions %zu, point %zu, combinations %zu, sessionNames %zu)",
+           text.size(), componentSize("actions"), componentSize("point"), componentSize("combinations"),
+           componentSize("sessionNames"));
 
   json message;
   message["room"]     = fRoomId;
@@ -2319,12 +2338,12 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     else {
       // Resolve the registered handler without inserting (a request-time
       // insertion would mutate the map and race with concurrent lookups).
+      //
+      // A deferred tool macro is loaded *before* the action is classified: the node check below
+      // (NInstanceTree::IsNodeAction) reads the tool metadata, which only exists once its macro is
+      // loaded. The resolver is a cheap no-op once nothing is left to defer.
+      if (fActionResolver != nullptr) fActionResolver(fullpath.Data());
       Ndmspc::NHttpFuncPtr handlerFn = FindHttpHandler(fullpath.Data());
-      if (handlerFn == nullptr && fActionResolver != nullptr && fActionResolver(fullpath.Data())) {
-        // The resolver loaded the deferred macro and installed its handlers; look the action up
-        // again. This runs on the action worker, so a macro load never overlaps another action.
-        handlerFn = FindHttpHandler(fullpath.Data());
-      }
       if (handlerFn == nullptr) {
         NLogError("Unsupported action: %s", fullpath.Data());
         arg->SetContentType("application/json");
@@ -2444,7 +2463,17 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
             fWorkspace.RemoveEntry(fullpath.Data());
           }
 
+          fCurrentAction = action;
+          const auto actionStarted = std::chrono::steady_clock::now();
           handlerFn(method.Data(), in, out, wsOut, fObjectsMap);
+          const auto actionMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - actionStarted)
+                                    .count();
+          if (actionMs >= 1000) {
+            NLogWarning("[api] %s %s took %lld ms", method.Data(), action.c_str(),
+                        static_cast<long long>(actionMs));
+          }
+          fCurrentAction.clear();
 
           // What tool was actually run: recorded only for a room, and only when the action did not
           // fail. The router rolls the rows up into the usage summary.
@@ -2794,8 +2823,11 @@ bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, 
       out["error"]  = "unknown combination node '" + id + "'";
       return false;
     }
-    const std::string          action = tree.Action(id);
-    const Ndmspc::NHttpFuncPtr fn     = FindHttpHandler(action);
+    const std::string action = tree.Action(id);
+    // A restored combination may name a tool that is still deferred: resolve it before looking its
+    // handler up (the entry placeholder would otherwise be all there is).
+    if (fActionResolver != nullptr) fActionResolver(action);
+    const Ndmspc::NHttpFuncPtr fn = FindHttpHandler(action);
     if (fn == nullptr) {
       out["result"] = "failure";
       out["code"]   = "invalid_combination";
@@ -2811,7 +2843,9 @@ bool NHttpServer::MaterializeCombination(const std::vector<std::string> & path, 
     fCurrentSession     = nodePath.empty() ? std::string() : nodePath.front();
     json params         = tree.Params(id);
     json nodeOut, nodeWsOut;
+    fCurrentAction = action;
     fn("POST", params, nodeOut, nodeWsOut, fObjectsMap);
+    fCurrentAction.clear();
     if (!(nodeOut.contains("result") && nodeOut["result"].is_string() &&
           nodeOut["result"].get<std::string>() == "success")) {
       out["result"] = "failure";

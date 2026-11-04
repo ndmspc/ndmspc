@@ -1972,6 +1972,7 @@ void NRoomRouter::Sweep()
         continue;
       }
       fRooms.erase(it);
+      fRoomLive.erase(room.name);
     }
     NLogInfo("[room] expiring idle room %s (idle > %lds)", room.name.c_str(), cfg.idleTtlSec);
     fStats.RoomEvent("expire", room.value, room.owner, room.profile, room.image,
@@ -1997,6 +1998,7 @@ void NRoomRouter::CloseRoom(const std::string & value)
   {
     std::lock_guard<std::mutex> lock(fMutex);
     fRooms.erase(name);
+    fRoomLive.erase(name);
   }
 }
 
@@ -2109,13 +2111,22 @@ void NRoomRouter::EnsureFinish(const std::string & name, const std::string & rev
                                    const std::string & code)
 {
   std::string value, owner, profile, image;
+  bool        wasPreparing = false;
+  long        elapsedSec   = 0;
   {
     std::lock_guard<std::mutex> lock(fMutex);
     const auto                  it = fRooms.find(name);
     if (it == fRooms.end()) return;
 
-    it->second.preparing  = false;
-    it->second.finishedAt = NdmspcRoomNow();
+    const long now = NdmspcRoomNow();
+    wasPreparing = it->second.preparing;
+    elapsedSec   = wasPreparing && it->second.startedAt > 0 ? now - it->second.startedAt : 0;
+    value        = it->second.value;
+    it->second.preparing = false;
+    // Only the call that ends the wait stamps when it ended: the background path calls this once to
+    // report the room ready and again after the session replay, and the replay must not stretch the
+    // creation time a list shows.
+    if (wasPreparing) it->second.finishedAt = now;
     if (error.empty()) {
       it->second.phase = "ready";
       it->second.error.clear();
@@ -2127,11 +2138,17 @@ void NRoomRouter::EnsureFinish(const std::string & name, const std::string & rev
       it->second.phase = "failed";
       it->second.error = error;
       it->second.code  = code;
-      value   = it->second.value;
       owner   = it->second.owner;
       profile = it->second.profile;
       image   = it->second.image;
     }
+  }
+
+  // One line per creation, with how long it actually took - the phase timeline a "preparing" row is
+  // explained by when it seems to lag behind the pod.
+  if (wasPreparing) {
+    NLogInfo("[room] '%s' %s in %.1fs", value.c_str(), error.empty() ? "is ready" : "could not be created",
+             static_cast<double>(elapsedSec));
   }
 
   // One row per failed creation, whichever path it came from (a waiting call or a background one).
@@ -2139,6 +2156,9 @@ void NRoomRouter::EnsureFinish(const std::string & name, const std::string & rev
     fStats.RoomEvent("fail", value, owner, profile, image, image.empty() ? "" : NdmspcImageTag(image),
                      NdmspcServerVersion(), "reason=" + code + ";error=" + error);
   }
+
+  // A watching view sees the room come ready (or fail) now, not at the next tick.
+  PublishNow();
 }
 
 // Records that a creation ended waiting for cluster resources (the scheduler cannot place the pod).
@@ -2149,15 +2169,18 @@ void NRoomRouter::EnsureFinish(const std::string & name, const std::string & rev
 // as a creation in flight, and is reported as pending until ConvergePending sees it come up.
 void NRoomRouter::EnsurePending(const std::string & name, const std::string & error, const std::string & code)
 {
-  std::lock_guard<std::mutex> lock(fMutex);
-  const auto                  it = fRooms.find(name);
-  if (it == fRooms.end()) return;
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it == fRooms.end()) return;
 
-  it->second.preparing  = false;
-  it->second.finishedAt = NdmspcRoomNow();
-  it->second.phase      = "pending";
-  it->second.error      = error;
-  it->second.code       = code;
+    it->second.preparing  = false;
+    it->second.finishedAt = NdmspcRoomNow();
+    it->second.phase      = "pending";
+    it->second.error      = error;
+    it->second.code       = code;
+  }
+  PublishNow();
 }
 
 // Removes a half-created room after a failure, so the next room/open recreates it from scratch.
@@ -2189,13 +2212,16 @@ NRoomRouter::Outcome NRoomRouter::Stopped(const std::string & name, int generati
     Delete(name);
   }
 
-  std::lock_guard<std::mutex> lock(fMutex);
-  const auto                  it = fRooms.find(name);
-  if (it != fRooms.end() && it->second.generation == generation) {
-    it->second.preparing  = false;
-    it->second.phase      = "cancelled";
-    it->second.finishedAt = NdmspcRoomNow();
+  {
+    std::lock_guard<std::mutex> lock(fMutex);
+    const auto                  it = fRooms.find(name);
+    if (it != fRooms.end() && it->second.generation == generation) {
+      it->second.preparing  = false;
+      it->second.phase      = "cancelled";
+      it->second.finishedAt = NdmspcRoomNow();
+    }
   }
+  PublishNow();
   return Outcome::Failed;
 }
 
@@ -2263,8 +2289,9 @@ bool NRoomRouter::ConvergePending(const std::string & name, const std::string & 
 // request for it supersedes this one.
 NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int generation,
                                                const std::string & requestedProfile,
-                                               const std::string & requestedImage, Replay replay, json & payload,
-                                               std::string & error, std::string & code)
+                                               const std::string & requestedImage, Replay replay,
+                                               bool blockOnReplay, json & payload, std::string & error,
+                                               std::string & code)
 {
   const NRoomConfig & cfg  = fConfig;
   const std::string        name = NRoomRouter::RoomName(cfg, value);
@@ -2428,7 +2455,12 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
   // An object either way: with no replay nothing fills it, and the members are read below.
   json session = json::object();
   if (replay == Replay::Stored) {
-    SetPhase(name, "restore");
+    // A waiting caller (room/open with wait=true) gets the session in its answer, so the replay runs
+    // before the room is reported ready. The background path (the view's wait=false) does not wait:
+    // the room asks the router for its session as it comes up on its first request, so reporting it
+    // ready here and replaying after keeps `preparing` down to the pod/revision readiness.
+    if (!blockOnReplay) EnsureFinish(name, revision, "", std::string(), std::string());
+    else SetPhase(name, "restore");
     ReplaySession(value, session);
   }
 
@@ -2540,7 +2572,7 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
     startedAt  = state.startedAt;
   }
 
-  if (wait) return EnsureWorker(value, generation, profile, image, replay, payload, error, code);
+  if (wait) return EnsureWorker(value, generation, profile, image, replay, /*blockOnReplay=*/true, payload, error, code);
 
   const std::string shownImage = !image.empty() ? image : RoomImage(name);
   payload["room"]      = value;
@@ -2570,7 +2602,8 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
                 std::string code;
                 try {
                   const Outcome outcome =
-                      EnsureWorker(value, generation, profile, image, replay, result, failure, code);
+                      EnsureWorker(value, generation, profile, image, replay, /*blockOnReplay=*/false, result,
+                                   failure, code);
                   if (outcome == Outcome::Failed && !failure.empty()) {
                     NLogError("[room] '%s' could not be created: %s", value.c_str(), failure.c_str());
                   }
@@ -2782,7 +2815,9 @@ void NRoomRouter::HandleWatch(const std::string & method, json & in, json & out)
 // The rooms list as one caller sees it (see the header).
 json NRoomRouter::RoomsPayload(const NRequestIdentity & identity)
 {
-  return RunRoomHandler("ndmspc/room/list", json::object(), identity);
+  // `_brief`: a push reports the registry only, so it is cheap and its `ready` arrives at once. A
+  // client that wants the live cluster view asks for the list itself.
+  return RunRoomHandler("ndmspc/room/list", json{{"_brief", true}}, identity);
 }
 
 // The fan-out core, without sockets (see the declaration in the header).
@@ -3988,10 +4023,14 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
       // How the last creation left the room's session: a client that waited for a create with
       // wait=false follows it through here, and what the replay did belongs in that answer.
       if (!it->second.session.empty()) out["payload"]["session"] = it->second.session;
+      if (it->second.startedAt > 0) out["payload"]["startedAt"] = it->second.startedAt;
+      if (it->second.phase == "ready" && it->second.startedAt > 0 && it->second.finishedAt > 0 &&
+          it->second.finishedAt >= it->second.startedAt) {
+        out["payload"]["startedIn"] = it->second.finishedAt - it->second.startedAt;
+      }
       if (it->second.preparing) {
         out["payload"]["preparing"] = true;
         out["payload"]["phase"]     = it->second.phase;
-        out["payload"]["startedAt"] = it->second.startedAt;
         state                       = "preparing";
       }
       else if (it->second.phase == "failed" && !it->second.error.empty()) {
@@ -4055,12 +4094,21 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
 // ===========================================================================
 void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
 {
+  // A list is read by every poll and built for every push tick, so its cost is what decides how
+  // fresh a view is. Named when it is slow: the per-room cluster reads are the part that can grow.
+  const auto listStarted = std::chrono::steady_clock::now();
   NoteUi(in);
   if (method.find("GET") == std::string::npos) {
     out["result"] = "failure";
     out["error"]  = "Unsupported HTTP method for room/list";
     return;
   }
+
+  // A push (`_brief`) reports the registry's own view and does no cluster reads: it is what tells a
+  // view a room just came ready, and a read per room here held that behind the very create it was
+  // reporting. A poll (a client asking) still gets the live view - replicas, resources, image.
+  const json briefFlag = NdmspcRoomMember(in, "_brief");
+  const bool brief     = briefFlag.is_boolean() && briefFlag.get<bool>();
 
   // The registry is process-local, so a router that has just started holds nothing while the cluster
   // still has the rooms. Adopt before answering: otherwise the list comes back empty - a client sees
@@ -4084,7 +4132,7 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // a note it finds is part of what this answer reports, and it is one API call however many rooms
   // there are. The pod is deleted when a room scales to zero, which is why what it reports here is
   // remembered rather than looked up again later.
-  {
+  if (!brief) {
     const auto pods = Request("GET", PodsPath("serving.knative.dev%2Fservice"));
     if (pods.status == 200) {
       std::map<std::string, json> newest;
@@ -4123,6 +4171,19 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       room["room"]     = entry.second.value;
       room["revision"] = entry.second.revision;
       room["lastSeen"] = entry.second.lastSeen;
+      // The image is the registry's own (set at creation/roll), so even a brief push can name it.
+      if (!entry.second.image.empty()) {
+        room["image"]    = entry.second.image;
+        room["imageTag"] = NdmspcImageTag(entry.second.image);
+      }
+      // When its creation began, and - once it is up - how long that took. Both are the router's own
+      // clock (a restart forgets a room's start), so a view shows what the router measured, which is
+      // what tells a slow start apart from a slow list.
+      if (entry.second.startedAt > 0) room["startedAt"] = entry.second.startedAt;
+      if (entry.second.phase == "ready" && entry.second.startedAt > 0 && entry.second.finishedAt > 0 &&
+          entry.second.finishedAt >= entry.second.startedAt) {
+        room["startedIn"] = entry.second.finishedAt - entry.second.startedAt;
+      }
       const json access = NRoomRouter::AccessJson(entry.second.tokenRw, entry.second.tokenRo);
       if (!access.empty()) room["access"] = access;
       if (!entry.second.owner.empty()) room["owner"] = entry.second.owner;
@@ -4140,7 +4201,6 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       if (entry.second.preparing) {
         room["preparing"] = true;
         room["phase"]     = entry.second.phase;
-        room["startedAt"] = entry.second.startedAt;
         room["state"]     = "preparing";
       }
       else if (entry.second.phase == "failed" && !entry.second.error.empty()) {
@@ -4157,6 +4217,23 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
         if (!entry.second.code.empty()) room["code"] = entry.second.code;
         room["state"] = "pending";
       }
+      else if (brief && entry.second.phase == "ready") {
+        // The registry's own word, without asking the cluster: this is the tick that ends a
+        // `preparing` row.
+        room["phase"] = entry.second.phase;
+        room["state"] = "ready";
+        room["ready"] = true;
+      }
+      if (brief) {
+        // Keep what the last full read found (replicas, resources, image, ...) so a push does not
+        // blank a column between polls; the registry's own fields above win where both speak.
+        const auto live = fRoomLive.find(entry.first);
+        if (live != fRoomLive.end()) {
+          for (auto it = live->second.begin(); it != live->second.end(); ++it) {
+            if (!room.contains(it.key())) room[it.key()] = it.value();
+          }
+        }
+      }
       rooms.push_back(room);
     }
   }
@@ -4167,6 +4244,9 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // - worth showing explicitly rather than leaving the caller guessing.
   for (auto & room : rooms) {
     const std::string name = room.value("name", "");
+
+    // A push says what the registry holds and nothing more (see `_brief` above).
+    if (brief) continue;
 
     // A room that is being prepared has no live view yet: its Service is only being created, so
     // asking for it would report a 404 for one that is not there yet. Its state is what was
@@ -4270,12 +4350,18 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
     }
     catch (const std::exception &) {
     }
+    // Remember what this read found: a push (`_brief`) reuses it instead of asking the cluster again.
+    {
+      std::lock_guard<std::mutex> lock(fMutex);
+      fRoomLive[name] = room;
+    }
   }
   for (const auto & name : stale) {
     NLogInfo("[room] dropping %s: Service no longer exists", name.c_str());
     {
       std::lock_guard<std::mutex> lock(fMutex);
       fRooms.erase(name);
+      fRoomLive.erase(name);
     }
     Request("DELETE", RoutePath(name));
   }
@@ -4301,35 +4387,45 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
 
   // The sizes this deployment offers, so a client can let a user choose one without knowing the
   // names: the same skeleton the rooms are created from. A skeleton without profiles - a deployment
-  // that offers no sizes - simply reports none, and the choice is not shown at all.
-  json skeleton;
-  std::string skeletonError;
-  if (Skeleton(skeleton, skeletonError)) {
-    const json profiles = skeleton.value("profiles", json::object());
-    if (profiles.is_object() && !profiles.empty()) {
-      out["payload"]["profiles"]       = profiles;
-      out["payload"]["defaultProfile"] = skeleton.value("defaultProfile", std::string());
-    }
-    // The image tags a room may be rolled onto (room/upgrade), and the deployment's current one, so a
-    // view can offer an update/revert without knowing the tags in advance. A room's own tag is on the
-    // room itself (`imageTag`), which is what a view compares against `currentTag` to say one is due.
-    // The list is the skeleton's `imageTags` (the deployment's configured history) with the current tag
-    // first; it never grows on its own from the revisions the router or a room has rolled.
-    const json tags = NRoomRouter::ImageTags(skeleton);
-    if (!tags.empty()) {
-      out["payload"]["imageTags"] = tags;
-      const std::string image = NdmspcRoomImage(skeleton);
-      if (!image.empty()) {
-        out["payload"]["currentTag"] = NdmspcImageTag(image);
-        // The image itself, not only the tag it ends in: two images can carry the same tag (a re-pushed
-        // `latest`, a reused `local`), and a view comparing tags alone would then call a room current
-        // while the router - which compares images, see the adopt pass - would still roll it.
-        out["payload"]["currentImage"] = image;
+  // that offers no sizes - simply reports none, and the choice is not shown at all. A push does not
+  // read it: the view already has it from an earlier poll, and it does not change.
+  if (!brief) {
+    json        skeleton;
+    std::string skeletonError;
+    if (Skeleton(skeleton, skeletonError)) {
+      const json profiles = skeleton.value("profiles", json::object());
+      if (profiles.is_object() && !profiles.empty()) {
+        out["payload"]["profiles"]       = profiles;
+        out["payload"]["defaultProfile"] = skeleton.value("defaultProfile", std::string());
+      }
+      // The image tags a room may be rolled onto (room/upgrade), and the deployment's current one, so a
+      // view can offer an update/revert without knowing the tags in advance. A room's own tag is on the
+      // room itself (`imageTag`), which is what a view compares against `currentTag` to say one is due.
+      // The list is the skeleton's `imageTags` (the deployment's configured history) with the current tag
+      // first; it never grows on its own from the revisions the router or a room has rolled.
+      const json tags = NRoomRouter::ImageTags(skeleton);
+      if (!tags.empty()) {
+        out["payload"]["imageTags"] = tags;
+        const std::string image = NdmspcRoomImage(skeleton);
+        if (!image.empty()) {
+          out["payload"]["currentTag"] = NdmspcImageTag(image);
+          // The image itself, not only the tag it ends in: two images can carry the same tag (a re-pushed
+          // `latest`, a reused `local`), and a view comparing tags alone would then call a room current
+          // while the router - which compares images, see the adopt pass - would still roll it.
+          out["payload"]["currentImage"] = image;
+        }
       }
     }
+    else {
+      NLogWarning("[room] cannot report the room profiles: %s", skeletonError.c_str());
+    }
   }
-  else {
-    NLogWarning("[room] cannot report the room profiles: %s", skeletonError.c_str());
+
+  const auto listMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now() - listStarted)
+                          .count();
+  if (listMs >= 500) {
+    NLogWarning("[room] room/list took %lld ms (%zu room(s))", static_cast<long long>(listMs), rooms.size());
   }
 }
 

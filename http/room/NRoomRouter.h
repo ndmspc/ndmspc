@@ -1239,6 +1239,10 @@ class NRoomRouter {
    * @param image The image this creation asks for, or "" to keep the room's own (and, for a room that
    *              has none, the skeleton's image) - see "Room image".
    * @param replay Whether the room's stored session is replayed once it is up.
+   * @param blockOnReplay True runs the replay before the room is reported ready (a waiting caller gets
+   *                      the session in its answer); false reports the room ready first and replays
+   *                      after, so the wait for the pod is not stretched by the restore - the room
+   *                      asks the router for its session on its first request anyway.
    * @param payload Filled with the room's state and, once it is ready, its URL.
    * @param error Filled when the room is not ready - the reason it failed, or the scheduler's own
    *              message while it is only waiting for resources.
@@ -1247,8 +1251,8 @@ class NRoomRouter {
    *         half-created room has been deleted again - see {@link CleanupFailed}).
    */
   Outcome EnsureWorker(const std::string & value, int generation, const std::string & profile,
-                       const std::string & image, Replay replay, json & payload, std::string & error,
-                       std::string & code);
+                       const std::string & image, Replay replay, bool blockOnReplay, json & payload,
+                       std::string & error, std::string & code);
   /**
    * @brief Starts creating (or rolling) a room, and reports what the client can act on.
    * @param value Room id chosen by the client.
@@ -1291,7 +1295,11 @@ class NRoomRouter {
   std::shared_ptr<IRoomCluster>     fCluster;        ///< The cluster the router talks to (the real one, or a test's)
   NRoomStats                        fStats;          ///< Usage recorder (disabled for an injected test router unless configured)
   std::map<std::string, NRoomState> fRooms;          ///< The registry: room name -> its state
-  mutable std::mutex                fMutex;          ///< Guards fRooms
+  /// The live cluster view each room last reported (replicas, resources, image, ...). A push is
+  /// registry-only (see `_brief` in HandleList); this is what keeps a view's columns filled in
+  /// between polls without asking the cluster again. Guarded by fMutex.
+  std::map<std::string, json>       fRoomLive;
+  mutable std::mutex                fMutex;          ///< Guards fRooms and fRoomLive
   bool                              fAdopted{false}; ///< Whether Adopt() has already run in this process
   std::mutex                        fAdoptMutex;     ///< Guards the one-time adoption of existing rooms
   std::vector<Worker>               fWorkers;        ///< The background threads still running

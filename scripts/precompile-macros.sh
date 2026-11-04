@@ -190,6 +190,23 @@ find "$CACHE_DIR" -maxdepth 1 -type f -exec chmod 0644 {} +
 
 if [ "$MANIFEST_ONLY" -eq 1 ]; then
   echo "precompile-macros.sh: manifest refreshed for $BUILT/$TOTAL macro(s) in $CACHE_DIR (ROOT $VERSION)"
+  # The MCP tool catalog: what `tools/list` serves without loading a macro (see
+  # NMcpServer::BuildTools). Written here, where the installed macros and the server binary are both
+  # present; the runtime falls back to loading the macros when the file is absent.
+  if command -v ndmspc-server >/dev/null 2>&1; then
+    CATALOG="$CACHE_DIR/tools.catalog.json"
+    # Every installed tool: the catalog is served to every room, and a room may name only a subset on
+    # its command line, so a subset here would list tools its own group cannot offer.
+    if NDMSPC_PRELOAD_TOOLS=all ndmspc-server --write-tool-catalog "$CATALOG" >/dev/null 2>&1; then
+      echo "precompile-macros.sh: tool catalog written to $CATALOG"
+    else
+      rm -f "$CATALOG"
+      echo "precompile-macros.sh: warning: could not write the tool catalog; tools/list will load macros" >&2
+      if [ "$STRICT" -eq 1 ]; then
+        FAILED=$((FAILED + 1))
+      fi
+    fi
+  fi
 else
   echo "precompile-macros.sh: $BUILT/$TOTAL macro(s) precompiled into $CACHE_DIR (ROOT $VERSION)"
 fi

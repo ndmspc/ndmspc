@@ -164,11 +164,20 @@ an image can compile them once into ACLiC libraries and load those at startup in
   never precompiled and keep working interpreted.
 - The server logs how long each macro took (`Macro '…' loaded in N ms`) and the total
   (`Tool macros: N loaded in M ms, K deferred`), so the startup cost is visible without a profiler.
-- The **ROOT file browser** is the default room's optional tool and is deferred: only
-  `ndmspc/browser/open` is registered at startup, and the macro is loaded on the first browser
-  request (its own `Deferred macro … loaded in N ms` line). A client's first MCP `tools/list` also
-  loads it, so discovery sees the browser's tools. `NDMSPC_DEFER_TOOLS=0` loads every listed macro at
-  startup instead, exactly as before.
+- **No tool macro is loaded at startup.** Only the server's own base actions exist until a request
+  needs a tool; the macro is then loaded on the action worker (its own `Deferred macro … loaded in
+  N ms` line) and its handlers are installed. The bundled tools (`toolNgnt`, `toolBrowser`, `toolSlurm`)
+  also publish their entry action as a placeholder, so their group stays visible in `/api`.
+- **`tools/list` does not load macros when a catalog is present.** The image build writes
+  `<macros>/.precompiled/<root>/tools.catalog.json` (`ndmspc-server --write-tool-catalog`), and the
+  list is served from it; a tool's macro loads the first time one of its actions is called. That is
+  what keeps opening a room from loading every tool. `NDMSPC_TOOL_CATALOG=<path>` uses another file;
+  with no file (a checkout, a macro being edited) the old behaviour is kept and `tools/list` loads the
+  deferred macros. `NDMSPC_TOOL_CATALOG=none` forces that fallback even when a catalog exists, and a
+  developer can regenerate one from a checkout with `ndmspc-server --write-tool-catalog <path>`.
+- `NDMSPC_PRELOAD_TOOLS` names macros to load at startup instead: comma-separated base names (with
+  or without `.C`), or `all`/`*` for every one — e.g. `NDMSPC_PRELOAD_TOOLS=toolNgnt,toolSlurm`.
+  `NDMSPC_DEFER_TOOLS=0` is the old switch and still preloads everything.
 
 The `/api` root bootstrap also reports the interpreter in `state.server.root`, beside the
 ndmspc-server version in `state.server.version`; the room's **Server info** panel shows both.
