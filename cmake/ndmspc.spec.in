@@ -8,8 +8,11 @@ Summary:	@PROJECT_DESCRIPTION@
 Group:		System Environment/Libraries
 License:	LGPL v3+
 Source0:    %{name}-%{version}.tar.gz
+Obsoletes:  ndmspc-server < %{version}
+# The web page used to be its own subpackage; it ships inside the main package now.
+Obsoletes:  ndmspc-ui < %{version}
+Provides:   ndmspc-ui = %{version}-%{release}
 
-%global with_ui 1
 %global with_jupyroot 0
 %global with_ai 1
 %if 0%{?rhel} == 10 || 0%{?almalinux} == 10
@@ -19,7 +22,6 @@ Source0:    %{name}-%{version}.tar.gz
 %if 0%{?rhel} == 9 || 0%{?almalinux} == 9
 %global with_numcal 1
 %global with_taxi 0
-%global with_ui 0
 %global with_ai 0
 %else
 %global with_numcal 1
@@ -57,18 +59,7 @@ BuildRequires: ginac-devel, cuba-devel
 
 %description
 @PROJECT_DESCRIPTION@
-Obsoletes: ndmspc-server < %{version}
 
-
-%if %{with_ui}
-%package ui
-Summary:  UI support for @PROJECT_NAME@
-Group:    Additional Packages
-Requires: %{name} = %{version}-%{release}, pkgconfig
-
-%description ui
-This package contains taxi support for @PROJECT_NAME@.
-%endif
 
 %if %{with_jupyroot}
 %package jupyroot
@@ -113,11 +104,7 @@ cmake ../ \
 -DCMAKE_BUILD_TYPE=Release \
 -DBUILD_DOCUMENTATION=OFF \
 -DWITH_TEST=OFF \
-%if %{with_ui}
--DWITH_UI=ON \
-%else
--DWITH_UI=OFF \
-%endif
+@NDMSPC_SPEC_UI_VERSION_ARG@ \
 %if %{with_jupyroot}
 -DWITH_JUPYROOT=ON \
 %else
@@ -202,17 +189,11 @@ done
 %endif
 %{_includedir}/*
 %exclude %{_datadir}/%{name}/macros/taxi/*
-%exclude %{_datadir}/%{name}/ndmspc-ui/*
 %{_datadir}/%{name}/*
 %{_sysconfdir}/systemd/user/ndmspc-http@.service
 %{_sysconfdir}/%{name}/*
 %{_sysconfdir}/profile.d/*
 %{_unitdir}/ndmspc-http@.service
-
-%if %{with_ui}
-%files ui
-%{_datadir}/%{name}/ndmspc-ui/*
-%endif
 
 %if %{with_numcal}
 %files numcal
