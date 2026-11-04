@@ -24,6 +24,9 @@ variables:
   DOCKER_DRIVER: overlay2
   PODMAN_BUILD_OPTS: "--memory 2g --cpu-period 100000 --cpu-quota 200000 --squash"
   MY_MAKE_JOBS: "2"
+  # Full clone: cmake/version.cmake runs `git describe --tags`, which needs the tags
+  # reachable from the checkout (the default shallow clone has none for old commits).
+  GIT_DEPTH: "0"
 
 # These builds are the merge gate on feature branches. On the protected branches
 # (main/develop) a merge only lands once the branch pipeline has already passed,
@@ -66,6 +69,7 @@ base-image-test:
     - images
   script:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - scripts/write-version.sh
     - podman build $PODMAN_BUILD_OPTS -f ci/Dockerfile.base .
   allow_failure: true
   when: manual
@@ -83,16 +87,9 @@ build-rpm-copr:
   script:
     - export COPR_LOGIN COPR_TOKEN COPR_USER
     - scripts/copr.sh $COPR_DEBUG
-    # Split the tag (v1.4.2 -> 1.4.2, v1.4.0-rc51 -> 1.4.0 + rc51). Do NOT use
-    # `cut -sd '-'`: -s drops a line with no '-' at all, so a final tag such as
-    # v1.4.2 yielded an empty version and CMake fell back to 9999.0.0.
-    - export MY_PROJECT_VER="${CI_COMMIT_REF_NAME#v}"
-    - export MY_PROJECT_VER_RELEASE=$(echo "$MY_PROJECT_VER" | sed -n 's/^[^-]*-//p')
-    - export MY_PROJECT_VER="${MY_PROJECT_VER%%-*}"
-    - test -n "$MY_PROJECT_VER" || { echo "Cannot derive a version from '$CI_COMMIT_REF_NAME'"; exit 1; }
     - scripts/make.sh rpm
-    - if [ -z "$MY_PROJECT_VER_RELEASE" ];then copr-cli build ndmspc/stable build/SRPMS/*.src.rpm --nowait; fi
-    - if [ -n "$MY_PROJECT_VER_RELEASE" ];then copr-cli build ndmspc/testing build/SRPMS/*.src.rpm --nowait; fi
+    # Pre-release tags (v1.4.0-rc51) go to testing, final tags (v1.4.2) to stable.
+    - if [[ "${CI_COMMIT_REF_NAME#v}" == *-* ]]; then copr-cli build ndmspc/testing build/SRPMS/*.src.rpm --nowait; else copr-cli build ndmspc/stable build/SRPMS/*.src.rpm --nowait; fi
   only:
     - tags
 
@@ -102,18 +99,13 @@ base-image:
     - images
   script:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    # Split the tag (v1.4.2 -> 1.4.2, v1.4.0-rc51 -> 1.4.0 + rc51). Do NOT use
-    # `cut -sd '-'`: -s drops a line with no '-' at all, so a final tag such as
-    # v1.4.2 yielded an empty version and CMake fell back to 9999.0.0.
-    - export MY_PROJECT_VER="${CI_COMMIT_REF_NAME#v}"
-    - export MY_PROJECT_VER_RELEASE=$(echo "$MY_PROJECT_VER" | sed -n 's/^[^-]*-//p')
-    - export MY_PROJECT_VER="${MY_PROJECT_VER%%-*}"
-    - test -n "$MY_PROJECT_VER" || { echo "Cannot derive a version from '$CI_COMMIT_REF_NAME'"; exit 1; }
-    - podman build $PODMAN_BUILD_OPTS --build-arg MY_PROJECT_VER="$MY_PROJECT_VER" --build-arg MY_PROJECT_VER_RELEASE="$MY_PROJECT_VER_RELEASE" -f ci/Dockerfile.base --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE/base:latest --tag $CI_REGISTRY_IMAGE/base:next .
+    # The build context has no .git (.dockerignore), so bake the version into VERSION.
+    - scripts/write-version.sh
+    - podman build $PODMAN_BUILD_OPTS -f ci/Dockerfile.base --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE/base:latest --tag $CI_REGISTRY_IMAGE/base:next .
     - podman push $CI_REGISTRY_IMAGE/base:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
-    - if [ -z "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE/base:latest; fi
-    - if [ -n "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE/base:next; fi
+    - if [[ "${CI_COMMIT_REF_NAME#v}" != *-* ]]; then podman push $CI_REGISTRY_IMAGE/base:latest; fi
+    - if [[ "${CI_COMMIT_REF_NAME#v}" == *-* ]]; then podman push $CI_REGISTRY_IMAGE/base:next; fi
   allow_failure: true
   # when: manual
   only:
@@ -172,18 +164,13 @@ prod-image:
     - images
   script:
     - podman login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    # Split the tag (v1.4.2 -> 1.4.2, v1.4.0-rc51 -> 1.4.0 + rc51). Do NOT use
-    # `cut -sd '-'`: -s drops a line with no '-' at all, so a final tag such as
-    # v1.4.2 yielded an empty version and CMake fell back to 9999.0.0.
-    - export MY_PROJECT_VER="${CI_COMMIT_REF_NAME#v}"
-    - export MY_PROJECT_VER_RELEASE=$(echo "$MY_PROJECT_VER" | sed -n 's/^[^-]*-//p')
-    - export MY_PROJECT_VER="${MY_PROJECT_VER%%-*}"
-    - test -n "$MY_PROJECT_VER" || { echo "Cannot derive a version from '$CI_COMMIT_REF_NAME'"; exit 1; }
-    - podman build $PODMAN_BUILD_OPTS --build-arg MY_PROJECT_VER="${CI_COMMIT_REF_NAME/v/}" -f ci/Dockerfile --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
+    # MY_PROJECT_VER names the base image tag this image is built FROM (ci/Dockerfile),
+    # it is not the build version.
+    - podman build $PODMAN_BUILD_OPTS --build-arg MY_PROJECT_VER="${CI_COMMIT_REF_NAME#v}" -f ci/Dockerfile --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:next .
     - podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     # - if [ "$CI_COMMIT_REF_NAME" == "main" ]; then podman push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA; fi
-    - if [ -z "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:latest; fi
-    - if [ -n "$MY_PROJECT_VER_RELEASE" ];then podman push $CI_REGISTRY_IMAGE:next; fi
+    - if [[ "${CI_COMMIT_REF_NAME#v}" != *-* ]]; then podman push $CI_REGISTRY_IMAGE:latest; fi
+    - if [[ "${CI_COMMIT_REF_NAME#v}" == *-* ]]; then podman push $CI_REGISTRY_IMAGE:next; fi
   allow_failure: true
   # when: manual
   only:

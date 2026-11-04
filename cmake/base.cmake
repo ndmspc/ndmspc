@@ -19,87 +19,45 @@ set(CMAKE_INSTALL_HEADER_DIR ${CMAKE_INSTALL_PREFIX}/include/${CMAKE_PROJECT_NAM
 # SET RPATH
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-# Version reported by the binaries (aliBuild passes a git describe/tag value; a local build
-# derives it from git, falling back to the numeric project version).
-if(NOT NDMSPC_VERSION)
-  execute_process(
-    COMMAND git describe --tags --long
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    OUTPUT_VARIABLE _git_describe
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-    RESULT_VARIABLE _git_result)
-  if(_git_result EQUAL 0 AND _git_describe MATCHES "^v?(.+)-([0-9]+)-g([0-9a-fA-F]+)$")
-    set(NDMSPC_VERSION "${CMAKE_MATCH_1}")
-    if(CMAKE_MATCH_2 STREQUAL "0")
-      set(NDMSPC_VERSION_RELEASE "${CMAKE_MATCH_3}")
+# RPM needs a numeric Version (no '-'); the pre-release suffix and the commits/hash go to
+# Release. NDMSPC_VERSION never carries the commits (they are in NDMSPC_VERSION_RELEASE),
+# so e.g. 1.4.0-rc46 + 24-g6a9867d -> Version 1.4.0, Release 0.rc46.24.g6a9867d, and a
+# stable build after the tag -> Release 24.g6a9867d.
+set(NDMSPC_RPM_VERSION "${PROJECT_VERSION}")
+set(_rpm_release "")
+if(NOT PROJECT_VERSION_RELEASE STREQUAL "1")
+  set(_rpm_release "0.${PROJECT_VERSION_RELEASE}")
+endif()
+string(LENGTH "${NDMSPC_VERSION_RELEASE}" _rpm_release_length)
+if(NDMSPC_VERSION_RELEASE MATCHES "^[0-9]+-g[0-9a-fA-F]+$")
+  # Commits after the tag order after it, so they need no 0. prefix.
+  if(_rpm_release STREQUAL "")
+    set(_rpm_release "${NDMSPC_VERSION_RELEASE}")
+  else()
+    string(APPEND _rpm_release ".${NDMSPC_VERSION_RELEASE}")
+  endif()
+elseif(_rpm_release_length GREATER_EQUAL 6 AND NDMSPC_VERSION_RELEASE MATCHES "^[0-9a-fA-F]+$")
+  # Building exactly at a tag: the binaries report that tag's commit, but an RPM Release
+  # must be ordered, so keep the numeric project release: 1.4.2-1, never 1.4.2-ccf8279.
+elseif(NOT NDMSPC_VERSION_RELEASE STREQUAL "" AND NOT NDMSPC_VERSION_RELEASE STREQUAL "1"
+       AND NOT NDMSPC_VERSION_RELEASE STREQUAL PROJECT_VERSION_RELEASE)
+  if(_rpm_release STREQUAL "")
+    # A pre-release suffix (rc1, beta2) orders before the final release; CMake's regex has
+    # no {n,m}, hence the plain +.
+    if(NDMSPC_VERSION_RELEASE MATCHES "^[0-9]+(\\.[0-9]+)*$")
+      set(_rpm_release "${NDMSPC_VERSION_RELEASE}")
     else()
-      set(NDMSPC_VERSION_RELEASE "${CMAKE_MATCH_2}-g${CMAKE_MATCH_3}")
+      set(_rpm_release "0.${NDMSPC_VERSION_RELEASE}")
     endif()
-  endif()
-
-  if(NOT NDMSPC_VERSION)
-    execute_process(
-      COMMAND git describe --always
-      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      OUTPUT_VARIABLE _git_always
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      ERROR_QUIET
-      RESULT_VARIABLE _git_always_result)
-    if(_git_always_result EQUAL 0 AND _git_always)
-      string(REGEX REPLACE "^v" "" NDMSPC_VERSION "${_git_always}")
-    endif()
+  else()
+    string(APPEND _rpm_release ".${NDMSPC_VERSION_RELEASE}")
   endif()
 endif()
-if(NOT NDMSPC_VERSION)
-  set(NDMSPC_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
-endif()
-if(NOT NDMSPC_VERSION_RELEASE)
-  set(NDMSPC_VERSION_RELEASE "${PROJECT_VERSION_RELEASE}")
-endif()
-
-# ndmspc-ui page version: the build entry points pin the release tag when this is a
-# tagged build (scripts/make.sh from MY_PROJECT_VER, aliBuild from the checked-out tag)
-# and `next` otherwise. -DNDMSPC_UI_VERSION and the environment override it. Defined
-# here, not in ui/CMakeLists.txt, because cmake/ndmspc.spec.in bakes it and the spec is
-# generated even when WITH_UI is off.
-if(DEFINED ENV{NDMSPC_UI_VERSION} AND NOT "$ENV{NDMSPC_UI_VERSION}" STREQUAL "")
-  set(_ndmspc_ui_default_version "$ENV{NDMSPC_UI_VERSION}")
-else()
-  set(_ndmspc_ui_default_version "next")
-endif()
-set(NDMSPC_UI_VERSION "${_ndmspc_ui_default_version}" CACHE STRING
-    "ndmspc-ui page version to download (e.g. next, v1.2.3)")
-
-# RPM needs a numeric Version (no '-'); a tag-style suffix and the commits/hash go to Release.
-# e.g. 1.4.0-rc46 + 24-g6a9867d -> Version 1.4.0, Release 0.rc46.24.g6a9867d.
-set(NDMSPC_RPM_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
-set(NDMSPC_RPM_RELEASE "${PROJECT_VERSION_RELEASE}")
-if(NDMSPC_VERSION MATCHES "^v?([0-9]+(\\.[0-9]+)*)(-(.+))?$")
-  set(NDMSPC_RPM_VERSION "${CMAKE_MATCH_1}")
-  set(_rpm_suffix "${CMAKE_MATCH_4}")
-  set(_rpm_release "${NDMSPC_VERSION_RELEASE}")
-  # Building exactly at a tag makes the git fallback name that tag's commit here, which is what
-  # the binaries report - but an RPM Release must be ordered, so keep the numeric project release
-  # instead: a stable build is 1.4.2-1, never 1.4.2-ccf8279. A "<n>-g<hash>" release (a commit
-  # after the tag) and a pre-release suffix keep their own value.
-  string(LENGTH "${_rpm_release}" _rpm_release_length)
-  if(NOT _rpm_suffix AND _rpm_release_length GREATER_EQUAL 7 AND _rpm_release MATCHES "^[0-9a-f]+$")
-    set(_rpm_release "${PROJECT_VERSION_RELEASE}")
-  endif()
-  if(_rpm_suffix)
-    set(_rpm_release "0.${_rpm_suffix}")
-    if(NDMSPC_VERSION_RELEASE)
-      string(APPEND _rpm_release ".${NDMSPC_VERSION_RELEASE}")
-    endif()
-  endif()
-  if(_rpm_release)
-    string(REPLACE "-" "." _rpm_release "${_rpm_release}")
-    set(NDMSPC_RPM_RELEASE "${_rpm_release}")
-  endif()
+if(_rpm_release STREQUAL "")
+  set(_rpm_release "1")
 endif()
 string(REPLACE "-" "." NDMSPC_RPM_VERSION "${NDMSPC_RPM_VERSION}")
-string(REPLACE "-" "." NDMSPC_RPM_RELEASE "${NDMSPC_RPM_RELEASE}")
+string(REPLACE "-" "." NDMSPC_RPM_RELEASE "${_rpm_release}")
 
 # Main header
 configure_file(
@@ -197,7 +155,11 @@ set(CPACK_SOURCE_IGNORE_FILES
 
 include(cmake/deps.cmake)
 
-add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+# The packaged source carries VERSION so a build from the tarball (no .git) reports the
+# same version as this tree.
+add_custom_target(dist
+  COMMAND "${CMAKE_SOURCE_DIR}/scripts/write-version.sh"
+  COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
 # A normal (not cache) guard: a cached "included" flag would keep the stale CPack config
 # files after a reconfigure (e.g. when the version changes).
 unset(CMAKE_CPACK_MODULE_INCLUDED CACHE)
