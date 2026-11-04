@@ -119,15 +119,18 @@ build-source:
     - test -n "$TARBALL"
     - tar tzf "$TARBALL" > build/source-contents.txt
     - grep -q '/ui/ndmspc-ui-page.tar.gz' build/source-contents.txt || { echo "$TARBALL has no embedded ndmspc-ui page"; exit 1; }
+    # The name says what it is: GitLab also lists the plain `git archive` as a source
+    # archive on the Release, and the two are otherwise indistinguishable.
+    - ASSET_NAME="ndmspc-${CI_COMMIT_TAG#v}-source-with-ui.tar.gz"
     - |
       curl --fail --location --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
         --upload-file "$TARBALL" \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ndmspc-source/${CI_COMMIT_TAG}/ndmspc-source.tar.gz"
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ndmspc-source/${CI_COMMIT_TAG}/${ASSET_NAME}"
   only:
     - tags
 
 # Links the tarball from build-source into the tag's Release:
-#   $CI_PROJECT_URL/-/releases/<tag>/downloads/ndmspc-source.tar.gz
+#   $CI_PROJECT_URL/-/releases/<tag>/downloads/ndmspc-1.4.6-source-with-ui.tar.gz
 # (GitLab's own "Download source code" is a plain `git archive` of the tag and cannot
 # carry the page, so this is the archive to point people at.)
 # The release is opened by hand when the notes are written, so an existing one keeps its
@@ -147,7 +150,7 @@ release-source:
     - |
       set -eu
       test -n "${CI_COMMIT_TAG:-}" || { echo "release-source must run on a tag pipeline"; exit 1; }
-      ASSET_NAME="ndmspc-source.tar.gz"
+      ASSET_NAME="ndmspc-${CI_COMMIT_TAG#v}-source-with-ui.tar.gz"
       ASSET_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ndmspc-source/${CI_COMMIT_TAG}/${ASSET_NAME}"
       if glab release view "$CI_COMMIT_TAG" --repo "$CI_PROJECT_PATH" >/dev/null 2>&1; then
         echo "Release $CI_COMMIT_TAG exists; keeping its notes and adding the source tarball"
