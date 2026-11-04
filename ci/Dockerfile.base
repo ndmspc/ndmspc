@@ -17,7 +17,7 @@ WORKDIR /builder
 #   dnf install nodejs -y && \
 #   rm -rf /var/cache/dnf/*
 
-RUN scripts/make.sh clean rpm taxi ui
+RUN scripts/make.sh clean rpm taxi
 
 # Compile the tool macros once here, where the build toolchain and the generated headers are, and
 # carry the libraries into the runtime stage. Compile from the installed path (`/usr/share/ndmspc`)

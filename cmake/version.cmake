@@ -198,17 +198,46 @@ endif()
 message(STATUS
   "ndmspc version: ${NDMSPC_VERSION}-${NDMSPC_VERSION_RELEASE} (from ${NDMSPC_VERSION_SOURCE})")
 
-# ndmspc-ui page version: a build from a release tag pins that tag, everything else
-# (branches, pre-release tags such as 1.4.0-rc51) uses `next`. -DNDMSPC_UI_VERSION and
-# the environment win. Defined here because cmake/ndmspc.spec.in bakes it and the spec
-# is generated even when WITH_UI is off.
-if(DEFINED ENV{NDMSPC_UI_VERSION} AND NOT "$ENV{NDMSPC_UI_VERSION}" STREQUAL "")
-  set(_ndmspc_ui_default_version "$ENV{NDMSPC_UI_VERSION}")
-else()
-  set(_ndmspc_ui_default_version "next")
-  if(NDMSPC_VERSION_AT_TAG AND NDMSPC_VERSION MATCHES "^[0-9]+(\\.[0-9]+)*$")
+# ndmspc-ui page version: a build from a tag asks for its <major>.<minor>-stable page, so
+# UI fixes published after an ndmspc release reach a rebuild of that release without tag
+# churn; everything else (branches) uses `next`. ui/CMakeLists.txt falls back to the exact
+# tag page and finally `next` when the preferred page is not published. An explicit
+# -DNDMSPC_UI_VERSION or $ENV wins and is used as-is (no fallback).
+set(_ndmspc_ui_default_version "next")
+if(NDMSPC_VERSION_AT_TAG)
+  if(NDMSPC_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.")
+    set(_ndmspc_ui_default_version "v${CMAKE_MATCH_1}.${CMAKE_MATCH_2}-stable")
+  else()
     set(_ndmspc_ui_default_version "v${NDMSPC_VERSION}")
   endif()
 endif()
-set(NDMSPC_UI_VERSION "${_ndmspc_ui_default_version}" CACHE STRING
-    "ndmspc-ui page version to download (e.g. next, v1.2.3)")
+
+# A cache entry equal to the default is what this file used to write itself (older build
+# directories), so only a different value counts as a user choice.
+set(_ndmspc_ui_cached_version "")
+if(DEFINED CACHE{NDMSPC_UI_VERSION})
+  set(_ndmspc_ui_cached_version "$CACHE{NDMSPC_UI_VERSION}")
+endif()
+
+set(NDMSPC_UI_VERSION "${_ndmspc_ui_default_version}")
+set(NDMSPC_UI_VERSION_PINNED FALSE)
+if(DEFINED ENV{NDMSPC_UI_VERSION} AND NOT "$ENV{NDMSPC_UI_VERSION}" STREQUAL "")
+  set(NDMSPC_UI_VERSION "$ENV{NDMSPC_UI_VERSION}")
+  set(NDMSPC_UI_VERSION_PINNED TRUE)
+elseif(NOT _ndmspc_ui_cached_version STREQUAL ""
+       AND NOT "${_ndmspc_ui_cached_version}" STREQUAL "${_ndmspc_ui_default_version}")
+  set(NDMSPC_UI_VERSION "${_ndmspc_ui_cached_version}")
+  set(NDMSPC_UI_VERSION_PINNED TRUE)
+endif()
+
+# Pages to try, most preferred first: the one above, the exact tag page and finally the
+# development build. Shared by ui/CMakeLists.txt (build time) and the dist target (which
+# embeds the chosen page in the source tarball).
+set(NDMSPC_UI_CANDIDATES "${NDMSPC_UI_VERSION}")
+if(NOT NDMSPC_UI_VERSION_PINNED)
+  if(NDMSPC_VERSION_AT_TAG)
+    list(APPEND NDMSPC_UI_CANDIDATES "v${NDMSPC_VERSION}")
+  endif()
+  list(APPEND NDMSPC_UI_CANDIDATES "next")
+endif()
+list(REMOVE_DUPLICATES NDMSPC_UI_CANDIDATES)

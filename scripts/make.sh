@@ -23,7 +23,6 @@ TEST_EXCLUDE_ARGS=""
 VERBOSE=false
 LIST_TESTS=false
 WITH_HTTP=${WITH_HTTP-true}
-WITH_UI=${WITH_UI-false}
 WITH_TUI=${WITH_TUI-false}
 NDMSPC_UI_VERSION=${NDMSPC_UI_VERSION-""}
 WITH_HEP=${WITH_HEP-true}
@@ -94,15 +93,6 @@ for ARG in "$@"; do
     "http")
       echo "Forcing build with HTTP support"
       WITH_HTTP=true
-      ;;
-    "ui")
-      echo "Forcing build with UI support"
-      WITH_UI=true
-      ;;
-    "ui="*)
-      echo "Forcing build with UI support (version ${ARG#ui=})"
-      WITH_UI=true
-      NDMSPC_UI_VERSION="${ARG#ui=}"
       ;;
     "tui")
       echo "Forcing build with TUI support"
@@ -220,11 +210,9 @@ fi
 if [[ $WITH_HTTP == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_HTTP:bool=ON"
 fi
-if [[ $WITH_UI == true ]]; then
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_UI:bool=ON"
-fi
-# Only an explicit choice: cmake/version.cmake otherwise pins the release tag for a
-# tagged build and `next` for everything else.
+# Only an explicit choice: cmake/version.cmake otherwise prefers the release series page
+# for a tagged build and `next` for everything else. The page itself is installed with
+# WITH_HTTP.
 if [[ -n "$NDMSPC_UI_VERSION" ]]; then
   echo "Using ndmspc-ui page version: $NDMSPC_UI_VERSION"
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DNDMSPC_UI_VERSION:STRING=${NDMSPC_UI_VERSION}"

@@ -69,7 +69,14 @@ INSTALL(FILES
   DESTINATION "${CMAKE_INSTALL_HEADER_DIR}"
 )
 
-# Spec file
+# Spec file. A pinned ndmspc-ui page must survive into rpmbuild, which configures from
+# the tarball in a separate step; a default version is left to resolve there (the
+# v<major>.<minor>-stable fallback would otherwise be skipped for no reason).
+if(NDMSPC_UI_VERSION_PINNED)
+  set(NDMSPC_SPEC_UI_VERSION_ARG "-DNDMSPC_UI_VERSION=${NDMSPC_UI_VERSION}")
+else()
+  set(NDMSPC_SPEC_UI_VERSION_ARG "")
+endif()
 configure_file(
   "${CMAKE_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}.spec.in"
   "${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}.spec"
@@ -156,10 +163,19 @@ set(CPACK_SOURCE_IGNORE_FILES
 include(cmake/deps.cmake)
 
 # The packaged source carries VERSION so a build from the tarball (no .git) reports the
-# same version as this tree.
-add_custom_target(dist
-  COMMAND "${CMAKE_SOURCE_DIR}/scripts/write-version.sh"
-  COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+# same version as this tree, and (NDMSPC_UI_EMBED, the default) the ndmspc-ui page, so
+# building it needs no network. NDMSPC_UI_CANDIDATES comes from cmake/version.cmake, so
+# the page picked for the tarball is the one a build would have downloaded.
+if(NDMSPC_UI_EMBED)
+  add_custom_target(dist
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/write-version.sh"
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/fetch-ui-page.sh" ${NDMSPC_UI_CANDIDATES}
+    COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+else()
+  add_custom_target(dist
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/write-version.sh"
+    COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+endif()
 # A normal (not cache) guard: a cached "included" flag would keep the stale CPack config
 # files after a reconfigure (e.g. when the version changes).
 unset(CMAKE_CPACK_MODULE_INCLUDED CACHE)
