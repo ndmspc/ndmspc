@@ -637,6 +637,9 @@ class NHttpServer : public THttpServer {
   json &                                        GetCombinations() { return fWorkspace.GetCombinations(); }
   /// @brief The combination node this request runs for ("" when it is not a node action).
   const std::string &                           GetCurrentInstance() const { return fCurrentInstance; }
+  /// @brief The action this request runs ("" outside a handler). The deferred-tool placeholder reads
+  /// it to load the macro for the action it was called for.
+  const std::string &                           GetCurrentAction() const { return fCurrentAction; }
   /**
    * @brief The session this request runs in: the root of the combination it belongs to.
    *
@@ -722,11 +725,12 @@ class NHttpServer : public THttpServer {
   bool                                          RenameSession(const std::string & session,
                                                             const std::string & name);
   /**
-   * @brief The room's own session state, apart from the tree: the names it holds and what each session
-   *        has drawn.
+   * @brief The room's own session state, apart from the tree: the names it holds.
    *
-   * Both belong to the room rather than to any node, so neither is in the combination snapshot: they
-   * ride beside it (see RoomSessionSnapshot) and come back the same way (see AdoptSessionState).
+   * The names belong to the room rather than to any node, so they are not in the combination
+   * snapshot: they ride beside it (see RoomSessionSnapshot) and come back the same way (see
+   * AdoptSessionState). Pads are not part of it: a drawing is a rendering cache, rebuilt when the
+   * combination is materialized, and storing it is what made snapshots exceed the Service annotation.
    */
   json                                          SessionStateSnapshot() const;
   /**
@@ -1011,6 +1015,7 @@ class NHttpServer : public THttpServer {
   std::map<std::string, TObject *>              fObjectsMap;         ///<! Objects map for handlers
   std::string                                   fCurrentInstance;    ///<! Combination node this request targets ("" = none)
   std::string                                   fCurrentSession;     ///<! Root of the combination this request belongs to ("" = none)
+  std::string                                   fCurrentAction;      ///<! Action the handler is running for ("" = none)
   NWorkspace                                  fWorkspace{nullptr}; ///<! Workspace object (TNamed)
   bool fUseHistory{true};  ///<! Flag to indicate whether to use history in processing requests
   bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled

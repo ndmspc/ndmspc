@@ -205,6 +205,14 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
   }
 
   if (arg->IsMethod("WS_CLOSE")) {
+    // The client is gone: drop any send bookkeeping for the id, so a send that will never complete
+    // cannot make a later close (or a reused id) wait out the timeout.
+    {
+      std::lock_guard<std::mutex> lock(fSendMutex);
+      fSending.erase(wsId);
+      fClosing.erase(wsId);
+    }
+    fSendCv.notify_all();
     RemoveClientAndAnnounce(wsId);
     return kTRUE;
   }
@@ -236,7 +244,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
       if (expired) {
         SendAuthenticationError(wsId, "token_expired", "Access token expired", true);
         RemoveClientAndAnnounce(wsId);
-        CloseWS(wsId);
+        CloseConnection(wsId);
         return kTRUE;
       }
       if (parsedJson && IsAuthenticationMessage(parsed)) {
@@ -250,7 +258,7 @@ Bool_t NWsHandler::ProcessWS(THttpCallArg * arg)
           std::lock_guard lock(fMutex);
           fPendingClients.erase(wsId);
         }
-        CloseWS(wsId);
+        CloseConnection(wsId);
         return kTRUE;
       }
     }
@@ -392,7 +400,7 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
     NLogWarning("WebSocket authentication failed for ID %lld: %s", wsId, result.diagnostic.c_str());
     const bool providerUnavailable = result.error == NOidcErrorCode::ProviderUnavailable;
     SendAuthenticationError(wsId, NOidcErrorCodeName(result.error), "Authentication failed", providerUnavailable);
-    if (initial || !oldTokenValid) CloseWS(wsId);
+    if (initial || !oldTokenValid) CloseConnection(wsId);
     return;
   }
 
@@ -417,7 +425,7 @@ void NWsHandler::HandleAuthentication(ULong_t wsId, const json & message)
       NLogWarning("WebSocket user '%s' is not allowed to enter this deployment",
                   result.identity->preferredUsername.c_str());
       SendAuthenticationError(wsId, "user_not_allowed", policy.Message(), false);
-      if (initial || !oldTokenValid) CloseWS(wsId);
+      if (initial || !oldTokenValid) CloseConnection(wsId);
       return;
     }
   }
@@ -578,7 +586,7 @@ void NWsHandler::ExpireConnections()
   for (const auto wsId : expired) {
     SendAuthenticationError(wsId, "token_expired", "Access token expired", true);
     RemoveClientAndAnnounce(wsId);
-    CloseWS(wsId);
+    CloseConnection(wsId);
   }
   for (const auto wsId : timedOut) {
     SendAuthenticationError(wsId, "authentication_timeout", "Authentication timed out", true);
@@ -586,7 +594,7 @@ void NWsHandler::ExpireConnections()
       std::lock_guard lock(fMutex);
       fPendingClients.erase(wsId);
     }
-    CloseWS(wsId);
+    CloseConnection(wsId);
   }
 }
 
@@ -664,10 +672,12 @@ bool NWsHandler::SendFrame(ULong_t wsId, const std::string & message)
   if (wsId == 0 || message.empty()) return false;
   {
     std::unique_lock<std::mutex> lock(fSendMutex);
+    if (fClosing.find(wsId) != fClosing.end()) return false; // being closed: do not start a send
     // Wait for the previous send on this connection to complete. Bounded, so a missed completion
     // callback cannot wedge the sender for ever.
     fSendCv.wait_for(lock, std::chrono::seconds(5),
                      [&]() { return fSending.find(wsId) == fSending.end(); });
+    if (fClosing.find(wsId) != fClosing.end()) return false; // closed while we waited
     fSending.insert(wsId);
   }
   const int rc = SendCharStarWS(wsId, message.c_str());
@@ -676,6 +686,24 @@ bool NWsHandler::SendFrame(ULong_t wsId, const std::string & message)
     fSending.erase(wsId);
   }
   return rc >= 0;
+}
+
+void NWsHandler::CloseConnection(ULong_t wsId)
+{
+  {
+    std::unique_lock<std::mutex> lock(fSendMutex);
+    fClosing.insert(wsId);
+    // Let the frame in flight land: removing the engine under it loses the frame and makes ROOT
+    // report "Trying to remove WS engine during send operation".
+    fSendCv.wait_for(lock, std::chrono::seconds(5),
+                     [&]() { return fSending.find(wsId) == fSending.end(); });
+  }
+  CloseWS(wsId);
+  {
+    std::lock_guard<std::mutex> lock(fSendMutex);
+    fClosing.erase(wsId);
+    fSending.erase(wsId);
+  }
 }
 
 void NWsHandler::CompleteWSSend(UInt_t wsId)

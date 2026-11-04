@@ -240,6 +240,16 @@ class NWsHandler : public THttpWSHandler {
    */
   bool SendFrame(ULong_t wsId, const std::string & message);
 
+  /**
+   * @brief Close a connection without cutting a send in flight.
+   *
+   * ROOT's engine removes the engine under the send when CloseWS runs while a frame is still going
+   * ("Trying to remove WS engine during send operation"), and the frame is lost. This marks the
+   * connection closing, waits (bounded) for its send to complete, then closes it; later sends to it
+   * are refused. Every close this handler initiates goes through here.
+   */
+  void CloseConnection(ULong_t wsId);
+
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
   std::map<ULong_t, NWsPendingClient> fPendingClients; ///<! Runtime pending authentication state
   /// What each upgrade said about itself (`client`, `clientVersion`), kept from WS_CONNECT until the
@@ -250,9 +260,10 @@ class NWsHandler : public THttpWSHandler {
   /// Serializes sends: ROOT's engine allows one in flight per connection, so a send waits for the
   /// previous one to complete ({@link CompleteWSSend}) — the worker can otherwise send the state
   /// broadcast and the reply back-to-back and have the second dropped.
-  std::mutex                       fSendMutex;  ///<! Guards fSending
+  std::mutex                       fSendMutex;  ///<! Guards fSending and fClosing
   std::condition_variable          fSendCv;     ///<! Signals a completed send
   std::set<ULong_t>                fSending;    ///<! Connection ids with a send in flight
+  std::set<ULong_t>                fClosing;    ///<! Connection ids being closed (no new sends)
   std::shared_ptr<IOidcTokenVerifier> fOidcVerifier; ///<! Runtime token verifier
   std::chrono::seconds fAuthenticationTimeout; ///<! Runtime authentication timeout
   Int_t                            fServCnt{0}; ///< Service counter

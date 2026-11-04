@@ -668,13 +668,14 @@ TEST(NHttpServerRoomStateTest, TheSnapshotCarriesTheRoomsNamesAndPadsAndGivesThe
   ASSERT_TRUE(drawn["result"] == "success");
   ASSERT_TRUE(named["payload"]["sessions"][0]["label"] == "calibration");
 
-  // The snapshot carries the tree, the name the room holds and what the session has drawn.
+  // The snapshot carries the tree and the name the room holds. Pads are not stored: they are a
+  // rendering cache, rebuilt when the combination is materialized.
   const json snapshot = server->RoomSessionSnapshot();
   ASSERT_FALSE(snapshot.is_null());
   ASSERT_TRUE(snapshot.contains("combinations"));
   ASSERT_TRUE(snapshot.contains("sessionNames"));
   EXPECT_TRUE(snapshot["sessionNames"][session] == "calibration");
-  EXPECT_TRUE(snapshot["pads"].contains(session));
+  EXPECT_FALSE(snapshot.contains("pads"));
 
   // A room that wakes takes the tree back and then the room's own session state - the order the restore
   // uses, and what makes the names still belong to the right sessions.
@@ -686,7 +687,9 @@ TEST(NHttpServerRoomStateTest, TheSnapshotCarriesTheRoomsNamesAndPadsAndGivesThe
   ASSERT_EQ(sessions.size(), 1u);
   EXPECT_TRUE(sessions[0]["id"] == session);
   EXPECT_TRUE(sessions[0]["label"] == "calibration");
-  EXPECT_TRUE(woken->GetPads().contains(session));
+  // The drawings were not stored, so adoption brings back no pads: materializing the combination is
+  // what redraws them.
+  EXPECT_TRUE(woken->GetPads().empty());
 
   Ndmspc::gNdmspcMcpTools    = previous;
   Ndmspc::gNdmspcHttpHandlers = nullptr;

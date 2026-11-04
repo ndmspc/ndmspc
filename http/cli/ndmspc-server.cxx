@@ -2,8 +2,10 @@
 #include <csignal>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -16,6 +18,7 @@
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NBaseActions.h"
 #include "ndmspc/http/NHttpServer.h"
+#include "ndmspc/http/NMcpServer.h"
 #include "ndmspc/http/NRoomRouter.h"
 #include "ndmspc/http/NX509Authenticator.h"
 #include "ndmspc/http/NX509Config.h"
@@ -24,18 +27,19 @@
 
 namespace {
 
-/// Tool macros kept out of startup, by macro file name: the action prefixes that tell us a request
-/// needs the macro, and the entry action published as a placeholder so the tool group is still
-/// visible in `/api` before the macro runs. Only tools listed here are deferred; everything else is
-/// loaded at startup exactly as before. The browser is the default room's optional tool: a room that
-/// never browses does not pay for its dictionary and registration.
-struct DeferredTool {
+/// How a tool macro is reached before it is loaded: the action prefixes that tell us a request needs
+/// the macro, and the entry action published as a placeholder so the tool group is still visible in
+/// `/api` before the macro runs. A macro not listed here is still deferred; it just has no
+/// placeholder, so the resolver loads it when the first action it serves is requested.
+struct ToolRouting {
   std::vector<std::string> prefixes;
   std::string              entryAction;
 };
 
-const std::map<std::string, DeferredTool> kDeferredTools = {
+const std::map<std::string, ToolRouting> kToolRouting = {
+    {"toolNgnt.C", {{"ndmspc/ngnt/"}, "ndmspc/ngnt/open"}},
     {"toolBrowser.C", {{"ndmspc/browser/", "ndmspc/rbrowser/"}, "ndmspc/browser/open"}},
+    {"toolSlurm.C", {{"ndmspc/slurm/"}, "ndmspc/slurm/submit"}},
 };
 
 /// A tool macro left out of startup, made concrete once the macro list is resolved.
@@ -48,58 +52,84 @@ struct DeferredMacro {
 std::vector<DeferredMacro> gDeferredMacros;
 std::mutex                 gDeferredMutex;
 
+/// @brief Whether a macro declares that it serves `action`.
+bool ServesAction(const DeferredMacro & macro, const std::string & action)
+{
+  return std::any_of(macro.prefixes.begin(), macro.prefixes.end(),
+                     [&action](const std::string & prefix) { return action.rfind(prefix, 0) == 0; });
+}
+
+/// @brief Load one deferred macro and install the handlers it registered.
+/// @param it The macro to load; erased on success.
+/// @param reason The request that needed it, for the log line.
+/// @return False when the macro failed to load (it stays deferred, so a later request retries).
+bool LoadDeferredMacroAt(std::vector<DeferredMacro>::iterator it, const std::string & reason)
+{
+  const auto start = std::chrono::steady_clock::now();
+  NLogInfo("Deferred macro '%s' is needed by %s; loading ...", it->path.c_str(), reason.c_str());
+  if (!Ndmspc::NUtils::ExecMacro(it->path)) {
+    NLogError("Deferred macro '%s' failed to load; it stays deferred", it->path.c_str());
+    return false;
+  }
+  if (Ndmspc::gNHttpServer != nullptr && Ndmspc::gNdmspcHttpHandlers != nullptr) {
+    Ndmspc::gNHttpServer->SetHttpHandlers(*Ndmspc::gNdmspcHttpHandlers);
+  }
+  const double elapsedMs =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  NLogInfo("Deferred macro '%s' loaded in %.0f ms", it->path.c_str(), elapsedMs);
+  gDeferredMacros.erase(it);
+  return true;
+}
+
 /// Load the deferred macro that serves `action`, if there is one. Runs on the action worker (the
-/// server calls it before answering "Unsupported action"), so a macro load never overlaps another
-/// action. Installs the new handlers in the server before returning.
+/// server resolves an action before classifying it), so a macro load never overlaps another action.
+/// Installs the new handlers in the server before returning.
 bool LoadDeferredMacro(const std::string & action)
 {
   std::lock_guard<std::mutex> lock(gDeferredMutex);
 
+  // A declared prefix says exactly which macro serves the action.
   for (auto it = gDeferredMacros.begin(); it != gDeferredMacros.end(); ++it) {
-    const bool servesAction =
-        std::any_of(it->prefixes.begin(), it->prefixes.end(),
-                    [&action](const std::string & prefix) { return action.rfind(prefix, 0) == 0; });
-    if (!servesAction) continue;
+    if (!ServesAction(*it, action)) continue;
+    return LoadDeferredMacroAt(it, "'" + action + "'");
+  }
 
-    const auto start = std::chrono::steady_clock::now();
-    NLogInfo("Deferred macro '%s' is needed by '%s'; loading ...", it->path.c_str(), action.c_str());
-    if (!Ndmspc::NUtils::ExecMacro(it->path)) {
-      NLogError("Deferred macro '%s' failed to load; it stays deferred", it->path.c_str());
-      return false;
+  // The action is already served: a request to a loaded tool must not pull in the macros that were
+  // never given a routing hint just because they are still pending.
+  if (Ndmspc::gNHttpServer != nullptr && Ndmspc::gNHttpServer->FindHttpHandler(action) != nullptr) {
+    return false;
+  }
+
+  // No declared prefix: a macro we have no routing for. Load the pending ones, one at a time, until
+  // one registers the action. A miss therefore costs a load per such macro - the price of deferring
+  // a macro whose actions nobody declared in advance.
+  std::size_t i = 0;
+  while (i < gDeferredMacros.size()) {
+    if (!gDeferredMacros[i].prefixes.empty()) {
+      ++i;
+      continue;
     }
-    if (Ndmspc::gNHttpServer != nullptr && Ndmspc::gNdmspcHttpHandlers != nullptr) {
-      Ndmspc::gNHttpServer->SetHttpHandlers(*Ndmspc::gNdmspcHttpHandlers);
-    }
-    const double elapsedMs =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-    NLogInfo("Deferred macro '%s' loaded in %.0f ms", it->path.c_str(), elapsedMs);
-    gDeferredMacros.erase(it);
-    return true;
+    if (!LoadDeferredMacroAt(gDeferredMacros.begin() + i, "'" + action + "'")) return false;
+    if (Ndmspc::gNHttpServer == nullptr) return true;
+    if (Ndmspc::gNHttpServer->FindHttpHandler(action) != nullptr) return true;
+    // It loaded but does not serve this action; it is gone, so `i` now names the next one.
   }
   return false;
 }
 
-/// The placeholder at a deferred tool's entry action. It loads the macro, then runs the real
-/// handler registered by it. The rest of that tool's actions are not in the initial `/api` handlers;
-/// they load through the resolver when a request first names one of them.
+/// The placeholder at a deferred tool's entry action. The server resolves the action before this is
+/// reached, so it is a fallback for a macro that failed to load: it loads the action it was called
+/// for and runs the real handler. The rest of that tool's actions go through the resolver.
 void LazyToolEntry(std::string method, json & in, json & out, json & wsOut,
                    std::map<std::string, TObject *> & objects)
 {
-  std::string action;
-  {
-    std::lock_guard<std::mutex> lock(gDeferredMutex);
-    if (gDeferredMacros.empty()) {
-      out["result"] = "failure";
-      out["code"]   = "tool_unavailable";
-      out["error"]  = "The deferred tool is no longer pending";
-      return;
-    }
-    action = gDeferredMacros.front().entryAction;
-  }
-  if (!LoadDeferredMacro(action)) {
+  const std::string action =
+      Ndmspc::gNHttpServer != nullptr ? Ndmspc::gNHttpServer->GetCurrentAction() : std::string();
+  if (action.empty() || !LoadDeferredMacro(action)) {
     out["result"] = "failure";
     out["code"]   = "tool_unavailable";
-    out["error"]  = "The deferred tool could not be loaded";
+    out["error"]  = action.empty() ? "The deferred tool is no longer pending"
+                                   : "The deferred tool could not be loaded";
     return;
   }
   Ndmspc::NHttpFuncPtr real =
@@ -361,11 +391,18 @@ int main(int argc, char ** argv)
                  "or NDMSPC_ROOMS=1). A router serves rooms only, so no macro is loaded. "
                  "Kubernetes only: the server exits at startup when KUBERNETES_SERVICE_HOST is unset")
       ->default_val(withRooms ? "true" : "false");
+  // Build-time (or dev) snapshot of the MCP tool list: load every macro once, write what a client
+  // would see, and exit. The runtime serves that file instead of loading macros for `tools/list`
+  // (see NMcpServer::BuildTools); with no file it loads them as before.
+  std::string catalogPath;
+  app.add_option("--write-tool-catalog", catalogPath,
+                 "Write the MCP tool catalog to this file and exit (used by the image build; a "
+                 "developer can also point NDMSPC_TOOL_CATALOG at the result)");
   AddOidcOptions(&app, oidcConfig);
   AddX509Options(&app, x509Config);
 
   app.callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp,
-                &withRooms, &withWs, &oidcConfig, &x509Config, &httpThreads]() {
+                &withRooms, &withWs, &oidcConfig, &x509Config, &httpThreads, &catalogPath]() {
     gROOT->SetBatch(batch);
     PrepareOidcConfig(oidcConfig, x509Config);
 
@@ -462,32 +499,93 @@ int main(int argc, char ** argv)
     else {
       macros = Ndmspc::NUtils::ResolveMacroList(macroFilename, ndmspcMacrosDir + "/macros/tools");
 
+      // The catalog generator describes every installed tool, so it is the one caller that looks past
+      // -m. A normal server keeps exactly the list it was given: naming two macros must not defer the
+      // others as well.
+      if (!catalogPath.empty()) {
+        const std::string dir = ndmspcMacrosDir + "/macros/tools";
+        if (void * dirp = gSystem->OpenDirectory(dir.c_str())) {
+          while (const char * entry = gSystem->GetDirEntry(dirp)) {
+            const std::string name(entry);
+            if (name.size() <= 6 || name.compare(0, 4, "tool") != 0 ||
+                name.compare(name.size() - 2, 2, ".C") != 0) {
+              continue;
+            }
+            const std::string path = dir + "/" + name;
+            if (std::find(macros.begin(), macros.end(), path) == macros.end()) macros.push_back(path);
+          }
+          gSystem->FreeDirectory(dirp);
+        }
+      }
+
+      // Nothing but the server's own base actions is loaded at startup. NDMSPC_PRELOAD_TOOLS names
+      // the macros to load eagerly: comma-separated base names, with or without `.C`, and `all`/`*`
+      // for every one. NDMSPC_DEFER_TOOLS=0 is kept as the old way of asking for them all.
+      bool                  preloadAll = false;
+      std::set<std::string> preload;
+      if (const char * preloadEnv = gSystem->Getenv("NDMSPC_PRELOAD_TOOLS")) {
+        const std::string list(preloadEnv);
+        std::size_t       pos = 0;
+        while (pos <= list.size()) {
+          const std::size_t comma = list.find(',', pos);
+          std::string       item  = list.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+          const auto        first = item.find_first_not_of(" \t\r\n");
+          const auto        last  = item.find_last_not_of(" \t\r\n");
+          item = first == std::string::npos ? std::string() : item.substr(first, last - first + 1);
+          if (!item.empty()) {
+            if (item == "*" || item == "all") {
+              preloadAll = true;
+            }
+            else {
+              if (item.size() > 2 && item.compare(item.size() - 2, 2, ".C") == 0) item.resize(item.size() - 2);
+              preload.insert(item);
+            }
+          }
+          if (comma == std::string::npos) break;
+          pos = comma + 1;
+        }
+      }
+      if (const char * deferEnv = gSystem->Getenv("NDMSPC_DEFER_TOOLS")) {
+        const std::string value(deferEnv);
+        if (value == "0" || value == "false" || value == "no" || value == "off") preloadAll = true;
+      }
+
       NLogInfo("Going to load %d macro(s). Waiting ...", static_cast<int>(macros.size()));
       gDeferredMacros.clear();
       const auto  macrosStart = std::chrono::steady_clock::now();
       std::size_t loaded      = 0;
       std::size_t deferred    = 0;
-      bool        deferTools  = true;
-      if (const char * deferEnv = gSystem->Getenv("NDMSPC_DEFER_TOOLS")) {
-        const std::string value(deferEnv);
-        if (value == "0" || value == "false" || value == "no" || value == "off") deferTools = false;
-      }
       for (const auto & macro : macros) {
         const std::string name = gSystem->BaseName(macro.c_str());
-        const auto        tool = kDeferredTools.find(name);
+        const std::string stem = (name.size() > 2 && name.compare(name.size() - 2, 2, ".C") == 0)
+                                     ? name.substr(0, name.size() - 2)
+                                     : name;
+        const auto        routing = kToolRouting.find(name);
 
-        // The browser is the default room's optional tool. Publish its open action as a placeholder
-        // so the group stays visible, but do not load its dictionary until the first request needs
-        // it. Unknown macros are always eager: there is no safe action prefix to defer them by.
-        if (deferTools && tool != kDeferredTools.end()) {
+        // Everything is deferred unless the environment preloads it. The bundled tools name their
+        // actions, so they get an entry placeholder (and their group stays visible in `/api`); a
+        // macro we know nothing about is deferred without one and found by the resolver on use.
+        if (!preloadAll && preload.count(name) == 0 && preload.count(stem) == 0) {
+          // A list can name a macro the image no longer ships (a tool that moved away): deferring it
+          // would publish a group with no tools and fail only when somebody used it, so say so and
+          // leave it out. Remote macros are not checked - they are fetched when they load.
+          if (macro.find("://") == std::string::npos && gSystem->AccessPathName(macro.c_str())) {
+            NLogWarning("Macro '%s' does not exist; skipping it", macro.c_str());
+            continue;
+          }
           const bool alreadyDeferred =
               std::any_of(gDeferredMacros.begin(), gDeferredMacros.end(),
                           [&macro](const DeferredMacro & entry) { return entry.path == macro; });
           if (!alreadyDeferred) {
-            gDeferredMacros.push_back({macro, tool->second.prefixes, tool->second.entryAction});
+            DeferredMacro entry;
+            entry.path = macro;
+            if (routing != kToolRouting.end()) {
+              entry.prefixes    = routing->second.prefixes;
+              entry.entryAction = routing->second.entryAction;
+            }
+            gDeferredMacros.push_back(std::move(entry));
             ++deferred;
-            NLogInfo("Deferring macro '%s' until a request needs '%s'", macro.c_str(),
-                     tool->second.entryAction.c_str());
+            NLogInfo("Deferring macro '%s' until a request needs it", macro.c_str());
           }
           continue;
         }
@@ -532,6 +630,22 @@ int main(int argc, char ** argv)
     }
 
     serv->SetHttpHandlers(handlers);
+
+    // A build step can ask for the tool catalog and leave: every macro is loaded here, the list is
+    // built once, and the runtime serves it without loading a macro (see NMcpServer::BuildTools).
+    if (!catalogPath.empty()) {
+      LoadAllDeferredMacros();
+      Ndmspc::NMcpServer mcp(serv);
+      std::ofstream       out(catalogPath);
+      if (!out) {
+        NLogError("Cannot write the tool catalog to '%s'", catalogPath.c_str());
+        exit(1);
+      }
+      const json catalog = mcp.BuildTools();
+      out << catalog.dump(2) << "\n";
+      NLogInfo("Wrote the tool catalog to %s", catalogPath.c_str());
+      return;
+    }
 
     // All handlers are registered now: start the HTTP engine. Nothing has been
     // listening up to this point, so no request could have raced with the

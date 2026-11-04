@@ -2,12 +2,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <utility>
 
 #include <THttpCallArg.h>
+#include <TROOT.h>
+#include <TSystem.h>
 
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NInstanceTree.h"
@@ -138,9 +142,58 @@ json NMcpServer::BuildTools() const
   json tools = json::array();
   if (!fServer) return json{{"tools", tools}};
 
-  // A server may keep an optional tool macro out of startup; publish it now, before a client reads
-  // the list, so discovery and the handlers it names are both there.
-  if (gNdmspcToolLoader != nullptr) gNdmspcToolLoader();
+  // Deferred tools are served from the build-time catalog when one exists (see
+  // `--write-tool-catalog`): `tools/list` is asked when a room opens, and loading every macro there
+  // is what made an open pay for every tool. A macro still loads the first time one of its actions
+  // is called (the action resolver). With no catalog - a checkout, a macro being edited - the old
+  // behaviour is kept and the macros are loaded for the list, so dev mode sees every tool.
+  json        catalog = json::array();
+  bool        haveCatalog = false;
+  std::string catalogPath;
+  if (const char * env = gSystem->Getenv("NDMSPC_TOOL_CATALOG")) catalogPath = env;
+  const bool  forceEager = catalogPath == "none" || catalogPath == "off" || catalogPath == "0";
+  if (forceEager) catalogPath.clear();
+  if (catalogPath.empty() && !forceEager) {
+    const char * root = gSystem->Getenv("NDMSPC_ROOT");
+    catalogPath       = std::string(root != nullptr && *root != '\0' ? root : "/usr/share/ndmspc") +
+                  "/macros/tools/.precompiled/" + std::to_string(gROOT->GetVersionInt()) +
+                  "/tools.catalog.json";
+  }
+  if (!catalogPath.empty()) {
+    std::ifstream in(catalogPath);
+    if (in) {
+      try {
+        const json document = json::parse(in);
+        if (document.is_array()) {
+          catalog     = document;
+          haveCatalog = true;
+        }
+        else if (document.is_object() && document.contains("tools") && document["tools"].is_array()) {
+          catalog     = document["tools"];
+          haveCatalog = true;
+        }
+      }
+      catch (const std::exception &) {
+        haveCatalog = false; // a broken catalog is no catalog: fall back to loading
+      }
+    }
+  }
+  static std::once_flag catalogLogged;
+  if (haveCatalog) {
+    std::call_once(catalogLogged, [&]() {
+      NLogInfo("tool catalog: serving deferred tools from '%s'", catalogPath.c_str());
+    });
+  }
+  else if (gNdmspcToolLoader != nullptr) {
+    std::call_once(catalogLogged, []() {
+      NLogInfo("tool catalog: none, loading deferred macros on tools/list");
+    });
+    gNdmspcToolLoader();
+  }
+  std::map<std::string, json> catalogByName;
+  for (const auto & tool : catalog) {
+    if (tool.is_object()) catalogByName[tool.value("name", "")] = tool;
+  }
 
   json inspectorProperties = json::object();
   try {
@@ -298,6 +351,26 @@ json NMcpServer::BuildTools() const
       // published like any other, and this says not to list it for browsing.
       if (!info->explorer) tool["_meta"]["ndmspc.io/explorer"] = false;
     }
+    // A deferred tool's entry action is registered as a placeholder (`LazyToolEntry`) so the group
+    // is visible before the macro loads. That placeholder knows nothing about the tool - no metadata,
+    // only the generic `method` argument. When the catalog knows this name, its entry is the tool's
+    // own description, group and schema, so it is published instead.
+    if (info == nullptr) {
+      const auto fromCatalog = catalogByName.find(toolName);
+      if (fromCatalog != catalogByName.end()) {
+        tools.push_back(fromCatalog->second);
+        continue;
+      }
+    }
+    tools.push_back(tool);
+  }
+
+  // A deferred tool the catalog knows is published with what it declared at build time. A name that
+  // is also loaded keeps the loaded entry, whose schema is the live one.
+  for (const auto & tool : catalog) {
+    if (!tool.is_object()) continue;
+    const std::string name = tool.value("name", "");
+    if (name.empty() || !usedNames.insert(name).second) continue;
     tools.push_back(tool);
   }
 

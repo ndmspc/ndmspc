@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -43,6 +46,14 @@ json ToolNames(const json & toolsResult)
     names.push_back(tool["name"]);
   }
   return names;
+}
+
+// gNdmspcToolLoader is a plain function pointer, so the "did it load?" counter is a free function.
+int  gLoaderCalls = 0;
+bool CountingLoader()
+{
+  ++gLoaderCalls;
+  return true;
 }
 
 } // namespace
@@ -495,5 +506,55 @@ TEST(NMcpServerTest, ToolsListWithDependencyCycleStillListsEveryTool)
   EXPECT_NE(std::find(names.begin(), names.end(), "grp_y"), names.end());
 
   Ndmspc::gNdmspcMcpTools = nullptr;
+  delete serv;
+}
+
+TEST(NMcpServerTest, ToolsListLoadsDeferredMacrosWithoutACatalog)
+{
+  auto * serv = MakeServer();
+
+  gLoaderCalls              = 0;
+  Ndmspc::gNdmspcToolLoader = &CountingLoader;
+  setenv("NDMSPC_TOOL_CATALOG", "none", 1);
+
+  Ndmspc::NMcpServer mcp(serv);
+  const json         response = mcp.BuildTools();
+
+  unsetenv("NDMSPC_TOOL_CATALOG");
+  Ndmspc::gNdmspcToolLoader = nullptr;
+
+  // No catalog (or explicitly disabled): the macros are loaded for the list, as before.
+  EXPECT_EQ(gLoaderCalls, 1);
+  EXPECT_TRUE(response["tools"].is_array());
+
+  delete serv;
+}
+
+TEST(NMcpServerTest, ToolsListServesCatalogWithoutLoading)
+{
+  const std::string path = "/tmp/ndmspc-test-tools.catalog.json";
+  {
+    std::ofstream out(path);
+    out << R"({"tools":[{"name":"catalog_tool","description":"from the catalog",)"
+           R"("inputSchema":{"type":"object","properties":{}}}]})";
+  }
+
+  auto * serv = MakeServer();
+
+  gLoaderCalls              = 0;
+  Ndmspc::gNdmspcToolLoader = &CountingLoader;
+  setenv("NDMSPC_TOOL_CATALOG", path.c_str(), 1);
+
+  Ndmspc::NMcpServer mcp(serv);
+  const json         names = ToolNames(mcp.BuildTools());
+
+  unsetenv("NDMSPC_TOOL_CATALOG");
+  Ndmspc::gNdmspcToolLoader = nullptr;
+  std::remove(path.c_str());
+
+  // A catalog is served as-is: no macro is loaded, and the catalog's tool is listed.
+  EXPECT_EQ(gLoaderCalls, 0);
+  EXPECT_NE(std::find(names.begin(), names.end(), "catalog_tool"), names.end());
+
   delete serv;
 }
