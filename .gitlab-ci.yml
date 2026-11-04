@@ -4,9 +4,19 @@
 # merge_request_event. The branch pipeline is the merge gate here (see the note
 # above build-al9), so merge-request pipelines are switched off entirely. Tags
 # must stay allowed: they publish the base/slurmd/prod images.
+#
+# Only feature branches and `develop` get a pipeline. `main` and the
+# `v<version>-patch` maintenance branches (v1.4-patch, ...) just receive merges
+# that already passed in their source branch pipeline, and the published
+# artifacts are built from `develop` (pages) or from tags, so running a pipeline
+# there would only repeat work.
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: never
+    - if: $CI_COMMIT_BRANCH =~ /^v.*-patch$/
       when: never
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH
@@ -28,11 +38,11 @@ variables:
   # reachable from the checkout (the default shallow clone has none for old commits).
   GIT_DEPTH: "0"
 
-# These builds are the merge gate on feature branches. On the protected branches
-# (main/develop) a merge only lands once the branch pipeline has already passed,
-# so they would only repeat that work: they are left manual there, and optional,
-# so the pipeline still reaches the deploy stage and `pages` runs without anyone
-# having to click them. Tags only publish artifacts, so they never run.
+# These builds are the merge gate on feature branches. On `develop` a merge only
+# lands once the branch pipeline has already passed, so they would only repeat
+# that work: they are left manual there, and optional, so the pipeline still
+# reaches the deploy stage and `pages` runs without anyone having to click them.
+# Tags only publish artifacts, so they never run.
 build-al9:
   image: $CI_REGISTRY/ndmspc/user/al9:dep
   stage: build
@@ -43,7 +53,7 @@ build-al9:
   rules:
     - if: "$CI_COMMIT_TAG"
       when: never
-    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == 'develop'"
+    - if: "$CI_COMMIT_BRANCH == 'develop'"
       when: manual
       allow_failure: true
     - when: on_success
@@ -59,7 +69,7 @@ build-al10:
   rules:
     - if: "$CI_COMMIT_TAG"
       when: never
-    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == 'develop'"
+    - if: "$CI_COMMIT_BRANCH == 'develop'"
       when: manual
     - when: on_success
 
@@ -75,7 +85,6 @@ base-image-test:
   when: manual
   except:
     - tags
-    - main
     - develop
 
 build-rpm-copr:
