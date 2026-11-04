@@ -1,0 +1,6 @@
+# Version metadata for source archives made with `git archive` (GitLab's "Download
+# source code", GitHub's archive, ...). They contain only tracked files, so the
+# generated VERSION file is absent; these placeholders are expanded by export-subst
+# (see .gitattributes) at archive time and read by cmake/version.cmake.
+node: $Format:%h$
+describe-name: $Format:%(describe:tags)$

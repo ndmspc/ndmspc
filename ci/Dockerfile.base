@@ -1,10 +1,10 @@
 # FROM registry.gitlab.com/ndmspc/user/al9:dep AS builder
 FROM registry.gitlab.com/ndmspc/user/al10:dep AS builder
-ARG MY_PROJECT_VER=
-ARG MY_PROJECT_VER_RELEASE=
 # COPY . brings in the whole tree; what actually lands in the image is trimmed by
 # .dockerignore (VCS metadata, build outputs, and dev-only files), which also keeps
-# irrelevant churn from busting this layer and forcing a full rebuild.
+# irrelevant churn from busting this layer and forcing a full rebuild. .git is stripped,
+# so the build reads the version from the VERSION file scripts/write-version.sh wrote
+# into the context (see .gitlab-ci.yml).
 COPY . /builder/
 WORKDIR /builder
 

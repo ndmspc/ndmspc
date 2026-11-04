@@ -1,0 +1,3 @@
+# Expand the $Format:...$ placeholders in .git_archival.txt when Git builds a source
+# archive (`git archive`, which GitLab uses for "Download source code").
+.git_archival.txt export-subst

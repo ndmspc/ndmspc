@@ -194,45 +194,21 @@ if [[ $BUILDING_DOC == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DBUILD_DOCUMENTATION:bool=ON"
 fi
 
-# Set MY_PROJECT_VER
+# Optional version override. Without it cmake/version.cmake derives the version from git
+# (or from the VERSION file in a source tarball), so no version argument is needed.
 if [[ -n "$MY_PROJECT_VER" ]]; then
-  # CMake's project(VERSION ...) only accepts numeric versions, so split a
-  # tag-style prerelease suffix (e.g. 1.4.0-rc6) into PROJECT_VERSION_RELEASE.
-  if [[ "$MY_PROJECT_VER" == *-* ]]; then
-    MY_PROJECT_VER_RELEASE="${MY_PROJECT_VER_RELEASE:-${MY_PROJECT_VER#*-}}"
-    MY_PROJECT_VER="${MY_PROJECT_VER%%-*}"
-  fi
-  if [[ ! "$MY_PROJECT_VER" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+  if [[ ! "$MY_PROJECT_VER" =~ ^[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._-]+)?$ ]]; then
     echo "Invalid project version '$MY_PROJECT_VER': expected a numeric version like 1.4.0, optionally with a -suffix (e.g. 1.4.0-rc6)."
     exit 1
   fi
   echo "Setting project version to $MY_PROJECT_VER"
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DPROJECT_VERSION:STRING=${MY_PROJECT_VER} -DNDMSPC_VERSION:STRING=${MY_PROJECT_VER}"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DNDMSPC_VERSION:STRING=${MY_PROJECT_VER}"
 fi
 
 if [[ -n "$MY_PROJECT_VER_RELEASE" ]]; then
   echo "Setting project release version to $MY_PROJECT_VER_RELEASE"
-  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DPROJECT_VERSION_RELEASE:STRING=${MY_PROJECT_VER_RELEASE} -DNDMSPC_VERSION_RELEASE:STRING=${MY_PROJECT_VER_RELEASE}"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DNDMSPC_VERSION_RELEASE:STRING=${MY_PROJECT_VER_RELEASE}"
 fi
-
-# ndmspc-ui page version: pin the release tag when this build comes from one, else use
-# `next` (the latest ndmspc-ui main build). An explicit NDMSPC_UI_VERSION always wins.
-if [[ -z "$NDMSPC_UI_VERSION" ]]; then
-  _ui_tag=""
-  if [[ -n "$MY_PROJECT_VER" ]]; then
-    if [[ -z "$MY_PROJECT_VER_RELEASE" ]]; then
-      _ui_tag="v${MY_PROJECT_VER#v}"
-    fi
-  else
-    _ui_tag=$(git -C "$PROJECT_DIR" describe --tags --exact-match 2>/dev/null || true)
-  fi
-  if [[ "$_ui_tag" =~ ^v?[0-9]+(\.[0-9]+)*$ ]]; then
-    NDMSPC_UI_VERSION="v${_ui_tag#v}"
-  else
-    NDMSPC_UI_VERSION="next"
-  fi
-fi
-echo "Using ndmspc-ui page version: $NDMSPC_UI_VERSION"
 
 if [[ $WITH_TEST == true ]]; then
   echo "Building with testing support"
@@ -247,9 +223,12 @@ fi
 if [[ $WITH_UI == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_UI:bool=ON"
 fi
-# Always pass it: cmake/ndmspc.spec.in bakes this value into the rpmbuild configure, so
-# the RPM downloads the same page even when the spec was generated with UI off.
-MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DNDMSPC_UI_VERSION:STRING=${NDMSPC_UI_VERSION}"
+# Only an explicit choice: cmake/version.cmake otherwise pins the release tag for a
+# tagged build and `next` for everything else.
+if [[ -n "$NDMSPC_UI_VERSION" ]]; then
+  echo "Using ndmspc-ui page version: $NDMSPC_UI_VERSION"
+  MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DNDMSPC_UI_VERSION:STRING=${NDMSPC_UI_VERSION}"
+fi
 if [[ $WITH_NUMCAL == true ]]; then
   MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DWITH_NUMCAL:bool=ON"
 fi
