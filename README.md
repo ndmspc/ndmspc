@@ -4,11 +4,11 @@ A ROOT framework extension for N-dimensional storage, analysis, and visualizatio
 
 ## Documentation
 
-The main documentation is hosted at:
+- Project documentation (build, tutorial macros, HTTP server, CLI): <https://ndmspc.gitlab.io/ndmspc/docs/>
+- API reference (Doxygen): <https://ndmspc.gitlab.io/ndmspc/doxygen/>
+- User guide, installation and concepts: <https://ndmspc.gitlab.io/docs/>
 
-<https://ndmspc.gitlab.io/docs/>
-
-Please use the docs site for installation, usage guides, architecture, and examples.
+Please use the user guide for installation, usage guides, architecture, and examples.
 
 ## OpenSSL
 

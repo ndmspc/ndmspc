@@ -51,8 +51,15 @@ foreach(_root IN LISTS _openssl_roots)
     continue()
   endif()
 
-  find_library(_os_ssl NAMES ssl PATHS "${_root}/lib" "${_root}/lib64" NO_DEFAULT_PATH NO_CACHE)
-  find_library(_os_crypto NAMES crypto PATHS "${_root}/lib" "${_root}/lib64" NO_DEFAULT_PATH NO_CACHE)
+  # Debian/Ubuntu multiarch installations put the libraries in lib/<triplet>
+  # (e.g. lib/x86_64-linux-gnu), not in lib or lib64.
+  set(_os_lib_dirs "${_root}/lib" "${_root}/lib64")
+  if(CMAKE_LIBRARY_ARCHITECTURE)
+    list(APPEND _os_lib_dirs "${_root}/lib/${CMAKE_LIBRARY_ARCHITECTURE}")
+  endif()
+
+  find_library(_os_ssl NAMES ssl PATHS ${_os_lib_dirs} NO_DEFAULT_PATH NO_CACHE)
+  find_library(_os_crypto NAMES crypto PATHS ${_os_lib_dirs} NO_DEFAULT_PATH NO_CACHE)
   if(NOT _os_ssl OR NOT _os_crypto)
     continue()
   endif()

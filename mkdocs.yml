@@ -1,0 +1,62 @@
+site_name: NDMSPC project
+site_url: https://ndmspc.gitlab.io/ndmspc/docs
+repo_name: ndmspc/ndmspc
+repo_url: https://gitlab.com/ndmspc/ndmspc
+edit_uri: edit/develop/docs/
+
+docs_dir: docs
+site_dir: site
+
+nav:
+  - "Home": index.md
+  - "Install & build": install.md
+  - "Tutorial macros": tutorial/index.md
+  - "HTTP server & tools": http/index.md
+  - "Command-line tools": cli/index.md
+  - "Developing": develop/index.md
+  - "API reference": https://ndmspc.gitlab.io/ndmspc/doxygen/
+  - "User documentation": https://ndmspc.gitlab.io/docs/
+
+theme:
+  variant: classic
+  features:
+    - toc.follow
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: white
+      accent: blue
+      toggle:
+        icon: lucide/moon
+        name: Switch to dark mode
+    - scheme: slate
+      primary: black
+      accent: blue
+      toggle:
+        icon: lucide/sun
+        name: Switch to light mode
+
+plugins:
+  - search
+  - glightbox
+
+markdown_extensions:
+  - admonition
+  - footnotes
+  - attr_list
+  - md_in_html
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - toc:
+      toc_depth: 3
+      permalink: true
+      title: On this page

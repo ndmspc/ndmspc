@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NDMSPC — N-Dimensional SPaCe</title>
+<meta name="description" content="A ROOT framework extension for N-dimensional storage, analysis and visualization of high-dimensional data.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1b1b1f;
+    --muted: #5c5f66;
+    --line: #e4e6eb;
+    --card: #f7f8fa;
+    --accent: #1f6feb;
+    --accent-fg: #ffffff;
+    --code-bg: #f0f2f5;
+    --badge: #eaf2ff;
+    --badge-fg: #1a4fb4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --fg: #e6e8eb;
+      --muted: #9aa0a6;
+      --line: #262a31;
+      --card: #161a20;
+      --accent: #4c8dff;
+      --accent-fg: #0b0d10;
+      --code-bg: #1b2028;
+      --badge: #14213d;
+      --badge-fg: #a9c7ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 56px 24px 40px; }
+  header h1 { margin: 0 0 8px; font-size: 2.4rem; letter-spacing: -0.02em; }
+  header p.lead { margin: 0; max-width: 46rem; color: var(--muted); font-size: 1.1rem; }
+  .meta { margin-top: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: var(--badge); color: var(--badge-fg);
+    font-size: .85rem; font-weight: 600;
+  }
+  .meta .date { color: var(--muted); font-size: .9rem; }
+  .cards {
+    display: grid; gap: 16px; margin: 40px 0 8px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+  .card {
+    display: block; padding: 22px; border: 1px solid var(--line);
+    border-radius: 12px; background: var(--card); color: inherit;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .card:hover { text-decoration: none; border-color: var(--accent); transform: translateY(-1px); }
+  .card h2 { margin: 0 0 6px; font-size: 1.05rem; }
+  .card p { margin: 0; color: var(--muted); font-size: .92rem; }
+  section { margin-top: 44px; }
+  section h2 { font-size: 1.15rem; margin: 0 0 14px; }
+  pre {
+    margin: 0; padding: 16px 18px; overflow-x: auto;
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    font: .9rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+  td.tag { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+  td.actions { text-align: right; white-space: nowrap; }
+  td.actions a { margin-left: 12px; font-size: .9rem; }
+  .pre { font-size: .7rem; padding: 1px 7px; margin-left: 8px; vertical-align: middle; }
+  .more { margin-top: 14px; display: flex; gap: 20px; flex-wrap: wrap; font-size: .92rem; }
+  footer {
+    margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: .9rem;
+    display: flex; gap: 18px; flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>NDMSPC</h1>
+    <p class="lead">
+      N-Dimensional SPaCe — a ROOT framework extension for storing, analysing and visualizing
+      high-dimensional sparse data. One tree, many binnings, a live server and an interactive UI.
+    </p>
+    <div class="meta">
+      <span class="badge">@@VERSION@@</span>
+      <span class="date">@@RELEASE_NOTE@@</span>
+    </div>
+  </header>
+
+  <nav class="cards">
+    <a class="card" href="docs/">
+      <h2>Documentation</h2>
+      <p>Build, tutorial macros, HTTP server and tools, CLI, development.</p>
+    </a>
+    <a class="card" href="doxygen/">
+      <h2>API reference</h2>
+      <p>Doxygen for every class and header in the framework.</p>
+    </a>
+    <a class="card" href="https://ndmspc.gitlab.io/ndmspc-ui/">
+      <h2>Web UI demo</h2>
+      <p>Browse a ROOT file, project a THnSparse, reshape an NGnTree.</p>
+    </a>
+    <a class="card" href="https://ndmspc.gitlab.io/docs/">
+      <h2>User guide</h2>
+      <p>Installation, the full tutorial, concepts, rooms and collaboration.</p>
+    </a>
+  </nav>
+
+  <section>
+    <h2>Quick start</h2>
+    <pre>podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:@@IMAGE_TAG@@
+# open http://localhost:8080</pre>
+  </section>
+
+  <section>
+    <h2>Releases</h2>
+    <table>
+      <thead>
+        <tr><th>Version</th><th>Date</th><th></th></tr>
+      </thead>
+      <tbody>
+@@RELEASES@@
+      </tbody>
+    </table>
+    <div class="more">
+      <a href="https://gitlab.com/ndmspc/ndmspc/-/releases">All releases</a>
+      <a href="https://gitlab.com/ndmspc/ndmspc/container_registry">Container images</a>
+      <a href="https://gitlab.com/ndmspc/ndmspc">Source code</a>
+    </div>
+  </section>
+
+  <footer>
+    <span>LGPL-2.1</span>
+    <a href="https://gitlab.com/ndmspc">GitLab</a>
+    <a href="https://mattermost.web.cern.ch/ndmspc/channels/town-square">Mattermost</a>
+    <a href="https://ndmspc.gitlab.io/docs/">Docs</a>
+  </footer>
+
+</div>
+</body>
+</html>
