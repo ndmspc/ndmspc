@@ -32,33 +32,34 @@ ndmspc_find_or_fetch(
 # core/tui compiles the amalgamated ftxui_all.hpp once (ftxui_impl.cxx) and hands the
 # result on, so a TUI needs nothing but a link to NdmspcTuiFtxui.
 #
-# Unconditional rather than behind a WITH_* flag, because core/ is always built and
-# core/tui is part of it. It is fetched in amalgamated header-only form: there is
-# nothing to build and nothing to install, so it is fetched without adding a CMake
-# subproject - the same rule as httplib/jwt-cpp below (NDMSPC's install prefix is the
-# source root, and FTXUI's install() rules would otherwise copy headers, CMake config
-# and licence files into it).
+# Only needed when the terminal UIs are enabled. It is fetched in amalgamated
+# header-only form: there is nothing to build and nothing to install, so it is
+# fetched without adding a CMake subproject - the same rule as httplib/jwt-cpp below
+# (NDMSPC's install prefix is the source root, and FTXUI's install() rules would
+# otherwise copy headers, CMake config and licence files into it).
 #
 # USE_SYSTEM_FTXUI is forced OFF: a distribution package installs a *compiled* library
 # exposing ftxui/component/*.hpp, not the amalgamated ftxui_all.hpp this build expects,
 # so probing for it could only ever pick a header set we cannot compile against.
 # Declaring the option here also stops ndmspc_find_or_fetch from re-enabling it with
 # its own "ON" default.
-option(USE_SYSTEM_FTXUI "Use system-installed FTXUI" OFF)
-if(NOT USE_FAST_FETCH)
-  message(FATAL_ERROR
-    "FTXUI is only published as an amalgamated release archive "
-    "(ftxui-amalgamated.zip), which the git-tag fetch mode cannot produce. "
-    "Re-configure with USE_FAST_FETCH=ON (the default).")
+if(WITH_TUI)
+  option(USE_SYSTEM_FTXUI "Use system-installed FTXUI" OFF)
+  if(NOT USE_FAST_FETCH)
+    message(FATAL_ERROR
+      "FTXUI is only published as an amalgamated release archive "
+      "(ftxui-amalgamated.zip), which the git-tag fetch mode cannot produce. "
+      "Re-configure with USE_FAST_FETCH=ON (the default).")
+  endif()
+  ndmspc_find_or_fetch(
+    NAME FTXUI
+    VERSION ${FTXUI_VERSION}
+    URL https://github.com/ArthurSonzogni/FTXUI/releases/download/${FTXUI_VERSION}/ftxui-amalgamated.zip
+    INCLUDE_SUBDIR .
+    REQUIRED
+    NO_ADD_SUBDIRECTORY
+  )
 endif()
-ndmspc_find_or_fetch(
-  NAME FTXUI
-  VERSION ${FTXUI_VERSION}
-  URL https://github.com/ArthurSonzogni/FTXUI/releases/download/${FTXUI_VERSION}/ftxui-amalgamated.zip
-  INCLUDE_SUBDIR .
-  REQUIRED
-  NO_ADD_SUBDIRECTORY
-)
 
 if (WITH_HTTP OR WITH_AI)
   # httplib requires OpenSSL >= 3; NDMSPC_OPENSSL=1.1 keeps a gated compatibility build.

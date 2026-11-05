@@ -17,10 +17,11 @@ that library's other consumers.
   (`ftxui-amalgamated.zip`) via `ndmspc_find_or_fetch(... NO_ADD_SUBDIRECTORY)`. Because
   the archive is fetched without adding a CMake subproject, FTXUI registers no `install()`
   rules of its own — the same rule `httplib` and `jwt-cpp` follow, which matters because
-  NDMSPC's install prefix defaults to the source root. The fetch is unconditional, because
-  `core/` is always built.
-- `CMakeLists.txt` builds `ftxui_impl.cxx` into `NdmspcTuiFtxui` and carries FTXUI's include
-  directories, as system includes, plus `Threads::Threads`, as usage requirements.
+  NDMSPC's install prefix defaults to the source root. The fetch only runs with
+  `WITH_TUI=ON`; builds with `WITH_TUI=OFF` do not require FTXUI.
+- With `WITH_TUI=ON`, `CMakeLists.txt` builds `ftxui_impl.cxx` into `NdmspcTuiFtxui` and
+  carries FTXUI's include directories, as system includes, plus `Threads::Threads`, as
+  usage requirements.
 
 ## What a consumer does
 
