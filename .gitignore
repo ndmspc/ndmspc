@@ -57,6 +57,9 @@ Testing
 #*.txt
 compile_commands.json
 .cache
+# Zensical / GitLab Pages output
+/site/
+/public/
 .precompiled/
 .ndmspc_cache_dir*
 *.root

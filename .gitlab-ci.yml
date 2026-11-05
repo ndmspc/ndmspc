@@ -259,18 +259,38 @@ prod-image:
   only:
     - tags
 
+# Builds the project documentation site (Zensical, mkdocs.yml + docs/) that `pages`
+# publishes under /docs/. Separate from the Doxygen build because this job needs the
+# docs image (Zensical) and pages needs the fc44 image (Doxygen + ROOT).
+docs:
+  stage: build
+  image: $CI_REGISTRY/ndmspc/docs/ndmspc-doc
+  tags:
+    - ndmspc-hosted
+  needs: []
+  script:
+    - zensical build --clean --strict
+  artifacts:
+    paths:
+      - site
+  only:
+    - develop
+
 pages:
   image: registry.gitlab.com/ndmspc/user/fc44:dep
   stage: deploy
-  # Publish the docs without waiting on the build stage: needs: [] starts this
-  # job as soon as the pipeline is created, so a manual or failed build job
-  # cannot leave it skipped.
-  needs: []
+  # Publish the docs without waiting on the build stage: needs starts this job as
+  # soon as the pipeline is created, and picks up the built `site/` from `docs`.
+  needs:
+    - docs
   tags:
     - ndmspc-hosted
   script:
     - scripts/make.sh doc install
-    - mv share/doc/ndmspc/html public
+    - mkdir -p public/doxygen public/docs
+    - cp -a share/doc/ndmspc/html/. public/doxygen/
+    - cp -a site/. public/docs/
+    - sh web/render-landing.sh public/index.html
   artifacts:
     paths:
       - public
