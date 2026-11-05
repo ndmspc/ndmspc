@@ -96,8 +96,8 @@
       high-dimensional sparse data. One tree, many binnings, a live server and an interactive UI.
     </p>
     <div class="meta">
-      <span class="badge">@@VERSION@@</span>
-      <span class="date">@@RELEASE_NOTE@@</span>
+      <span class="badge" id="release-badge">@@VERSION@@</span>
+      <span class="date" id="release-note">@@RELEASE_NOTE@@</span>
     </div>
   </header>
 
@@ -122,7 +122,7 @@
 
   <section>
     <h2>Quick start</h2>
-    <pre>podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:@@IMAGE_TAG@@
+    <pre>podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:<span id="quick-start-tag">@@IMAGE_TAG@@</span>
 # open http://localhost:8080</pre>
   </section>
 
@@ -132,7 +132,7 @@
       <thead>
         <tr><th>Version</th><th>Date</th><th></th></tr>
       </thead>
-      <tbody>
+      <tbody id="release-rows">
 @@RELEASES@@
       </tbody>
     </table>
@@ -151,5 +151,57 @@
   </footer>
 
 </div>
+
+<script>
+  // Keep the release list current after a tag is created without rebuilding the
+  // site. The rows rendered at build time stay in place if the request fails
+  // (offline, blocked, rate-limited), so the page never depends on this call.
+  (function () {
+    if (!window.fetch) return;
+
+    var API = "https://gitlab.com/api/v4/projects/ndmspc%2Fndmspc/releases?per_page=5";
+    var REPO = "https://gitlab.com/ndmspc/ndmspc";
+
+    function esc(value) {
+      return String(value).replace(/[&<>"']/g, function (ch) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+      });
+    }
+
+    function day(iso) {
+      return iso ? String(iso).slice(0, 10) : "";
+    }
+
+    function row(release) {
+      var tag = release.tag_name || "";
+      var version = tag.replace(/^v/, "");
+      var pre = tag.indexOf("-") !== -1 ? '<span class="badge pre">pre-release</span>' : "";
+      var notes = REPO + "/-/releases/" + encodeURIComponent(tag);
+      var source = notes + "/downloads/ndmspc-" + encodeURIComponent(version) + "-source-with-ui.tar.gz";
+      return '<tr><td class="tag">' + esc(tag) + pre + "</td>" +
+             "<td>" + esc(day(release.released_at || release.created_at)) + "</td>" +
+             '<td class="actions"><a href="' + esc(notes) + '">notes</a>' +
+             '<a href="' + esc(source) + '">source</a></td></tr>';
+    }
+
+    fetch(API, { headers: { Accept: "application/json" } })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (list) {
+        if (!Array.isArray(list) || list.length === 0) return;
+
+        var latest = list[0];
+        var badge = document.getElementById("release-badge");
+        var note = document.getElementById("release-note");
+        var rows = document.getElementById("release-rows");
+        var tag = document.getElementById("quick-start-tag");
+
+        if (badge && latest.tag_name) badge.textContent = latest.tag_name;
+        if (note && latest.released_at) note.textContent = "released " + day(latest.released_at);
+        if (rows) rows.innerHTML = list.map(row).join("");
+        if (tag && latest.tag_name) tag.textContent = latest.tag_name;
+      })
+      .catch(function () { /* keep the build-time list */ });
+  })();
+</script>
 </body>
 </html>
