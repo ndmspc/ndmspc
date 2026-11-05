@@ -195,9 +195,9 @@ if [ "$MANIFEST_ONLY" -eq 1 ]; then
   # present; the runtime falls back to loading the macros when the file is absent.
   if command -v ndmspc-server >/dev/null 2>&1; then
     CATALOG="$CACHE_DIR/tools.catalog.json"
-    # Every installed tool: the catalog is served to every room, and a room may name only a subset on
-    # its command line, so a subset here would list tools its own group cannot offer.
-    if NDMSPC_PRELOAD_TOOLS=all ndmspc-server --write-tool-catalog "$CATALOG" >/dev/null 2>&1; then
+    # The same macro list a server starts with: a tool this deployment does not load must not be
+    # published by the catalog either (the room would offer a group it cannot serve).
+    if ndmspc-server --write-tool-catalog "$CATALOG" >/dev/null 2>&1; then
       echo "precompile-macros.sh: tool catalog written to $CATALOG"
     else
       rm -f "$CATALOG"
