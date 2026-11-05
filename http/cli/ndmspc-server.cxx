@@ -499,24 +499,8 @@ int main(int argc, char ** argv)
     else {
       macros = Ndmspc::NUtils::ResolveMacroList(macroFilename, ndmspcMacrosDir + "/macros/tools");
 
-      // The catalog generator describes every installed tool, so it is the one caller that looks past
-      // -m. A normal server keeps exactly the list it was given: naming two macros must not defer the
-      // others as well.
-      if (!catalogPath.empty()) {
-        const std::string dir = ndmspcMacrosDir + "/macros/tools";
-        if (void * dirp = gSystem->OpenDirectory(dir.c_str())) {
-          while (const char * entry = gSystem->GetDirEntry(dirp)) {
-            const std::string name(entry);
-            if (name.size() <= 6 || name.compare(0, 4, "tool") != 0 ||
-                name.compare(name.size() - 2, 2, ".C") != 0) {
-              continue;
-            }
-            const std::string path = dir + "/" + name;
-            if (std::find(macros.begin(), macros.end(), path) == macros.end()) macros.push_back(path);
-          }
-          gSystem->FreeDirectory(dirp);
-        }
-      }
+      // The catalog is generated from the same list a server starts with (see the generator branch),
+      // so a tool the deployment does not load is not published by it either.
 
       // Nothing but the server's own base actions is loaded at startup. NDMSPC_PRELOAD_TOOLS names
       // the macros to load eagerly: comma-separated base names, with or without `.C`, and `all`/`*`
