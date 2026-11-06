@@ -23,7 +23,7 @@ scripts/make.sh release test               # release build + ctest
 scripts/make.sh doc install                # Doxygen HTML in share/doc/ndmspc/html
 ```
 
-The CI runs `WITH_AI=false scripts/make.sh release test numcal` on AlmaLinux 9 and
+The CI runs `scripts/make.sh release test numcal` on AlmaLinux 9 and
 `scripts/make.sh release test` on AlmaLinux 10.
 
 In the workspace container, run builds as your user:

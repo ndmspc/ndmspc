@@ -26,7 +26,7 @@ data — designed for HEP, applicable to any domain.
 ## Requirements
 
 - ROOT ≥ 6.32 (with the network plugins for `root://` and `http(s)://` access)
-- A C++17 compiler, CMake ≥ 3.24
+- A C++23-capable compiler (GCC 11 or newer), CMake ≥ 3.24
 - Optional: Doxygen (for the API reference), Kubernetes (for rooms)
 
 ## Quick start

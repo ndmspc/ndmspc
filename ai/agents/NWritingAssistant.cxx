@@ -1,5 +1,4 @@
 #include "NWritingAssistant.h"
-#include <format>
 
 namespace Ndmspc::AI {
     // Constructor - store reference to ChatClient and initialize prompts

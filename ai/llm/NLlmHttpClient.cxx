@@ -1,6 +1,5 @@
 #include "NLlmHttpClient.h"
 #include <stdexcept>
-#include <format>
 
 namespace Ndmspc::AI {
     HttpClientHelper::HttpClientHelper(const LLMBaseConfig &config)
@@ -29,7 +28,7 @@ namespace Ndmspc::AI {
 
         if (result->status != 200) {
             throw std::runtime_error(
-                std::format("HTTP error {}: {}", result->status, result->body)
+                "HTTP error " + std::to_string(result->status) + ": " + result->body
             );
         }
 
