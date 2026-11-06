@@ -1,7 +1,7 @@
 // #include "nlohmann/json.hpp"
-#include <format>
 #include "NLlmChatClient.h"
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 
 using json = nlohmann::json;
 
@@ -47,11 +47,11 @@ namespace Ndmspc::AI {
             const std::string error_code = response.at("error").at("code").get<std::string>();
             const std::string error_message = response.at("error").at("message").get<std::string>();
             throw std::runtime_error(
-                std::format("API Error {}: {}", error_code, error_message)
+                "API Error " + error_code + ": " + error_message
             );
         }
         if (status != "completed") {
-            throw std::runtime_error(std::format("Unexpected status: {}", status));
+            throw std::runtime_error("Unexpected status: " + status);
         }
         // Extract text from output array
         std::string complete_text;
