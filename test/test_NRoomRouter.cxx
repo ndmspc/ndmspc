@@ -1833,7 +1833,7 @@ TEST(NRoomRouterActionsTest, AConfigCarriesTheWorkAndNothingAboutTheRoom)
 
   EXPECT_EQ(config["v"], 1);
   EXPECT_EQ(config["file"], "x.root");
-  for (const std::string & absent :
+  for (const char * absent :
        {"room", "name", "owner", "access", "revision", "lastSeen", "router", "snapshot"}) {
     EXPECT_FALSE(config.contains(absent)) << absent;
   }

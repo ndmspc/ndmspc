@@ -111,7 +111,7 @@ class ToolHarness {
    * The server the tool is served by.
    *
    * A test that needs what the *dispatch* adds — the combination tree a request is recorded in, the
-   * workspace, the history — drives this one with `ProcessRequest`, exactly as `/api/*` does.
+   * workspace, the history — drives this one with `ProcessRequest`, exactly as `/api/...` does.
    */
   NHttpServer * Server() { return fServer.get(); }
 

@@ -26,7 +26,10 @@
 #include <thread>
 #include <TF1.h>
 #include <TFile.h>
+#include <RVersion.h>
+#if ROOT_VERSION_CODE < ROOT_VERSION(6, 42, 0)
 #include <TGrid.h>
+#endif
 #include <TThread.h>
 #include <TAxis.h>
 #include <THnSparse.h>
@@ -851,17 +854,33 @@ bool NUtils::ParseBoolEnv(const char * value)
 }
 
 // alien:// needs a grid connection before TFile::Open; reuse an existing gGrid.
+// TGrid is deprecated in ROOT 6.40 and removed in 6.42, but ALICE still needs the pre-connect,
+// so keep using it while it exists and silence the deprecation warning locally.
+#if ROOT_VERSION_CODE < ROOT_VERSION(6, 42, 0)
 static bool NUtilsConnectAlien(const std::string & path)
 {
   if (!TString(path.c_str()).BeginsWith("alien://")) return true;
-  if (gGrid != nullptr) return true;
 
-  if (TGrid::Connect("alien://") == nullptr) {
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+  if (gGrid != nullptr) return true;
+  TGrid * grid = TGrid::Connect("alien://");
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
+  if (grid == nullptr) {
     NLogError("NUtils: cannot connect to the ALICE grid (alien://) for '%s'", path.c_str());
     return false;
   }
   return true;
 }
+#else
+// ROOT 6.42 removed TGrid; the XRootD plugin behind alien:// connects on TFile::Open.
+static bool NUtilsConnectAlien(const std::string &) { return true; }
+#endif
 
 TFile * NUtils::OpenFile(std::string filename, std::string mode, bool createLocalDir)
 {
@@ -4126,6 +4145,7 @@ static std::vector<NUtilsMergeObject> NUtilsCollectMergeObjects(const std::strin
   return found;
 }
 
+/// @brief How an object is combined, chosen from its class (see NUtilsMergeStrategyFor).
 enum class NUtilsMergeStrategy { TH1, THnBase, TEfficiency, TList, Unsupported };
 
 static const char * NUtilsStrategyName(NUtilsMergeStrategy strategy)

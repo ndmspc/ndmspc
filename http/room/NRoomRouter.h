@@ -84,6 +84,7 @@ struct NRoomState {
   bool        autoUpdate{false}; ///< Whether it follows the deployment's image on entry (see kAutoUpdateAnnotation)
   std::string image;       ///< The container image it is pinned to ("" until one is resolved)
   long        lastSeen{0}; ///< Epoch seconds of the last request that touched the room
+
   /// The same clock as it stands on the room's own Service (`ndmspc.io/room-seen`): what the router
   /// reads back after a restart, and what it writes when the two drift apart far enough to matter.
   long        seenStoredAt{0};
