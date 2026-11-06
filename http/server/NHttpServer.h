@@ -113,7 +113,7 @@ extern NdmspcWsConnectFilter gNdmspcWsConnectFilter;
  * guessing at the first string argument.
  *
  * `macro` is the same idea for the step's **code**: what the step is in C++, filled from the same
- * arguments, so a combination can be handed out as a runnable ROOT macro - see {@link macro} below
+ * arguments, so a combination can be handed out as a runnable ROOT macro - see {@link macroLines} below
  * and the `ndmspc/macro` tool that writes it.
  */
 struct NMcpToolInfo {
@@ -125,6 +125,7 @@ struct NMcpToolInfo {
   std::vector<std::string> dependsOn{};    ///< Actions that must have run first (e.g. "ndmspc/ngnt/open")
   int                      order{0};       ///< Tie-break among ready tools (lower first; 0 = default)
   std::string              label{};        ///< Node name template, e.g. "{{ binningName }} ({{ levels }})"
+
   /// The step as C++ source, for the combination's own **macro export**: one entry per line of the code
   /// this step makes, each the same `{{ arg }}` template `label` uses, filled from the node's arguments -
   /// so a tool says what its step *is* in code rather than a generator guessing at it.
@@ -767,6 +768,7 @@ class NHttpServer : public THttpServer {
    * Every session is named, however it was started - a plain `open` included - so a picker never has to
    * fall back on reading a file path.
    *
+   * @param group The tool group the session belongs to.
    * @param exclude The session being named, when it already exists (it is not one of its own siblings).
    */
   std::string                                   SessionNameFor(const std::string & group,
@@ -779,7 +781,7 @@ class NHttpServer : public THttpServer {
   std::string                                   GroupSession(const std::string & group);
   /**
    * @brief Remember the pad envelopes one session drew, replacing the tabs it has drawn before.
-   * @param key The session the drawing belongs to, or its group when the request names no session.
+   * @param group The session the drawing belongs to, or its group when the request names no session.
    * @param envelopes The frame's `payload.pad`: one envelope, or a list of them.
    */
   void                                          RecordPads(const std::string & group, const json & envelopes);
@@ -993,9 +995,10 @@ class NHttpServer : public THttpServer {
 
   NActionWorker *   fActionWorker{nullptr};    ///<! The one thread tool actions run on
   std::mutex        fWorkerMutex;              ///<! Guards fActionWorker's creation
+  std::mutex        fCancelMutex;              ///<! Guards fCancelFlags and fRunning
+
   /// The cancel flag of each action waiting to run, by the client's request id. Set by CancelRequest;
   /// the worker checks it before running a queued action and the loops poll it while one runs.
-  std::mutex        fCancelMutex;              ///<! Guards fCancelFlags and fRunning
   std::map<std::string, std::shared_ptr<std::atomic<bool>>> fCancelFlags;
   /// The actions in flight, by request id, for {@link BusyActionsList}. Same lifecycle and the same guard
   /// as fCancelFlags: registered when the request is queued, erased when it finishes. Never written when
@@ -1021,6 +1024,7 @@ class NHttpServer : public THttpServer {
   bool fMcpEnabled{false}; ///<! Flag to indicate whether the MCP endpoint (/api/mcp) is enabled
   std::string fGroup;      ///<! Group prefix for workspace routes
   json        fPads = json::object(); ///<! group -> array of the pad envelopes that group has drawn
+
   /// The workspace schemas each group has published, kept apart: the flat map collides (two groups
   /// both publish "open"), so a joining client is sent this instead (see SessionState).
   std::map<std::string, json> fWorkspaceByGroup;

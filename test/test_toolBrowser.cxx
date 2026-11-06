@@ -187,7 +187,7 @@ class ToolBrowser : public ::testing::Test {
   static void SetUpTestSuite() { WriteTestFile(); }
   void SetUp() override { fTool = std::make_unique<ToolHarness>(kToolMacro); }
 
-  /** One request through the same dispatch `/api/*` uses — what records a combination node — as its reply. */
+  /** One request through the same dispatch `/api/...` uses — what records a combination node — as its reply. */
   static json Dispatch(Ndmspc::NHttpServer * server, const char * method, const char * action, const json & body)
   {
     auto arg = std::make_shared<THttpCallArg>();
@@ -1216,7 +1216,9 @@ TEST_F(ToolBrowser, TheImportRunsWithTheProcessesTheFormAsksFor)
   // Back to what the room had, not what the run set.
   const char * left = gSystem->Getenv("NDMSPC_MAX_PROCESSES");
   EXPECT_NE(left, nullptr) << "the run left the room's environment unset";
-  if (left != nullptr) EXPECT_EQ(std::string(left), "1");
+  if (left != nullptr) {
+    EXPECT_EQ(std::string(left), "1");
+  }
   gSystem->Unsetenv("NDMSPC_MAX_PROCESSES");
   EXPECT_EQ(Ndmspc::NLogger::GetRunOutput(), runOutputWas);
 

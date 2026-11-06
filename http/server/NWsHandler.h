@@ -252,6 +252,7 @@ class NWsHandler : public THttpWSHandler {
 
   std::map<ULong_t, NWsClientInfo> fClients;    ///< Map of active clients by ID
   std::map<ULong_t, NWsPendingClient> fPendingClients; ///<! Runtime pending authentication state
+
   /// What each upgrade said about itself (`client`, `clientVersion`), kept from WS_CONNECT until the
   /// connection is activated: the activation itself has no access to the upgrade request.
   std::map<ULong_t, std::pair<std::string, std::string>> fConnectInfo;

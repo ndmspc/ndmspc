@@ -759,7 +759,7 @@ class NLogger {
   /**
    * @brief The most recent log lines this process emitted, oldest first.
    *
-   * Kept in memory (the last @ref kRecentLinesMax), independently of console/file output, so a
+   * Kept in memory (the last 1000), independently of console/file output, so a
    * running server can show what it is doing without writing a log file or reading the pod's
    * stdout. Lines carry the same text the console would show.
    *

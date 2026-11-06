@@ -16,7 +16,7 @@ namespace Ndmspc {
  * @brief How the room router records usage, from the environment.
  *
  *   NDMSPC_STATS                     enable recording                     (default: true)
- *   NDMSPC_STATS_DIR                 where the CSV files live             (default: <cwd>/.ndmspc/stats)
+ *   NDMSPC_STATS_DIR                 where the CSV files live             (default: .ndmspc/stats under the process working directory)
  *   NDMSPC_STATS_RETENTION           how long files are kept              (default: 90d)
  *   NDMSPC_STATS_SUMMARY_TTL         how long a computed summary is cached(default: 30s)
  *   NDMSPC_STATS_PUBLIC              serve the aggregate summary anonymously (default: false)

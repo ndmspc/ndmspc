@@ -103,6 +103,8 @@ class NRoomSession {
    * @param token The room's read-write access token, when it has one.
    * @param reportedState Filled with what the probe found, when the caller needs to tell a room
    *        that refused the request from one that simply has nothing open.
+   * @param route The session action to ask (a tool's `open`, e.g. "ndmspc/ngnt/open"). Empty takes
+   *        the first one whose tool declares itself session-defining.
    * @return The snapshot, or a null json when the room has nothing open.
    */
   static json Capture(NHttpRequest & http, const std::string & roomBaseUrl, const std::string & roomId,

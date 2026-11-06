@@ -106,7 +106,7 @@ struct NRoomListResult {
    * it is currently on. A room on another tag is one an update would move; empty when none is offered.
    */
   std::vector<std::string> imageTags;
-  std::string              currentTag;
+  std::string              currentTag; ///< The tag the room is currently on ("" when none is offered)
 };
 
 /**
