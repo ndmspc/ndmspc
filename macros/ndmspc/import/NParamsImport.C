@@ -7,8 +7,8 @@
 
 void NParamsImport(bool dryrun = false,
            const std::string & filename =
-             "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/import/FCPAR.root",
-           std::string filenameOut = "/tmp/FCPAR_ngnt.root", const std::string & hnsName = "sResults",
+             "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/alice/rsn/import/PAR.root",
+           std::string filenameOut = "PAR_ngnt.root", const std::string & hnsName = "sResults",
            const std::string & paramAxis = "Results")
 {
   ///
