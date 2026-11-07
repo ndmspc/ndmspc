@@ -83,6 +83,11 @@ INSTALL(PROGRAMS scripts/ndmspc-tutorials.sh DESTINATION bin RENAME ndmspc-tutor
 # runs it once, and a non-container installation can run it after an upgrade.
 INSTALL(PROGRAMS scripts/precompile-macros.sh DESTINATION share/${PROJECT_NAME}/scripts)
 
+# `ndmspc-cli record`: the browser recorder it execs (node + agent-browser are the user's tools,
+# not shipped here). Kept under scripts/js so the shell scripts and the JS recorder stay apart.
+# See docs/cli/index.md.
+INSTALL(DIRECTORY scripts/record DESTINATION share/${PROJECT_NAME}/scripts/js)
+
 if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
   INSTALL(FILES ${CMAKE_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh DESTINATION /etc/profile.d/)
   INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS

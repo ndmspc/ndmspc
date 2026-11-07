@@ -131,6 +131,15 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
       }
     }
   }
+
+  // A level with no axes has nothing to iterate (the executor would be built with empty bounds) and
+  // would throw deep inside the reshape. Refuse it here, naming the level.
+  for (size_t i = 0; i < levels.size(); i++) {
+    if (levels[i].empty()) {
+      NLogError("NGnNavigator::Reshape: Level %zu of the %zu requested levels has no axes !!!", i, levels.size());
+      return nullptr;
+    }
+  }
   NLogTrace("============= NGnNavigator::Reshape: Number of axes in levels = %s",
             NUtils::GetCoordsString(axes, -1).c_str());
   std::vector<int> axesSorted = axes;
