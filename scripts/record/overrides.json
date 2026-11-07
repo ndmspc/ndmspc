@@ -1,0 +1,43 @@
+{
+  "ndmspc/browser/browse#0": {
+    "0": [{ "clickText": "Storage" }, { "sleep": 700 }],
+    "7": [{ "clickCopy": "cernstaff.root" }],
+    "8": [{ "setFile": "/ndmspc/cernstaff.root" }],
+    "9": [{ "save": true }, { "waitForText": "hsparse;1" }],
+    "11": [{ "expand": "T" }],
+    "12": [{ "clickTree": "T/Age" }]
+  },
+  "ndmspc/browser/browse#1": {
+    "0": [{ "setFile": "/ndmspc/cernstaff.root" }],
+    "1": [{ "save": true }, { "waitForText": "hsparse;1" }],
+    "3": [{ "openSparse": true }],
+    "12": [{ "setAxes": [2] }, { "submit": "Project" }],
+    "14": [{ "openSparse": true }],
+    "15": [{ "setAxes": [2, 3] }, { "submit": "Project" }],
+    "17": [{ "openSparse": true }],
+    "18": [{ "setAxes": [2, 3, 4] }, { "submit": "Project" }],
+    "20": [{ "openSparse": true }, { "setAxes": [2, 3, 4] }],
+    "21": [{ "setNumber": { "label": "rebin", "index": 2, "value": 5 } }],
+    "22": [{ "clickAnchor": "dialog-preview" }, { "waitForSelector": "pre" }],
+    "26": [{ "closeMacro": true }],
+    "27": [{ "submit": "Project" }]
+  },
+  "_comment": "Import axes: the tour names Service, Children, Grade, Step (60k bins, minutes on one CPU). The clip uses Children+Grade (105 bins) so it finishes; use [3,4,5,6] for the tour's full size.",
+  "ndmspc/browser/browse#2": {
+    "0": [{ "setFile": "/ndmspc/cernstaff.root" }],
+    "1": [{ "save": true }, { "waitForText": "hsparse;1" }],
+    "2": [{ "openSparse": true }],
+    "3": [{ "clickTab": 1 }],
+    "4": [{ "selectAxes": [4, 5] }],
+    "6": [{ "chooseOption": [1, "Age"] }],
+    "7": [{ "setOutput": ["hsparse_ngnt", "tutorial_ngnt.root"] }],
+    "10": [{ "clickAnchor": "dialog-preview" }, { "waitForSelector": "pre" }],
+    "11": [{ "closeMacro": true }],
+    "12": [{ "submit": "Import" }],
+    "13": [
+      { "waitForText": "Import finished" },
+      { "clickText": "Open in NGNT explorer" },
+      { "sleep": 1500 }
+    ]
+  }
+}

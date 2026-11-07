@@ -223,6 +223,39 @@ void BlockingHandler(std::string /*method*/, json & /*in*/, json & out, json & /
   out["result"] = "success";
 }
 
+/// A handler that throws, the way a job fails deep inside a tool (an empty level, a missing object).
+/// NHttpFuncPtr is a plain function pointer, so this needs no state of its own.
+void ThrowingHandler(std::string /*method*/, json & /*in*/, json & /*out*/, json & /*wsOut*/,
+                     std::map<std::string, TObject *> & /*objects*/)
+{
+  throw std::invalid_argument("Bounds vectors cannot be empty.");
+}
+
+/// @brief Runs one action on `server` and waits for its completion callback.
+bool RunActionAndWait(Ndmspc::NHttpServer * server, const char * action, const char * requestId,
+                      std::string & body)
+{
+  auto                   arg = std::make_shared<THttpCallArg>();
+  std::mutex             doneMutex;
+  std::condition_variable done;
+  bool                   finished = false;
+  arg->SetMethod("POST");
+  arg->SetPathName("api");
+  arg->SetFileName(action);
+  arg->SetPostData("{}");
+  server->RunAction(arg, nullptr, requestId, [&]() {
+    {
+      std::lock_guard<std::mutex> lock(doneMutex);
+      finished = true;
+      body.assign(static_cast<const char *>(arg->GetContent()),
+                  arg->GetContent() == nullptr ? 0 : arg->GetContentLength());
+    }
+    done.notify_one();
+  });
+  std::unique_lock<std::mutex> lock(doneMutex);
+  return done.wait_for(lock, std::chrono::seconds(10), [&] { return finished; });
+}
+
 /// @brief Resets the blocking handler's flags so a test starts from a clean state.
 void ResetBlockingHandler()
 {
@@ -1052,4 +1085,33 @@ TEST(NHttpServerBusyTest, ACancelIsRefusedForAReadOnlyToken)
   delete server;
   EXPECT_NE(body.find("read-only"), std::string::npos) << body;
   EXPECT_EQ(body.find("\"cancelled\":true"), std::string::npos) << body;
+}
+
+// An action that throws used to skip the cleanup that runs after a normal one: its cancel flag and its
+// busy entry stayed for ever (the room kept reporting "working", and a later cancel answered "cancelled"
+// for work that no longer existed), and the client waiting on the reply waited until its timeout.
+TEST(NHttpServerCancelTest, AThrowingActionClearsItsBusyEntryAndAnswers)
+{
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/reshape"] = ThrowingHandler;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  std::string body;
+  ASSERT_TRUE(RunActionAndWait(server, "ndmspc/ngnt/reshape", "req-throw", body));
+
+  // The failure comes back as a reply, naming the throw rather than leaving the caller waiting.
+  const json reply = json::parse(body, nullptr, false);
+  ASSERT_FALSE(reply.is_discarded()) << body;
+  EXPECT_EQ(reply["result"], "failure");
+  EXPECT_EQ(reply["code"], "exception");
+  EXPECT_NE(reply["error"].get<std::string>().find("Bounds vectors cannot be empty"), std::string::npos);
+
+  // Nothing is left in flight, and there is no flag left that a cancel could still reach.
+  EXPECT_TRUE(server->BusyActionsList().empty());
+  EXPECT_EQ(server->BusyActions(), 0);
+  EXPECT_FALSE(server->CancelRequest("req-throw"));
+
+  delete server;
 }

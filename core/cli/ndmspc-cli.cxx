@@ -20,18 +20,26 @@
 /// By default a job only prints what it would do; pass --run to execute it.
 ///
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <CLI/CLI.hpp>
 #include <TApplication.h>
+#include <TError.h>
 #include <TROOT.h>
 #include <TSystem.h>
+#include <httplib.h>
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
@@ -215,6 +223,532 @@ int PrintPlanBinning(const json & cfg, const std::string & input, const std::str
   return 0;
 }
 
+// ===========================================================================
+//  record — replay the tool tours declared in tools/list
+// ===========================================================================
+
+struct RecordTour {
+  std::string tool;
+  std::string action;
+  std::string id;
+  std::string name;
+  std::string description;
+  int         index = 0;
+  json        spec;
+};
+
+struct RecordOptions {
+  std::string url         = "http://localhost:8080";
+  std::string tours;
+  std::string out         = "./ndmspc-recordings";
+  std::string size        = "1920x1080";
+  std::string session     = "ndmspc-record";
+  std::string prompt;
+  std::string review;
+  std::string reviewOut;
+  std::string writeStages;
+  bool        list        = false;
+  bool        jsonOut     = false;
+  bool        dryRun      = false;
+  bool        noReview    = false;
+};
+
+/// Splits a URL into the `scheme://host[:port]` an httplib client is built from and the path it posts
+/// to, keeping any query the path carries.
+bool SplitUrl(const std::string & url, std::string & origin, std::string & path, std::string & error)
+{
+  const size_t schemeEnd = url.find("://");
+  if (schemeEnd == std::string::npos) {
+    error = "URL has no scheme: " + url;
+    return false;
+  }
+  const size_t pathStart = url.find('/', schemeEnd + 3);
+  if (pathStart == std::string::npos) {
+    origin = url;
+    path   = "/";
+    return true;
+  }
+  origin = url.substr(0, pathStart);
+  path   = url.substr(pathStart);
+  return true;
+}
+
+bool HttpPostJson(const std::string & url, const std::string & body, std::string & response, std::string & error)
+{
+  std::string origin;
+  std::string path;
+  if (!SplitUrl(url, origin, path, error)) return false;
+
+  // httplib rather than curl: the server and the OIDC clients already speak it, so the CLI needs no
+  // extra library. A `https://` origin picks the TLS client by itself when httplib is built with
+  // OpenSSL (CPPHTTPLIB_OPENSSL_SUPPORT, set for these binaries).
+  response.clear();
+  try {
+    httplib::Client client(origin);
+    client.set_connection_timeout(20);
+    client.set_read_timeout(20);
+    client.set_follow_location(true);
+
+    httplib::Headers headers = {{"Content-Type", "application/json"}};
+    auto result = client.Post(path, headers, body, "application/json");
+    if (!result) {
+      error = httplib::to_string(result.error());
+      return false;
+    }
+    response = result->body;
+    if (result->status < 200 || result->status >= 300) {
+      error = "HTTP " + std::to_string(result->status);
+      return false;
+    }
+    return true;
+  }
+  catch (const std::exception & e) {
+    // A scheme this build cannot speak (an `https://` URL when TLS was not compiled in) throws here.
+    error = e.what();
+    return false;
+  }
+}
+
+/// The MCP endpoint behind a UI URL, keeping any room query the UI URL carries.
+std::string ApiUrl(const std::string & uiUrl)
+{
+  const size_t query = uiUrl.find('?');
+  std::string  base  = query == std::string::npos ? uiUrl : uiUrl.substr(0, query);
+  const std::string tail = query == std::string::npos ? "" : uiUrl.substr(query);
+  while (!base.empty() && base.back() == '/') base.pop_back();
+  return base + "/api/mcp" + tail;
+}
+
+std::string Trim(const std::string & value)
+{
+  const size_t first = value.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) return "";
+  const size_t last = value.find_last_not_of(" \t\r\n");
+  return value.substr(first, last - first + 1);
+}
+
+std::string Slug(const std::string & value)
+{
+  std::string out;
+  for (char c : value) {
+    const unsigned char u = static_cast<unsigned char>(c);
+    if (std::isalnum(u)) out += static_cast<char>(std::tolower(u));
+    else if (out.empty() || out.back() != '-') out += '-';
+  }
+  while (!out.empty() && out.back() == '-') out.pop_back();
+  return out.empty() ? "tour" : out;
+}
+
+std::vector<std::string> SplitCsv(const std::string & csv)
+{
+  std::vector<std::string> values;
+  std::string              current;
+  for (char c : csv) {
+    if (c == ',') {
+      values.push_back(Trim(current));
+      current.clear();
+    }
+    else {
+      current += c;
+    }
+  }
+  values.push_back(Trim(current));
+  return values;
+}
+
+bool LoadTours(const std::string & url, std::vector<RecordTour> & tours, std::string & error)
+{
+  std::string response;
+  const std::string body =
+      R"({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}})";
+  if (!HttpPostJson(ApiUrl(url), body, response, error)) {
+    error = "tools/list at " + ApiUrl(url) + ": " + error;
+    return false;
+  }
+
+  json doc;
+  try {
+    doc = json::parse(response);
+  }
+  catch (const std::exception & e) {
+    error = std::string("tools/list returned invalid JSON: ") + e.what();
+    return false;
+  }
+  if (doc.contains("error") && !doc["error"].is_null()) {
+    error = "tools/list: " + doc["error"].dump();
+    return false;
+  }
+
+  const json * tools = nullptr;
+  if (doc.contains("result") && doc["result"].is_object() && doc["result"].contains("tools")) tools = &doc["result"]["tools"];
+  else if (doc.contains("payload") && doc["payload"].is_object() && doc["payload"].contains("tools")) tools = &doc["payload"]["tools"];
+  else if (doc.contains("tools")) tools = &doc["tools"];
+  if (tools == nullptr || !tools->is_array()) {
+    error = "tools/list returned no tools array";
+    return false;
+  }
+
+  for (const auto & tool : *tools) {
+    if (!tool.is_object()) continue;
+    const std::string toolName = tool.value("name", "");
+    const json        meta     = tool.value("_meta", json::object());
+    const std::string action   = meta.value("ndmspc.io/action", toolName);
+    const json        list     = meta.value("ndmspc.io/tutorials", json::array());
+    if (!list.is_array()) continue;
+
+    int index = 0;
+    for (const auto & spec : list) {
+      if (spec.is_object()) {
+        RecordTour tour;
+        tour.tool        = toolName;
+        tour.action      = action;
+        tour.index       = index;
+        tour.id          = action + "#" + std::to_string(index);
+        tour.name        = spec.value("name", "Tour " + std::to_string(index + 1));
+        tour.description = spec.value("description", "");
+        tour.spec        = spec;
+        tours.push_back(tour);
+      }
+      index++;
+    }
+  }
+  return true;
+}
+
+const RecordTour * FindTour(const std::vector<RecordTour> & tours, const std::string & key)
+{
+  for (const auto & tour : tours) {
+    if (tour.id == key || tour.name == key) return &tour;
+  }
+  for (const auto & tour : tours) {
+    if (Slug(tour.name) == Slug(key)) return &tour;
+  }
+  return nullptr;
+}
+
+std::string MakePrompt(const RecordTour & tour, const RecordOptions & options)
+{
+  std::vector<std::string> anchors;
+  auto                     addAnchor = [&anchors](const std::string & anchor) {
+    if (anchor.empty()) return;
+    for (const auto & known : anchors)
+      if (known == anchor) return;
+    anchors.push_back(anchor);
+  };
+
+  const json steps = tour.spec.value("steps", json::array());
+  for (const auto & step : steps) {
+    if (!step.is_object()) continue;
+    addAnchor(step.value("show", std::string()));
+    addAnchor(step.value("advanceOn", std::string()));
+  }
+
+  std::string out;
+  out += "# Record tour: " + tour.name + "\n\n";
+  out += "You are recording one NDMSPC tool tour with `agent-browser`, at `" + options.size + "`, 30 fps.\n\n";
+  out += "- Tour id: `" + tour.id + "`\n";
+  out += "- Tool: `" + tour.tool + "` (action `" + tour.action + "`)\n";
+  out += "- UI: " + options.url + "\n";
+  out += "- Output: " + options.out + "/" + Slug(tour.name) + ".webm + .png\n\n";
+  out += "## Rules\n\n";
+  out += "1. The tour card must never appear: set `localStorage[\"ndmspc:tour:1:done\"]=\"1\"`";
+  out += " (and the help-tip keys) before the app loads.\n";
+  out += "2. Drive the page; do not start the tour. The actions below come from the tour metadata.\n";
+  out += "3. One in-page eval per stage; keep each under 30 s (CDP limit).\n";
+  out += "4. Use the synthetic cursor/ripple and type at ~45 ms per character.\n";
+  out += "5. Wait for real state (`data-tour` anchors, pads, dialogs), not fixed sleeps.\n\n";
+  out += "## Anchors\n\n";
+  for (const auto & anchor : anchors) out += "- `" + anchor + "`\n";
+  out += "\n## Tour JSON\n\n```json\n" + tour.spec.dump(2) + "\n```\n";
+  out += "\nAfter recording, review the clip and re-run:\n\n```\n";
+  out += "ndmspc-cli record --tours \"" + tour.name + "\" --out " + options.out + "\n```\n";
+  return out;
+}
+
+bool CommandExists(const std::string & name)
+{
+  const std::string cmd = "command -v " + name + " >/dev/null 2>&1";
+  return std::system(cmd.c_str()) == 0;
+}
+
+std::string CommandOutput(const std::string & cmd)
+{
+  std::string out;
+  FILE *      pipe = popen(cmd.c_str(), "r");
+  if (pipe == nullptr) return out;
+  char buffer[256];
+  while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) out += buffer;
+  pclose(pipe);
+  return Trim(out);
+}
+
+bool VersionAtLeast(const std::string & version, int major, int minor)
+{
+  const size_t first = version.find_first_of("0123456789");
+  if (first == std::string::npos) return false;
+  int  parsedMajor = 0;
+  int  parsedMinor = 0;
+  char tail        = 0;
+  if (std::sscanf(version.c_str() + first, "%d.%d%c", &parsedMajor, &parsedMinor, &tail) < 2) return false;
+  return parsedMajor > major || (parsedMajor == major && parsedMinor >= minor);
+}
+
+/// Check the tools the recorder needs; ndmspc does not ship them and never installs them.
+int RecordPreflight(std::string & message)
+{
+  if (!CommandExists("node")) {
+    message =
+        "Node.js 20+ is required to record, but 'node' was not found.\n"
+        "Install Node, then the browser recorder:\n"
+        "  npm install -g agent-browser\n"
+        "ndmspc does not ship or install these tools.";
+    return 2;
+  }
+  const std::string nodeVersion = CommandOutput("node --version 2>/dev/null");
+  if (!VersionAtLeast(nodeVersion, 20, 0)) {
+    message = "Node.js 20+ is required to record; found '" + nodeVersion + "'.";
+    return 2;
+  }
+  if (!CommandExists("agent-browser")) {
+    message =
+        "'agent-browser' is required to record, but it was not found.\n"
+        "Install it once with:\n"
+        "  npm install -g agent-browser\n"
+        "ndmspc does not ship or install it.";
+    return 2;
+  }
+  const std::string abVersion = CommandOutput("agent-browser --version 2>/dev/null");
+  if (!abVersion.empty() && !VersionAtLeast(abVersion, 0, 41)) {
+    message = "agent-browser 0.41+ is required to record; found '" + abVersion + "'.\n"
+              "Upgrade with: npm install -g agent-browser";
+    return 2;
+  }
+  return 0;
+}
+
+std::string FindRecorder()
+{
+  if (const char * env = std::getenv("NDMSPC_RECORD_SCRIPT"); env != nullptr && *env != '\0') {
+    if (std::filesystem::exists(env)) return env;
+  }
+  std::vector<std::string> candidates;
+  if (const char * dir = gSystem->Getenv("NDMSPC_DIR"); dir != nullptr && *dir != '\0') {
+    candidates.push_back(std::string(dir) + "/scripts/js/record/record-tour.mjs");
+  }
+  candidates.push_back("/usr/share/ndmspc/scripts/js/record/record-tour.mjs");
+
+  std::error_code ec;
+  const auto      exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+  if (!ec) {
+    const auto bin = exe.parent_path();
+    candidates.push_back((bin / "../share/ndmspc/scripts/js/record/record-tour.mjs").lexically_normal().string());
+  }
+  for (const auto & candidate : candidates) {
+    if (std::filesystem::exists(candidate)) return candidate;
+  }
+  return "";
+}
+
+int RunProcess(const std::vector<std::string> & args)
+{
+  std::vector<char *> argv;
+  argv.reserve(args.size() + 1);
+  for (const auto & arg : args) argv.push_back(const_cast<char *>(arg.c_str()));
+  argv.push_back(nullptr);
+
+  const pid_t pid = fork();
+  if (pid < 0) return 1;
+  if (pid == 0) {
+    execvp(argv[0], argv.data());
+    _exit(127);
+  }
+  int status = 0;
+  if (waitpid(pid, &status, 0) < 0) return 1;
+  if (WIFEXITED(status)) return WEXITSTATUS(status);
+  return 1;
+}
+
+int PrintReview(const RecordOptions & options)
+{
+  const std::filesystem::path dir = options.reviewOut.empty() ? options.out : options.reviewOut;
+  std::error_code             ec;
+  if (!std::filesystem::is_directory(dir, ec)) {
+    NLogError("ndmspc-cli record: no recordings in '%s'", dir.c_str());
+    return 4;
+  }
+
+  std::filesystem::path newest;
+  std::filesystem::file_time_type newestTime{};
+  if (options.review == "latest") {
+    for (const auto & entry : std::filesystem::directory_iterator(dir, ec)) {
+      const auto path = entry.path();
+      if (path.extension() != ".md" || path.filename().string().find(".review.md") == std::string::npos) continue;
+      const auto time = std::filesystem::last_write_time(path, ec);
+      if (newest.empty() || (!ec && time > newestTime)) {
+        newest     = path;
+        newestTime = time;
+      }
+    }
+  }
+  else {
+    const RecordTour * tour = nullptr;
+    std::vector<RecordTour> tours;
+    std::string             error;
+    if (LoadTours(options.url, tours, error)) tour = FindTour(tours, options.review);
+    const std::string wanted = tour != nullptr ? Slug(tour->name) : Slug(options.review);
+    const auto        direct = dir / (wanted + ".review.md");
+    if (std::filesystem::exists(direct)) newest = direct;
+    else {
+      for (const auto & entry : std::filesystem::directory_iterator(dir, ec)) {
+        const auto path = entry.path();
+        if (path.filename().string().find(wanted) != std::string::npos &&
+            path.filename().string().find(".review.md") != std::string::npos) {
+          newest = path;
+          break;
+        }
+      }
+    }
+  }
+
+  if (newest.empty()) {
+    NLogError("ndmspc-cli record: no review prompt found for '%s' in '%s'", options.review.c_str(), dir.c_str());
+    return 4;
+  }
+  std::ifstream input(newest);
+  if (!input) {
+    NLogError("ndmspc-cli record: cannot read '%s'", newest.c_str());
+    return 4;
+  }
+  std::printf("%s", std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()).c_str());
+  return 0;
+}
+
+int RunRecord(const RecordOptions & options)
+{
+  std::vector<RecordTour> tours;
+  std::string             error;
+  if (!LoadTours(options.url, tours, error)) {
+    NLogError("ndmspc-cli record: %s", error.c_str());
+    return 1;
+  }
+
+  if (options.list) {
+    json listing = json::array();
+    for (const auto & tour : tours) {
+      listing.push_back(json{{"id", tour.id}, {"name", tour.name}, {"tool", tour.tool},
+                             {"description", tour.description}, {"steps", tour.spec.value("steps", json::array()).size()}});
+    }
+    if (options.jsonOut) {
+      std::printf("%s\n", listing.dump(2).c_str());
+      return 0;
+    }
+    if (listing.empty()) {
+      std::printf("No tool tours in %s.\n", ApiUrl(options.url).c_str());
+      std::printf("Some tours appear only once a session is open (the NGNT workflow, for one).\n");
+      return 0;
+    }
+    for (const auto & entry : listing) {
+      std::printf("%-28s %s\n", entry["id"].get<std::string>().c_str(), entry["name"].get<std::string>().c_str());
+    }
+    return 0;
+  }
+
+  if (!options.prompt.empty()) {
+    const RecordTour * tour = FindTour(tours, options.prompt);
+    if (tour == nullptr) {
+      NLogError("ndmspc-cli record: no tour '%s' (try --list)", options.prompt.c_str());
+      return 3;
+    }
+    const std::string prompt = MakePrompt(*tour, options);
+    if (options.out != "./ndmspc-recordings") {
+      std::ofstream output(options.out);
+      if (!output) {
+        NLogError("ndmspc-cli record: cannot write '%s'", options.out.c_str());
+        return 4;
+      }
+      output << prompt;
+      std::printf("Wrote %s\n", options.out.c_str());
+    }
+    else {
+      std::printf("%s", prompt.c_str());
+    }
+    return 0;
+  }
+
+  if (!options.review.empty()) return PrintReview(options);
+
+  std::vector<const RecordTour *> selected;
+  if (options.tours.empty()) {
+    NLogError("ndmspc-cli record: choose tours with --tours (see --list), or --prompt/--review/--list");
+    return 1;
+  }
+  for (const auto & key : SplitCsv(options.tours)) {
+    if (key.empty()) continue;
+    const RecordTour * tour = FindTour(tours, key);
+    if (tour == nullptr) {
+      NLogError("ndmspc-cli record: no tour '%s' (try --list)", key.c_str());
+      return 3;
+    }
+    selected.push_back(tour);
+  }
+  if (selected.empty()) {
+    NLogError("ndmspc-cli record: no tours selected");
+    return 3;
+  }
+
+  int preflight = RecordPreflight(error);
+  if (preflight != 0) {
+    NLogError("ndmspc-cli record: %s", error.c_str());
+    return preflight;
+  }
+
+  const std::string recorder = FindRecorder();
+  if (recorder.empty()) {
+    NLogError("ndmspc-cli record: recorder not found (set NDMSPC_RECORD_SCRIPT)");
+    return 4;
+  }
+  std::filesystem::create_directories(options.out);
+
+  for (const auto * tour : selected) {
+    const auto tourFile = std::filesystem::temp_directory_path() /
+                          ("ndmspc-record-" + std::to_string(getpid()) + "-" + std::to_string(tour->index) + ".json");
+    {
+      std::ofstream output(tourFile);
+      if (!output) {
+        NLogError("ndmspc-cli record: cannot write '%s'", tourFile.c_str());
+        return 4;
+      }
+      output << tour->spec.dump(2);
+    }
+
+    std::vector<std::string> args{"node", recorder, "--url", options.url, "--tour-json", tourFile.string(),
+                                  "--tour-id", tour->id, "--tour-name", tour->name, "--slug", Slug(tour->name),
+                                  "--out", options.out, "--size", options.size, "--session", options.session};
+    if (options.noReview) args.push_back("--no-review");
+    if (options.dryRun) args.push_back("--dry-run");
+    if (!options.writeStages.empty()) {
+      args.push_back("--write-stages");
+      args.push_back(options.writeStages);
+    }
+
+    if (options.dryRun) {
+      NLogPrint("ndmspc-cli record: planning %s (%s)", tour->name.c_str(), tour->id.c_str());
+    }
+    else {
+      NLogPrint("ndmspc-cli record: recording %s (%s)", tour->name.c_str(), tour->id.c_str());
+    }
+    std::fflush(nullptr);
+    const int rc = RunProcess(args);
+    std::error_code ec;
+    std::filesystem::remove(tourFile, ec);
+    if (rc != 0) {
+      NLogError("ndmspc-cli record: recording '%s' failed (exit %d)", tour->name.c_str(), rc);
+      return 4;
+    }
+  }
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char ** argv)
@@ -318,6 +852,42 @@ int main(int argc, char ** argv)
   binningCmd->add_option("--exclude-objects", binningExclude,
                          "Comma-separated object names/patterns to skip (appended to 'excludeObjects')");
 
+  // ---------------------------------------------------------------------------
+  //  record — replay the tool tours declared in tools/list
+  // ---------------------------------------------------------------------------
+  std::string recordUrl         = "http://localhost:8080";
+  std::string recordTours;
+  std::string recordOut         = "./ndmspc-recordings";
+  std::string recordSize        = "1920x1080";
+  std::string recordSession     = "ndmspc-record";
+  std::string recordPrompt;
+  std::string recordReview;
+  std::string recordReviewOut;
+  std::string recordWriteStages;
+  bool        recordList        = false;
+  bool        recordJson        = false;
+  bool        recordDryRun      = false;
+  bool        recordNoReview    = false;
+
+  auto * recordCmd = app.add_subcommand(
+      "record", "Record the tool tours declared by the server (needs node and agent-browser)");
+  recordCmd->add_flag("--list", recordList, "List the tool tours the server declares and exit");
+  recordCmd->add_flag("--json", recordJson, "With --list: print JSON");
+  recordCmd->add_option("--tours", recordTours, "Comma-separated tour names or ids to record");
+  recordCmd->add_option("--url", recordUrl,
+                        "UI URL of the server or room (default: http://localhost:8080)");
+  recordCmd->add_option("--out", recordOut, "Directory for the videos (default: ./ndmspc-recordings)");
+  recordCmd->add_option("--size", recordSize, "Viewport, WxH (default: 1920x1080)");
+  recordCmd->add_option("--session", recordSession, "agent-browser session name");
+  recordCmd->add_option("--prompt", recordPrompt, "Write the pre-record prompt for a tour and exit");
+  recordCmd->add_option("--review", recordReview,
+                        "Print the review prompt of a recorded tour, or 'latest'");
+  recordCmd->add_option("--review-out", recordReviewOut, "Directory to look for review prompts in");
+  recordCmd->add_option("--write-stages", recordWriteStages,
+                        "Dump the generated stages to this directory (debugging only)");
+  recordCmd->add_flag("--dry-run", recordDryRun, "Print the generated stages; record nothing");
+  recordCmd->add_flag("--no-review", recordNoReview, "Do not write a post-record review prompt");
+
   CLI11_PARSE(app, argc, argv);
 
   // Logging defaults, exactly as ndmspc-run sets them up.
@@ -355,6 +925,16 @@ int main(int argc, char ** argv)
     gSystem->Setenv("NDMSPC_LOG_RUN", "0");
     origConsoleEnv = "1";
     origRunEnv     = "0";
+  }
+
+  if (*recordCmd) {
+    // `record` talks to the user (missing tools, progress, errors): console only, and ROOT's
+    // suppression from the default NDMSPC_LOG_CONSOLE=0 must be lifted again.
+    gSystem->Setenv("NDMSPC_LOG_CONSOLE", "1");
+    gSystem->Setenv("NDMSPC_LOG_RUN", "0");
+    origConsoleEnv     = "1";
+    origRunEnv         = "0";
+    gErrorIgnoreLevel  = kWarning;
   }
 
   Ndmspc::NLogger::SetRunOutput(std::string(origRunEnv ? origRunEnv : "0") == "1");
@@ -459,6 +1039,23 @@ int main(int argc, char ** argv)
     if (!run) return Finish(PrintPlanBinning(cfg, binningIn, binningOut, ""));
 
     rc = Ndmspc::NUtils::NGnTreeBinning(cfg, "") ? 0 : 1;
+  }
+  else if (*recordCmd) {
+    RecordOptions options;
+    options.url         = recordUrl;
+    options.tours       = recordTours;
+    options.out         = recordOut;
+    options.size        = recordSize;
+    options.session     = recordSession;
+    options.prompt      = recordPrompt;
+    options.review      = recordReview;
+    options.reviewOut   = recordReviewOut;
+    options.writeStages = recordWriteStages;
+    options.list        = recordList;
+    options.jsonOut     = recordJson;
+    options.dryRun      = recordDryRun;
+    options.noReview    = recordNoReview;
+    rc                  = RunRecord(options);
   }
 
   return Finish(rc);

@@ -1632,23 +1632,48 @@ void NHttpServer::RunAction(std::shared_ptr<THttpCallArg> arg, std::shared_ptr<N
   }
 
   worker->Submit([this, arg, identity, requestId, flag, onComplete]() {
+    // Runs on every path out of this job — a handler that throws must not leave its cancel flag, its
+    // busy entry or its reply behind: the room would report the action as running for ever, a later
+    // cancel would answer "cancelled" for work that no longer exists, and a client waiting on the reply
+    // would wait until its timeout.
+    struct Finish {
+      NHttpServer *           server;
+      std::string             id;
+      std::function<void()>   done;
+      ~Finish()
+      {
+        if (!id.empty()) {
+          std::lock_guard<std::mutex> lock(server->fCancelMutex);
+          server->fCancelFlags.erase(id);
+          server->fRunning.erase(id);
+        }
+        if (done) done();
+      }
+    } finish{this, requestId, onComplete};
+
     if (flag && flag->load(std::memory_order_relaxed)) {
       // Cancelled while it was still queued: answer as cancelled without running the action.
       arg->SetContentType("application/json");
       arg->SetContent(json{{"result", "failure"}, {"code", "cancelled"}, {"error", "Cancelled"}}.dump());
+      return;
     }
-    else {
-      NBusyAction busy(this, IsToolAction(arg));
-      if (flag) NCancellation::SetCurrent(flag.get());
+
+    NBusyAction busy(this, IsToolAction(arg));
+    if (flag) NCancellation::SetCurrent(flag.get());
+    try {
       Dispatch(arg, identity.get());
-      if (flag) NCancellation::ClearCurrent();
     }
-    if (!requestId.empty()) {
-      std::lock_guard<std::mutex> lock(fCancelMutex);
-      fCancelFlags.erase(requestId);
-      fRunning.erase(requestId);
+    catch (const std::exception & error) {
+      NLogError("Action %s threw: %s", requestId.c_str(), error.what());
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"code", "exception"}, {"error", error.what()}}.dump());
     }
-    if (onComplete) onComplete();
+    catch (...) {
+      NLogError("Action %s threw an unknown exception", requestId.c_str());
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"code", "exception"}, {"error", "action failed"}}.dump());
+    }
+    if (flag) NCancellation::ClearCurrent();
   });
 }
 
