@@ -27,7 +27,12 @@ namespace Ndmspc {
  *   NDMSPC_ROOM_URL_BASE       external base URL for the room links  (default: empty -> "?param=id")
  *   NDMSPC_ROOM_IDLE_TTL       idle time before an unused room is swept (default: 24h)
  *   NDMSPC_ROOM_READY_TIMEOUT  how long to wait for a room to be Ready (default: 45s)
- *   NDMSPC_ROOM_MAX_PREPARING  rooms being created at the same time  (default: 4, 0 = no limit)
+ *   NDMSPC_ROOM_PENDING_TTL    how long a room may wait for cluster resources before it is reported
+ *                              failed rather than pending (default: 30m, 0 = wait for ever)
+ *   NDMSPC_ROOM_MAX_PREPARING  rooms being created, or waiting for resources, at the same time
+ *                              (default: 4, 0 = no limit)
+ *   NDMSPC_ROOM_WAKE_PROBE     whether an idle room is checked for somewhere to start (default: on)
+ *   NDMSPC_ROOM_CAPACITY_TTL   how long the cluster capacity snapshot is reused (default: 15s, 0 = never)
  *   NDMSPC_ROOM_AUTO_UPDATE    roll every idle room onto the current image when the router starts
  *                              (default: false); when off, rooms move only via ndmspc/room/upgrade
  *   NDMSPC_ROOM_WATCH_INTERVAL how often the rooms list is pushed to a watcher (default: 0 - off, so a deployment opts in)
@@ -48,7 +53,10 @@ struct NRoomConfig {
   std::string urlBase;                          ///< External base URL for the room links
   long        idleTtlSec{86400};                ///< Idle time before an unused room is swept, in seconds
   long        readyTimeoutSec{45};              ///< How long to wait for a room to become Ready, in seconds
-  int         maxPreparing{4};                  ///< Rooms prepared at the same time (0 = no limit)
+  long        pendingTtlSec{1800};              ///< How long a room may wait for cluster resources, in seconds (0 = no limit)
+  int         maxPreparing{4};                  ///< Rooms created or waiting for resources at the same time (0 = no limit)
+  bool        wakeProbe{true};                  ///< Whether an idle room is checked for somewhere to start
+  long        capacityCacheSec{15};             ///< How long the cluster capacity snapshot is reused, in seconds (0 = never)
   bool        autoUpdate{false};                ///< Roll idle rooms onto the current image on start
   long        watchIntervalSec{0};    ///< How often the rooms list is pushed to a watcher, in seconds (0 = never, the default: a deployment opts in)
   bool        waitDefault{true};      ///< Default for ndmspc/room/open's wait flag
@@ -103,6 +111,7 @@ struct NRoomState {
   std::string code;             ///< Stable reason behind `error`: no_capacity, "" (see below)
   long        startedAt{0};     ///< Epoch seconds the creation started (clients show elapsed)
   long        finishedAt{0};    ///< Epoch seconds it ended (0 while it runs)
+  long        pendingAt{0};     ///< Epoch seconds it started waiting for cluster resources (0 when it is not)
   std::string session;          ///< "restored" | "live" | "" - what the session replay did
   int         generation{0};    ///< Bumped by every request, so a superseded worker stops
   bool        cancel{false};    ///< Set by ndmspc/room/close, so a worker stops at its next step
@@ -169,7 +178,9 @@ class NRoomClusterClient : public IRoomCluster {
  *                           run before; refused while the room is in use unless force=true (see
  *                           "Room image")
  *   ndmspc/room/list     GET       the rooms being tracked (including those still preparing, and those
- *                           whose creation failed)
+ *                           whose creation failed); `instance` names the router process that answered,
+ *                           so a view can tell a push from a socket a rollout left on an older router
+ *                           from one its polls reach
  *   ndmspc/room/close    DELETE    delete a room's HTTPRoute and Knative Service (a creation still running
  *                           is cancelled)
  *   ndmspc/room/clear    DELETE    forget a room's session - the stored one and, when the room is up, the
@@ -274,16 +285,32 @@ class NRoomClusterClient : public IRoomCluster {
  *                 failure: the room's Service is kept, and the room is finished (its revision pinned
  *                 to an HTTPRoute, the room marked ready) as soon as the cluster places the pod,
  *                 which the router checks on every ndmspc/room/list and ndmspc/room/status. `code` is no_capacity.
+ *                 A verdict the scheduler gave only once is still reported as pending at the
+ *                 readiness timeout - the half-created Service is not deleted, because it is the one
+ *                 object that can still come up. A pending room counts against MAX_PREPARING like a
+ *                 room being created, and after NDMSPC_ROOM_PENDING_TTL it is reported failed (its
+ *                 Service kept, so opening it again retries the same room).
  *   name_conflict the room's name is already taken by an object the router did not create (it
  *                 carries no `ndmspc.io/room` label), so that object is left untouched instead of
  *                 being overwritten or deleted. Pick another room id, or free the name.
- *   failed        anything else: a failed apply, a container that keeps dying, a timeout. The
- *                 half-created room is then deleted again - its Service and HTTPRoute - so a later
- *                 ndmspc/room/open creates it from scratch instead of patching what failed; its reason and
- *                 code stay in the registry for that attempt to report.
+ *   failed        anything else: a failed apply, a container that keeps dying, a timeout with no
+ *                 verdict at all. The half-created room is then deleted again - its Service and
+ *                 HTTPRoute - so a later ndmspc/room/open creates it from scratch instead of patching
+ *                 what failed; its reason and code stay in the registry for that attempt to report.
  *
- * Reading pods needs get/list on pods (core) in this namespace. Without that permission nothing
- * breaks - the router falls back to the timeout message - but the reason stays generic.
+ * A room that is *idle* (Ready, no pod) is reported as ready with `wakeable` beside it: whether the
+ * cluster could start it right now. That is the one thing a client cannot learn for itself - the
+ * room's next request is what wakes it - so the router answers it without asking the room anything
+ * (a request of its own would wake it): a pod an attempted wake left Pending gives the scheduler's
+ * message, otherwise the cluster's free capacity is weighed against the room's profile. When it
+ * cannot start, `wakeable` is false and `wakeError` says why; the room itself stays `ready`. That is
+ * an advisory, not a state: `state=pending` with `code=no_capacity`/`error` is reported only once a
+ * start has been requested and its pod is refused.
+ *
+ * Reading pods needs get/list on pods (core) in this namespace, and the wake probe's capacity
+ * arithmetic needs nodes and pods cluster-wide (the ClusterRole the devops role ships). Without that
+ * permission nothing breaks - the router falls back to the timeout message, and the probe says
+ * nothing rather than inventing an answer.
  *
  * ### What the router will and will not touch
  * A room's resources are the router's own, and both of them carry the `ndmspc.io/room` label: the
@@ -431,7 +458,8 @@ class NRoomRouter {
    *
    * Runs on ndmspc/room/open, ndmspc/room/list and ndmspc/room/status, so the TTL is enforced while a view polls rather
    * than only when a room is next opened. Never deletes a room that is being created, waiting for
-   * resources, or in use.
+   * resources, or in use. A pending room that has been waiting longer than NDMSPC_ROOM_PENDING_TTL is
+   * reported failed instead (its Service kept, so opening it again retries it).
    */
   void Sweep();
   /// @brief The rooms being tracked, as a snapshot (safe to read without holding anything).
@@ -988,7 +1016,8 @@ class NRoomRouter {
    *
    * A pod the scheduler cannot place is not a failure: the wait answers Wait::Pending as soon as
    * that verdict repeats, leaving the room's Service exactly as it is so the room can still come up
-   * once the cluster has room for it (see {@link ConvergePending}).
+   * once the cluster has room for it (see {@link ConvergePending}). A verdict seen only once is still
+   * honoured at the timeout - that is what keeps a merely slow start from deleting the room.
    *
    * @param name Kubernetes name of the room.
    * @param revision Filled with the ready revision name.
@@ -1098,6 +1127,49 @@ class NRoomRouter {
   json RoomLastError(const std::string & name) const;
   /// @brief The pods API path for one label selector: a single room's, or every room's.
   std::string PodsPath(const std::string & labelSelector) const;
+  /**
+   * @brief What the cluster has to give, and what everything on it already reserves.
+   *
+   * The one implementation behind ndmspc/room/capacity and the wake probe. Cached for
+   * NDMSPC_ROOM_CAPACITY_TTL, because reading every node and every pod is expensive and both callers
+   * ask the same arithmetic.
+   *
+   * @param force Rebuild even when a fresh snapshot is cached.
+   * @return The payload ndmspc/room/capacity answers with.
+   */
+  json CapacityReport(bool force);
+  /**
+   * @brief The capacity snapshot the wake probe judges a profile by.
+   *
+   * The cached snapshot is reused - every idle room's probe asks for it - except when the cached answer
+   * says **nothing fits**: that is the answer a view shows as "no capacity", and capacity frees within
+   * seconds of a room going idle. Such a snapshot is rebuilt once it is a few seconds old, so a full
+   * cluster costs one rebuild every few seconds rather than one per room, and an idle room is not
+   * called unstartable from a stale reading.
+   *
+   * @param profile The room profile being weighed ("" reuses the cache as it is).
+   * @return The capacity payload (never a cached "no fit" older than a few seconds).
+   */
+  json ProbeCapacity(const std::string & profile);
+  /**
+   * @brief Whether an idle room could be started now, and why not when it could not.
+   *
+   * Never talks to the room itself: a request of the router's own would wake it, which is exactly what
+   * this is trying to predict. A pod the scheduler refuses wins when one exists (a wake that was
+   * tried and is stuck); otherwise the cluster's free capacity is weighed against the room's profile.
+   *
+   * @param room The room to judge.
+   * @param unschedulable The scheduler's message for a pod of the room it refuses, or "" when it has
+   *                      not refused one (what {@link PodUnschedulable} answered).
+   * @param capacity What {@link CapacityReport} answered.
+   * @param starting Whether the room has a pod of its own that the scheduler has placed but that is not
+   *                 running yet: the arithmetic counts it against the room, so it cannot be the reason
+   *                 to call the room unstartable.
+   * @return `{wakeable, wakeWaiting?, code?, error?, checkedAt}`; `wakeWaiting` marks a room held up
+   *         by pods still terminating (its own included: the scheduler counts them until they are
+   *         gone); `{}` when there is nothing to say.
+   */
+  json WakeProbe(const NRoomState & room, const std::string & unschedulable, const json & capacity, bool starting);
   /**
    * @brief The profile a room is running, read under the registry lock.
    * @param name Kubernetes name of the room.
@@ -1293,6 +1365,9 @@ class NRoomRouter {
   void StopWorkers();
 
   NRoomConfig                       fConfig;         ///< Configuration (from the environment, or injected by a test)
+  /// This process's name, reported as `instance` by room/list: a socket can outlive the rollout
+  /// that replaced its router, and its stale registry must not be mistaken for a poll's.
+  std::string                       fRouterId;
   std::shared_ptr<IRoomCluster>     fCluster;        ///< The cluster the router talks to (the real one, or a test's)
   NRoomStats                        fStats;          ///< Usage recorder (disabled for an injected test router unless configured)
   std::map<std::string, NRoomState> fRooms;          ///< The registry: room name -> its state
@@ -1301,6 +1376,13 @@ class NRoomRouter {
   /// between polls without asking the cluster again. Guarded by fMutex.
   std::map<std::string, json>       fRoomLive;
   mutable std::mutex                fMutex;          ///< Guards fRooms and fRoomLive
+  json fCapacity = json::object(); ///< The last cluster capacity snapshot (see CapacityReport)
+  long                              fCapacityAt{0};  ///< Epoch seconds it was built
+  /// The active-room count the snapshot was last confirmed against. A room starting or stopping
+  /// changes what the snapshot can fit, so a listing that sees the count move drops the snapshot
+  /// before weighing the idle rooms (one with no space must read so on that read, not a TTL later).
+  long                              fListedActiveRooms{0};
+  mutable std::mutex                fCapacityMutex;  ///< Guards fCapacity, fCapacityAt and fListedActiveRooms
   bool                              fAdopted{false}; ///< Whether Adopt() has already run in this process
   std::mutex                        fAdoptMutex;     ///< Guards the one-time adoption of existing rooms
   std::vector<Worker>               fWorkers;        ///< The background threads still running

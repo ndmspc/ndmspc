@@ -62,6 +62,8 @@ class FakeCluster : public IRoomCluster {
   int  readyAfterGets{1};         ///< The Service reports Ready from this GET on (0 = never)
   int  readyGets{0};              ///< How many times its status has been asked for
   bool unschedulable{false};      ///< The room's pod cannot be placed
+  bool unschedulableOnce{false};  ///< ... on the first pod read only: a verdict that never repeats
+  int  podGets{0};                ///< How many times the room's pods have been asked for
   bool podsForbidden{false};      ///< The cluster refuses to list pods
   int  replicas{0};               ///< What the latest revision reports
   json pods = json::array();      ///< The pods the cluster reports, as Kubernetes writes them
@@ -267,7 +269,8 @@ class FakeCluster : public IRoomCluster {
     if (path.rfind("/api/v1/namespaces/default/pods", 0) == 0) {
       if (podsForbidden) return Status(403, "{\"message\":\"pods is forbidden\"}");
       json items = pods;
-      if (unschedulable) {
+      ++podGets;
+      if (unschedulable || (unschedulableOnce && podGets == 1)) {
         const std::string message = "0/1 nodes are available: 1 Insufficient cpu.";
         json              condition;
         condition["type"]    = "PodScheduled";
@@ -275,7 +278,26 @@ class FakeCluster : public IRoomCluster {
         condition["reason"]  = "Unschedulable";
         condition["message"] = message;
 
-        json pod;
+        json        pod;
+        std::string label;
+        // The label that ties a pod to its room: the whole-namespace list (the one room/list reads)
+        // matches by it, so a refused pod has to carry the Service the selector named.
+        const auto serviceAt = path.find("service%3D");
+        if (serviceAt != std::string::npos) {
+          label = path.substr(serviceAt + 10);
+        }
+        else {
+          // The whole-namespace list asks for the label's existence, not a value: attach the pod to a
+          // room that exists, which is what the cluster would have done.
+          const std::string roomsPath = "/apis/serving.knative.dev/v1/namespaces/default/services/";
+          for (const auto & object : objects) {
+            if (object.first.rfind(roomsPath, 0) == 0) {
+              label = object.first.substr(roomsPath.size());
+              break;
+            }
+          }
+        }
+        if (!label.empty()) pod["metadata"]["labels"]["serving.knative.dev/service"] = label;
         pod["status"]["conditions"] = json::array({condition});
         items.push_back(pod);
       }
@@ -417,6 +439,17 @@ NRoomConfig Config(int readyTimeoutSec = 2, std::vector<std::string> admins = {}
   return cfg;
 }
 
+/// @brief A skeleton that offers one size, so a room has a profile to weigh against the cluster.
+json ProfileSkeleton()
+{
+  return {
+      {"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}},
+      {"defaultProfile", "small"},
+      {"profiles", {{"small", {{"resources", {{"requests", {{"cpu", "500m"}, {"memory", "256Mi"}}},
+                                               {"limits", {{"cpu", "1"}, {"memory", "1Gi"}}}}}}}}},
+  };
+}
+
 /// @brief Waits until a one-second idle TTL has certainly passed.
 ///
 /// The router's timestamps are whole seconds, so `lastSeen < now - ttl` needs more than `ttl` seconds
@@ -459,6 +492,13 @@ struct Router {
       : cluster(std::move(existing)),
         router(std::make_unique<NRoomRouter>(Config(readyTimeoutSec, std::move(admins), idleTtlSec, autoUpdate),
                                              cluster))
+  {
+  }
+
+  /// @brief A router over a configuration a test built itself, for the knobs the other constructors
+  ///        do not take (pending TTL, max preparing, the wake probe, the capacity cache).
+  explicit Router(NRoomConfig config)
+      : router(std::make_unique<NRoomRouter>(std::move(config), cluster))
   {
   }
 
@@ -1320,6 +1360,248 @@ TEST(NRoomRouterActionsTest, AClusterThatRefusesToShowPodsStillReportsATimeout)
   EXPECT_FALSE(status["payload"]["exists"].get<bool>());
 }
 
+TEST(NRoomRouterActionsTest, APodUnschedulableAtTheReadinessTimeoutIsPendingNotFailed)
+{
+  // The verdict is given once and never repeats: the readiness window ends without a second look, and
+  // that must still be a room waiting for resources - not a failure that deletes the only object the
+  // cluster could still place a pod for.
+  Router test(/*readyTimeoutSec=*/1);
+  test.cluster->skeleton         = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->readyAfterGets   = 0;
+  test.cluster->unschedulableOnce = true;
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+
+  const std::string services = "/apis/serving.knative.dev/v1/namespaces/default/services";
+  const json        status   = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["payload"]["state"], "pending");
+  EXPECT_EQ(status["payload"].value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_NE(status["payload"]["error"].get<std::string>().find("Insufficient cpu"), std::string::npos);
+  // The Service is what the cluster has to place a pod for: it is kept, not deleted.
+  EXPECT_EQ(test.cluster->Count("DELETE", services + "/ndmspc-room-alpha"), 0u);
+  EXPECT_EQ(test.cluster->objects.count(services + "/ndmspc-room-alpha"), 1u);
+}
+
+TEST(NRoomRouterActionsTest, APendingRoomIsAgedOutAfterThePendingTtlAndItsServiceIsKept)
+{
+  NRoomConfig cfg      = Config(/*readyTimeoutSec=*/5);
+  cfg.pendingTtlSec    = 1;
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->readyAfterGets = 0;
+  test.cluster->unschedulable  = true;
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["state"], "pending");
+
+  SleepPastTtl(1);
+
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  // A room nobody can place for its whole pending TTL stops reading as "about to come up": it is
+  // reported failed, with the wait and the reason, so a view can say so.
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "failed");
+  EXPECT_EQ(list["payload"]["rooms"][0].value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_NE(list["payload"]["rooms"][0]["error"].get<std::string>().find("had no room"), std::string::npos);
+
+  // The room still exists: opening it again retries the same room rather than creating a second one.
+  EXPECT_TRUE(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["exists"].get<bool>());
+}
+
+TEST(NRoomRouterActionsTest, PendingRoomsCountAgainstMaxPreparing)
+{
+  NRoomConfig cfg      = Config(/*readyTimeoutSec=*/2);
+  cfg.maxPreparing     = 1;
+  cfg.pendingTtlSec    = 3600;
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->readyAfterGets = 0;
+  test.cluster->unschedulable  = true;
+
+  test.Open("alpha", /*wait=*/false);
+  ASSERT_TRUE(test.WaitFinished("alpha"));
+  ASSERT_EQ(test.Call("status", "GET", json({{"room", "alpha"}}))["payload"]["state"], "pending");
+
+  // The cluster cannot take another room, and the router stops accepting more while one waits: the
+  // reason is the capacity one, not an anonymous refusal.
+  const json refused = test.Open("beta", /*wait=*/false);
+  EXPECT_EQ(refused["result"], "failure");
+  EXPECT_EQ(refused.value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_NE(refused["error"].get<std::string>().find("waiting for cluster resources"), std::string::npos);
+
+  // Re-opening the room that is already waiting is not new work, so it is allowed.
+  EXPECT_EQ(test.Open("alpha", /*wait=*/false)["result"], "success");
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomWhoseWakeCannotBePlacedIsReportedUnwakeable)
+{
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+
+  // The room is now idle, and the only node has nothing left to give.
+  test.cluster->replicas = 0;
+  test.cluster->AddNode("node1", "1", "1Gi");
+  test.cluster->AddPod(/*service=*/"", "node1", "1", "1Gi");
+
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  // The Knative Service really is Ready - the room is asleep, not broken - and what it cannot do is
+  // start: that is reported beside the state, as an advisory, not by lying about the room. The state
+  // stays `ready` and there is no failure code: nothing was asked to start.
+  EXPECT_TRUE(status["payload"]["ready"].get<bool>());
+  EXPECT_EQ(status["payload"]["state"], "ready");
+  EXPECT_EQ(status["payload"]["wakeable"], false);
+  EXPECT_EQ(status["payload"].value("code", std::string()), "");
+  EXPECT_NE(status["payload"]["wakeError"].get<std::string>().find("small"), std::string::npos);
+
+  // An open of the existing room answers the same (a client asks for the link before entering), and
+  // so does the list every view polls.
+  const json opened = test.Open("alpha", /*wait=*/true);
+  EXPECT_EQ(opened["payload"]["state"], "ready");
+  EXPECT_EQ(opened["payload"]["wakeable"], false);
+  EXPECT_EQ(opened["payload"].value("code", std::string()), "");
+
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "ready");
+  EXPECT_EQ(list["payload"]["rooms"][0]["wakeable"], false);
+  EXPECT_EQ(list["payload"]["rooms"][0].value("code", std::string()), "");
+
+  // A push is registry-only and reuses the last full read's live view. It must carry the idle advisory
+  // as well, or the inspector's idle message loses its reason on every push and appears to blink.
+  const json pushed = test.Call("list", "GET", json{{"_brief", true}});
+  ASSERT_EQ(pushed["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(pushed["payload"]["rooms"][0]["wakeable"], false);
+  EXPECT_NE(pushed["payload"]["rooms"][0]["wakeError"].get<std::string>().find("small"), std::string::npos);
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomHeldUpByAnotherRoomsTerminatingPodIsNoCapacity)
+{
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+  test.cluster->replicas = 0;
+
+  // Another room's pod is on its way out. The scheduler still counts its reservation, so alpha cannot
+  // start yet: it is idle, and cannot be entered - no capacity - even though the reason is the other
+  // room's terminating pod. (Only a refused wake is a pending/waiting state.)
+  test.cluster->AddNode("node1", "1", "1Gi");
+  test.cluster->AddPod("ndmspc-room-other", "node1", "1", "1Gi");
+  test.cluster->clusterPods.back()["metadata"]["deletionTimestamp"] = "2026-01-01T00:00:00Z";
+
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["payload"]["state"], "ready");
+  EXPECT_EQ(status["payload"]["wakeable"], false);
+  EXPECT_EQ(status["payload"]["wakeWaiting"], true);
+  EXPECT_NE(status["payload"]["wakeError"].get<std::string>().find("terminating"), std::string::npos);
+
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "ready");
+  EXPECT_EQ(list["payload"]["rooms"][0]["wakeable"], false);
+  EXPECT_EQ(list["payload"]["rooms"][0]["wakeWaiting"], true);
+
+  // Pushes are registry-only; the waiting advisory must travel with them or the row flips between
+  // waiting and idle at the poll cadence.
+  const json pushed = test.Call("list", "GET", json{{"_brief", true}});
+  ASSERT_EQ(pushed["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(pushed["payload"]["rooms"][0]["wakeWaiting"], true);
+  EXPECT_NE(pushed["payload"]["rooms"][0]["wakeError"].get<std::string>().find("terminating"),
+            std::string::npos);
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomWithRoomToStartIsWakeable)
+{
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+
+  test.cluster->replicas = 0;
+  test.cluster->AddNode("node1", "4", "4Gi");
+
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["payload"]["state"], "ready");
+  EXPECT_EQ(status["payload"]["wakeable"], true);
+  EXPECT_EQ(status["payload"].value("code", std::string()), "");
+}
+
+TEST(NRoomRouterActionsTest, AWakeThatLeftAPendingPodIsReportedAsPending)
+{
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+
+  // Somebody asked for the room, Knative scaled it up, and the pod it created cannot be placed.
+  test.cluster->replicas     = 0;
+  test.cluster->unschedulable = true;
+
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["payload"]["state"], "pending");
+  EXPECT_EQ(status["payload"]["wakeable"], false);
+  EXPECT_EQ(status["payload"].value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_NE(status["payload"]["error"].get<std::string>().find("Insufficient cpu"), std::string::npos);
+}
+
+TEST(NRoomRouterActionsTest, AStatusProbeReportsARefusedWakeEvenWhenTheServiceIsNotReady)
+{
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+  test.cluster->replicas = 0;
+
+  // A wake was tried and the scheduler refuses the pod, which flips the Service's Ready condition while
+  // the registry still says the room was created successfully. The status must still name the reason -
+  // this is the state a viewer's page is in when its socket can never open.
+  const std::string entry =
+      "/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-alpha";
+  test.cluster->objects[entry]["status"]["conditions"] =
+      json::array({json::object({{"type", "Ready"}, {"status", "False"}})});
+  test.cluster->unschedulable = true;
+
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["payload"]["state"], "pending");
+  EXPECT_EQ(status["payload"].value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_EQ(status["payload"]["wakeable"], false);
+  EXPECT_NE(status["payload"]["error"].get<std::string>().find("Insufficient cpu"), std::string::npos);
+}
+
+TEST(NRoomRouterActionsTest, TheCapacityProbeIsCachedBetweenCalls)
+{
+  // Reading every node and every pod is the expensive part of the wake probe: the list and the status
+  // both ask it for every idle room, so a fresh snapshot is reused instead of rebuilt.
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 60;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+  test.cluster->replicas = 0;
+  test.cluster->AddNode("node1", "4", "4Gi");
+
+  test.Call("status", "GET", json({{"room", "alpha"}}));
+  test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(test.cluster->Count("GET", "/api/v1/nodes"), 1u);
+}
+
 TEST(NRoomRouterActionsTest, AFailedCreationLeavesNothingBehindAndAReopenRecreatesIt)
 {
   Router test(/*readyTimeoutSec=*/1);
@@ -1898,6 +2180,82 @@ TEST(NRoomRouterActionsTest, AConfigIsRefusedForARoomTheCallerMayNotSee)
   EXPECT_EQ(missing.value("code", ""), "unknown_room");
 }
 
+TEST(NRoomRouterActionsTest, AnAdoptedPendingRoomAgesOutAfterThePendingTtl)
+{
+  NRoomConfig cfg      = Config();
+  cfg.pendingTtlSec    = 1;
+  cfg.idleTtlSec       = 3600;
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+
+  // A room whose Service is there but not Ready: what a router that restarted finds after a creation
+  // ended waiting for resources. The Service carries no record of when the wait began.
+  json service;
+  service["metadata"]["name"]                             = "ndmspc-room-old";
+  service["metadata"]["namespace"]                        = "default";
+  service["metadata"]["labels"]["ndmspc.io/room"]         = "old";
+  service["metadata"]["annotations"]["ndmspc.io/room-id"] = "old";
+  service["status"]["conditions"] =
+      json::array({json::object({{"type", "Ready"}, {"status", "False"}})});
+  test.cluster->objects["/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-old"] = service;
+
+  // The first read adopts it as pending, and its wait starts now.
+  const json before = test.Call("list", "GET");
+  ASSERT_EQ(before["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(before["payload"]["rooms"][0]["state"], "pending");
+  EXPECT_TRUE(before["payload"]["rooms"][0].contains("pendingSince"));
+
+  SleepPastTtl(1);
+
+  const json after = test.Call("list", "GET");
+  ASSERT_EQ(after["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(after["payload"]["rooms"][0]["state"], "failed");
+  EXPECT_EQ(after["payload"]["rooms"][0].value("code", std::string()), NRoomRouter::kNoCapacity);
+  // Its Service is kept: opening the room again retries the same room rather than creating another.
+  EXPECT_EQ(test.cluster->objects.count("/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-old"), 1u);
+}
+
+TEST(NRoomRouterActionsTest, AnAdoptedPendingRoomReportsTheSchedulerVerdictAgain)
+{
+  NRoomConfig cfg      = Config();
+  cfg.pendingTtlSec    = 3600;
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton      = {{"serviceSpec", {{"template", {{"spec", {{"containers", json::array()}}}}}}}};
+  test.cluster->unschedulable = true;
+
+  json service;
+  service["metadata"]["name"]                             = "ndmspc-room-old";
+  service["metadata"]["namespace"]                        = "default";
+  service["metadata"]["labels"]["ndmspc.io/room"]         = "old";
+  service["metadata"]["annotations"]["ndmspc.io/room-id"] = "old";
+  service["status"]["conditions"] =
+      json::array({json::object({{"type", "Ready"}, {"status", "False"}})});
+  test.cluster->objects["/apis/serving.knative.dev/v1/namespaces/default/services/ndmspc-room-old"] = service;
+
+  // Adopted after a restart: the Service carries no reason, but the pod still has the scheduler's
+  // verdict on it, so the list (and the status) can name it again rather than only saying "pending".
+  const json list = test.Call("list", "GET");
+  ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(list["payload"]["rooms"][0]["state"], "pending");
+  EXPECT_EQ(list["payload"]["rooms"][0].value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_NE(list["payload"]["rooms"][0]["error"].get<std::string>().find("Insufficient cpu"), std::string::npos);
+
+  const json status = test.Call("status", "GET", json({{"room", "old"}}));
+  EXPECT_EQ(status["payload"]["state"], "pending");
+  EXPECT_EQ(status["payload"].value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_NE(status["payload"]["error"].get<std::string>().find("Insufficient cpu"), std::string::npos);
+
+  // The reason is kept on the registry, so the registry-only pushes report it too. Deriving it only
+  // in a poll's answer made the inspector's error line appear and disappear between polls.
+  const json pushed = test.Call("list", "GET", json{{"_brief", true}});
+  ASSERT_EQ(pushed["payload"]["rooms"].size(), 1u);
+  EXPECT_EQ(pushed["payload"]["rooms"][0]["state"], "pending");
+  EXPECT_EQ(pushed["payload"]["rooms"][0].value("code", std::string()), NRoomRouter::kNoCapacity);
+  EXPECT_NE(pushed["payload"]["rooms"][0]["error"].get<std::string>().find("Insufficient cpu"), std::string::npos);
+}
+
 TEST(NRoomRouterActionsTest, AdoptsTheRoomsTheClusterAlreadyHas)
 {
   Router test;
@@ -2049,6 +2407,25 @@ TEST(NRoomRouterActionsTest, ListingAdoptsTheRoomsTheClusterAlreadyHas)
   const json status = restarted.Call("status", "GET", json({{"room", "old"}}));
   ASSERT_EQ(status["result"], "success");
   EXPECT_EQ(status["payload"]["tracked"], true);
+}
+
+TEST(NRoomRouterActionsTest, TheRoomListNamesTheRouterProcessThatAnswered)
+{
+  Router one;
+  Router other;
+
+  // A view compares this with the instance on a push: a socket can outlive a rollout on the old pod,
+  // and the two registries can disagree about a room. The name is stable for one process and differs
+  // between processes (a restart is a different, empty registry).
+  const json first  = one.Call("list", "GET");
+  const json second = one.Call("list", "GET");
+  const json third  = other.Call("list", "GET");
+
+  ASSERT_EQ(first["result"], "success");
+  const std::string instance = first["payload"]["instance"];
+  EXPECT_FALSE(instance.empty());
+  EXPECT_EQ(second["payload"]["instance"], instance);
+  EXPECT_NE(third["payload"]["instance"], instance);
 }
 
 TEST(NRoomRouterActionsTest, TheWebsocketPolicyNeedsATrackedRoom)
@@ -3183,6 +3560,134 @@ TEST(NRoomRouterActionsTest, ACapacityRunCountsTheClusterTheRoomsAndWhatIsLeft)
       EXPECT_EQ(node["free"]["memBytes"], 8L * 1024 * 1024 * 1024 - 1073741824 - 67108864);
     }
   }
+}
+
+TEST(NRoomRouterActionsTest, ATerminatingPodStillCountsWhileAnUnscheduledOneDoesNot)
+{
+  Router test;
+  test.cluster->AddNode("node-a", "1", "1Gi");
+
+  // One pod the node has already been asked to release: the scheduler keeps its reservation until it is
+  // gone, so it still blocks another room - that wait is what the room reports as waiting. One the
+  // scheduler never placed is not a reservation.
+  test.cluster->AddPod("", "node-a", "1", "1Gi");
+  test.cluster->clusterPods.back()["metadata"]["deletionTimestamp"] = "2026-01-01T00:00:00Z";
+  test.cluster->AddPod("", /*node=*/"", "1", "1Gi");
+
+  const json capacity = test.Call("capacity", "GET");
+  EXPECT_EQ(capacity["payload"]["requests"]["cpuMillis"], 1000);
+  EXPECT_EQ(capacity["payload"]["free"]["cpuMillis"], 0);
+  ASSERT_EQ(capacity["payload"]["perNode"].size(), 1u);
+  EXPECT_EQ(capacity["payload"]["perNode"][0]["free"]["cpuMillis"], 0);
+  EXPECT_EQ(capacity["payload"]["terminating"]["count"], 1);
+  EXPECT_EQ(capacity["payload"]["terminating"]["requests"]["cpuMillis"], 1000);
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomIsNoCapacityWhileItsOwnPodIsOnlyLeaving)
+{
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+  test.cluster->replicas = 0;
+
+  // The room's own pod is the only thing on the node, and the cluster is tearing it down. The
+  // scheduler keeps its reservation until it is gone, so the room cannot start yet: no capacity,
+  // even though the pod is the room's own.
+  test.cluster->AddNode("node1", "1", "1Gi");
+  test.cluster->AddPod("ndmspc-room-alpha", "node1", "1", "1Gi", "", "", "Pending");
+  test.cluster->clusterPods.back()["metadata"]["deletionTimestamp"] = "2026-01-01T00:00:00Z";
+  test.cluster->pods.push_back(test.cluster->clusterPods.back());
+
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["payload"]["wakeable"], false);
+  EXPECT_EQ(status["payload"]["wakeWaiting"], true);
+  EXPECT_NE(status["payload"]["wakeError"].get<std::string>().find("terminating"), std::string::npos);
+}
+
+TEST(NRoomRouterActionsTest, ALiftedTerminatingRoomPodFreesTheCapacityForTheNextList)
+{
+  // A minute-long cache makes sure the second list is answered from the snapshot the first one built.
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 60;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  for (const auto & room : {"test", "test3", "test4", "test5"}) {
+    ASSERT_EQ(test.Open(room, /*wait=*/true)["payload"]["state"], "ready");
+  }
+  test.cluster->replicas = 0;
+  test.cluster->AddNode("node1", "1", "1Gi");
+
+  // The two leaving room pods hold the node's whole CPU: the capacity snapshot built here fits nothing.
+  for (const auto & service : {"ndmspc-room-test3", "ndmspc-room-test4"}) {
+    test.cluster->AddPod(service, "node1", "500m", "128Mi");
+    test.cluster->clusterPods.back()["metadata"]["deletionTimestamp"] = "2026-01-01T00:00:00Z";
+    test.cluster->pods.push_back(test.cluster->clusterPods.back());
+  }
+  const json blocked = test.Call("list", "GET");
+  for (const auto & room : blocked["payload"]["rooms"]) {
+    EXPECT_EQ(room["wakeable"], false);
+  }
+
+  // One leaves. The active-room count has not moved, so only the pods the snapshot counted can tell
+  // the list that the space is free - and if it does not, the rooms stay no-capacity for the TTL.
+  test.cluster->clusterPods.erase(test.cluster->clusterPods.end() - 1);
+  test.cluster->pods.erase(test.cluster->pods.end() - 1);
+  // What the view reads next: the capacity itself, now that the pod is gone.
+  ASSERT_EQ(test.Call("capacity", "GET")["payload"]["fits"]["requests"]["small"]["count"], 1);
+  const json freed = test.Call("list", "GET");
+  for (const auto & room : freed["payload"]["rooms"]) {
+    EXPECT_EQ(room["wakeable"], true);
+  }
+}
+
+TEST(NRoomRouterActionsTest, AnIdleRoomWithItsOwnStartingPodIsNotCalledUnstartable)
+{
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 0;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+  test.cluster->replicas = 0;
+
+  // The node looks full, but the pod holding it is the room's own, already placed and not running yet:
+  // the room is starting, so this must not be reported as "no capacity".
+  test.cluster->AddNode("node1", "1", "1Gi");
+  test.cluster->AddPod("ndmspc-room-alpha", "node1", "1", "1Gi", "", "", "Pending");
+  test.cluster->pods.push_back(test.cluster->clusterPods.back());
+
+  const json status = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(status["payload"]["wakeable"], true);
+  EXPECT_EQ(status["payload"].value("code", std::string()), "");
+}
+
+TEST(NRoomRouterActionsTest, AStaleNoCapacitySnapshotIsRebuiltBeforeItIsBelieved)
+{
+  // A minute-long cache makes the stale reading certain to be the one a naive probe would use.
+  NRoomConfig cfg      = Config();
+  cfg.capacityCacheSec = 60;
+  Router test(cfg);
+  test.cluster->skeleton       = ProfileSkeleton();
+  test.cluster->readyAfterGets = 1;
+  ASSERT_EQ(test.Open("alpha", /*wait=*/true)["payload"]["state"], "ready");
+  test.cluster->replicas = 0;
+
+  test.cluster->AddNode("node1", "1", "1Gi");
+  test.cluster->AddPod("", "node1", "1", "1Gi");
+  const json blocked = test.Call("status", "GET", json({{"room", "alpha"}}));
+  ASSERT_EQ(blocked["payload"]["wakeable"], false);
+
+  // The pod filling the node goes away. The cached "nothing fits" is now wrong: a probe older than a
+  // few seconds must rebuild it rather than keep calling the room unstartable.
+  std::this_thread::sleep_for(std::chrono::seconds(6));
+  test.cluster->clusterPods.clear();
+  const json again = test.Call("status", "GET", json({{"room", "alpha"}}));
+  EXPECT_EQ(again["payload"]["wakeable"], true);
+  EXPECT_EQ(again["payload"].value("code", std::string()), "");
 }
 
 TEST(NRoomRouterActionsTest, ACapacityRunSaysWhenItCouldNotReadTheCluster)

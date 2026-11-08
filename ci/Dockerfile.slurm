@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 #
 # The Slurm worker (compute node) image: the ndmspc base image (AlmaLinux 10 + ndmspc
-# + ROOT, with EPEL, CRB, the ndmspc COPR and tini already in place) plus Slurm
+# + ROOT, with EPEL, CRB, the ndmspc COPR and a container init already in place) plus Slurm
 # itself, the slurmd daemon and the Slinky supervisord/entrypoint plumbing.
 #
 # It is the only Slurm image ndmspc builds, so the file is a single stage: nothing is
@@ -43,7 +43,7 @@ WORKDIR /tmp/
 ARG SLINKY_FILES
 ARG SLURM_SERIES
 
-# The base carries EPEL, CRB, the COPR and tini but no Slurm (a room only needs the
+# The base carries EPEL, CRB, the COPR and a container init but no Slurm (a room only needs the
 # REST API, see ci/Dockerfile.base), so this stage installs Slurm itself, on top of
 # what the worker needs: supervisord (which runs the daemon) and the small tools the
 # Slinky scripts use, the slurmd stack with sssd (identity) and sshd (node shell
