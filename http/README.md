@@ -1303,25 +1303,43 @@ can name it, a stable `code`. Waiting for resources and failing are two differen
 
 - `pending` — the cluster has no room for the room's pod right now. The message is the scheduler's
   own (`0/1 nodes are available: 1 Insufficient cpu`), read from the pod: the Knative Service only
-  ever says "waiting for a Revision to become ready". The verdict has to repeat, so a race while
-  another room scales up cannot change this room's state. This needs `get`/`list` on pods (core) in
-  the namespace; without it nothing breaks, the room simply reports the timeout instead. The room's
-  Service is **kept** — it is what the cluster still has to place a pod for — and `code` is
-  `no_capacity`. The room comes up by itself once there is room for it: the next `ndmspc/room/list` or
-  `ndmspc/room/status` pins its revision's HTTPRoute and reports it ready, so nothing has to be opened
-  again.
+  ever says "waiting for a Revision to become ready". The verdict has to repeat before the wait stops
+  early, so a race while another room scales up cannot change this room's state — but a verdict the
+  scheduler gave **once** is still honoured when `NDMSPC_ROOM_READY_TIMEOUT` runs out: the room stays
+  `pending` rather than being deleted, because its Service is the one object that can still come up.
+  This needs `get`/`list` on pods (core) in the namespace; without it nothing breaks, the room simply
+  reports the timeout instead. The room's Service is **kept** and `code` is `no_capacity`. The room
+  comes up by itself once there is room for it: the next `ndmspc/room/list` or `ndmspc/room/status`
+  pins its revision's HTTPRoute and reports it ready, so nothing has to be opened again.
+  A room waiting for resources counts against `NDMSPC_ROOM_MAX_PREPARING` like a room being created,
+  so a full cluster cannot accumulate them without bound; after `NDMSPC_ROOM_PENDING_TTL` (default
+  30m, `0` waits for ever) it is reported `failed` with the wait and the reason. Its Service is kept,
+  so opening the room again retries the same room instead of creating a second one.
 - `name_conflict` — the name the room needs is already taken by an object the router did not create
   (it carries no `ndmspc.io/room` label), so that object is left untouched rather than overwritten
   or deleted. Pick another room id, or free the name. This is why the router must not live inside
   the room prefix namespace: a router named `ndmspc-room-router` is exactly the name the room id
   `router` asks for. The devops role names the router `ndmspc-router` (rooms are `ndmspc-room-<id>`)
   so the two cannot meet.
-- *(empty)* — anything else: a failed apply, a container that keeps dying, a timeout. A creation
-  that **failed** leaves nothing behind: the router deletes the half-created Service and HTTPRoute,
-  so the next `ndmspc/room/open` creates the room from scratch rather than patching what failed — and a
-  room whose route does not exist cannot take its `?room=<id>` link away from the router. The
-  reason is kept in the registry until then, so the next `ndmspc/room/open` reports what happened to its
-  predecessor.
+- *(empty)* — anything else: a failed apply, a container that keeps dying, a timeout with no
+  scheduler verdict at all. A creation that **failed** leaves nothing behind: the router deletes the
+  half-created Service and HTTPRoute, so the next `ndmspc/room/open` creates the room from scratch
+  rather than patching what failed — and a room whose route does not exist cannot take its
+  `?room=<id>` link away from the router. The reason is kept in the registry until then, so the next
+  `ndmspc/room/open` reports what happened to its predecessor.
+
+A room that is **idle** — Ready, with no pod, which is Knative's normal resting state — is where the
+other half of this lives. Its next request is what wakes it, and the router cannot learn whether that
+will work by asking the room (its own request would wake it). So it reports the answer beside the
+state instead: `wakeable` says whether the cluster could start it now, and when it could not,
+`wakeError` names why — the scheduler's message for a pod an attempted wake left Pending, or the
+cluster's own arithmetic when no node can fit the room's profile. This is an **advisory**: the room
+stays `state=ready` (a view reads it as `idle`), and `code=no_capacity`/`error` with `state=pending`
+are only reported once a start has actually been requested and its pod is refused — an idle room is
+not called unstartable just because the next start would have to wait. A view uses `wakeable` to warn
+before entering, and its own timeout dialog explains a socket that never opens. The capacity snapshot
+behind it is cached for `NDMSPC_ROOM_CAPACITY_TTL` (default 15s) because it reads every node and every
+pod on the cluster; `NDMSPC_ROOM_WAKE_PROBE=0` turns the probe off.
 
 `ndmspc/room/close` and the idle sweep only delete objects carrying the room label, so a name taken by
 anything else survives both.
@@ -1599,8 +1617,11 @@ and the room's own page answers it from the heartbeat.
 - `allocatable` is the sum of the nodes' `status.allocatable`; amounts are base units
   (`cpuMillis`, `memBytes`) because they are sums, not the quantities Kubernetes wrote down.
 - `requests` and `limits` are the two sides of what the cluster's pods declare: what they reserve, and
-  the most they may reach. They are summed over every pod on the cluster that has not finished, and
-  the `rooms`/`other` groups split that the same way — `rooms` over the pods carrying
+  the most they may reach. They are summed over every pod on the cluster that has not finished, **that
+  the scheduler has placed, and that is not being deleted**: an unscheduled pod holds nothing, and one
+  on its way out is already releasing what it held — counting either would understate what another
+  room can start with (and would make a room look unstartable because of its own terminating copy).
+  The `rooms`/`other` groups split that the same way — `rooms` over the pods carrying
   `serving.knative.dev/service` (a room's pod *and* Knative's sidecar beside it, so a room's real cost
   is what it says), `other` everything that is not a room. A pod that declares no limit contributes
   nothing to the limits side rather than a ceiling it does not have.
@@ -1611,7 +1632,10 @@ and the room's own page answers it from the heartbeat.
   sides (`{"requests": {"small": {"count": 14, "limitedBy": "cpu"}, …}, "limits": {…}}`): by what a room
   *reserves*, and by the *ceilings* it may reach — the second subtracting the pods' limits from the node
   the way the first subtracts their requests, so it answers "if every room reached its limit at once".
-  The reservations count is the placement prediction; the limits count is the worst case.
+  The reservations count is the placement prediction; the limits count is the worst case. A room's
+  `wakeable` is judged by this; a cached snapshot that says "nothing fits" is rebuilt once it is a few
+  seconds old, so an idle room is not called unstartable from a reading taken while the cluster was
+  still full or while the room's own pod was leaving.
 - **`perNode` matters**, because free memory across a cluster is not free memory on a node: 4 GiB free
   spread as 2 + 2 starts nothing. The largest single node's `free` is what predicts whether a room of a
   given profile can start, which is why the rooms panel reports both.
@@ -1698,17 +1722,21 @@ to that room's own pod, which keeps serving its websocket.
 The table shows what the router reports: the room, whose it is (`OWNER`; `-` for a room created
 before ownership existed, or by nobody identifiable), `active` / `idle` for a room that is up, `preparing` with
 a spinner while its creation is still running — the `SEEN` column then reads as how long it has
-been creating — `waiting` for a room the cluster has no room for yet, and `failed` / `killed` when a
-creation did not get there. The detail pane says the same word for the room's state (the row and the
-pane are one vocabulary: the router's `pending` reads as `waiting`, and a room that is up reads by
-what it is doing), adds the creation's `phase` (`service`, `ready`, `route`, `restore`) while it is
-still being prepared, and its reason when it is not serving.
+been creating — `waiting` for a room the cluster has no room for yet (with its age, from
+`pendingSince`), and `failed` / `killed` when a creation did not get there. An `idle` room the router
+found nowhere to start reads **`no capacity`** rather than `idle`: the Service is fine, but the next
+request into it would never be answered, so the view disables Enter and shows `wakeError`. The detail
+pane says the same word for the room's state (the row and the pane are one vocabulary: the router's
+`pending` reads as `waiting`, and a room that is up reads by what it is doing), adds the creation's
+`phase` (`service`, `ready`, `route`, `restore`) while it is still being prepared, and its reason when
+it is not serving.
 
 Waiting and failing are different: a `pending` room carries `code=no_capacity`, the scheduler's own
 message (`0/1 nodes are available: 1 Insufficient cpu`) and is left to come up on its own — the row
-reads `waiting`, and only `ndmspc/room/close` takes it back. A `failed` creation carries the router's
-`error` and, when it can name the cause, a stable `code`: `container_error` means the room's own
-container keeps dying — a room created at a profile too small for what it loads is killed by the
+reads `waiting`, and only `ndmspc/room/close` takes it back (or `NDMSPC_ROOM_PENDING_TTL`, which turns
+a wait nobody could satisfy into `failed` and keeps the Service). A `failed` creation carries the
+router's `error` and, when it can name the cause, a stable `code`: `container_error` means the room's
+own container keeps dying — a room created at a profile too small for what it loads is killed by the
 kernel before it can serve, and the failure says so instead of waiting out the timeout. The router
 reads that reason from the pod itself, so its service account needs `get` / `list` on `pods`;
 without that permission the failure is still reported, just without the cause.

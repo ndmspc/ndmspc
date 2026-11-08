@@ -69,6 +69,22 @@ static std::string NRoomEnv(const char * name, const std::string & fallback)
 }
 
 /**
+ * @brief A name for this router process, reported by room/list as `instance`.
+ *
+ * A view compares the name on a push with the one on its polls: a socket can outlive the rollout that
+ * replaced its router, and the old process keeps pushing the registry it froze when the route moved.
+ * The random suffix separates a restarted process (with an empty registry) from the one it replaced,
+ * which a hostname alone cannot.
+ */
+static std::string NRoomInstanceId()
+{
+  std::random_device device;
+  std::ostringstream id;
+  id << std::hex << device() << device();
+  return NRoomEnv("HOSTNAME", "router") + "-" + id.str();
+}
+
+/**
  * @brief Splits a comma-separated list, dropping empty entries and surrounding space.
  * @param text The list, e.g. "alice@example.com, bob".
  * @return The entries, in the order they were written.
@@ -127,7 +143,10 @@ NRoomConfig NRoomConfig::FromEnv()
   c.urlBase         = NRoomEnv("NDMSPC_ROOM_URL_BASE", "");
   c.idleTtlSec      = ParseDuration(NRoomEnv("NDMSPC_ROOM_IDLE_TTL", "24h"), 86400);
   c.readyTimeoutSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_READY_TIMEOUT", "45s"), 45);
+  c.pendingTtlSec   = ParseDuration(NRoomEnv("NDMSPC_ROOM_PENDING_TTL", "30m"), 1800);
   c.maxPreparing    = static_cast<int>(std::strtol(NRoomEnv("NDMSPC_ROOM_MAX_PREPARING", "4").c_str(), nullptr, 10));
+  c.wakeProbe       = ParseBool(NRoomEnv("NDMSPC_ROOM_WAKE_PROBE", "true"), true);
+  c.capacityCacheSec = ParseDuration(NRoomEnv("NDMSPC_ROOM_CAPACITY_TTL", "15s"), 15);
   c.autoUpdate      = ParseBool(NRoomEnv("NDMSPC_ROOM_AUTO_UPDATE", "false"), false);
   // Off by default, so a deployment opts in: a push costs one cluster read per distinct caller per tick
   // and holds the watcher's connection thread, so it is served only where somebody asked for it
@@ -155,6 +174,15 @@ static long NdmspcRoomNow()
   return static_cast<long>(
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
           .count());
+}
+
+/// @brief A duration in seconds as the shortest phrase that reads naturally ("45s", "30m", "2h", "1d").
+static std::string NdmspcRoomDuration(long seconds)
+{
+  if (seconds >= 86400 && seconds % 86400 == 0) return std::to_string(seconds / 86400) + "d";
+  if (seconds >= 3600 && seconds % 3600 == 0) return std::to_string(seconds / 3600) + "h";
+  if (seconds >= 60 && seconds % 60 == 0) return std::to_string(seconds / 60) + "m";
+  return std::to_string(seconds) + "s";
 }
 
 /// @brief This build's version, as the usage rows record it.
@@ -1459,7 +1487,9 @@ NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string &
 {
   const long  deadline = NdmspcRoomNow() + fConfig.readyTimeoutSec;
   std::string lastMessage;
-  std::string lastUnschedulable; // the scheduler's verdict, and how often in a row it has said it
+  std::string lastUnschedulable; // the last verdict the scheduler gave, kept even when it stops repeating
+  long        lastUnschedulableAt = 0; // when it gave it
+  std::string currentVerdict;    // this poll's verdict, which is what the repeat count is about
   int         unschedulableSeen = 0;
   std::string lastFailure;       // why its container keeps dying, and how often in a row
   int         failureSeen = 0;
@@ -1506,13 +1536,17 @@ NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string &
         const json  pods = RoomPods(name, created);
         std::string unschedulable;
         if (PodUnschedulable(pods, unschedulable)) {
-          if (unschedulable == lastUnschedulable) {
+          if (unschedulable == currentVerdict) {
             ++unschedulableSeen;
           }
           else {
-            lastUnschedulable = unschedulable;
+            currentVerdict    = unschedulable;
             unschedulableSeen = 1;
           }
+          // Kept whatever happens next: a verdict that a later poll did not repeat is still the reason
+          // the room did not come up, and the timeout below reports it instead of a bare "timed out".
+          lastUnschedulable   = unschedulable;
+          lastUnschedulableAt = NdmspcRoomNow();
           if (unschedulableSeen >= 2) {
             // Waiting for resources, not a failure: the room is left as the scheduler left it, and
             // comes up by itself once the cluster has room for its pod (see ConvergePending).
@@ -1522,7 +1556,7 @@ NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string &
           }
         }
         else {
-          lastUnschedulable.clear();
+          currentVerdict    = std::string();
           unschedulableSeen = 0;
         }
 
@@ -1571,11 +1605,19 @@ NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string &
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   }
   error = "timed out waiting for room " + name + " to become ready";
-  if (!lastUnschedulable.empty()) {
-    // Give the reason even when the verdict never repeated: "timed out" alone tells nobody anything.
+  // A verdict from the last few seconds is the cluster still refusing to place the pod; an older one
+  // describes a pod that has since been scheduled (and failed for some other reason, e.g. an image it
+  // cannot pull), which must not be reported as "waiting for resources".
+  constexpr long kFreshVerdictSec = 5;
+  if (!lastUnschedulable.empty() && lastUnschedulableAt >= NdmspcRoomNow() - kFreshVerdictSec) {
+    // The cluster has no room for the pod, even though the verdict did not repeat inside the window.
+    // That is still a room waiting for resources, not a failure: deleting its Service here would throw
+    // away the only object that can still come up when capacity frees (see EnsurePending).
     error += " (its pod is still unschedulable: " + lastUnschedulable + ")";
+    code = NRoomRouter::kNoCapacity;
+    return Wait::Pending;
   }
-  else if (!lastMessage.empty()) {
+  if (!lastMessage.empty()) {
     error += ": " + lastMessage;
   }
   return Wait::Failed;
@@ -1773,7 +1815,13 @@ void NRoomRouter::Adopt()
           for (const auto & condition : conditions) {
             if (condition.value("type", "") == "Ready") ready = (condition.value("status", "") == "True");
           }
-          if (!ready) state.phase = "pending";
+          if (!ready) {
+            state.phase = "pending";
+            // A restart cannot know when this wait began, so its clock starts now. Without it an
+            // adopted room would wait for ever, which is exactly what NDMSPC_ROOM_PENDING_TTL exists
+            // to bound (the Service carries no record of the wait).
+            state.pendingAt = NdmspcRoomNow();
+          }
         }
         // This room is off the image the skeleton names, and the deployment asks for convergence
         // (NDMSPC_ROOM_AUTO_UPDATE): it is one the router was upgraded past while it was idle, and it
@@ -1938,10 +1986,39 @@ bool NRoomRouter::RoomInUse(const NRoomState & room)
 void NRoomRouter::Sweep()
 {
   const NRoomConfig & cfg = fConfig;
+  if (cfg.idleTtlSec <= 0 && cfg.pendingTtlSec <= 0) return;
+
+  const long now = NdmspcRoomNow();
+
+  // A room that has been waiting for cluster resources past NDMSPC_ROOM_PENDING_TTL is no longer
+  // "about to come up": it is reported failed, with the wait and the reason. Its Service is kept, so
+  // opening the room again retries the same room rather than creating a second one - and the idle TTL
+  // below removes it once it has also gone unused.
+  if (cfg.pendingTtlSec > 0) {
+    std::vector<NRoomState> expired;
+    {
+      std::lock_guard<std::mutex> lock(fMutex);
+      for (const auto & entry : fRooms) {
+        if (entry.second.phase == "pending" && entry.second.pendingAt > 0 &&
+            now - entry.second.pendingAt >= cfg.pendingTtlSec) {
+          expired.push_back(entry.second);
+        }
+      }
+    }
+    for (const auto & room : expired) {
+      const std::string message = "the cluster had no room for this room's pod for " +
+                                  NdmspcRoomDuration(cfg.pendingTtlSec) +
+                                  " - open the room again when capacity frees";
+      NLogInfo("[room] %s waited for resources for %lds; reporting it failed (its Service is kept)",
+               room.name.c_str(), now - room.pendingAt);
+      EnsureFinish(room.name, "", "", message, kNoCapacity);
+    }
+  }
+
   if (cfg.idleTtlSec <= 0) return;
 
-  const long               cutoff = NdmspcRoomNow() - cfg.idleTtlSec;
-  std::vector<NRoomState>  candidates;
+  const long              cutoff = now - cfg.idleTtlSec;
+  std::vector<NRoomState> candidates;
   {
     std::lock_guard<std::mutex> lock(fMutex);
     for (const auto & entry : fRooms) {
@@ -2123,6 +2200,7 @@ void NRoomRouter::EnsureFinish(const std::string & name, const std::string & rev
     elapsedSec   = wasPreparing && it->second.startedAt > 0 ? now - it->second.startedAt : 0;
     value        = it->second.value;
     it->second.preparing = false;
+    it->second.pendingAt = 0;
     // Only the call that ends the wait stamps when it ended: the background path calls this once to
     // report the room ready and again after the session replay, and the replay must not stretch the
     // creation time a list shows.
@@ -2176,6 +2254,8 @@ void NRoomRouter::EnsurePending(const std::string & name, const std::string & er
 
     it->second.preparing  = false;
     it->second.finishedAt = NdmspcRoomNow();
+    // When the wait began: what NDMSPC_ROOM_PENDING_TTL counts from, and what a view shows as its age.
+    it->second.pendingAt  = it->second.finishedAt;
     it->second.phase      = "pending";
     it->second.error      = error;
     it->second.code       = code;
@@ -2548,14 +2628,20 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
     }
 
     if (cfg.maxPreparing > 0) {
-      int preparing = 0;
+      // Rooms waiting for cluster resources hold the same kind of work as a creation: a Service the
+      // cluster keeps trying to place, and a background check on every read. Counting only `preparing`
+      // let a full cluster accumulate them without bound.
+      int busy = 0;
       for (const auto & entry : fRooms) {
-        if (entry.second.preparing) ++preparing;
+        if (entry.first == name) continue; // re-opening a room that is already waiting is not new work
+        if (entry.second.preparing || entry.second.phase == "pending") ++busy;
       }
-      if (preparing >= cfg.maxPreparing) {
+      if (busy >= cfg.maxPreparing) {
         // Bounded on purpose: every creation polls the cluster API, and the point of running them
         // off the request path is to keep the router responsive, not to accept unbounded work.
-        error = std::to_string(preparing) + " rooms are already being prepared - try again when one is ready";
+        error = std::to_string(busy) + " rooms are already being created or waiting for cluster resources "
+                                      "- close one, or try again when the cluster has room";
+        code  = kNoCapacity;
         return Outcome::Failed;
       }
     }
@@ -3065,13 +3151,13 @@ NHttpResponse NRoomClusterClient::Request(const std::string & method, const std:
 // ===========================================================================
 
 NRoomRouter::NRoomRouter()
-    : fConfig(NRoomConfig::FromEnv()), fCluster(std::make_shared<NRoomClusterClient>(fConfig)),
-      fStats(NRoomStatsConfig::FromEnv())
+    : fConfig(NRoomConfig::FromEnv()), fRouterId(NRoomInstanceId()),
+      fCluster(std::make_shared<NRoomClusterClient>(fConfig)), fStats(NRoomStatsConfig::FromEnv())
 {
 }
 
 NRoomRouter::NRoomRouter(NRoomConfig config, std::shared_ptr<IRoomCluster> cluster)
-    : fConfig(std::move(config)), fCluster(std::move(cluster))
+    : fConfig(std::move(config)), fRouterId(NRoomInstanceId()), fCluster(std::move(cluster))
 {
 }
 
@@ -3696,6 +3782,56 @@ void NRoomRouter::HandleOpen(const std::string & method, json & in, json & out)
   // to say which of the two happened.
   payload["created"] = created;
 
+  // Opening a room that already exists is often the first half of entering an idle one: a client asks
+  // for the link before it opens the room. Say now whether there is anywhere to wake it to, so a view
+  // can warn before a socket waits on a pod that will never start (a scaled-to-zero room goes through
+  // WaitReady's `created == ready` shortcut without ever reading a pod).
+  if (!created && payload.value("state", std::string()) == "ready") {
+    const json pods     = RoomPods(ref.name, payload.value("revision", std::string()));
+    bool       inUse    = false;
+    bool       starting = false;
+    for (const auto & pod : pods.value("items", json::array())) {
+      if (pod.value("status", json::object()).value("phase", "") == "Running") {
+        inUse = true;
+        break;
+      }
+      // Placed by the scheduler but not running yet: the start is already on its way.
+      const std::string node = pod.value("spec", json::object()).value("nodeName", std::string());
+      if (!node.empty() && !pod.value("metadata", json::object()).contains("deletionTimestamp")) {
+        starting = true;
+      }
+    }
+    if (!inUse) {
+      NRoomState room;
+      {
+        std::lock_guard<std::mutex> lock(fMutex);
+        const auto                  it = fRooms.find(ref.name);
+        if (it != fRooms.end()) room = it->second;
+      }
+      std::string unschedulable;
+      PodUnschedulable(pods, unschedulable);
+      const json capacity =
+          room.profile.empty() ? json::object() : ProbeCapacity(room.profile);
+      const json probe = WakeProbe(room, unschedulable, capacity, starting);
+      if (!probe.empty()) {
+        const bool wakeable = probe.value("wakeable", false);
+        payload["wakeable"]      = wakeable;
+        payload["wakeWaiting"]   = probe.value("wakeWaiting", false);
+        payload["wakeCheckedAt"] = probe.value("checkedAt", 0L);
+        if (!wakeable) {
+          payload["wakeError"] = probe.value("error", "");
+          // Only a wake actually in flight is a room state: the capacity prediction is an advisory
+          // (`wakeable`/`wakeError`), so an idle room keeps reading idle until somebody starts it.
+          if (probe.value("waiting", false)) {
+            payload["state"] = "pending";
+            payload["error"] = probe.value("error", "");
+            payload["code"]  = probe.value("code", std::string(kNoCapacity));
+          }
+        }
+      }
+    }
+  }
+
   // What happened to the room last time, when anything did: a client that is opening a room back up
   // is exactly the client that wants to know its predecessor ran out of memory.
   const json lastError = RoomLastError(ref.name);
@@ -3996,9 +4132,10 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
   }
 
   out["result"]       = "success";
-  out["payload"]["room"]     = ref.value;
-  out["payload"]["name"]     = ref.name;
-  out["payload"]["param"]    = fConfig.param;
+  out["payload"]["room"]       = ref.value;
+  out["payload"]["name"]       = ref.name;
+  out["payload"]["param"]      = fConfig.param;
+  out["payload"]["pendingTtl"] = fConfig.pendingTtlSec;
 
   // What its creation is doing, if anything: a room is registered as soon as its creation
   // starts, so a client can say what it is waiting for rather than only that it is not ready.
@@ -4045,6 +4182,22 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
         out["payload"]["phase"] = it->second.phase;
         if (!it->second.error.empty()) out["payload"]["error"] = it->second.error;
         if (!it->second.code.empty()) out["payload"]["code"] = it->second.code;
+        if (it->second.error.empty()) {
+          // Adopted after a restart: the Service carries no reason, but the pod still has the
+          // scheduler's verdict on it. Keep it in the registry too: the pushes are registry-only, and
+          // a reason that exists only in a full poll's answer would appear and disappear between
+          // polls - the view's error line would blink.
+          std::string verdict;
+          if (PodUnschedulable(json{{"items", itsPods}}, verdict)) {
+            const std::string reason = NRoomRouter::UnschedulableError(verdict);
+            out["payload"]["error"] = reason;
+            out["payload"]["code"]  = kNoCapacity;
+            it->second.error        = reason;
+            it->second.code         = kNoCapacity;
+          }
+        }
+        // How long it has been waiting, so a client can show the age against pendingTtl.
+        if (it->second.pendingAt > 0) out["payload"]["pendingSince"] = it->second.pendingAt;
         state = "pending";
       }
     }
@@ -4085,6 +4238,58 @@ void NRoomRouter::HandleStatus(const std::string & method, json & in, json & out
     // which is what a rollback picks from. Only when the Service exists - a room that was never created,
     // or is gone, has no revisions.
     out["payload"]["versions"] = RoomVersions(ref.name, out["payload"].value("revision", std::string()));
+
+    // An idle room's next request is what wakes it, and this is the only place that can say whether
+    // there is anywhere to wake it to: a room that is Ready with no pod is asleep, not broken - unless
+    // the cluster has no room for its profile, or a wake already left a pod the scheduler refuses.
+    // `phase` is only set above for a room the registry calls preparing, failed or pending. The Service
+    // itself may be not-Ready precisely because a refused wake flipped it, so `ready` is not required:
+    // that is the case this has to explain, and the pod below carries the verdict.
+    if (!out["payload"].contains("phase")) {
+      bool inUse    = false;
+      bool starting = false;
+      for (const auto & pod : itsPods) {
+        if (pod.value("status", json::object()).value("phase", "") == "Running") {
+          inUse = true;
+          break;
+        }
+        // Placed by the scheduler but not running yet: the start is already on its way.
+        const std::string node = pod.value("spec", json::object()).value("nodeName", std::string());
+        if (!node.empty() && !pod.value("metadata", json::object()).contains("deletionTimestamp")) {
+          starting = true;
+        }
+      }
+      if (!inUse) {
+        NRoomState room;
+        {
+          std::lock_guard<std::mutex> lock(fMutex);
+          const auto                  it = fRooms.find(ref.name);
+          if (it != fRooms.end()) room = it->second;
+        }
+        // The capacity arithmetic is only affordable (and only meaningful) for a room with a size.
+        std::string unschedulable;
+        PodUnschedulable(json{{"items", itsPods}}, unschedulable);
+        const json capacity =
+            room.profile.empty() ? json::object() : ProbeCapacity(room.profile);
+        const json probe = WakeProbe(room, unschedulable, capacity, starting);
+        if (!probe.empty()) {
+          const bool wakeable = probe.value("wakeable", false);
+          out["payload"]["wakeable"]      = wakeable;
+          out["payload"]["wakeWaiting"]   = probe.value("wakeWaiting", false);
+          out["payload"]["wakeCheckedAt"] = probe.value("checkedAt", 0L);
+          if (!wakeable) {
+            out["payload"]["wakeError"] = probe.value("error", "");
+            // A pod the scheduler refuses means a wake is already in flight: that is the room's state.
+            // The capacity prediction alone is an advisory, not a state: an idle room stays idle.
+            if (probe.value("waiting", false)) {
+              state = "pending";
+              out["payload"]["error"] = probe.value("error", "");
+              out["payload"]["code"]  = probe.value("code", std::string(kNoCapacity));
+            }
+          }
+        }
+      }
+    }
   }
   if (!state.empty()) out["payload"]["state"] = state;
 }
@@ -4132,6 +4337,17 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
   // a note it finds is part of what this answer reports, and it is one API call however many rooms
   // there are. The pod is deleted when a room scales to zero, which is why what it reports here is
   // remembered rather than looked up again later.
+  //
+  // The same pass keeps the scheduler's verdict per room: it is what the wake probe below reports for
+  // a room an attempted wake left Pending, and collecting it here costs no extra call.
+  std::map<std::string, std::string> unschedulableByRoom;
+  // A room with a pod the scheduler has placed but that is not running yet: the capacity arithmetic
+  // counts it, so it must not be read as a reason the room cannot start.
+  std::map<std::string, bool> startingByRoom;
+  // What the room pods on their way out still hold, by Service. The capacity snapshot counts them;
+  // a list that sees them leave must drop the snapshot, or the rooms they were blocking stay "no
+  // capacity" for the rest of the cache's TTL (the state a view came back to after Back).
+  json servingTerminating = json::object();
   if (!brief) {
     const auto pods = Request("GET", PodsPath("serving.knative.dev%2Fservice"));
     if (pods.status == 200) {
@@ -4139,10 +4355,35 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       try {
         const json allPods = json::parse(pods.body).value("items", json::array());
         for (const auto & pod : allPods) {
-          const std::string service = pod.value("metadata", json::object())
-                                          .value("labels", json::object())
+          const json        meta    = pod.value("metadata", json::object());
+          const std::string service = meta.value("labels", json::object())
                                           .value("serving.knative.dev/service", std::string());
           if (service.empty()) continue;
+          const std::string phase = pod.value("status", json::object()).value("phase", std::string());
+          const std::string node  = pod.value("spec", json::object()).value("nodeName", std::string());
+          const bool        terminating = meta.contains("deletionTimestamp");
+          if (terminating && !node.empty() && phase != "Succeeded" && phase != "Failed" &&
+              service.rfind(fConfig.prefix, 0) == 0) {
+            long cpu = 0;
+            long mem = 0;
+            for (const auto & container :
+                 pod.value("spec", json::object()).value("containers", json::array())) {
+              const json requests =
+                  container.value("resources", json::object()).value("requests", json::object());
+              cpu += CpuMillis(requests.value("cpu", std::string()));
+              mem += Bytes(requests.value("memory", std::string()));
+            }
+            const json held = servingTerminating.value(service, json::object());
+            servingTerminating[service] = json{{"cpuMillis", held.value("cpuMillis", 0L) + cpu},
+                                               {"memBytes", held.value("memBytes", 0L) + mem}};
+          }
+          if (phase != "Running" && !node.empty() && !terminating) {
+            startingByRoom[service] = true;
+          }
+          std::string unschedulable;
+          if (NRoomRouter::PodUnschedulable(json{{"items", json::array({pod})}}, unschedulable)) {
+            unschedulableByRoom[service] = unschedulable;
+          }
           const json termination = NRoomRouter::PodTermination(pod);
           if (termination.empty()) continue;
           // A roll leaves two pods around: the later death is the one worth keeping.
@@ -4215,6 +4456,8 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
         room["phase"] = entry.second.phase;
         if (!entry.second.error.empty()) room["error"] = entry.second.error;
         if (!entry.second.code.empty()) room["code"] = entry.second.code;
+        // How long it has been waiting, so a view can show the age against pendingTtl.
+        if (entry.second.pendingAt > 0) room["pendingSince"] = entry.second.pendingAt;
         room["state"] = "pending";
       }
       else if (brief && entry.second.phase == "ready") {
@@ -4230,7 +4473,14 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
         const auto live = fRoomLive.find(entry.first);
         if (live != fRoomLive.end()) {
           for (auto it = live->second.begin(); it != live->second.end(); ++it) {
-            if (!room.contains(it.key())) room[it.key()] = it.value();
+            // The failure reason describes the snapshot the last full read saw. A push reports the
+            // registry's state, and a room it now calls ready must not carry the reason of a wait that
+            // is over - a view would show a failure that no longer exists. `wakeError` is the idle
+            // advisory, not a failure: it is why an idle room cannot start, and dropping it between
+            // polls made the inspector's idle message lose its text on every push - it blinked.
+            const std::string key = it.key();
+            if (key == "code" || key == "error" || key == "pendingSince") continue;
+            if (!room.contains(key)) room[key] = it.value();
           }
         }
       }
@@ -4276,8 +4526,18 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       for (const auto & condition : conditions) {
         if (condition.value("type", "") == "Ready") ready = (condition.value("status", "") == "True");
       }
-      room["ready"]    = ready;
-      room["revision"] = status.value("latestReadyRevisionName", room.value("revision", ""));
+      room["ready"] = ready;
+      // The Service is the authority on what the room serves now. A revision created outside this
+      // router (a deployment roll) must replace the registry's, or the brief pushes and the room's
+      // wake address keep naming the old revision: entering the room then wakes the previous pod
+      // while the latest ready one is already running.
+      const std::string latestReady = status.value("latestReadyRevisionName", "");
+      if (!latestReady.empty()) {
+        room["revision"] = latestReady;
+        std::lock_guard<std::mutex> lock(fMutex);
+        const auto                  it = fRooms.find(name);
+        if (it != fRooms.end()) it->second.revision = latestReady;
+      }
       if (room.value("state", std::string()) == "pending") {
         // Waiting for resources: the Service is there but not serving. Finish the room if the
         // cluster has placed its pod since the last look; leave it reported as pending while it
@@ -4287,6 +4547,25 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
           room["state"] = "ready";
           room.erase("code");
           room.erase("error");
+        }
+        else {
+          // A restart adopts a pending room without its reason (the Service does not carry one). The
+          // pods list above says it again: the scheduler is still refusing the pod.
+          const auto verdict = unschedulableByRoom.find(name);
+          if (verdict != unschedulableByRoom.end()) {
+            const std::string reason = NRoomRouter::UnschedulableError(verdict->second);
+            room["code"]             = std::string(kNoCapacity);
+            room["error"]            = reason;
+            // Keep the reason on the registry as well: a brief push reports the registry and does no
+            // cluster reads, so a reason that lived only in this answer would vanish on the next push
+            // and come back on the next poll. The view's error line would blink at the poll cadence.
+            std::lock_guard<std::mutex> lock(fMutex);
+            const auto                  pending = fRooms.find(name);
+            if (pending != fRooms.end() && pending->second.phase == "pending") {
+              pending->second.code  = kNoCapacity;
+              pending->second.error = reason;
+            }
+          }
         }
       }
       else {
@@ -4306,6 +4585,12 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
       if (!image.empty()) {
         room["image"]    = image;
         room["imageTag"] = NdmspcImageTag(image);
+        // Same for the image: a room rolled by the deployment is on that image, and a registry left
+        // on the old one makes the row claim the room is behind and sends the entry through the
+        // update path to the revision it already left.
+        std::lock_guard<std::mutex> lock(fMutex);
+        const auto                  it = fRooms.find(name);
+        if (it != fRooms.end()) it->second.image = image;
       }
 
       const std::string revision = room.value("revision", "");
@@ -4347,13 +4632,9 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
           }
         }
       }
+
     }
     catch (const std::exception &) {
-    }
-    // Remember what this read found: a push (`_brief`) reuses it instead of asking the cluster again.
-    {
-      std::lock_guard<std::mutex> lock(fMutex);
-      fRoomLive[name] = room;
     }
   }
   for (const auto & name : stale) {
@@ -4375,9 +4656,97 @@ void NRoomRouter::HandleList(const std::string & method, json & in, json & out)
     rooms = live;
   }
 
-  out["result"]           = "success";
-  out["payload"]["rooms"] = rooms;
-  out["payload"]["ttl"]   = fConfig.idleTtlSec;
+  // The capacity snapshot is shared for NDMSPC_ROOM_CAPACITY_TTL, but the room starts and stops that
+  // change what it can fit are exactly what a listing observes. When the active count moves, drop the
+  // snapshot before the idle rooms are weighed: a room that started must not leave the others reading
+  // idle - and Enter enabled - for the rest of the TTL, which is what a view coming back to the list
+  // saw. The next ProbeCapacity rebuilds it against the cluster as it is now.
+  long activeRooms = 0;
+  for (const auto & room : rooms) {
+    if (room.value("active", false)) activeRooms += 1;
+  }
+  {
+    std::lock_guard<std::mutex> lock(fCapacityMutex);
+    if (activeRooms != fListedActiveRooms) {
+      fListedActiveRooms = activeRooms;
+      fCapacityAt        = 0;
+    }
+    if (!brief && fCapacity.is_object()) {
+      // The snapshot is also only as current as the room pods it counted. A leaving pod that has gone
+      // (or a new one that has started leaving) changes what the idle rooms can fit, and the active
+      // count above does not move for it. Compare the rooms' terminating reservations with the ones
+      // the snapshot was built from and drop it when they differ.
+      // Bind the object before iterating: `value()` returns a temporary, and an `items()` proxy into
+      // it would outlive that temporary (the crash this replaces).
+      const json termByRoom      = fCapacity.value("terminatingByRoom", json::object());
+      json       cachedTerminating = json::object();
+      for (const auto & [service, held] : termByRoom.items()) {
+        if (service.rfind(fConfig.prefix, 0) != 0) continue;
+        cachedTerminating[service] = held;
+      }
+      if (cachedTerminating != servingTerminating) fCapacityAt = 0;
+    }
+  }
+  if (!brief) {
+    for (auto & room : rooms) {
+      const std::string name = room.value("name", "");
+      try {
+        // A room at zero is asleep: the next request into it is what wakes it, and this is where the
+        // router can say whether there is anywhere to wake it to - a pod an attempted wake left
+        // Pending, or a cluster whose free capacity cannot fit the room's size. Only asked of an idle
+        // room, and the capacity snapshot is cached, so a healthy list costs nothing extra. A room with
+        // no profile has no size to weigh, but a refused pod is still worth reporting (an older room,
+        // or a deployment that defines none).
+        const auto verdict    = unschedulableByRoom.find(name);
+        const bool hasVerdict = verdict != unschedulableByRoom.end();
+        if (room.contains("replicas") && room.value("replicas", 0) == 0 &&
+            (hasVerdict || !room.value("profile", std::string()).empty())) {
+          NRoomState state;
+          {
+            std::lock_guard<std::mutex> lock(fMutex);
+            const auto                  it = fRooms.find(name);
+            if (it != fRooms.end()) state = it->second;
+          }
+          const json capacity =
+              state.profile.empty() ? json::object() : ProbeCapacity(state.profile);
+          const json probe = WakeProbe(state, hasVerdict ? verdict->second : std::string(), capacity,
+                                       startingByRoom.count(name) > 0);
+          if (!probe.empty()) {
+            const bool wakeable = probe.value("wakeable", false);
+            room["wakeable"]      = wakeable;
+            room["wakeWaiting"]   = probe.value("wakeWaiting", false);
+            room["wakeCheckedAt"] = probe.value("checkedAt", 0L);
+            if (!wakeable) {
+              room["wakeError"] = probe.value("error", "");
+              // A refused pod means a wake is already in flight: the room is starting, not idle. The
+              // capacity prediction alone is an advisory, not a state: an idle room stays idle.
+              if (probe.value("waiting", false)) {
+                room["state"] = "pending";
+                room["error"] = probe.value("error", "");
+                room["code"]  = probe.value("code", std::string(kNoCapacity));
+              }
+            }
+          }
+        }
+      }
+      catch (const std::exception &) {
+      }
+      // Remember what this read found: a push (`_brief`) reuses it instead of asking the cluster again.
+      {
+        std::lock_guard<std::mutex> lock(fMutex);
+        fRoomLive[name] = room;
+      }
+    }
+  }
+
+  out["result"]              = "success";
+  out["payload"]["rooms"]    = rooms;
+  out["payload"]["ttl"]      = fConfig.idleTtlSec;
+  out["payload"]["pendingTtl"] = fConfig.pendingTtlSec;
+  // Which router process answered. A view polls through the route, but a socket can outlive a
+  // rollout on the old pod; the old and new registries can disagree (one still calls a room
+  // pending that the other has already converged), and a view that applied both would blink.
+  out["payload"]["instance"] = fRouterId;
   // Whether this caller was treated as an admin. A view can then say why the list is wider than the
   // caller's own rooms - or that it is not - without keeping a second copy of the admin list that
   // could drift from this one.
@@ -4457,15 +4826,25 @@ json Amounts(long cpuMillis, long bytes)
 }
 } // namespace
 
-void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & out)
+// What the cluster has to give, and what everything on it already reserves.
+//
+// The same payload serves ndmspc/room/capacity and the wake probe, so it is built here once and cached
+// for NDMSPC_ROOM_CAPACITY_TTL: reading every node and every pod is the expensive part, and a view - and
+// every idle room's probe - asks the same question over and over.
+json NRoomRouter::CapacityReport(bool force)
 {
-  NoteUi(in);
-  (void)in;
-  if (method.find("GET") == std::string::npos) {
-    out["result"] = "failure";
-    out["error"]  = "Unsupported HTTP method for room/capacity";
-    return;
+  if (!force && fConfig.capacityCacheSec > 0) {
+    std::lock_guard<std::mutex> lock(fCapacityMutex);
+    if (fCapacityAt > 0 && NdmspcRoomNow() - fCapacityAt < fConfig.capacityCacheSec) {
+      json cached     = fCapacity;
+      cached["cached"] = true;
+      return cached;
+    }
   }
+
+  // The handler's shape, so the body below stays the one place that reads the cluster's arithmetic.
+  json out;
+  out["payload"] = json::object();
 
   // What the cluster has to give: `allocatable` is the number the scheduler counts, and the ceiling
   // a room's requests have to fit under.
@@ -4507,7 +4886,14 @@ void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & o
   long        roomMem  = 0;
   long        roomLimCpu = 0;
   long        roomLimMem = 0;
+  long        termCpu    = 0;
+  long        termMem    = 0;
+  long        termLimCpu = 0;
+  long        termLimMem = 0;
+  long        termCount  = 0;
   json        byNode   = json::object();
+  json        termByNode = json::object();
+  json        termByService = json::object();
   std::map<std::string, bool> roomServices;
   const auto  pods = Request("GET", "/api/v1/pods");
   if (pods.status == 200) {
@@ -4518,7 +4904,21 @@ void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & o
         const std::string phase = pod.value("status", json::object()).value("phase", std::string());
         if (phase == "Succeeded" || phase == "Failed") continue;
 
-        const json spec = pod.value("spec", json::object());
+        const json        meta   = pod.value("metadata", json::object());
+        const std::string service = meta.value("labels", json::object()).value("serving.knative.dev/service", std::string());
+
+        // A pod on its way out still holds its reservation: the scheduler does not free it until it is
+        // gone, so no room - including the one it belongs to - can be placed in that space yet. It
+        // counts as `terminating`, which is what makes the blocked rooms read no capacity rather than
+        // idle until it has actually released the resources.
+        const bool terminating = meta.contains("deletionTimestamp");
+
+        const json        spec = pod.value("spec", json::object());
+        const std::string node = spec.value("nodeName", std::string());
+        // A pod the scheduler has not placed holds nothing: counting it would understate what is free,
+        // and it cannot block anything either. (A scheduled pod still counts while it is starting.)
+        if (node.empty()) continue;
+
         long       cpu  = 0;
         long       mem  = 0;
         AddResources(cpu, mem, spec.value("containers", json::array()), "requests");
@@ -4533,8 +4933,7 @@ void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & o
         limCpu += limCpuPerPod;
         limMem += limMemPerPod;
 
-        const std::string node = spec.value("nodeName", std::string());
-        if (!node.empty()) {
+        {
           const json held = byNode.value(node, json::object());
           // Both sides per node: what it reserves, and what it may reach. The second is what a fit by
           // ceilings has to subtract, the way the first is what a fit by reservations subtracts.
@@ -4544,12 +4943,28 @@ void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & o
                               {"limMemBytes", held.value("limMemBytes", 0L) + limMemPerPod}};
         }
 
+        if (terminating) {
+          ++termCount;
+          termCpu += cpu;
+          termMem += mem;
+          termLimCpu += limCpuPerPod;
+          termLimMem += limMemPerPod;
+          const json heldNode = termByNode.value(node, json::object());
+          termByNode[node] = json{{"cpuMillis", heldNode.value("cpuMillis", 0L) + cpu},
+                                  {"memBytes", heldNode.value("memBytes", 0L) + mem},
+                                  {"limCpuMillis", heldNode.value("limCpuMillis", 0L) + limCpuPerPod},
+                                  {"limMemBytes", heldNode.value("limMemBytes", 0L) + limMemPerPod}};
+          if (!service.empty()) {
+            const json heldService = termByService.value(service, json::object());
+            termByService[service] = Amounts(heldService.value("cpuMillis", 0L) + cpu,
+                                              heldService.value("memBytes", 0L) + mem);
+          }
+        }
+
         // The label Knative puts on a room's pods (and on the sidecar beside them): what the rooms
         // reserve, sidecars included - which is what a room really costs the cluster. The entry
         // Service is a Knative Service too, so a pod only counts as a room when the router named it
         // like one: counting the router itself would be a lie about what the rooms cost.
-        const std::string service =
-            pod.value("metadata", json::object()).value("labels", json::object()).value("serving.knative.dev/service", std::string());
         if (!service.empty() && service.rfind(fConfig.prefix, 0) == 0) {
           roomCpu += cpu;
           roomMem += mem;
@@ -4586,6 +5001,13 @@ void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & o
                                       {"limits", Amounts(roomLimCpu, roomLimMem)}};
     out["payload"]["other"]    = json{{"requests", Amounts(reqCpu - roomCpu, reqMem - roomMem)},
                                       {"limits", Amounts(limCpu - roomLimCpu, limMem - roomLimMem)}};
+    // The pods on their way out: their reservations are still held (the scheduler counts them), which
+    // is what makes another room wait rather than idle. `terminatingByRoom` names the Services, so a
+    // probe can tell its own leaving pod from the others'.
+    out["payload"]["terminating"] = json{{"count", termCount},
+                                         {"requests", Amounts(termCpu, termMem)},
+                                         {"limits", Amounts(termLimCpu, termLimMem)}};
+    if (!termByService.empty()) out["payload"]["terminatingByRoom"] = termByService;
   }
   if (nodesRead && podsRead) {
     out["payload"]["free"] = Amounts(std::max(0L, allocCpu - reqCpu), std::max(0L, allocMem - reqMem));
@@ -4626,28 +5048,30 @@ void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & o
 
     json        skeleton;
     std::string skeletonError;
-    json        fits = json::object();
+    json        fits      = json::object();
+    json        fitsNoTerm = json::object();
     if (Skeleton(skeleton, skeletonError)) {
       json byRequests = json::object();
       json byLimits   = json::object();
       // Bound to a name: `value()` returns a temporary, and a range-for over one iterates memory that
       // is already gone - it survives by luck in a test and segfaults in a release build.
       const json offered = skeleton.value("profiles", json::object());
+
+      // Each side against what it costs on that side: a room's reservations against the node's
+      // reservations-headroom, its ceilings against the node's ceilings-headroom.
+      const auto fit = [](long freeCpu, long freeMem, const json & ask) {
+        const long cpu = NRoomRouter::CpuMillis(ask.value("cpu", std::string()));
+        const long mem = NRoomRouter::Bytes(ask.value("memory", std::string()));
+        if (cpu <= 0 || mem <= 0) return json::object(); // a size that asks for nothing constrains nothing
+
+        const long byCpu = freeCpu / cpu;
+        const long byMem = freeMem / mem;
+        return json{{"count", std::min(byCpu, byMem)}, {"limitedBy", byCpu <= byMem ? "cpu" : "memory"}};
+      };
+
       for (const auto & profile : offered.items()) {
         std::string profileError;
         const json  declared = NRoomRouter::ProfileResources(skeleton, profile.key(), profileError);
-
-        // Each side against what it costs on that side: a room's reservations against the node's
-        // reservations-headroom, its ceilings against the node's ceilings-headroom.
-        const auto fit = [](long freeCpu, long freeMem, const json & ask) {
-          const long cpu = NRoomRouter::CpuMillis(ask.value("cpu", std::string()));
-          const long mem = NRoomRouter::Bytes(ask.value("memory", std::string()));
-          if (cpu <= 0 || mem <= 0) return json::object(); // a size that asks for nothing constrains nothing
-
-          const long byCpu = freeCpu / cpu;
-          const long byMem = freeMem / mem;
-          return json{{"count", std::min(byCpu, byMem)}, {"limitedBy", byCpu <= byMem ? "cpu" : "memory"}};
-        };
 
         const json requested = fit(bestCpu, bestMem, declared.value("requests", json::object()));
         if (!requested.empty()) byRequests[profile.key()] = requested;
@@ -4658,14 +5082,168 @@ void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & o
       if (!byRequests.empty() || !byLimits.empty()) {
         fits = json{{"requests", byRequests}, {"limits", byLimits}};
       }
+
+      // The same arithmetic with the terminating pods' reservations given back: a room that does not fit
+      // now but would fit once they are gone is **waiting for them**, not out of room. The probe uses
+      // this to say so, and the room then reads waiting rather than idle.
+      if (termCount > 0) {
+        long bestCpuNo = 0;
+        long bestMemNo = 0;
+        long bestLimCpuNo = 0;
+        long bestLimMemNo = 0;
+        for (const auto & node : perNode) {
+          const std::string name = node.value("name", std::string());
+          const json        used = byNode.value(name, json::object());
+          const json        term = termByNode.value(name, json::object());
+          const long usedCpu = std::max(0L, used.value("cpuMillis", 0L) - term.value("cpuMillis", 0L));
+          const long usedMem = std::max(0L, used.value("memBytes", 0L) - term.value("memBytes", 0L));
+          const long usedLimCpu =
+              std::max(0L, used.value("limCpuMillis", 0L) - term.value("limCpuMillis", 0L));
+          const long usedLimMem =
+              std::max(0L, used.value("limMemBytes", 0L) - term.value("limMemBytes", 0L));
+          const long allocCpu = node["allocatable"].value("cpuMillis", 0L);
+          const long allocMem = node["allocatable"].value("memBytes", 0L);
+          bestCpuNo    = std::max(bestCpuNo, std::max(0L, allocCpu - usedCpu));
+          bestMemNo    = std::max(bestMemNo, std::max(0L, allocMem - usedMem));
+          bestLimCpuNo = std::max(bestLimCpuNo, std::max(0L, allocCpu - usedLimCpu));
+          bestLimMemNo = std::max(bestLimMemNo, std::max(0L, allocMem - usedLimMem));
+        }
+
+        json byRequestsNo = json::object();
+        json byLimitsNo   = json::object();
+        for (const auto & profile : offered.items()) {
+          std::string profileError;
+          const json  declared = NRoomRouter::ProfileResources(skeleton, profile.key(), profileError);
+          const json  requested = fit(bestCpuNo, bestMemNo, declared.value("requests", json::object()));
+          if (!requested.empty()) byRequestsNo[profile.key()] = requested;
+          const json limited = fit(bestLimCpuNo, bestLimMemNo, declared.value("limits", json::object()));
+          if (!limited.empty()) byLimitsNo[profile.key()] = limited;
+        }
+        if (!byRequestsNo.empty() || !byLimitsNo.empty()) {
+          fitsNoTerm = json{{"requests", byRequestsNo}, {"limits", byLimitsNo}};
+        }
+      }
     }
     if (!fits.empty()) out["payload"]["fits"] = fits;
+    if (!fitsNoTerm.empty()) out["payload"]["fitsWithoutTerminating"] = fitsNoTerm;
   }
 
   // Whether these numbers cover the whole cluster. They are gathered from what this router is allowed
   // to read, so a missing permission answers with less rather than with something invented - the same
   // rule that keeps a room working when pods cannot be listed.
-  out["payload"]["complete"] = nodesRead && podsRead;
+  out["payload"]["complete"]  = nodesRead && podsRead;
+  out["payload"]["checkedAt"] = NdmspcRoomNow();
+  out["payload"]["cached"]    = false;
+
+  {
+    std::lock_guard<std::mutex> lock(fCapacityMutex);
+    fCapacity   = out["payload"];
+    fCapacityAt = out["payload"]["checkedAt"].get<long>();
+  }
+  return out["payload"];
+}
+
+json NRoomRouter::ProbeCapacity(const std::string & profile)
+{
+  json capacity = CapacityReport(/*force=*/false);
+  if (profile.empty() || !capacity.value("complete", false)) return capacity;
+
+  const json fit = capacity.value("fits", json::object())
+                       .value("requests", json::object())
+                       .value(profile, json::object());
+  if (fit.empty() || fit.value("count", 1L) > 0) return capacity;
+
+  // It says nothing fits. That is the answer a view turns into "no capacity", and it is exactly the
+  // answer that goes stale seconds after a room goes idle - so a snapshot older than this is rebuilt
+  // before it is believed. Bounded on purpose: a genuinely full cluster rebuilds once per window, not
+  // once per idle room.
+  constexpr long kProbeFreshSec = 5;
+  const long     checkedAt      = capacity.value("checkedAt", 0L);
+  if (checkedAt > 0 && NdmspcRoomNow() - checkedAt < kProbeFreshSec) return capacity;
+  return CapacityReport(/*force=*/true);
+}
+
+void NRoomRouter::HandleCapacity(const std::string & method, json & in, json & out)
+{
+  NoteUi(in);
+  (void)in;
+  if (method.find("GET") == std::string::npos) {
+    out["result"] = "failure";
+    out["error"]  = "Unsupported HTTP method for room/capacity";
+    return;
+  }
+
+  // Always fresh: this is an explicit question about the cluster as it stands, and the answer is what a
+  // capacity panel shows. The cached snapshot is for the wake probe, which asks on every list and
+  // status read of every idle room - an implicit question that can afford to be seconds old.
+  out["result"]  = "success";
+  out["payload"] = CapacityReport(/*force=*/true);
+}
+
+// Whether an idle room could be started now, and why not when it could not.
+//
+// The room itself is never asked: a request of the router's own would wake it, which is exactly what
+// this is trying to predict. A pod the scheduler has already refused wins when one exists (a wake that
+// was tried and is stuck Pending); otherwise the cluster's free capacity is weighed against the room's
+// profile - the same arithmetic ndmspc/room/capacity reports as `fits`, cached for the same TTL.
+json NRoomRouter::WakeProbe(const NRoomState & room, const std::string & unschedulable, const json & capacity,
+                            bool starting)
+{
+  if (!fConfig.wakeProbe) return json::object();
+
+  json probe;
+  probe["checkedAt"] = NdmspcRoomNow();
+
+  if (!unschedulable.empty()) {
+    probe["wakeable"] = false;
+    probe["waiting"]  = true; // a wake was tried and its pod is stuck: the room is starting, not idle
+    probe["code"]     = kNoCapacity;
+    probe["error"]    = NRoomRouter::UnschedulableError(unschedulable);
+    return probe;
+  }
+
+  // A room with no size of its own declares no requests, so no capacity arithmetic can say whether it
+  // fits: leave the answer out rather than invent one.
+  if (room.profile.empty()) return json::object();
+
+  // Only a complete snapshot can answer: half the cluster's numbers would make "nothing fits" a lie.
+  if (!capacity.value("complete", false)) return json::object();
+
+  const json fits = capacity.value("fits", json::object()).value("requests", json::object());
+  const json fit  = fits.value(room.profile, json::object());
+  if (fit.empty()) return json::object();
+
+  const long count = fit.value("count", 0L);
+  probe["wakeable"] = count > 0;
+  if (count <= 0) {
+    // The room still has a pod of its own that the scheduler has placed but is not running yet: the
+    // arithmetic is counting it against the room it belongs to, so it cannot be the reason to call the
+    // room unstartable (that pod *is* the start).
+    if (starting) {
+      probe["wakeable"] = true;
+      return probe;
+    }
+    // The room would fit once the pods on their way out are gone: it is waiting for **other** rooms to
+    // finish terminating, not out of room. That is a wait to show as waiting, not an idle room.
+    const json noTerm = capacity.value("fitsWithoutTerminating", json::object())
+                            .value("requests", json::object())
+                            .value(room.profile, json::object());
+    if (noTerm.value("count", 0L) > 0) {
+      probe["wakeable"]    = false;
+      // Held by pods on their way out, not a start in flight: the room is still idle and cannot be
+      // entered - no capacity - so it must not be reported as pending/waiting. The reason says why.
+      probe["wakeWaiting"] = true;
+      probe["code"]        = kNoCapacity;
+      probe["error"]       = "waiting for pods to finish terminating - the cluster has room once they "
+                             "are gone";
+      return probe;
+    }
+    probe["code"]  = kNoCapacity;
+    probe["error"] = "no node has room for a '" + room.profile + "' room right now (" +
+                     fit.value("limitedBy", std::string("capacity")) +
+                     " is what runs out) - it starts by itself once capacity frees";
+  }
+  return probe;
 }
 
 // ===========================================================================

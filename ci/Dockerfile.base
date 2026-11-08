@@ -38,7 +38,7 @@ RUN mkdir -p /usr/share/ndmspc && \
 FROM docker.io/library/almalinux:10
 ARG MY_USER=user
 # Everything that touches the filesystem in this stage lives in one layer: repo
-# setup, package install, tini, and the user. (dnf clean all already empties
+# setup, package install, the container init, and the user. (dnf clean all already empties
 # /var/cache/dnf, so no separate wipe; a separate useradd layer would each be a
 # full filesystem copy under the CI's vfs storage driver.) ENV is image config, not
 # a layer, so setting ROOT_INCLUDE_PATH here afterwards costs nothing.
@@ -52,10 +52,17 @@ RUN --mount=type=bind,from=builder,source=/builder/build/RPMS/x86_64,target=/rpm
   dnf config-manager --set-enabled crb && \
   dnf copr enable ndmspc/stable -y && \
   dnf install -y /rpms/ndmspc*.rpm && \
+  # A container init from the distribution rather than a GitHub release (which is what made this
+  # build fail on a network hiccup): catatonit is in AlmaLinux 10's AppStream (its binary is under
+  # /usr/libexec); AlmaLinux 9's base repositories have neither, and its EPEL - enabled just above -
+  # provides tini. Both take `-- COMMAND`, so one alias gives the image a stable entrypoint.
+  { dnf install -y catatonit 2>/dev/null || dnf install -y tini; } && \
+  init=""; \
+  for candidate in /usr/bin/catatonit /usr/libexec/catatonit/catatonit /usr/bin/tini; do \
+    if [ -x "$candidate" ]; then init="$candidate"; break; fi; \
+  done; \
+  test -n "$init" && ln -sf "$init" /usr/bin/container-init && \
   dnf clean all && \
-  TINI_VERSION=v0.19.0 && \
-  curl -fsSL https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini -o /usr/bin/tini && \
-  chmod +x /usr/bin/tini && \
   groupadd -g 1000 ${MY_USER} && \
   useradd -u 1000 -g ${MY_USER} -m -s /bin/bash ${MY_USER} && \
   mkdir -p /ndmspc && \
@@ -73,5 +80,7 @@ RUN ndmspc-tutorials
 
 # Copy only the React build from Stage 1
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# catatonit (Alma 10) or tini (Alma 9 via EPEL), whichever the release carries: both reap zombies
+# and forward signals, and both run the CMD after `--`.
+ENTRYPOINT ["/usr/bin/container-init", "--"]
 CMD [ "/bin/bash","-c","ndmspc-server -m /usr/share/ndmspc/macros/tools/toolNgnt.C,toolBrowser.C --html /usr/share/ndmspc/ndmspc-ui" ]
