@@ -557,7 +557,8 @@ class NHttpServer : public THttpServer {
    *
    * The control requests are `POST /api/cancel` (stop a running action), `POST /api/upload`
    * (bring a file into the room, chunk by chunk), `GET /api/files` (list them), `GET /api/download`
-   * (read one back) and `POST /api/delete` (remove one). They are answered here rather than through
+   * (read one back), `GET|HEAD /api/file` (read one as a stream the client can range over; refused
+   * when `NDMSPC_FILE_URL` is off) and `POST /api/delete` (remove one). They are answered here rather than through
    * {@link RunAction}: the worker is busy with the very action being cancelled, so a cancel would
    * queue behind it. The request thread is free (the action runs on the worker), which is what makes
    * a cancel arrive while the action runs. The websocket bridge is not used for this: ROOT delivers a
@@ -796,10 +797,23 @@ class NHttpServer : public THttpServer {
    */
   void                                          ForgetPads(const std::string & key);
 
-  /// @brief Enable or disable the MCP endpoint (POST /api/mcp). Disabled by default.
+  /// @brief Enable or disable MCP endpoint (POST /api/mcp). Disabled by default.
   void SetMcpEnabled(bool enabled) { fMcpEnabled = enabled; }
   /// @brief Whether the MCP endpoint (POST /api/mcp) is enabled.
   bool IsMcpEnabled() const { return fMcpEnabled; }
+
+  /**
+   * @brief Enable or disable naming a stored file by URL.
+   *
+   * When on (the default), `GET|HEAD /api/file` serves a file from the room's working directory and
+   * `GET /api/files`, the exported macro and the dialog previews name such a file by that URL. When
+   * off, the endpoint refuses and every name is written as it stands - a deployment that does not want
+   * its storage reachable by link. `NDMSPC_FILE_URL=0` (or `--file-url false`) turns it off; the
+   * local `currentdir/` shortcut is removed either way.
+   */
+  void SetFileUrlEnabled(bool enabled) { fFileUrlEnabled = enabled; }
+  /// @brief Whether a stored file is named by URL (see {@link SetFileUrlEnabled}).
+  bool IsFileUrlEnabled() const { return fFileUrlEnabled; }
 
   /// @brief The access tokens this room was started with (empty when it was given none).
   json RoomAccessTokens() const;
@@ -837,6 +851,37 @@ class NHttpServer : public THttpServer {
    * @return The full URL, with the token in the query when there is one.
    */
   static std::string RoomStateUrl(const std::string & base, const std::string & token);
+  /**
+   * @brief The URL a stored file can be read from, for a client that is not this room.
+   *
+   * A macro a room hands out has to name its file in a way a laptop can read: a bare name is a file
+   * in the room's working directory, which no other machine has. This is the address of that file on
+   * this deployment's `/api/file` endpoint - token-gated and streamed with HTTP ranges, so ROOT reads
+   * it like any other remote file (see {@link HandleControlRequest}).
+   *
+   * It returns "" whenever a URL cannot be built or is not needed: the name already carries a
+   * scheme, or it names no visible regular file in the room's working directory.
+   *
+   * @param name A file name in the room's working directory, or any path already carrying a scheme.
+   * @param base The address clients reach this server on, when the caller knows it (a request's own
+   *             scheme and host, see {@link RequestBase}). Empty falls back on `NDMSPC_ROOM_URL_BASE`,
+   *             which is what a room is told by the router; a server run on its own has no such
+   *             setting and passes its request's base instead.
+   * @return The full URL, or "" when the caller should keep the name as it is.
+   */
+  std::string FileUrl(const std::string & name, const std::string & base = std::string()) const;
+  /**
+   * @brief The scheme and host a request was addressed to (`https://host:port`), or "".
+   *
+   * A server run outside Kubernetes is reached at whatever address its client used, so that is the
+   * only base a URL it hands out can carry. `X-Forwarded-Proto`/`X-Forwarded-Host` win when a front
+   * door set them (that is the address the client really used); otherwise the `Host` header and
+   * `http`. The value is validated - a `Host` is client-supplied, and it ends up inside a macro.
+   *
+   * @param arg The request (a null pointer yields "").
+   * @return The base URL without a trailing slash, or "" when the request names no usable host.
+   */
+  static std::string RequestBase(THttpCallArg * arg);
   /**
    * @brief A request header's value, matched without regard to letter case.
    *
@@ -1040,6 +1085,15 @@ class NHttpServer : public THttpServer {
   mutable std::mutex fRoomMutex;              ///<! Guards the room-session fields below
   std::string        fRoomId;                 ///<! NDMSPC_ROOM: set when this server is a room
   std::string        fRoomStateUrl;           ///<! NDMSPC_ROOM_STATE_URL: the router to report to
+  /// NDMSPC_ROOM_URL_BASE / NDMSPC_ROOM_PARAM: what the router told this room about the address
+  /// clients reach it on, so a macro it writes can name a stored file by URL (see FileUrl).
+  std::string        fRoomUrlBase;            ///<! NDMSPC_ROOM_URL_BASE: the deployment's public base
+  std::string        fRoomParam{"room"};      ///<! NDMSPC_ROOM_PARAM: the query parameter that routes a room
+  /// The last address a plain HTTP request was made to (see RequestBase): a request bridged from a
+  /// websocket carries no Host, and a server run on its own has no configured base, so this is what
+  /// lets an action asked for over the socket still name a file by URL.
+  std::string fRequestBase;                   ///<! Last scheme+host a request was addressed to
+  bool               fFileUrlEnabled{true};   ///<! NDMSPC_FILE_URL: name a stored file by URL (on by default)
   // Copy-initialised on purpose: `json fRoomAccess{json::object()}` would call the initializer-list
   // constructor and store `[{}]` - a *non-empty* array, which read as "this room enforces access"
   // on every server, router included.
@@ -1055,7 +1109,7 @@ class NHttpServer : public THttpServer {
   long               fRoomRestoreNextTrySec{0}; ///<! Cooldown before retrying a failed fetch
 
   /// \cond CLASSIMP
-  ClassDefOverride(NHttpServer, 3);
+  ClassDefOverride(NHttpServer, 4);
   /// \endcond;
 };
 

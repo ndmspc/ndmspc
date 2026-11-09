@@ -771,7 +771,9 @@ void toolNgnt()
                               .inputSchema = {{"properties",
                                                {{"file",
                                                  {{"type", "string"},
-                                                  {"description", "Path to the NGnTree ROOT file to open (POST only)."},
+                                                  {"description",
+                                                   "Path to the NGnTree ROOT file to open (POST only): a name in the "
+                                                   "room's working directory, or an http(s) URL."},
                                                   {"default", "NSingleBinning01Gaus.root"}}}}}},
                               .order       = 1,
                               .label       = "{{ file }}",

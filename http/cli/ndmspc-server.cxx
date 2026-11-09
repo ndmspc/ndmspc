@@ -379,6 +379,17 @@ int main(int argc, char ** argv)
                  "Serve the WebSocket endpoint (/ws/root.websocket); enabled by default "
                  "(--ws false or NDMSPC_WS=0 serves no websocket at all)")
       ->default_val(withWs ? "true" : "false");
+  // Naming a stored file by URL: on by default, so a macro a room writes can fetch its file from a
+  // laptop (GET /api/file). Off writes every name as it stands; the local currentdir/ shortcut is
+  // removed either way.
+  bool withFileUrl = true;
+  if (const char * fileUrlEnv = std::getenv("NDMSPC_FILE_URL"); fileUrlEnv != nullptr && *fileUrlEnv != '\0') {
+    withFileUrl = Ndmspc::NUtils::ParseBoolEnv(fileUrlEnv);
+  }
+  app.add_option("--file-url", withFileUrl,
+                 "Name a stored file by URL (GET /api/file, exported macros and dialog previews); "
+                 "enabled by default (--file-url false or NDMSPC_FILE_URL=0 turns it off)")
+      ->default_val(withFileUrl ? "true" : "false");
   // Room router: off unless asked for. It registers the framework's NRoomRouter, which serves
   // /api/ndmspc/room/* and creates one Knative Service per room.
   bool withRooms = false;
@@ -402,7 +413,7 @@ int main(int argc, char ** argv)
   AddX509Options(&app, x509Config);
 
   app.callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp,
-                &withRooms, &withWs, &oidcConfig, &x509Config, &httpThreads, &catalogPath]() {
+                &withFileUrl, &withRooms, &withWs, &oidcConfig, &x509Config, &httpThreads, &catalogPath]() {
     gROOT->SetBatch(batch);
     PrepareOidcConfig(oidcConfig, x509Config);
 
@@ -431,6 +442,7 @@ int main(int argc, char ** argv)
 
     serv->SetUseHistory(!noHistory);
     serv->SetMcpEnabled(withMcp);
+    serv->SetFileUrlEnabled(withFileUrl);
     if (withMcp) NLogInfo("MCP endpoint enabled (POST /api/mcp)");
     serv->SetCors("*");
     if (htmlDir.empty()) {

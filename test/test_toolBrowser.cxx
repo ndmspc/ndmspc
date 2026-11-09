@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -40,6 +41,30 @@
 namespace {
 
 using Ndmspc::Test::ToolHarness;
+
+/// @brief Sets an environment variable for one test and restores it afterwards.
+class EnvGuard {
+  public:
+  EnvGuard(const char * name, const char * value) : fName(name)
+  {
+    if (const char * old = std::getenv(name); old != nullptr) {
+      fHad = true;
+      fOld = old;
+    }
+    if (value != nullptr) ::setenv(name, value, 1);
+    else ::unsetenv(name);
+  }
+  ~EnvGuard()
+  {
+    if (fHad) ::setenv(fName.c_str(), fOld.c_str(), 1);
+    else ::unsetenv(fName.c_str());
+  }
+
+  private:
+  std::string fName;
+  std::string fOld;
+  bool        fHad{false};
+};
 
 /// The macro under test, resolved by the test build.
 constexpr const char * kToolMacro = NDMSPC_TOOL_BROWSER_MACRO;
@@ -1607,6 +1632,60 @@ TEST_F(ToolBrowser, TheImportRunsWithTheProcessesTheFormAsksFor)
   gSystem->Unsetenv("NDMSPC_MAX_PROCESSES");
   EXPECT_EQ(Ndmspc::NLogger::GetRunOutput(), runOutputWas);
 
+  std::remove(out.c_str());
+}
+
+/**
+ * Both dialog previews name a stored file by the **room's URL**, because a preview is downloaded and
+ * run somewhere else - a bare name is a file only the room has. The run keeps reading the room's own
+ * file, which is what this also pins.
+ */
+TEST_F(ToolBrowser, ThePreviewNamesAStoredFileByItsUrl)
+{
+  EnvGuard room("NDMSPC_ROOM", "test-room");
+  EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+  EnvGuard base("NDMSPC_ROOM_URL_BASE", "https://ndmspc.example.org");
+  EnvGuard param("NDMSPC_ROOM_PARAM", "room");
+
+  // A harness of its own: the room's environment is read when its server is constructed.
+  ToolHarness tool(kToolMacro);
+  tool.Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  const std::string url =
+      "https://ndmspc.example.org/api/file?room=test-room&token=roTok&name=" + std::string(kFile);
+  const std::string local = "\"" + std::string(kFile) + "\"";
+
+  const auto imported = tool.Call(
+      "ndmspc/rbrowser/macro", "POST",
+      json{{"for", "ndmspc/rbrowser/import"},
+           {"key", "hns"},
+           {"axes", json::array({"mass"})},
+           {"projections", json::array({json::array({0})})},
+           {"outputFile", "/tmp/preview_url_ngnt.root"}});
+  ASSERT_EQ(imported.reply.value("result", std::string()), "success") << imported.reply.dump();
+  const std::string importMacro = imported.reply["macro"].get<std::string>();
+  EXPECT_NE(importMacro.find(url), std::string::npos) << importMacro;
+  EXPECT_EQ(importMacro.find(local), std::string::npos) << importMacro;
+
+  const auto projected = tool.Call(
+      "ndmspc/rbrowser/macro", "POST",
+      json{{"for", "ndmspc/rbrowser/project"},
+           {"key", "hns"},
+           {"axes", json::array({json{{"axis", "mass"}, {"use", true}, {"min", 0}, {"max", 1}, {"rebin", 1}}})}});
+  ASSERT_EQ(projected.reply.value("result", std::string()), "success") << projected.reply.dump();
+  const std::string projectMacro = projected.reply["macro"].get<std::string>();
+  EXPECT_NE(projectMacro.find("TFile::Open(\"" + url + "\")"), std::string::npos) << projectMacro;
+  EXPECT_EQ(projectMacro.find(local), std::string::npos) << projectMacro;
+
+  // The run is untouched: it still reads the room's own file (only the preview text changed).
+  const std::string out = "/tmp/preview_url_run_ngnt.root";
+  std::remove(out.c_str());
+  const auto run = tool.Call("ndmspc/rbrowser/import", "POST",
+                             json{{"key", "hns"},
+                                  {"axes", json::array({"mass"})},
+                                  {"projections", json::array({json::array({0})})},
+                                  {"outputFile", out}});
+  ASSERT_EQ(run.reply.value("result", std::string()), "success") << run.reply.dump();
   std::remove(out.c_str());
 }
 

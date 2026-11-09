@@ -131,6 +131,55 @@ std::string SanitizeRoomFileName(const std::string & raw)
   return clean;
 }
 
+/// @brief Whether a name is one the room makes public: not a dotfile.
+///
+/// `/api/files` lists no dotfile, and the bytes behind a name are what a stranger would read, so a
+/// half-upload (".name.part") and anything else hidden from the listing is not reachable either -
+/// otherwise a name nobody can see would still be readable. Used by everything that turns a name
+/// into a path or a URL (download, /api/file, FileUrl).
+bool IsVisibleRoomFileName(const std::string & name)
+{
+  return !name.empty() && name[0] != '.';
+}
+
+/// @brief Whether a file name carries an extension a browser would render as a document.
+///
+/// A stored file is served by civetweb, which types it from its extension and ignores the content
+/// type the handler sets. An uploaded `.html` would then run as a page on this origin, carrying the
+/// room's cookie - a script inside the room rather than a file handed out of it. Such a file is
+/// still downloadable (`/api/download`, which is always an attachment), just not served inline.
+bool IsDocumentName(const std::string & name)
+{
+  const auto pos = name.find_last_of('.');
+  if (pos == std::string::npos) return false;
+  std::string extension = name.substr(pos);
+  for (char & c : extension) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+  return extension == ".html" || extension == ".htm" || extension == ".shtm" || extension == ".shtml" ||
+         extension == ".xhtml" || extension == ".svg" || extension == ".xml" || extension == ".xsl" ||
+         extension == ".xslt";
+}
+
+/// @brief Whether @p path is a regular file that is really inside @p root.
+///
+/// The name is already a single, sanitised path element, so this closes the one way it could still
+/// lead elsewhere: a symlink planted in the room's working directory pointing at something the room
+/// may read but not serve (`/etc/passwd`, a mounted secret). Both sides are canonicalised first, so
+/// a symlinked *working directory* still resolves, and only the file itself is refused.
+bool IsServableRoomFile(const std::string & root, const std::string & path)
+{
+  std::error_code ec;
+  if (!std::filesystem::is_regular_file(path, ec)) return false;
+
+  const std::filesystem::path realRoot = std::filesystem::weakly_canonical(root, ec);
+  if (ec) return false;
+  const std::filesystem::path realFile = std::filesystem::weakly_canonical(path, ec);
+  if (ec) return false;
+
+  const auto relative = realFile.lexically_relative(realRoot);
+  if (relative.empty() || relative == ".") return false;
+  return *relative.begin() != "..";
+}
+
 /// @brief The bytes held by the regular, non-dotfile entries of a directory, skipping one name.
 ///
 /// The same set `GET /api/files` lists: half-uploads (dotfiles) and directories do not count. The
@@ -155,6 +204,15 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcCo
     : THttpServer(startEngine ? engine : ""), fWsEnabled(ws), fHeartbeatMs(heartbeat_ms),
       fHeartbeatDefaultMs(heartbeat_ms > 0 ? heartbeat_ms : 10000), fHeartbeatThread(nullptr)
 {
+  // ROOT registers its own file locations in the THttpServer constructor, and civetweb resolves them
+  // before any request reaches this class: "currentdir/" is the room's working directory - its whole
+  // storage - and "rootsys/" the ROOT tree, both served with no room-token check at all. A room's
+  // files are reachable through /api/file instead, which is gated and ranged (see HandleControlRequest).
+  // Guarded because AddLocation(prefix, nullptr) erases unconditionally (erase(end()) if absent).
+  TString probe;
+  if (IsFileRequested("/currentdir/.", probe)) AddLocation("currentdir/", nullptr);
+  if (IsFileRequested("/rootsys/.", probe)) AddLocation("rootsys/", nullptr);
+
   const auto authenticationTimeout = oidcConfig.authenticationTimeout;
   fAuthenticationTimeout = authenticationTimeout;
 
@@ -184,6 +242,23 @@ NHttpServer::NHttpServer(const char * engine, bool ws, int heartbeat_ms, NOidcCo
     fRoomStateUrl = stateUrl;
   }
   while (!fRoomStateUrl.empty() && fRoomStateUrl.back() == '/') fRoomStateUrl.pop_back();
+
+  // Where clients reach this room, so a macro it writes can name a stored file by URL (see FileUrl).
+  // The router knows the deployment's public base and the parameter it routes rooms by; a room run
+  // on its own has neither, and keeps handing out plain names.
+  if (const char * urlBase = std::getenv("NDMSPC_ROOM_URL_BASE"); urlBase != nullptr) {
+    fRoomUrlBase = urlBase;
+    while (!fRoomUrlBase.empty() && fRoomUrlBase.back() == '/') fRoomUrlBase.pop_back();
+  }
+  if (const char * roomParam = std::getenv("NDMSPC_ROOM_PARAM"); roomParam != nullptr && *roomParam != '\0') {
+    fRoomParam = roomParam;
+  }
+  // Whether a stored file may be named by URL at all (see SetFileUrlEnabled). On unless turned off,
+  // so a room's macro is usable from a laptop by default; the switch is for deployments that do not
+  // want their storage reachable by link.
+  if (const char * fileUrl = std::getenv("NDMSPC_FILE_URL"); fileUrl != nullptr && *fileUrl != '\0') {
+    fFileUrlEnabled = NUtils::ParseBoolEnv(fileUrl);
+  }
 
   if (!fRoomId.empty() && !fRoomStateUrl.empty()) {
     NLogInfo("Room '%s' reports its session to %s", fRoomId.c_str(), fRoomStateUrl.c_str());
@@ -258,6 +333,76 @@ std::string NHttpServer::RoomAccessToken() const
   std::lock_guard<std::mutex> lock(fRoomMutex);
   if (!fRoomAccess.is_object()) return {};
   return fRoomAccess.value(NRoomAccess::kReadWrite, std::string());
+}
+
+std::string NHttpServer::FileUrl(const std::string & name, const std::string & base) const
+{
+  // Turned off: every name stays a name (see SetFileUrlEnabled).
+  if (!fFileUrlEnabled) return {};
+
+  // A name that already says where it lives (a local path the client brought, an xrootd or http
+  // URL) is left alone; so is anything the room cannot serve as one of its own files.
+  if (name.empty() || name.find("://") != std::string::npos) return {};
+  if (SanitizeRoomFileName(name) != name || !IsVisibleRoomFileName(name) || IsDocumentName(name)) return {};
+
+  std::string addr, param, roomId, token;
+  {
+    std::lock_guard<std::mutex> lock(fRoomMutex);
+    // Priority: a deployment that configured its base knows best (a request's Host is client-supplied
+    // and must not override it - the URL carries a token), then the caller's own address, then the
+    // last one any plain HTTP request was made to (a websocket-bridged request has none).
+    if (!fRoomUrlBase.empty()) addr = fRoomUrlBase;
+    else if (!base.empty()) addr = base;
+    else addr = fRequestBase;
+    param  = fRoomParam.empty() ? "room" : fRoomParam;
+    roomId = fRoomId;
+    if (fRoomAccess.is_object()) token = fRoomAccess.value(NRoomAccess::kReadOnly, std::string());
+  }
+  if (addr.empty()) return {};
+  while (!addr.empty() && addr.back() == '/') addr.pop_back();
+
+  // Only a file this room actually holds: a name it cannot serve as a stream is not turned into a
+  // URL, so a macro never points at an endpoint that would answer "not found".
+  const std::string cwd = gSystem->pwd();
+  if (!IsServableRoomFile(cwd, cwd + "/" + name)) return {};
+
+  // The room parameter is what the gateway routes on; a server run on its own has no room id and
+  // gets a plain endpoint URL instead.
+  std::string query;
+  auto        add = [&query](const std::string & entry) {
+    if (!query.empty()) query += "&";
+    query += entry;
+  };
+  if (!roomId.empty()) add(param + "=" + roomId);
+  if (!token.empty()) add(std::string(NRoomAccess::kParam) + "=" + token);
+  add("name=" + name);
+  return addr + "/api/file?" + query;
+}
+
+std::string NHttpServer::RequestBase(THttpCallArg * arg)
+{
+  if (arg == nullptr) return {};
+
+  // A front door is the one that knows the address the client really used; a server behind a TLS
+  // terminator or a Knative queue-proxy would otherwise name itself by its internal host.
+  std::string proto = RequestHeader(arg, "X-Forwarded-Proto");
+  std::string host  = RequestHeader(arg, "X-Forwarded-Host");
+  if (host.empty()) host = RequestHeader(arg, "Host");
+  if (host.empty()) return {};
+  if (proto != "https" && proto != "http") proto = "http";
+
+  // A Host is client-supplied and it lands inside a macro that is then run elsewhere, so only a
+  // plausible host[:port] is accepted - no scheme, no path, no query, nothing to break out of the
+  // string it is written into.
+  if (host.find_first_of(" \t/\\?#\"'<>@") != std::string::npos) return {};
+  for (const char c : host) {
+    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == ':' || c == '-' || c == '[' || c == ']')) {
+      return {};
+    }
+  }
+  if (host.front() == '.' || host.back() == '.' || host == "::") return {};
+
+  return proto + "://" + host;
 }
 
 std::string NHttpServer::RoomStateUrl(const std::string & base, const std::string & token)
@@ -1694,7 +1839,8 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
   const TString path = arg->GetPathName();
   const TString file = arg->GetFileName();
   if (path != "api" ||
-      (file != "cancel" && file != "upload" && file != "files" && file != "download" && file != "delete"))
+      (file != "cancel" && file != "upload" && file != "files" && file != "download" && file != "file" &&
+       file != "delete"))
     return false;
 
   const std::string level =
@@ -1837,6 +1983,10 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
       json item;
       item["name"]     = name;
       item["path"]     = entry.path().string();
+      // The same address a macro uses for this file, so Storage can hand it out (omitted when the
+      // room cannot name itself: there is no URL to give then).
+      const std::string url = FileUrl(name, RequestBase(arg.get()));
+      if (!url.empty()) item["url"] = url;
       item["size"]     = size;
       item["modified"] = static_cast<long long>(std::chrono::system_clock::to_time_t(sctp));
       list.push_back(item);
@@ -1862,7 +2012,8 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
     const std::string clean = SanitizeRoomFileName(param("name"));
     const std::string path  = std::string(gSystem->pwd()) + "/" + clean;
     std::ifstream     in(clean.empty() ? "" : path.c_str(), std::ios::binary);
-    if (clean.empty() || !in.good()) {
+    if (clean.empty() || !IsVisibleRoomFileName(clean) || !in.good() ||
+        !IsServableRoomFile(gSystem->pwd(), path)) {
       arg->SetContentType("application/json");
       arg->SetContent(json{{"result", "failure"}, {"code", "not_found"}, {"error", "file not found"}}.dump());
       return true;
@@ -1871,6 +2022,51 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
     arg->SetContentType("application/octet-stream");
     arg->AddHeader("Content-Disposition", ("attachment; filename=\"" + clean + "\"").c_str());
     arg->SetContent(std::move(bytes));
+    return true;
+  }
+
+  // Read one of the room's files as a **stream**, which is what a ROOT file access plugin opens by
+  // URL. Answered with arg->SetFile, so civetweb sends it through mg_send_mime_file: Content-Length,
+  // Accept-Ranges and 206 Partial Content, streamed from disk. A buffered 200 (what /api/download
+  // does) would make ROOT read the whole file into memory on its first byte-range request.
+  if (file == "file") {
+    if (!fFileUrlEnabled) {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"},
+                           {"code", "disabled"},
+                           {"error", "serving a stored file by URL is turned off (NDMSPC_FILE_URL=0)"}}
+                          .dump());
+      return true;
+    }
+    const char *      verb   = arg->GetMethod();
+    const std::string method = verb != nullptr ? verb : "";
+    if (method != "GET" && method != "HEAD") {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"},
+                           {"code", "method_not_allowed"},
+                           {"error", "a stored file is only read, so use GET"}}
+                          .dump());
+      return true;
+    }
+    const std::string clean = SanitizeRoomFileName(param("name"));
+    const std::string full  = std::string(gSystem->pwd()) + "/" + clean;
+    if (clean.empty() || !IsVisibleRoomFileName(clean) || !IsServableRoomFile(gSystem->pwd(), full)) {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"}, {"code", "not_found"}, {"error", "file not found"}}.dump());
+      return true;
+    }
+    // A document would run on this origin with the room's cookie (see IsDocumentName); it is still
+    // downloadable through /api/download, which always sends an attachment. Nothing else about the
+    // response changes: civetweb streams the file with ranges either way.
+    if (IsDocumentName(clean)) {
+      arg->SetContentType("application/json");
+      arg->SetContent(json{{"result", "failure"},
+                           {"code", "not_servable"},
+                           {"error", "this file is a document; download it instead (/api/download)"}}
+                          .dump());
+      return true;
+    }
+    arg->SetFile(full.c_str());
     return true;
   }
 
@@ -1894,7 +2090,8 @@ bool NHttpServer::HandleControlRequest(const std::shared_ptr<THttpCallArg> & arg
         SanitizeRoomFileName(in.contains("name") && in["name"].is_string() ? in["name"].get<std::string>() : "");
     const std::string path = std::string(gSystem->pwd()) + "/" + clean;
     std::error_code   ec;
-    if (clean.empty() || !std::filesystem::is_regular_file(path, ec)) {
+    // Only what the listing shows: a half-upload's dotfile is the room's own, not a client's to remove.
+    if (clean.empty() || !IsVisibleRoomFileName(clean) || !std::filesystem::is_regular_file(path, ec)) {
       arg->SetContentType("application/json");
       arg->SetContent(json{{"result", "failure"}, {"code", "not_found"}, {"error", "file not found"}}.dump());
       return true;
@@ -2092,6 +2289,15 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
   // }
 
   NLogTrace("Received %s request for path: %s filename: %s", method.Data(), path.Data(), filename.Data());
+
+  // The address this request was addressed to, remembered for the ones that cannot say it themselves:
+  // a request bridged from a websocket carries only client-supplied headers, and a browser cannot
+  // write `Host` there - which is exactly where the UI asks for a macro over. Recorded here, before
+  // any path is dispatched, so the page load alone is enough to establish it.
+  if (const std::string base = RequestBase(arg.get()); !base.empty()) {
+    std::lock_guard<std::mutex> lock(fRoomMutex);
+    fRequestBase = base;
+  }
 
   // A room wakes as an empty process: bring back the session it had before it scaled to zero
   // before serving the request that woke it, so the very first request already sees it. This
@@ -2339,6 +2545,14 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     // Zero (an ordinary HTTP request) is not stated at all.
     if (arg->GetWSId() != 0 && in.is_null()) in = json::object();
     if (in.is_object() && arg->GetWSId() != 0) in["_ws"] = static_cast<long>(arg->GetWSId());
+
+    // The address this request was addressed to: what a server run outside Kubernetes has instead of
+    // a configured public base, so an action that hands out a URL (the macro export) can build one.
+    // Transport detail like `_query`, established by the server, never written by the client.
+    if (const std::string base = RequestBase(arg.get()); !base.empty()) {
+      if (in.is_null()) in = json::object();
+      if (in.is_object()) in["_base"] = base;
+    }
 
     NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
 
