@@ -1384,6 +1384,10 @@ json NRoomRouter::ServiceObject(const NRoomConfig & cfg, const std::string & nam
   };
   ensureEnv("NDMSPC_ROOM", value);
   ensureEnv("NDMSPC_ROOM_STATE_URL", stateUrl);
+  // Where this room is reached from a client, so a macro it writes can name a stored file by URL
+  // (see NHttpServer::FileUrl). The router is the half that knows the deployment's public base.
+  ensureEnv("NDMSPC_ROOM_URL_BASE", cfg.urlBase);
+  ensureEnv("NDMSPC_ROOM_PARAM", cfg.param);
   if (!access.is_null() && !access.empty()) ensureEnv(kAccessEnv, access.dump());
 
   // What the room's profile allows it to use. The skeleton carries no resources of its own, so this

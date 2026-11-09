@@ -476,6 +476,20 @@ bool RegisterBaseActions()
       steps.push_back({tree.Action(id), tree.Params(id), tree.State(id)});
     }
 
+    // A file that is one of the room's stored files is written as its URL: the macro is run on a
+    // machine that has no such file, and /api/file reads it over http(s) (see NHttpServer::FileUrl).
+    // Only the text changes - the recorded node keeps the path the room itself opened. The base is
+    // the address this request was made to, which is what a server outside Kubernetes has instead of
+    // a configured public one (see NHttpServer::RequestBase).
+    const std::string base = args.value("_base", std::string());
+    for (auto & step : steps) {
+      if (!step.params.is_object()) continue;
+      const auto file = step.params.find("file");
+      if (file == step.params.end() || !file->is_string()) continue;
+      const std::string url = server->FileUrl(file->get<std::string>(), base);
+      if (!url.empty()) *file = url;
+    }
+
     // What a session is called is the room's (see RenameSession), and it names the macro: ROOT names a
     // macro after the function in it, so the label becomes an identifier and the file follows it. The list is
     // **held**: the room builds it for this call, and reading it through a temporary (`SessionList()["sessions"]`

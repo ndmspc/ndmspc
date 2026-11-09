@@ -7,10 +7,13 @@
 #include <THttpCallArg.h>
 #include <TNamed.h>
 #include <TROOT.h>
+#include <TSystem.h>
 
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -307,6 +310,36 @@ std::string RequestJson(Ndmspc::NHttpServer * server, const char * method, const
   arg->SetMethod(method);
   arg->SetPathName("api");
   arg->SetFileName(action);
+  arg->SetPostData(body.dump());
+  server->ProcessRequest(arg);
+  return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+}
+
+// The same, with a query string: a room's access token travels there, which is how a client that
+// cannot set a header (ROOT's file access) presents it.
+std::string RequestWithQuery(Ndmspc::NHttpServer * server, const char * method, const char * action,
+                             const std::string & query, const json & body = json::object())
+{
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod(method);
+  arg->SetPathName("api");
+  arg->SetFileName(action);
+  arg->SetQuery(query.c_str());
+  arg->SetPostData(body.dump());
+  server->ProcessRequest(arg);
+  return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+}
+
+// The same, as a client reached it: the address a server outside Kubernetes has instead of a
+// configured public base (see NHttpServer::RequestBase).
+std::string RequestAt(Ndmspc::NHttpServer * server, const char * method, const char * action, const std::string & host,
+                      const json & body = json::object())
+{
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod(method);
+  arg->SetPathName("api");
+  arg->SetFileName(action);
+  arg->SetRequestHeader(("Host: " + host + "\r\n").c_str());
   arg->SetPostData(body.dump());
   server->ProcessRequest(arg);
   return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
@@ -1114,4 +1147,399 @@ TEST(NHttpServerCancelTest, AThrowingActionClearsItsBusyEntryAndAnswers)
   EXPECT_FALSE(server->CancelRequest("req-throw"));
 
   delete server;
+}
+
+/**
+ * A stored file is served as a **file**, not as buffered content: civetweb then sends it with
+ * Range support, which is what a remote ROOT file needs (it reads by byte ranges). The test reads
+ * the request the way the engine does - `IsFile()` and the path in the content.
+ */
+TEST(NHttpServerStoredFileTest, AStoredFileIsServedAsAFileSoTheClientCanRangeOverIt)
+{
+  EnvGuard          access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+  const std::string name = "ndmspc_stored_file_test.root";
+  {
+    std::ofstream out(name, std::ios::binary);
+    out << "root";
+  }
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod("GET");
+  arg->SetPathName("api");
+  arg->SetFileName("file");
+  arg->SetQuery(("token=roTok&name=" + name).c_str());
+  server->ProcessRequest(arg);
+
+  const std::string served = std::string(gSystem->pwd()) + "/" + name;
+  EXPECT_TRUE(arg->IsFile());
+  EXPECT_EQ(std::string(static_cast<const char *>(arg->GetContent())), served);
+
+  delete server;
+  std::filesystem::remove(name);
+}
+
+TEST(NHttpServerStoredFileTest, AStoredFileNeedsTheRoomsToken)
+{
+  EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+
+  auto ask = [server](const std::string & query) {
+    auto arg = std::make_shared<THttpCallArg>();
+    arg->SetMethod("GET");
+    arg->SetPathName("api");
+    arg->SetFileName("file");
+    arg->SetQuery(query.c_str());
+    server->ProcessRequest(arg);
+    return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+  };
+
+  // The control-request gate answers the same refusal for a missing and for an unknown token.
+  EXPECT_NE(ask("name=sResults_ngnt.root").find("access token is required"), std::string::npos);
+  EXPECT_NE(ask("token=nope&name=sResults_ngnt.root").find("access token is required"), std::string::npos);
+
+  delete server;
+}
+
+TEST(NHttpServerStoredFileTest, AStoredFileCannotLeaveTheRoomsDirectory)
+{
+  EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+  auto *   server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod("GET");
+  arg->SetPathName("api");
+  arg->SetFileName("file");
+  arg->SetQuery("token=roTok&name=../etc/passwd");
+  server->ProcessRequest(arg);
+
+  const std::string body(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+  EXPECT_FALSE(arg->IsFile());
+  EXPECT_NE(body.find("not_found"), std::string::npos) << body;
+  EXPECT_EQ(body.find("/etc/passwd"), std::string::npos) << body;
+
+  delete server;
+}
+
+/// ROOT's THttpServer registers "currentdir/" (the room's working directory) and "rootsys/" as file
+/// locations, and civetweb resolves them before any request reaches this class - so they were served
+/// with no room-token check at all. The room removes them; /api/file is the way in.
+TEST(NHttpServerStoredFileTest, TheRoomsDirectoryIsNotServedAsAStaticLocation)
+{
+  auto *  server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  TString probe;
+  EXPECT_FALSE(server->IsFileRequested("/currentdir/sResults_ngnt.root", probe));
+  EXPECT_FALSE(server->IsFileRequested("/rootsys/lib/libCore.so", probe));
+  delete server;
+}
+
+/**
+ * The macro a room hands out names a stored file by URL: it is run on a machine that has no such
+ * file, and /api/file reads it over http(s). The recorded node keeps the room's own path.
+ */
+TEST(NHttpServerStoredFileTest, TheExportedMacroNamesAStoredFileByItsUrl)
+{
+  EnvGuard room("NDMSPC_ROOM", "test-room");
+  EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+  EnvGuard base("NDMSPC_ROOM_URL_BASE", "https://ndmspc.example.org");
+  EnvGuard param("NDMSPC_ROOM_PARAM", "room");
+
+  const std::string name = "ndmspc_macro_url_test.root";
+  {
+    std::ofstream out(name, std::ios::binary);
+    out << "root";
+  }
+
+  Ndmspc::NHttpHandlerMap * previousHandlers = Ndmspc::gNdmspcHttpHandlers;
+  Ndmspc::NMcpToolMap *     previousTools    = Ndmspc::gNdmspcMcpTools;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> all;
+  Ndmspc::NMcpToolMap                         tools;
+  Ndmspc::gNdmspcHttpHandlers = &all;
+  Ndmspc::gNdmspcMcpTools      = &tools;
+  all["ndmspc/ngnt/open"]      = SuccessHandler;
+  all["ndmspc/ngnt/reshape"]   = SuccessHandler;
+  ASSERT_TRUE(Ndmspc::RegisterBaseActions());
+  tools["ndmspc/ngnt/open"] = {.label         = "{{ file }}",
+                               .macroLines    = {"auto * ngnt = Ndmspc::NGnTree::Open({{ file }});"},
+                               .macroIncludes = {"ndmspc/core/NGnTree.h"}};
+  // A group is a combination tree only when one of its tools declares a dependency (see
+  // NInstanceTree::IsNodeAction), and a root is recorded in a combination tree.
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(all);
+
+  ASSERT_NE(RequestWithQuery(server, "POST", "ndmspc/ngnt/open", "token=rwTok", {{"file", name}})
+                .find("success"),
+            std::string::npos);
+
+  const json exported = json::parse(RequestWithQuery(server, "GET", "ndmspc/macro", "token=rwTok"));
+  ASSERT_EQ(exported["result"], "success") << exported.dump();
+
+  const std::string macro = exported["payload"]["macro"];
+  const std::string url =
+      "https://ndmspc.example.org/api/file?room=test-room&token=roTok&name=" + name;
+  EXPECT_NE(macro.find(url), std::string::npos) << macro;
+
+  Ndmspc::gNdmspcHttpHandlers = previousHandlers;
+  Ndmspc::gNdmspcMcpTools      = previousTools;
+  delete server;
+  std::filesystem::remove(name);
+}
+
+/// A room run on its own was told no public base, so there is no URL to hand out: the macro keeps
+/// the name, exactly as it did before /api/file existed.
+TEST(NHttpServerStoredFileTest, TheExportedMacroKeepsAPathWhenTheRoomCannotNameItself)
+{
+  EnvGuard room("NDMSPC_ROOM", "test-room");
+  EnvGuard base("NDMSPC_ROOM_URL_BASE", nullptr);
+
+  const std::string name = "ndmspc_macro_path_test.root";
+  {
+    std::ofstream out(name, std::ios::binary);
+    out << "root";
+  }
+
+  Ndmspc::NHttpHandlerMap * previousHandlers = Ndmspc::gNdmspcHttpHandlers;
+  Ndmspc::NMcpToolMap *     previousTools    = Ndmspc::gNdmspcMcpTools;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> all;
+  Ndmspc::NMcpToolMap                         tools;
+  Ndmspc::gNdmspcHttpHandlers = &all;
+  Ndmspc::gNdmspcMcpTools      = &tools;
+  all["ndmspc/ngnt/open"]      = SuccessHandler;
+  all["ndmspc/ngnt/reshape"]   = SuccessHandler;
+  ASSERT_TRUE(Ndmspc::RegisterBaseActions());
+  tools["ndmspc/ngnt/open"] = {.label         = "{{ file }}",
+                               .macroLines    = {"auto * ngnt = Ndmspc::NGnTree::Open({{ file }});"},
+                               .macroIncludes = {"ndmspc/core/NGnTree.h"}};
+  // A group is a combination tree only when one of its tools declares a dependency (see
+  // NInstanceTree::IsNodeAction), and a root is recorded in a combination tree.
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(all);
+
+  ASSERT_NE(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", name}}).find("success"),
+            std::string::npos);
+  const json exported = json::parse(Request(server, "GET", "ndmspc/macro"));
+  ASSERT_EQ(exported["result"], "success") << exported.dump();
+
+  const std::string macro = exported["payload"]["macro"];
+  EXPECT_NE(macro.find("Ndmspc::NGnTree::Open(\"" + name + "\")"), std::string::npos) << macro;
+  EXPECT_EQ(macro.find("/api/file"), std::string::npos) << macro;
+
+  Ndmspc::gNdmspcHttpHandlers = previousHandlers;
+  Ndmspc::gNdmspcMcpTools      = previousTools;
+  delete server;
+  std::filesystem::remove(name);
+}
+
+/// The room UI asks for a macro over the websocket, and the bridged request carries only
+/// client-supplied headers - a browser cannot write `Host`. The address the page itself was loaded
+/// from is what stands in for it, or the preview would fall back to a name only the room has.
+TEST(NHttpServerStoredFileTest, AMacroAskedForOverTheWebSocketStillNamesTheAddressTheRoomWasReachedOn)
+{
+  EnvGuard base("NDMSPC_ROOM_URL_BASE", nullptr);
+
+  const std::string name = "ndmspc_macro_ws_test.root";
+  {
+    std::ofstream out(name, std::ios::binary);
+    out << "root";
+  }
+
+  Ndmspc::NHttpHandlerMap * previousHandlers = Ndmspc::gNdmspcHttpHandlers;
+  Ndmspc::NMcpToolMap *     previousTools    = Ndmspc::gNdmspcMcpTools;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> all;
+  Ndmspc::NMcpToolMap                         tools;
+  Ndmspc::gNdmspcHttpHandlers = &all;
+  Ndmspc::gNdmspcMcpTools      = &tools;
+  all["ndmspc/ngnt/open"]      = SuccessHandler;
+  ASSERT_TRUE(Ndmspc::RegisterBaseActions());
+  tools["ndmspc/ngnt/open"] = {.label         = "{{ file }}",
+                               .macroLines    = {"auto * ngnt = Ndmspc::NGnTree::Open({{ file }});"},
+                               .macroIncludes = {"ndmspc/core/NGnTree.h"}};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(all);
+
+  // The page is loaded over plain HTTP: that is where the address is seen.
+  auto page = std::make_shared<THttpCallArg>();
+  page->SetMethod("GET");
+  page->SetRequestHeader("Host: 192.168.1.20:8080\r\n");
+  EXPECT_EQ(Ndmspc::NHttpServer::RequestBase(page.get()), "http://192.168.1.20:8080");
+  server->ProcessRequest(page);
+
+  // The export then arrives over the websocket: no Host, and only a pending state to see.
+  auto exportArg = [server](const char * method, const char * action, const json & body) {
+    auto arg = std::make_shared<THttpCallArg>();
+    arg->SetMethod(method);
+    arg->SetPathName("api");
+    arg->SetFileName(action);
+    arg->SetWSId(42);
+    arg->SetPostData(body.dump());
+    server->ProcessRequest(arg);
+    return json::parse(std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength()));
+  };
+
+  ASSERT_EQ(exportArg("POST", "ndmspc/ngnt/open", {{"file", name}})["result"], "success");
+
+  const json exported = exportArg("GET", "ndmspc/macro", json::object());
+  ASSERT_EQ(exported["result"], "success") << exported.dump();
+  EXPECT_NE(exported["payload"]["macro"].get<std::string>().find(
+                "Ndmspc::NGnTree::Open(\"http://192.168.1.20:8080/api/file?name=" + name + "\")"),
+            std::string::npos)
+      << exported["payload"]["macro"];
+
+  Ndmspc::gNdmspcHttpHandlers = previousHandlers;
+  Ndmspc::gNdmspcMcpTools      = previousTools;
+  delete server;
+  std::filesystem::remove(name);
+}
+
+/// A server run on its own (no router, no `NDMSPC_ROOM_URL_BASE`) is reached at whatever address its
+/// client used, so that is the base a macro it writes carries - otherwise the export would only ever
+/// work behind the Kubernetes router.
+TEST(NHttpServerStoredFileTest, TheExportedMacroNamesAStoredFileByTheAddressItWasAskedOn)
+{
+  EnvGuard base("NDMSPC_ROOM_URL_BASE", nullptr);
+
+  const std::string name = "ndmspc_macro_host_test.root";
+  {
+    std::ofstream out(name, std::ios::binary);
+    out << "root";
+  }
+
+  Ndmspc::NHttpHandlerMap * previousHandlers = Ndmspc::gNdmspcHttpHandlers;
+  Ndmspc::NMcpToolMap *     previousTools    = Ndmspc::gNdmspcMcpTools;
+  std::map<std::string, Ndmspc::NHttpFuncPtr> all;
+  Ndmspc::NMcpToolMap                         tools;
+  Ndmspc::gNdmspcHttpHandlers = &all;
+  Ndmspc::gNdmspcMcpTools      = &tools;
+  all["ndmspc/ngnt/open"]      = SuccessHandler;
+  ASSERT_TRUE(Ndmspc::RegisterBaseActions());
+  tools["ndmspc/ngnt/open"] = {.label         = "{{ file }}",
+                               .macroLines    = {"auto * ngnt = Ndmspc::NGnTree::Open({{ file }});"},
+                               .macroIncludes = {"ndmspc/core/NGnTree.h"}};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(all);
+
+  ASSERT_NE(RequestAt(server, "POST", "ndmspc/ngnt/open", "127.0.0.1:8080", {{"file", name}}).find("success"),
+            std::string::npos);
+
+  const json exported = json::parse(RequestAt(server, "GET", "ndmspc/macro", "127.0.0.1:8080"));
+  ASSERT_EQ(exported["result"], "success") << exported.dump();
+  EXPECT_NE(exported["payload"]["macro"].get<std::string>().find(
+                "Ndmspc::NGnTree::Open(\"http://127.0.0.1:8080/api/file?name=" + name + "\")"),
+            std::string::npos)
+      << exported["payload"]["macro"];
+
+  // A front door's header wins: it names the address the client really used.
+  const json forwarded = json::parse(RequestAt(server, "GET", "ndmspc/macro", "ndmspc.example.org"));
+  EXPECT_NE(forwarded["payload"]["macro"].get<std::string>().find("http://ndmspc.example.org/api/file"), std::string::npos)
+      << forwarded["payload"]["macro"];
+
+  // A Host is client-supplied and it lands inside a macro: an implausible one is ignored rather than
+  // written in. The export then falls back on the last address a valid request was made to.
+  const json hostile = json::parse(RequestAt(server, "GET", "ndmspc/macro", "evil\") ; system(\"id"));
+  EXPECT_EQ(hostile["payload"]["macro"].get<std::string>().find("system"), std::string::npos)
+      << hostile["payload"]["macro"];
+  EXPECT_NE(hostile["payload"]["macro"].get<std::string>().find("/api/file?name=" + name), std::string::npos)
+      << hostile["payload"]["macro"];
+
+  Ndmspc::gNdmspcHttpHandlers = previousHandlers;
+  Ndmspc::gNdmspcMcpTools      = previousTools;
+  delete server;
+  std::filesystem::remove(name);
+}
+
+/// The switch: `NDMSPC_FILE_URL=0` (or `--file-url false`) makes the room neither serve a stored
+/// file by URL nor hand one out in a macro; the name stays a name. The local shortcut is removed
+/// either way, so there is no unguarded way in.
+TEST(NHttpServerStoredFileTest, TheUrlIsTurnedOffByConfiguration)
+{
+  EnvGuard fileUrl("NDMSPC_FILE_URL", "0");
+  EnvGuard room("NDMSPC_ROOM", "test-room");
+  EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+  EnvGuard base("NDMSPC_ROOM_URL_BASE", "https://ndmspc.example.org");
+
+  const std::string name = "ndmspc_macro_disabled_test.root";
+  {
+    std::ofstream out(name, std::ios::binary);
+    out << "root";
+  }
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  EXPECT_FALSE(server->IsFileUrlEnabled());
+
+  auto arg = std::make_shared<THttpCallArg>();
+  arg->SetMethod("GET");
+  arg->SetPathName("api");
+  arg->SetFileName("file");
+  arg->SetQuery(("token=roTok&name=" + name).c_str());
+  server->ProcessRequest(arg);
+
+  const std::string refused(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+  EXPECT_FALSE(arg->IsFile());
+  EXPECT_NE(refused.find("disabled"), std::string::npos) << refused;
+
+  delete server;
+  std::filesystem::remove(name);
+}
+
+/**
+ * What a room hands out is only what its listing shows, and only bytes - not a document that would
+ * run on this origin. A half-upload's dotfile is the room's own, and a symlink in the working
+ * directory must not become a way to read something the room can see but must not serve.
+ */
+TEST(NHttpServerStoredFileTest, ANameIsOnlyServedWhenItIsAVisibleRegularFileInsideTheRoom)
+{
+  EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
+
+  {
+    std::ofstream out(".half.part", std::ios::binary);
+    out << "staged";
+  }
+  {
+    std::ofstream out("room_page.html", std::ios::binary);
+    out << "<html></html>";
+  }
+  std::error_code ec;
+  std::filesystem::remove("ndmspc_outside_link", ec);
+  std::filesystem::create_symlink("/etc/hostname", "ndmspc_outside_link", ec);
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+
+  auto ask = [server](const std::string & name) {
+    auto arg = std::make_shared<THttpCallArg>();
+    arg->SetMethod("GET");
+    arg->SetPathName("api");
+    arg->SetFileName("file");
+    arg->SetQuery(("token=roTok&name=" + name).c_str());
+    server->ProcessRequest(arg);
+    return std::string(static_cast<const char *>(arg->GetContent()), arg->GetContentLength());
+  };
+
+  // A dotfile is not listed, so it is not readable either.
+  const std::string dotfile = ask(".half.part");
+  EXPECT_EQ(dotfile.find("staged"), std::string::npos) << dotfile;
+  EXPECT_NE(dotfile.find("not_found"), std::string::npos) << dotfile;
+
+  // A document is refused here and left to /api/download, which never renders it.
+  EXPECT_NE(ask("room_page.html").find("not_servable"), std::string::npos);
+
+  // A symlink out of the room is not one of the room's files.
+  if (!ec) EXPECT_NE(ask("ndmspc_outside_link").find("not_found"), std::string::npos);
+
+  // None of them is handed out as a URL either.
+  EXPECT_TRUE(server->FileUrl(".half.part").empty());
+  EXPECT_TRUE(server->FileUrl("room_page.html").empty());
+
+  delete server;
+  std::filesystem::remove(".half.part");
+  std::filesystem::remove("room_page.html");
+  std::filesystem::remove("ndmspc_outside_link", ec);
 }

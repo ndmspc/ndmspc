@@ -1277,6 +1277,19 @@ std::string ProjectMacroText(const std::string & file, const std::string & key, 
   return text + "}\n";
 }
 
+/// The name a **preview** shows for an open file: the room's URL when it is one of its stored files,
+/// the path as it stands otherwise. Only the text changes - the run keeps the local handle - and a
+/// file opened by URL already carries its scheme, which the room leaves alone (see
+/// Ndmspc::NHttpServer::FileUrl). Without this a preview downloaded to a laptop names a file only
+/// the room has. The base is the address the request was made to, which is what a server run outside
+/// Kubernetes has instead of a configured public one.
+std::string PreviewFileName(const std::string & file, const std::string & base)
+{
+  if (Ndmspc::gNHttpServer == nullptr) return file;
+  const std::string url = Ndmspc::gNHttpServer->FileUrl(file, base);
+  return url.empty() ? file : url;
+}
+
 /// The configuration the import tab's form holds, as `NGnTree::Import` takes it: the object being looked
 /// at, the axes the tree varies over, each axis' title and rebin, the projections to make per bin, and the
 /// file to write. Anything a field leaves out is left out of the configuration too, so the importer's own
@@ -1975,7 +1988,9 @@ void toolBrowser()
       .inputSchema = {{"properties",
                        {{"file",
                          {{"type", "string"},
-                          {"description", "Path or URL of the ROOT file to open."},
+                          {"description",
+                           "Path or URL of the ROOT file to open: a name in the room's working directory, or an "
+                           "http(s) URL."},
                           {"default", "root://eos.ndmspc.io//eos/ndmspc/examples/hsimple.root"}}}}}},
       .order       = 1,
       .label       = "{{ file }}",
@@ -2876,6 +2891,9 @@ void toolBrowser()
         // Which form is being previewed: the tab's own action, since what it makes is derived the same way
         // the run derives it — the cfg the importer is handed, the axes and ranges a projection is cut with.
         const std::string forAction = httpIn.value("for", std::string());
+        // The address this request was made to, for a preview that names a stored file by URL. The
+        // dispatcher puts it beside `_query`; a server run outside Kubernetes has no configured base.
+        const std::string base = httpIn.value("_base", std::string());
         const bool        importing = forAction == std::string(kInternals) + "/import";
         const bool        projecting = forAction == std::string(kInternals) + "/project";
         if (!importing && !projecting) {
@@ -2903,13 +2921,14 @@ void toolBrowser()
         // and ranges the table derives. It goes in the **HTTP** envelope, which is what a websocket reply
         // carries back to the asker (`wsOut` is what is broadcast), and a preview is the asker's own answer.
         if (projecting) {
-          httpOut["macro"] = ProjectMacroText(file->GetName(), key,
+          httpOut["macro"] = ProjectMacroText(PreviewFileName(file->GetName(), base), key,
                                               ProjectSelection(sparse, httpIn.value("axes", json::array())),
                                               httpIn.value("drawOpts", std::string()));
         }
         else {
           const json  cfg  = SparseImportConfig(httpIn, sparse, key);
-          std::string text = ImportMacroText(cfg, file->GetName(), std::max(1, httpIn.value("nProcesses", 1)));
+          std::string text =
+              ImportMacroText(cfg, PreviewFileName(file->GetName(), base), std::max(1, httpIn.value("nProcesses", 1)));
           // A parameter import reads objects from a path per bin, which is the one thing about it that is
           // hard to picture: spell out where each object would come from at the **first** bin of every axis,
           // with the order, modes and prefix the form holds right now.

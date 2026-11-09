@@ -896,8 +896,9 @@ A group that declares no dependency (`health`, `state`, `ndmspc/room/*`, and eve
 ### Exporting a combination as a macro
 
 `GET /api/ndmspc/macro` (`ndmspc_macro`) writes a combination out as a **runnable ROOT macro**: what the
-user downloads and runs locally, without the room. It answers with the macro's source and the file name
-it wants:
+user downloads and runs locally. A file that lives in the room's own storage is fetched over its URL
+(see *Reading a stored file* below); everything else needs only ROOT and the ndmspc library. It answers
+with the macro's source and the file name it wants:
 
 ```bash
 curl -s localhost:8080/api/ndmspc/macro | jq -r '.payload.macro' > ngnt_1.C
@@ -1013,6 +1014,48 @@ because it stands for the layer the room is on, which the lines that make object
 The macro is a plain ROOT macro over the analysis library (`Ndmspc::NGnTree::Open` — the calls this
 server's own macros make), so running it locally needs what running any ndmspc macro needs: ROOT, with the
 ndmspc library and headers available.
+
+### Reading a stored file (`GET|HEAD /api/file`)
+
+A file in the room's working directory is written as a **URL**, not as a name: the macro is run on a
+machine that has no such file. The room serves it on `GET|HEAD /api/file?name=<file>`, streamed from
+disk with `Content-Length`, `Accept-Ranges` and `206 Partial Content` — which is what ROOT's file
+access needs, since it reads a remote file by byte ranges. The URL carries the room's routing
+parameter and its **read-only** token, so a macro can only read:
+
+```cpp
+auto * ngnt = Ndmspc::NGnTree::Open(
+    "https://ndmspc.example.org/api/file?room=alice&token=<ro>&name=NSingleBinning01Gaus.root");
+```
+
+- The address in the URL is the one the request was made to: the router's public base
+  (`NDMSPC_ROOM_URL_BASE`, which the router injects) behind Kubernetes, and otherwise the request's
+  own scheme and host (`X-Forwarded-Proto`/`X-Forwarded-Host` when a front door set them, else
+  `Host`). So a plain `ndmspc-server` on a laptop works as it stands — a `Host` that is not a
+  plausible `host[:port]` is ignored, and the macro keeps the plain name instead.
+- `NDMSPC_FILE_URL=0` (or `--file-url false`) turns the feature off: `/api/file` refuses with
+  `code: disabled`, `GET /api/files` reports no `url`, and macros and previews keep the plain name.
+  The `currentdir/`/`rootsys/` removal is unconditional either way.
+- The same URL is reported for a stored file by `GET /api/files` (its `url`) and used by the dialog
+  previews (`ndmspc/rbrowser/macro`), so what is previewed, what is downloaded and what the export
+  writes all name the file the same way.
+- Reading it on a laptop needs ROOT with an http(s) network plugin (`root-net-http`, or
+  `root-net-curl`/`root-net-davix`), the same requirement the browser tool has.
+- The file is **ephemeral**: it lives in the room's working directory and is gone when the pod scales
+  to zero, so the URL is a link to a live room rather than an archive.
+
+`/api/file` is the only way a room's storage is served. ROOT's `THttpServer` also registers
+`currentdir/` (that same working directory) and `rootsys/` as static file locations, and civetweb
+answers those **before** any request reaches the room — so they were readable with no token at all,
+and the server removes them at startup. `/api/download` stays the browser's buffered download
+(`Content-Disposition: attachment`); it is not a file URL.
+
+What a name may reach is the same set `/api/files` lists: a visible, regular file inside the room's
+own working directory. A dotfile (a half-upload) is not found, a symlink that resolves outside the
+room is not served — neither here nor through `/api/download` — and an extension a browser renders
+as a document (`.html`, `.svg`, `.xml`, …) is refused by `/api/file` with `code: not_servable`,
+because civetweb types a file from its extension and it would otherwise run on this origin carrying
+the room's cookie. Such a file is still downloadable, which never renders it.
 
 ### Browsing a ROOT file (`ndmspc/browser`)
 

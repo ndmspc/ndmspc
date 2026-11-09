@@ -21,7 +21,8 @@ ndmspc-server [-p PORT] [--http-threads N] [-m macro1,macro2] [--rooms true]
 ```
 
 - `--http-threads` (default 128) is the real client ceiling: each WebSocket holds one connection.
-- `--mcp` / `--ws` are on by default; `--rooms` requires Kubernetes.
+- `--mcp` / `--ws` are on by default; `--file-url` (naming a stored file by URL for exported macros
+  and previews) is on by default too; `--rooms` requires Kubernetes.
 - `--write-tool-catalog <file>` writes the MCP tool list and exits (used by the image build).
 
 The complete flag and environment table is in
