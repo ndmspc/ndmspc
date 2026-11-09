@@ -25,7 +25,9 @@
 #include <TTree.h>
 
 #include "ndmspc/core/NGnTree.h"
+#include "ndmspc/core/NLogString.h"
 #include "ndmspc/core/NLogger.h"
+#include "ndmspc/core/NParameters.h"
 #include "ndmspc/http/NInstanceTree.h"
 #include "ndmspc/http/NMacroBuilder.h"
 
@@ -117,6 +119,46 @@ void WriteTestFile()
   categorical.GetAxis(0)->SetBinLabel(3, "c");
   categorical.Fill(0.5);
   categorical.Write();
+
+  // A sparse shaped like a fit result: a `Results` axis whose bins are the parameters (`mean`, `sigma`,
+  // `yield`) beside two coordinate axes, **in an order the file's folders do not follow** (`pt` first,
+  // while the objects live under `Data/<ce>/<pt>/…`). Its dialog gains the Parameters tab and infers the
+  // path order from the file, and the objects such an import fetches live in the first bin's folder —
+  // `Data/0.00_1.00/100.00_101.00/hSignal`. `pt` starts at 100 so the two axes' fragments cannot be
+  // confused when their order is swapped (the order is the point of `TheAxesOrderSetsTheObjectPath`).
+  const Int_t    parBins[3] = {2, 2, 3};
+  const Double_t parMin[3]  = {100.0, 0.0, 0.0};
+  const Double_t parMax[3]  = {102.0, 2.0, 3.0};
+  THnSparseD     params("hnsParams", "hnsParams", 3, parBins, parMin, parMax);
+  params.GetAxis(0)->SetName("pt");
+  params.GetAxis(0)->SetTitle("p_{T}");
+  params.GetAxis(1)->SetName("ce");
+  params.GetAxis(1)->SetTitle("centrality");
+  params.GetAxis(2)->SetName("Results");
+  params.GetAxis(2)->SetTitle("Results");
+  params.GetAxis(2)->SetBinLabel(1, "mean");
+  params.GetAxis(2)->SetBinLabel(2, "sigma");
+  params.GetAxis(2)->SetBinLabel(3, "yield");
+  const Double_t parPoint[3] = {100.5, 0.5, 0.5};
+  params.Fill(parPoint, 4.0);
+  params.Write();
+
+  TDirectory * dataDir = file->mkdir("Data");
+  if (dataDir != nullptr) {
+    dataDir->cd();
+    TDirectory * ceDir = dataDir->mkdir("0.00_1.00");
+    if (ceDir != nullptr) {
+      ceDir->cd();
+      TDirectory * ptDir = ceDir->mkdir("100.00_101.00");
+      if (ptDir != nullptr) {
+        ptDir->cd();
+        TH1D signal("hSignal", "hSignal;m;entries", 5, 0.0, 1.0);
+        signal.Fill(0.5);
+        signal.Write();
+      }
+    }
+    file->cd();
+  }
 
   // A sparse whose data lies outside its axis' bounds (in the overflow). ROOT folds the under/overflow
   // bins into the first and last bin while no range is set, so projecting it must keep them — a range
@@ -994,6 +1036,349 @@ TEST_F(ToolBrowser, TheSparseDialogOffersProjectAndImportTabs)
   ASSERT_EQ(props["axes"]["axisLabels"].size(), 3u);
   EXPECT_EQ(props["axes"]["axisLabels"][2], "[2] ce: 4 bins");
   EXPECT_EQ(props["axes"]["axisNames"][2], "ce");
+}
+
+/**
+ * A sparse whose axis carries a label per bin also offers the **Parameters** tab: one axis names the
+ * parameters (`Results`), every other axis is a dimension of the tree, and each axis row is the
+ * `cfg["axes"]` entry the macro pushes by hand (`mode`, `format`, `sufix`).
+ */
+TEST_F(ToolBrowser, TheSparseDialogAddsAParametersTabForALabelledAxis)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const auto call = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hnsParams"}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  const json & dialog = call.ws["payload"]["dialog"];
+  ASSERT_EQ(dialog["tabs"].size(), 3u);
+  const json & tab = dialog["tabs"][2];
+  EXPECT_EQ(tab["label"], "Parameters");
+  EXPECT_EQ(tab["action"]["path"], "ndmspc/rbrowser/import");
+  EXPECT_EQ(tab["action"]["timeoutMs"], 0);
+  EXPECT_EQ(tab["submit"], "Import");
+  EXPECT_EQ(tab["macro"], "ndmspc/rbrowser/macro");
+
+  const json & props = tab["schema"]["properties"];
+  // Only the axis that names something is offered, and it is the default.
+  EXPECT_EQ(props["parameterAxis"]["enum"], json::array({"Results"}));
+  EXPECT_EQ(props["parameterAxis"]["axisLabels"], json::array({"[2] Results: 3 labels"}));
+  EXPECT_EQ(props["parameterAxis"]["default"], "Results");
+
+  // One row per axis the tree varies over, **in the sparse' own order**; the parameter axis has no row.
+  // `#` is the path order and starts reversed, so the last axis is the outermost folder.
+  const json & rows = props["axes"]["default"];
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(rows[0]["axis"], "pt");
+  EXPECT_EQ(rows[0]["order"], 2);
+  EXPECT_EQ(rows[0]["mode"], "minmax");
+  EXPECT_EQ(rows[0]["format"], "%.2f_%.2f");
+  EXPECT_EQ(rows[0]["sufix"], "/");
+  EXPECT_EQ(rows[1]["axis"], "ce");
+  EXPECT_EQ(rows[1]["order"], 1);
+  const json & columns = props["axes"]["columns"];
+  ASSERT_GE(columns.size(), 4u);
+  EXPECT_EQ(columns[0]["key"], "order") << "the path's fragment order is the user's to set";
+  EXPECT_EQ(columns[0]["enum"], json::array({"1", "2"})) << "a choice list, not a typed number";
+  EXPECT_EQ(columns[0]["refresh"], true) << "changing it re-reads the folder and its objects";
+  EXPECT_EQ(columns[0]["unique"], true) << "the positions are a set: choosing a taken one swaps the two";
+  EXPECT_EQ(columns[3]["key"], "mode");
+  EXPECT_EQ(columns[3]["enum"], json::array({"minmax", "min", "max", "center", "label", "bin"}));
+  EXPECT_EQ(props["parameterAxis"]["refresh"], true) << "the rows follow the axis whose labels are used";
+
+  // The data-import section is a switch of its own, off by default: nothing is read from the file, nothing
+  // is imported, and its fields are not even shown.
+  EXPECT_EQ(props["importObjects"]["type"], "boolean");
+  EXPECT_EQ(props["importObjects"]["default"], false);
+  EXPECT_EQ(props["importObjects"]["refresh"], true) << "turning it on reads the folder";
+  EXPECT_FALSE(props.contains("objects")) << "the section is off until it is asked for";
+  EXPECT_FALSE(props.contains("objectsFolder"));
+  EXPECT_FALSE(props.contains("objectsPrefix"));
+  EXPECT_EQ(props["outputFile"]["default"], "hnsParams_ngnt.root");
+  EXPECT_GT(props["nProcesses"]["default"].get<int>(), 0);
+}
+
+/// A labelled axis that is the object's **only** axis names parameters but leaves no dimension for the
+/// tree, so the tab is not offered.
+TEST_F(ToolBrowser, TheParametersTabNeedsAnAxisForTheTree)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const auto call = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hcat"}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+  EXPECT_EQ(call.ws["payload"]["dialog"]["tabs"].size(), 2u);
+}
+
+/**
+ * The Parameters submit writes a tree whose parameters are the axis' bin labels, one entry per bin of the
+ * remaining axes, each carrying the slice's projection and the object its path names.
+ */
+TEST_F(ToolBrowser, TheParametersTabImportsParametersAndObjects)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  const std::string out = "/tmp/browser_params_import_ngnt.root";
+  std::remove(out.c_str());
+
+  const auto call = fTool->Call(
+      "ndmspc/rbrowser/import", "POST",
+      json{{"key", "hnsParams"},
+           {"parameterAxis", "Results"},
+           // A stale row for the parameter axis is ignored: it is neither a dimension nor a fragment.
+           {"axes", json::array({json{{"axis", "pt"}, {"order", 2}, {"mode", "minmax"}, {"format", "%.2f_%.2f"}, {"sufix", "/"}},
+                                 json{{"axis", "ce"}, {"order", 1}, {"mode", "minmax"}, {"format", "%.2f_%.2f"}, {"sufix", "/"}},
+                                 json{{"axis", "Results"}, {"order", 3}, {"mode", "label"}, {"format", "%d"}, {"sufix", "/"}}})},
+           {"objectsPrefix", "Data/"},
+           {"importObjects", true},
+           {"objects", json::array({"hSignal"})},
+           {"outputFile", out},
+           {"nProcesses", 1}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+  EXPECT_EQ(call.reply["outputFile"], out);
+  EXPECT_EQ(call.reply["open"]["action"], "ndmspc/ngnt/open");
+
+  Ndmspc::NGnTree * imported = Ndmspc::NGnTree::Open(out);
+  ASSERT_NE(imported, nullptr) << "the imported file does not open as an NGnTree";
+  ASSERT_NE(imported->GetBinning(), nullptr);
+  // The parameter axis is not a dimension of the tree; the rest are, in the **sparse' own order** — `#`
+  // only says how the path is spelled.
+  ASSERT_EQ(imported->GetBinning()->GetAxes().size(), 2u);
+  EXPECT_EQ(imported->GetBinning()->GetAxes()[0]->GetName(), std::string("pt"));
+  EXPECT_EQ(imported->GetBinning()->GetAxes()[1]->GetName(), std::string("ce"));
+  // The parameters are the axis' labels, in bin order — read off an entry: the branch object is what
+  // `GetEntry` loads.
+  ASSERT_EQ(imported->GetEntries(), 1) << "only the (ce 0..1, pt 100..101) bin carries data";
+  imported->GetEntry(0);
+  ASSERT_NE(imported->GetParameters(), nullptr);
+  EXPECT_EQ(imported->GetParameters()->GetNames(), std::vector<std::string>({"mean", "sigma", "yield"}));
+
+  // ... and the entry carries the parameter values (the `_params` branch) and, as its **first** object, the
+  // markdown list a person reads; the slice's histogram itself is not stored.
+  auto * params = (Ndmspc::NParameters *)imported->GetStorageTree()->GetBranchObject("_params");
+  ASSERT_NE(params, nullptr);
+  EXPECT_DOUBLE_EQ(params->GetParameter("mean"), 4.0);
+  TList * outList = (TList *)imported->GetStorageTree()->GetBranchObject("_outputPoint");
+  ASSERT_NE(outList, nullptr);
+  ASSERT_GT(outList->GetEntries(), 0);
+  auto * log = dynamic_cast<Ndmspc::NLogString *>(outList->At(0));
+  ASSERT_NE(log, nullptr) << "the first object is the markdown parameter list";
+  EXPECT_EQ(std::string(log->GetName()), "parameters");
+  EXPECT_EQ(std::string(log->GetType()), "md");
+  const std::string text = log->GetString();
+  EXPECT_NE(text.find("**mean**"), std::string::npos) << text;
+  EXPECT_NE(text.find("4 ± 2"), std::string::npos) << text;
+  bool projection = false;
+  bool retrieved  = false;
+  for (int i = 0; i < outList->GetEntries(); i++) {
+    TObject * one = outList->At(i);
+    if (one == nullptr) continue;
+    if (std::string(one->GetName()) == "hnsParams_proj_Results") projection = true;
+    if (std::string(one->GetName()) == "hSignal") retrieved = true;
+  }
+  EXPECT_FALSE(projection) << "the histogram is replaced by the markdown list";
+  EXPECT_TRUE(retrieved) << "the object the path names is not in the entry";
+  delete imported;
+
+  // The dialog remembers the form: the section comes back on, the objects picked, and the folder they
+  // live in.
+  const auto again = fTool->Call("ndmspc/rbrowser/sparse", "POST", json{{"key", "hnsParams"}});
+  const json & againProps = again.ws["payload"]["dialog"]["tabs"][2]["schema"]["properties"];
+  EXPECT_EQ(againProps["importObjects"]["default"], true);
+  EXPECT_EQ(againProps["objects"]["default"], json::array({"hSignal"}));
+  EXPECT_EQ(againProps["objectsFolder"]["default"], "Data/0.00_1.00/100.00_101.00");
+  EXPECT_EQ(againProps["objectsHint"]["tone"], "success");
+  EXPECT_EQ(againProps["objectsHint"]["default"], "1 object selected");
+
+  std::remove(out.c_str());
+}
+
+/**
+ * The `#` column orders the path's fragments: a file whose folders are `Data/<ce>/<pt>/…` over a sparse
+ * ordered `pt, ce` needs the order flipped, and flipping it makes the import look the other way round.
+ * The tree's axes stay in the sparse' own order either way.
+ */
+TEST_F(ToolBrowser, TheAxesOrderSetsTheObjectPath)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const std::string out = "/tmp/browser_params_order_ngnt.root";
+  std::remove(out.c_str());
+
+  const auto call = fTool->Call(
+      "ndmspc/rbrowser/import", "POST",
+      json{{"key", "hnsParams"},
+           {"parameterAxis", "Results"},
+           // pt before ce: the path becomes `Data/100.00_101.00/0.00_1.00/…`, where no object lives.
+           {"axes", json::array({json{{"axis", "pt"}, {"order", 1}}, json{{"axis", "ce"}, {"order", 2}}})},
+           {"objectsPrefix", "Data/"},
+           {"importObjects", true},
+           {"objects", json::array({"hSignal"})},
+           {"outputFile", out},
+           {"nProcesses", 1}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  Ndmspc::NGnTree * imported = Ndmspc::NGnTree::Open(out);
+  ASSERT_NE(imported, nullptr);
+  ASSERT_NE(imported->GetBinning(), nullptr);
+  ASSERT_EQ(imported->GetBinning()->GetAxes().size(), 2u);
+  EXPECT_EQ(imported->GetBinning()->GetAxes()[0]->GetName(), std::string("pt"));
+  EXPECT_EQ(imported->GetBinning()->GetAxes()[1]->GetName(), std::string("ce"));
+  ASSERT_EQ(imported->GetEntries(), 1) << "the projection still makes the entry";
+
+  imported->GetEntry(0);
+  TList * outList = (TList *)imported->GetStorageTree()->GetBranchObject("_outputPoint");
+  ASSERT_NE(outList, nullptr);
+  bool retrieved = false;
+  for (int i = 0; i < outList->GetEntries(); i++) {
+    TObject * one = outList->At(i);
+    if (one != nullptr && std::string(one->GetName()) == "hSignal") retrieved = true;
+  }
+  EXPECT_FALSE(retrieved) << "the flipped order must look at the other path";
+  delete imported;
+
+  std::remove(out.c_str());
+}
+
+/**
+ * With the data-import section off (its default) the import writes the parameters only — even when a stale
+ * form still names objects.
+ */
+TEST_F(ToolBrowser, TheObjectSectionOffImportsParametersOnly)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  const std::string out = "/tmp/browser_params_noobjects_ngnt.root";
+  std::remove(out.c_str());
+
+  const auto call = fTool->Call(
+      "ndmspc/rbrowser/import", "POST",
+      json{{"key", "hnsParams"},
+           {"parameterAxis", "Results"},
+           {"axes", json::array({json{{"axis", "pt"}, {"order", 2}}, json{{"axis", "ce"}, {"order", 1}}})},
+           {"objectsPrefix", "Data/"},
+           {"objects", json::array({"hSignal"})}, // a stale value: the section is off
+           {"outputFile", out},
+           {"nProcesses", 1}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  Ndmspc::NGnTree * imported = Ndmspc::NGnTree::Open(out);
+  ASSERT_NE(imported, nullptr);
+  ASSERT_EQ(imported->GetEntries(), 1);
+  imported->GetEntry(0);
+  ASSERT_NE(imported->GetParameters(), nullptr) << "the parameters are still imported";
+  TList * outList = (TList *)imported->GetStorageTree()->GetBranchObject("_outputPoint");
+  ASSERT_NE(outList, nullptr);
+  bool retrieved = false;
+  for (int i = 0; i < outList->GetEntries(); i++) {
+    TObject * one = outList->At(i);
+    if (one != nullptr && std::string(one->GetName()) == "hSignal") retrieved = true;
+  }
+  EXPECT_FALSE(retrieved) << "the section is off, so no object is read";
+  delete imported;
+
+  std::remove(out.c_str());
+}
+
+/**
+ * A `refresh` field re-asks the dialog with the form's values: changing `#` re-reads the folder and the
+ * objects it holds, and the rebuilt form says which tab to stay on.
+ */
+TEST_F(ToolBrowser, TheOrderRefreshRebuildsTheForm)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  // As the dialog would ask it after `#` was set to pt first: no folder is laid out that way.
+  const auto swapped = fTool->Call(
+      "ndmspc/rbrowser/sparse", "POST",
+      json{{"key", "hnsParams"},
+           {"tab", "Parameters"},
+           {"parameterAxis", "Results"},
+           {"axes", json::array({json{{"axis", "pt"}, {"order", "1"}}, json{{"axis", "ce"}, {"order", "2"}}})},
+           {"importObjects", true},
+           {"objectsPrefix", "Data/"}});
+  ASSERT_EQ(swapped.reply.value("result", std::string()), "success") << swapped.reply.dump();
+
+  const json & dialog = swapped.ws["payload"]["dialog"];
+  EXPECT_EQ(dialog["active"], "Parameters") << "the user stays on the tab they were in";
+  EXPECT_EQ(dialog["refresh"]["path"], "ndmspc/rbrowser/sparse");
+  EXPECT_FALSE(dialog["revision"].get<std::string>().empty());
+
+  const json & props = dialog["tabs"][2]["schema"]["properties"];
+  // The rows keep the sparse' order and carry the order the form sent (normalized back to numbers).
+  ASSERT_EQ(props["axes"]["default"].size(), 2u);
+  EXPECT_EQ(props["axes"]["default"][0]["axis"], "pt");
+  EXPECT_EQ(props["axes"]["default"][0]["order"], 1);
+  EXPECT_EQ(props["axes"]["default"][1]["order"], 2);
+  EXPECT_EQ(props["objectsFolder"]["default"], "Data/100.00_101.00/0.00_1.00 (no such folder)");
+  EXPECT_TRUE(props["objects"]["default"].empty()) << "no folder, no objects to offer";
+  EXPECT_EQ(props["objectsHint"]["tone"], "danger");
+  EXPECT_EQ(props["objectsHint"]["default"], "No objects found in Data/100.00_101.00/0.00_1.00");
+  EXPECT_EQ(props["objectsHint"]["readOnly"], true);
+
+  // With the order that does exist, the folder and its objects come back — and the picked one stays picked.
+  const auto natural = fTool->Call(
+      "ndmspc/rbrowser/sparse", "POST",
+      json{{"key", "hnsParams"},
+           {"parameterAxis", "Results"},
+           {"axes", json::array({json{{"axis", "pt"}, {"order", "2"}}, json{{"axis", "ce"}, {"order", "1"}}})},
+           {"importObjects", true},
+           {"objectsPrefix", "Data/"},
+           {"objects", json::array({"hSignal"})}});
+  const json & naturalProps = natural.ws["payload"]["dialog"]["tabs"][2]["schema"]["properties"];
+  EXPECT_EQ(naturalProps["objectsFolder"]["default"], "Data/0.00_1.00/100.00_101.00");
+  EXPECT_EQ(naturalProps["objects"]["default"], json::array({"hSignal"}));
+  EXPECT_EQ(naturalProps["objectsHint"]["tone"], "success");
+  EXPECT_EQ(naturalProps["objectsHint"]["default"], "1 object selected");
+
+  // The section off (its default): none of its fields is there, and the folder was not read.
+  const auto sectionOff = fTool->Call(
+      "ndmspc/rbrowser/sparse", "POST",
+      json{{"key", "hnsParams"}, {"parameterAxis", "Results"}, {"importObjects", false}});
+  const json & offProps = sectionOff.ws["payload"]["dialog"]["tabs"][2]["schema"]["properties"];
+  EXPECT_EQ(offProps["importObjects"]["default"], false);
+  EXPECT_FALSE(offProps.contains("objects"));
+  EXPECT_FALSE(offProps.contains("objectsFolder"));
+  EXPECT_FALSE(offProps.contains("objectsHint"));
+
+  // A form that arrives with two axes on one number is renumbered in row order — the client swaps them,
+  // but the promise holds for a client that does not.
+  const auto tied = fTool->Call(
+      "ndmspc/rbrowser/sparse", "POST",
+      json{{"key", "hnsParams"},
+           {"parameterAxis", "Results"},
+           {"axes", json::array({json{{"axis", "pt"}, {"order", "1"}}, json{{"axis", "ce"}, {"order", "1"}}})},
+           {"importObjects", true}});
+  const json & tiedProps = tied.ws["payload"]["dialog"]["tabs"][2]["schema"]["properties"];
+  ASSERT_EQ(tiedProps["axes"]["default"].size(), 2u);
+  EXPECT_EQ(tiedProps["axes"]["default"][0]["order"], 1) << "the first row keeps the number it was given";
+  EXPECT_EQ(tiedProps["axes"]["default"][1]["order"], 2) << "the second takes the free one";
+  EXPECT_EQ(tiedProps["objectsFolder"]["default"], "Data/100.00_101.00/0.00_1.00 (no such folder)");
+}
+
+/// The Parameters form previews the very configuration the run would make — including the path entries and
+/// the objects — with the import call at its end.
+TEST_F(ToolBrowser, TheParametersTabPreviewsTheMacroItWouldRun)
+{
+  fTool->Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+
+  const auto preview = fTool->Call(
+      "ndmspc/rbrowser/macro", "POST",
+      json{{"for", "ndmspc/rbrowser/import"},
+           {"key", "hnsParams"},
+           {"parameterAxis", "Results"},
+           {"axes", json::array({json{{"axis", "ce"}, {"order", 1}, {"mode", "minmax"}, {"format", "%.2f_%.2f"}, {"sufix", "/"}}})},
+           {"objectsPrefix", "Data/"},
+           {"importObjects", true},
+           {"objects", json::array({"hSignal"})},
+           {"outputFile", "/tmp/preview_params_ngnt.root"}});
+  ASSERT_EQ(preview.reply.value("result", std::string()), "success") << preview.reply.dump();
+
+  const std::string macro = preview.reply["macro"].get<std::string>();
+  EXPECT_NE(macro.find("cfg[\"parameterAxis\"]"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("cfg[\"axes\"]"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("\"mode\", \"minmax\""), std::string::npos) << macro;
+  EXPECT_NE(macro.find("\"sufix\", \"/\""), std::string::npos) << macro;
+  EXPECT_NE(macro.find("cfg[\"retrieveObjects\"]"), std::string::npos) << macro;
+  EXPECT_NE(macro.find("Ndmspc::NGnTree::Import(cfg, \"" + std::string(kFile) + "\")"), std::string::npos)
+      << macro;
+  // ... and where each object would be read from: `ce` first, the missing `pt` row filled in at the end.
+  EXPECT_NE(macro.find("//   hSignal -> Data/0.00_1.00/100.00_101.00/hSignal"), std::string::npos) << macro;
 }
 
 /// The import tab's submit writes the NGnTree file the settings name, and the reply hands the client the

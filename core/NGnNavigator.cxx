@@ -991,12 +991,11 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
   }
 
   for (auto & [key, val] : obj->GetParameterContentMap()) {
-    double min  = std::numeric_limits<double>::max();  // Initialize with largest possible double
-    double max  = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
-    double minE = std::numeric_limits<double>::max();  // Initialize with largest possible double
-    double maxE = -std::numeric_limits<double>::max(); // Initialize with smallest possible double
-    entries     = 0.0;                                 // Reset entries for each key
+    entries = 0.0; // Reset entries for each key
 
+    // The cells' values, and their errors as the **variance** (`error²`) the nested format carries. The
+    // range a parameter is shown over is set further down, once this level's values are final: an upper
+    // level's values are the averages of its children (written below), not these raw cells.
     for (size_t i = 0; i < val.size(); i++) {
       double param      = val[i];
       double paramError = 0.0;
@@ -1011,93 +1010,23 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
         }
       }
       if (!std::isnan(param) && std::fabs(param) > 1e-12) {
-        min  = TMath::Min(min, param);
-        max  = TMath::Max(max, param);
-        minE = TMath::Min(minE, paramError);
-        maxE = TMath::Max(maxE, paramError);
-
         // if (!key.compare("IsFitValid"))
         //   NLogDebug("NGnNavigator::ExportJson: key=%s[%zu] Min=%f, Max=%f param=%f", key.c_str(), i, min, max,
         //   param);
-        // if (!key.compare("Chi2_NDF")) NLogDebug("NGnNavigator::ExportJson: key=%s[%zu] Min=%f, Max=%f", key.c_str(),
-        // i, min, max);
-
         j["fArrays"][key]["values"][i] = param;
 
         if (!std::isnan(paramError) && std::fabs(paramError) > 1e-12) {
           j["fArrays"][key]["errors"][i] = TMath::Power(paramError, 2);
         }
         else {
-          // j["fArrays"][key]["errors"][i] = param;
           j["fArrays"][key]["errors"][i] = 0.0;
         }
       }
       else {
         j["fArrays"][key]["values"][i] = 0.0;
         j["fArrays"][key]["errors"][i] = 0.0;
-        min                            = TMath::Min(min, 0.0);
-        max                            = TMath::Max(max, 0.0);
-        minE                           = TMath::Min(minE, 0.0);
-        maxE                           = TMath::Max(maxE, 0.0);
       }
     }
-
-    // set min max with 5 percent margin
-    double margin = 0.05 * (max - min);
-    min           = min - margin;
-    max           = max + margin;
-
-    double marginE = 0.05 * (maxE - minE);
-    minE           = minE - marginE;
-    maxE           = maxE + marginE;
-
-    // NLogDebug("NGnNavigator::ExportJson: %s", cfg["parameters"].dump().c_str());
-
-    json parameters = cfg["parameters"];
-    if (parameters.is_array()) {
-      for (const auto & p : parameters) {
-        // NLogDebug("NGnNavigator::ExportJson: Checking config for key '%s': %s", key.c_str(), p.dump().c_str());
-        if (p.contains("name") && p["name"].get<std::string>().compare(key) == 0) {
-
-          if (p.contains("value")) {
-            if (p["value"].contains("min") && p["value"]["min"].is_number()) {
-
-              min = p["value"]["min"].get<double>();
-            }
-            if (p["value"].contains("max") && p["value"]["max"].is_number()) {
-              max = p["value"]["max"].get<double>();
-            }
-            // NLogDebug("AAAAAAAAAAAAAAAA NGnNavigator::ExportJson: Found config for key '%s': min=%f, max=%f",
-            //           key.c_str(), min, max);
-          }
-
-          if (p.contains("error")) {
-            if (p["error"].contains("min") && p["error"]["min"].is_number()) {
-
-              minE = p["error"]["min"].get<double>();
-            }
-            if (p["error"].contains("max") && p["error"]["max"].is_number()) {
-              maxE = p["error"]["max"].get<double>();
-            }
-            // NLogDebug("AAAAAAAAAAAAAAAA NGnNavigator::ExportJson: Found config for key '%s': minE=%f, maxE=%f",
-            //           key.c_str(), minE, maxE);
-          }
-        }
-      }
-    }
-
-    j["fArrays"][key]["min"]  = min;
-    j["fArrays"][key]["max"]  = max;
-    j["fArrays"][key]["minE"] = minE;
-    j["fArrays"][key]["maxE"] = maxE;
-
-    // j["fSumw2"][key]["min"] = min;
-    // j["fSumw2"][key]["max"] = max;
-
-    // j["ndmspc"][key]["fEntries"] = entries;
-    // if (!key.compare("IsFitValid")) NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(), min,
-    // max); if (!key.compare("Chi2_NDF")) NLogDebug("NGnNavigator::ExportJson: key=%s Min=%f, Max=%f", key.c_str(),
-    // min, max);
   }
 
   // double              min = std::numeric_limits<double>::max();  // Initialize with largest possible double
@@ -1237,6 +1166,89 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
       j["fArrays"][param]["maxE"] = paramMaxEGlobal[param];
     }
   }
+  // The range each parameter is shown over, from the numbers **at this level** — mean ± 3·rms of the valid
+  // cells, so a few empty cells (a zero) or outlying ones cannot stretch it, and cells that all agree still
+  // get a span. Values and errors each get their own mean and rms from their own numbers (the errors are
+  // the stored `error²` entries), so the two ranges are independent. An upper level's values are its
+  // children's averages; a level with no values of its own (averaging off) keeps the union of its
+  // children's ranges set above.
+  auto meanAndRms = [](const std::vector<double> & samples, double & mean, double & rms) {
+    mean = 0.0;
+    rms  = 0.0;
+    if (samples.empty()) return false;
+    double sum = 0.0, sumSq = 0.0;
+    for (const double value : samples) {
+      sum += value;
+      sumSq += value * value;
+    }
+    const double n = static_cast<double>(samples.size());
+    mean           = sum / n;
+    rms            = std::sqrt(std::max(0.0, sumSq / n - mean * mean));
+    return true;
+  };
+  auto valueRange = [&meanAndRms](const json & samples) {
+    std::vector<double> valid;
+    if (samples.is_array()) {
+      for (const auto & sample : samples) {
+        if (!sample.is_number()) continue;
+        const double value = sample.get<double>();
+        if (std::isnan(value) || std::fabs(value) <= 1e-12) continue; // a cell with no value
+        valid.push_back(value);
+      }
+    }
+    double mean = 0.0, rms = 0.0;
+    if (!meanAndRms(valid, mean, rms)) return std::pair<double, double>{0.0, 0.0};
+    if (rms > 0.0) return std::pair<double, double>{mean - 3.0 * rms, mean + 3.0 * rms};
+    const double pad = std::max(std::fabs(mean) * 0.05, 1e-9); // all cells the same: a span around it
+    return std::pair<double, double>{mean - pad, mean + pad};
+  };
+  auto errorRange = [&meanAndRms](const json & errors) {
+    std::vector<double> samples;
+    if (errors.is_array()) {
+      for (const auto & error : errors) {
+        if (!error.is_number()) continue;
+        const double value = error.get<double>();
+        if (std::isnan(value) || std::fabs(value) <= 1e-12) continue; // a cell with no error
+        samples.push_back(value);
+      }
+    }
+    double mean = 0.0, rms = 0.0;
+    if (!meanAndRms(samples, mean, rms)) return std::pair<double, double>{0.0, 0.0};
+    if (rms > 0.0) return std::pair<double, double>{std::max(0.0, mean - 3.0 * rms), mean + 3.0 * rms};
+    const double pad = std::max(std::fabs(mean) * 0.05, 1e-9);
+    return std::pair<double, double>{std::max(0.0, mean - pad), mean + pad};
+  };
+
+  for (auto & [key, arr] : j["fArrays"].items()) {
+    if (!arr.is_object() || !arr.contains("values") || !arr["values"].is_array()) continue;
+    const auto [min, max] = valueRange(arr["values"]);
+    arr["min"]            = min;
+    arr["max"]            = max;
+    if (arr.contains("errors") && arr["errors"].is_array()) {
+      const auto [minE, maxE] = errorRange(arr["errors"]);
+      arr["minE"]             = minE;
+      arr["maxE"]             = maxE;
+    }
+  }
+
+  // A caller may state a parameter's range itself; its own choice wins over the one computed here.
+  if (cfg.contains("parameters") && cfg["parameters"].is_array()) {
+    for (const auto & p : cfg["parameters"]) {
+      if (!p.is_object() || !p.contains("name") || !p["name"].is_string()) continue;
+      const std::string key = p["name"].get<std::string>();
+      if (!j["fArrays"].contains(key) || !j["fArrays"][key].is_object()) continue;
+      auto & arr = j["fArrays"][key];
+      if (p.contains("value") && p["value"].is_object()) {
+        if (p["value"].contains("min") && p["value"]["min"].is_number()) arr["min"] = p["value"]["min"];
+        if (p["value"].contains("max") && p["value"]["max"].is_number()) arr["max"] = p["value"]["max"];
+      }
+      if (p.contains("error") && p["error"].is_object()) {
+        if (p["error"].contains("min") && p["error"]["min"].is_number()) arr["minE"] = p["error"]["min"];
+        if (p["error"].contains("max") && p["error"]["max"].is_number()) arr["maxE"] = p["error"]["max"];
+      }
+    }
+  }
+
   // loop over j["children"]["content"] and remove empty objects"
   bool hasContent = false;
   for (auto & c : j["children"]["content"]) {

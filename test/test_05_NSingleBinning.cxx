@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <vector>
 #include <nlohmann/json.hpp>
 #include "05_single_bining/NSingleBinning01Gaus.C"
 #include "ndmspc/core/NGnNavigator.h"
@@ -179,6 +181,94 @@ TEST_F(NSingleBinning01GausTest, AveragesDisabledByCfgOverridesMember)
   for (auto & [param, arr] : j["fArrays"].items()) {
     EXPECT_FALSE(arr.contains("values")) << "param " << param;
     EXPECT_FALSE(arr.contains("errors")) << "param " << param;
+  }
+
+  delete nav;
+  ngnt->Close();
+}
+
+/**
+ * A parameter's displayed range is the spread of its valid cells at that level — mean ± 3·rms — so empty
+ * cells (a zero) and outliers cannot stretch it, and cells that all agree still get a span.
+ */
+TEST_F(NSingleBinning01GausTest, ParameterRangeIsMeanPlusMinusThreeRms)
+{
+  Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Open(testFile);
+  ASSERT_TRUE(ngnt);
+
+  Ndmspc::NGnNavigator * nav = ngnt->Reshape("", {{0}, {1, 2}});
+  ASSERT_TRUE(nav);
+
+  nlohmann::json j;
+  nav->ExportToJson(j, nav, {});
+  ASSERT_TRUE(j.contains("fArrays"));
+
+  for (auto & [param, arr] : j["fArrays"].items()) {
+    ASSERT_TRUE(arr.contains("min")) << param;
+    ASSERT_TRUE(arr.contains("max")) << param;
+    if (!arr.contains("values") || !arr["values"].is_array()) continue; // a level with no values: children
+
+    std::vector<double> values;
+    for (const auto & value : arr["values"]) {
+      if (!value.is_number()) continue;
+      const double v = value.get<double>();
+      if (std::isnan(v) || std::fabs(v) <= 1e-12) continue;
+      values.push_back(v);
+    }
+    if (values.empty()) {
+      EXPECT_DOUBLE_EQ(arr["min"].get<double>(), 0.0) << param;
+      EXPECT_DOUBLE_EQ(arr["max"].get<double>(), 0.0) << param;
+      continue;
+    }
+    double sum = 0.0, sumSq = 0.0;
+    for (const double v : values) {
+      sum += v;
+      sumSq += v * v;
+    }
+    const double n    = static_cast<double>(values.size());
+    const double mean = sum / n;
+    const double rms  = std::sqrt(std::max(0.0, sumSq / n - mean * mean));
+    if (rms > 0.0) {
+      EXPECT_NEAR(arr["min"].get<double>(), mean - 3.0 * rms, 1e-9) << param;
+      EXPECT_NEAR(arr["max"].get<double>(), mean + 3.0 * rms, 1e-9) << param;
+    }
+    else {
+      EXPECT_LT(arr["min"].get<double>(), mean) << param;
+      EXPECT_GT(arr["max"].get<double>(), mean) << param;
+    }
+
+    // The errors get the same computation on their own numbers (their own mean and rms).
+    if (!arr.contains("errors") || !arr["errors"].is_array()) continue;
+    std::vector<double> errors;
+    for (const auto & error : arr["errors"]) {
+      if (!error.is_number()) continue;
+      const double e = error.get<double>();
+      if (std::isnan(e) || std::fabs(e) <= 1e-12) continue;
+      errors.push_back(e);
+    }
+    ASSERT_TRUE(arr.contains("minE")) << param;
+    ASSERT_TRUE(arr.contains("maxE")) << param;
+    if (errors.empty()) {
+      EXPECT_DOUBLE_EQ(arr["minE"].get<double>(), 0.0) << param;
+      EXPECT_DOUBLE_EQ(arr["maxE"].get<double>(), 0.0) << param;
+      continue;
+    }
+    double sumE = 0.0, sumSqE = 0.0;
+    for (const double e : errors) {
+      sumE += e;
+      sumSqE += e * e;
+    }
+    const double nE    = static_cast<double>(errors.size());
+    const double meanE = sumE / nE;
+    const double rmsE  = std::sqrt(std::max(0.0, sumSqE / nE - meanE * meanE));
+    if (rmsE > 0.0) {
+      EXPECT_NEAR(arr["minE"].get<double>(), std::max(0.0, meanE - 3.0 * rmsE), 1e-9) << param;
+      EXPECT_NEAR(arr["maxE"].get<double>(), meanE + 3.0 * rmsE, 1e-9) << param;
+    }
+    else {
+      EXPECT_GE(arr["minE"].get<double>(), 0.0) << param;
+      EXPECT_GT(arr["maxE"].get<double>(), 0.0) << param;
+    }
   }
 
   delete nav;
