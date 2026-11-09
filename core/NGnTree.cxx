@@ -27,6 +27,7 @@
 #include <sys/poll.h>
 #include <zmq.h>
 #include "NParameters.h"
+#include "NLogString.h"
 #include "NStorageTree.h"
 #include "NBinning.h"
 #include "NBinningDef.h"
@@ -358,9 +359,13 @@ NGnTree::NGnTree(THnSparse * hns, std::string parameterAxis, const std::string &
       }
 
       std::string axisObjectDefaultFormat =
-          cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
+          (cfg.contains("axisObjectDefaultFormat") && cfg["axisObjectDefaultFormat"].is_string())
+              ? cfg["axisObjectDefaultFormat"].get<std::string>()
+              : "%.2f_%.2f";
       std::string axisDefaultSeparator =
-          cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
+          (cfg.contains("axisDefaultSeparator") && cfg["axisDefaultSeparator"].is_string())
+              ? cfg["axisDefaultSeparator"].get<std::string>()
+              : "/";
       bool dryrun = false;
       if (cfg.contains("dryrun") && cfg["dryrun"].is_boolean()) {
         dryrun = cfg["dryrun"].get<bool>();
@@ -1963,21 +1968,41 @@ bool HaveSameBinning(THnSparse * a, THnSparse * b)
 
 /// \brief Create an NGnTree file from THnSparse object(s) stored in a ROOT file.
 NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string & directory,
-                                 const std::vector<std::string> & paramNames, json cfg)
+                                 std::vector<std::string> paramNames, json cfg)
 {
   ///
   /// Import THnSparse object(s) as NGnTree and project them per bin
   ///
 
+  // A **parameter-axis** import takes the tree's axes from the object itself: one axis (the one whose bin
+  // labels name the parameters) is held out, and every other axis is a dimension of the tree. The list
+  // then need not be given, and an entry may be a `{name, mode, format, sufix}` object — the shape
+  // `BuildObjectPath` reads to locate a per-bin object (see `retrieveObjects` below).
+  const std::string parameterAxis = cfg.value("parameterAxis", std::string());
+
   if (!cfg.contains("objects") || !cfg["objects"].is_array() || cfg["objects"].empty()) {
     NLogError("NGnTree::Import: 'objects' must be a non-empty array in the configuration !!!");
     return nullptr;
   }
-  if (!cfg.contains("axes") || !cfg["axes"].is_array() || cfg["axes"].empty()) {
+  if ((!cfg.contains("axes") || !cfg["axes"].is_array() || cfg["axes"].empty()) && parameterAxis.empty()) {
     NLogError("NGnTree::Import: 'axes' must be a non-empty array in the configuration !!!");
     return nullptr;
   }
-  std::vector<std::string> axisNames = cfg["axes"].get<std::vector<std::string>>();
+  std::vector<std::string> axisNames;
+  if (cfg.contains("axes") && cfg["axes"].is_array()) {
+    for (const auto & entry : cfg["axes"]) {
+      if (entry.is_string()) {
+        axisNames.push_back(entry.get<std::string>());
+      }
+      else if (entry.is_object() && entry.contains("name") && entry["name"].is_string()) {
+        axisNames.push_back(entry["name"].get<std::string>());
+      }
+      else {
+        NLogError("NGnTree::Import: Invalid entry in 'axes': %s !!!", entry.dump().c_str());
+        return nullptr;
+      }
+    }
+  }
 
   // Parse the object list (either bare names or {name,type} objects), default type THnSparse
   std::vector<std::pair<std::string, std::string>> objectSpecs;
@@ -2034,6 +2059,71 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
       delete f;
       return nullptr;
     }
+  }
+
+  // The **parameter axis**: its bin labels are the parameter names, and it is not a dimension of the tree.
+  // It is also not a fragment of the object path (there is no bin range for it to name), so it leaves the
+  // axes the points see as well.
+  int parameterAxisIdx = -1;
+  if (!parameterAxis.empty()) {
+    for (int i = 0; i < first->GetNdimensions(); i++) {
+      if (parameterAxis == first->GetAxis(i)->GetName()) {
+        parameterAxisIdx = i;
+        break;
+      }
+    }
+    if (parameterAxisIdx < 0) {
+      NLogError("NGnTree::Import: Parameter axis '%s' not found in THnSparse '%s' !!!", parameterAxis.c_str(),
+                first->GetName());
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+    TAxis * paramAxis = first->GetAxis(parameterAxisIdx);
+    if (paramAxis == nullptr || !paramAxis->IsAlphanumeric()) {
+      NLogError("NGnTree::Import: Parameter axis '%s' in THnSparse '%s' carries no bin labels !!!",
+                parameterAxis.c_str(), first->GetName());
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+
+    // The parameter names are the axis' own bin labels, in bin order — what the macro hands over by
+    // naming the axis.
+    if (paramNames.empty()) {
+      for (int bin = 1; bin <= paramAxis->GetNbins(); bin++) {
+        paramNames.push_back(paramAxis->GetBinLabel(bin));
+      }
+    }
+
+    // The tree's axes are every dimension except the parameter one, in the **object's own order** (that is
+    // what the tree reads as); `cfg["axes"]` only says how the path of a per-bin object is spelled, so the
+    // two are independent. Entries stay as they came (a string, or an object carrying the path template),
+    // because `BuildObjectPath` reads them per bin.
+    axisNames.clear();
+    for (int i = 0; i < first->GetNdimensions(); i++) {
+      if (i == parameterAxisIdx) continue;
+      TAxis * axis = first->GetAxis(i);
+      if (axis == nullptr || axis->GetName() == nullptr) continue;
+      axisNames.push_back(axis->GetName());
+    }
+    if (axisNames.empty()) {
+      NLogError("NGnTree::Import: Parameter-axis import needs at least one other axis in THnSparse '%s' !!!",
+                first->GetName());
+      f->Close();
+      delete f;
+      return nullptr;
+    }
+
+    json pathAxes = json::array();
+    if (cfg.contains("axes") && cfg["axes"].is_array()) {
+      for (const auto & entry : cfg["axes"]) {
+        const std::string name = entry.is_string() ? entry.get<std::string>() : entry.value("name", std::string());
+        if (name == parameterAxis) continue;
+        pathAxes.push_back(entry);
+      }
+    }
+    cfg["axes"] = pathAxes;
   }
 
   // Build NGnTree axes from the first object, remembering the mapping to the input axes
@@ -2099,6 +2189,7 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
   cfg["inputFile"]      = inFile;
   cfg["inputDirectory"] = directory;
   cfg["_axesOrder"]     = axesOrder;
+  cfg["_parameterAxis"] = parameterAxisIdx;
 
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
                                              int /*threadId*/) {
@@ -2148,6 +2239,53 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
 
       // Cut on all variable axes for this bin
       NUtils::SetAxisRanges(hns, cut, true);
+
+      // A **parameter-axis** import: this bin's slice projected along the parameter axis gives the entry's
+      // parameters, and each of its bins is one (named by the axis' bin label).
+      const int parameterAxisIdx = cfg.value("_parameterAxis", -1);
+      if (parameterAxisIdx >= 0 && parameterAxisIdx < hns->GetNdimensions()) {
+        TH1 * hParam = (TH1 *)hns->Projection(parameterAxisIdx, "O");
+        if (hParam != nullptr) {
+          if (Ndmspc::NParameters * params = point->GetParameters()) {
+            for (int bin = 1; bin <= hParam->GetNbinsX(); bin++) {
+              params->SetParameter(bin, hParam->GetBinContent(bin), hParam->GetBinError(bin));
+            }
+          }
+
+          // What the entry shows, as **markdown**: one line per parameter, `value ± error`. It is the
+          // point's **first** object — ahead of the objects a path names — so the result is what a viewer
+          // reads first. The histogram is not stored: the numbers live in `_params`, and this is how a
+          // person reads them.
+          if (hParam->GetEntries() > 0) {
+            auto * log = new Ndmspc::NLogString("parameters", "Parameters");
+            log->SetType("md");
+            const std::string slice = point->GetString("", false);
+            if (!slice.empty()) log->AddLine("**%s**", slice.c_str());
+            for (int bin = 1; bin <= hParam->GetNbinsX(); bin++) {
+              const char * label = hParam->GetXaxis()->GetBinLabel(bin);
+              log->AddLine("- **%s**: %.6g ± %.6g", (label != nullptr && label[0] != '\0') ? label : "?",
+                           hParam->GetBinContent(bin), hParam->GetBinError(bin));
+            }
+            outputPoint->Add(log);
+          }
+          delete hParam;
+        }
+      }
+
+      // The objects this bin's path names (`retrieveObjects`, the macro's cfg["objects"] map): each is
+      // `<prefix><axis fragments><sufix>` — the fragments built from the axes' own entries.
+      if (cfg.contains("retrieveObjects") && cfg["retrieveObjects"].is_object()) {
+        for (const auto & [retrievedName, objCfg] : cfg["retrieveObjects"].items()) {
+          const std::string objPath = NGnTree::BuildObjectPath(cfg, objCfg, point);
+          TObject *         obj     = fIn->Get(objPath.c_str());
+          if (obj == nullptr) {
+            NLogWarning("NGnTree::Import: Cannot get object '%s' from file '%s' !!!", objPath.c_str(), fIn->GetName());
+            continue;
+          }
+          if (obj->InheritsFrom(TCanvas::Class())) ((TCanvas *)obj)->SetName(retrievedName.c_str());
+          outputPoint->Add(obj->Clone(retrievedName.c_str()));
+        }
+      }
 
       int projId = 0;
       for (const auto & spec : projections) {
@@ -2245,8 +2383,20 @@ NGnTree * NGnTree::Import(const json & cfg, const std::string & filename, const 
   std::string dir        = directory.empty() ? cfg.value("directory", "") : directory;
   std::string outputFile = cfg.value("outputFile", "imported_ngnt.root");
 
-  std::vector<std::string> headers = cfg.value("axes", std::vector<std::string>{});
-  if (headers.empty()) {
+  // An entry may be a bare axis name or an object carrying its path template (`{name, mode, …}`, see
+  // `BuildObjectPath`); a parameter-axis import need not name its axes at all.
+  std::vector<std::string> headers;
+  if (cfg.contains("axes") && cfg["axes"].is_array()) {
+    for (const auto & entry : cfg["axes"]) {
+      if (entry.is_string()) {
+        headers.push_back(entry.get<std::string>());
+      }
+      else if (entry.is_object() && entry.contains("name") && entry["name"].is_string()) {
+        headers.push_back(entry["name"].get<std::string>());
+      }
+    }
+  }
+  if (headers.empty() && !cfg.contains("parameterAxis")) {
     NLogWarning("NGnTree::Import: No 'axes' specified in configuration, proceeding with empty axes list ...");
   }
 
@@ -2627,9 +2777,13 @@ std::string NGnTree::BuildObjectPath(const json & cfg, const json & objCfg, cons
   }
 
   std::string axisObjectDefaultFormat =
-      cfg["axisObjectDefaultFormat"].is_string() ? cfg["axisObjectDefaultFormat"].get<std::string>() : "%.2f_%.2f";
+      (cfg.contains("axisObjectDefaultFormat") && cfg["axisObjectDefaultFormat"].is_string())
+          ? cfg["axisObjectDefaultFormat"].get<std::string>()
+          : "%.2f_%.2f";
   std::string axisDefaultSeparator =
-      cfg["axisDefaultSeparator"].is_string() ? cfg["axisDefaultSeparator"].get<std::string>() : "/";
+      (cfg.contains("axisDefaultSeparator") && cfg["axisDefaultSeparator"].is_string())
+          ? cfg["axisDefaultSeparator"].get<std::string>()
+          : "/";
 
   std::string lastSep;
   for (auto & axisEntry : cfg["axes"]) {

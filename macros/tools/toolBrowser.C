@@ -45,6 +45,7 @@
 ///   ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <map>
 #include <set>
@@ -655,6 +656,411 @@ json SparseImportSchema(THnSparse * sparse, const std::string & key, const json 
               {"properties", properties}};
 }
 
+/// Whether a per-axis `format` is one `TString::Format` may be handed safely: at most two conversions, each
+/// a numeric/string one (`%[-+ #0][width][.prec][length]d|f|e|E|g|G|s`), `%%` allowed and `%n` never.
+bool SafeFormat(const std::string & format)
+{
+  int conversions = 0;
+  for (size_t i = 0; i < format.size(); i++) {
+    if (format[i] != '%') continue;
+    if (i + 1 >= format.size()) return false;
+    if (format[i + 1] == '%') {
+      i++;
+      continue;
+    }
+    size_t j = i + 1;
+    while (j < format.size() &&
+           (format[j] == '-' || format[j] == '+' || format[j] == ' ' || format[j] == '#' || format[j] == '0'))
+      j++;
+    while (j < format.size() && std::isdigit(static_cast<unsigned char>(format[j]))) j++;
+    if (j < format.size() && format[j] == '.') {
+      j++;
+      while (j < format.size() && std::isdigit(static_cast<unsigned char>(format[j]))) j++;
+    }
+    if (j < format.size() && (format[j] == 'l' || format[j] == 'h')) j++;
+    if (j >= format.size()) return false;
+    const char conversion = format[j];
+    if (conversion != 'd' && conversion != 'f' && conversion != 'e' && conversion != 'E' && conversion != 'g' &&
+        conversion != 'G' && conversion != 's')
+      return false;
+    if (++conversions > 2) return false;
+    i = j;
+  }
+  return true;
+}
+
+/// An entry's axis name: `cfg["axes"]` entries carry `name`, the form's rows carry `axis`.
+std::string EntryName(const json & entry)
+{
+  if (entry.is_string()) return entry.get<std::string>();
+  if (entry.is_object()) return entry.value("name", entry.value("axis", std::string()));
+  return "";
+}
+
+/// A row's `#` as a number: the choice list's word, or the default's integer.
+int OrderOf(const json & row, int fallback)
+{
+  if (!row.is_object() || !row.contains("order")) return fallback;
+  const json & value = row["order"];
+  if (value.is_number_integer()) return value.get<int>();
+  if (value.is_string()) {
+    try {
+      return std::stoi(value.get<std::string>());
+    }
+    catch (...) {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+/// The fragment one axis contributes to an object's path at `bin`, by the rules `BuildObjectPath` uses —
+/// an unsafe `format` falls back to the importer's own, so a preview can never be what breaks the room.
+std::string AxisFragment(THnSparse * sparse, const json & entry, int bin)
+{
+  const std::string name = EntryName(entry);
+  if (name.empty()) return "";
+  TAxis * axis = nullptr;
+  for (int i = 0; sparse != nullptr && i < sparse->GetNdimensions(); i++) {
+    TAxis * one = sparse->GetAxis(i);
+    if (one != nullptr && one->GetName() != nullptr && name == one->GetName()) {
+      axis = one;
+      break;
+    }
+  }
+  if (axis == nullptr) return "";
+  if (bin < 1) bin = 1;
+  if (bin > axis->GetNbins()) bin = axis->GetNbins();
+
+  const std::string mode   = entry.is_object() ? entry.value("mode", std::string()) : std::string();
+  std::string       format = entry.is_object() ? entry.value("format", std::string()) : std::string();
+  if (format.empty() || !SafeFormat(format)) {
+    format = (mode.empty() || mode == "minmax") ? "%.2f_%.2f" : (mode == "bin" ? "%d" : "%.2f");
+  }
+
+  const double low  = axis->GetBinLowEdge(bin);
+  const double high = axis->GetBinUpEdge(bin);
+  if (mode == "label") return axis->GetBinLabel(bin);
+  if (mode == "bin") return std::to_string(bin);
+  if (mode == "min") return TString::Format(format.c_str(), low).Data();
+  if (mode == "max") return TString::Format(format.c_str(), high).Data();
+  if (mode == "center") return TString::Format(format.c_str(), (low + high) / 2.0).Data();
+  return TString::Format(format.c_str(), low, high).Data();
+}
+
+/// The path one per-bin object would be read from, at the **first bin** of every axis: the shape
+/// `BuildObjectPath` builds for a point, spelled out so the dialog can show it before a run.
+std::string PreviewObjectPath(THnSparse * sparse, const json & axisEntries, const std::string & prefix,
+                              const std::string & objectSufix)
+{
+  std::string path = prefix;
+  std::string lastSep;
+  for (const auto & entry : axisEntries) {
+    const std::string fragment = AxisFragment(sparse, entry, 1);
+    if (fragment.empty()) continue;
+    std::string separator = "/";
+    if (entry.is_object() && entry.contains("sufix") && entry["sufix"].is_string()) {
+      separator = entry["sufix"].get<std::string>();
+    }
+    path += fragment + separator;
+    lastSep = separator;
+  }
+  if (!lastSep.empty() && path.size() >= lastSep.size()) path = path.substr(0, path.size() - lastSep.size());
+  path += objectSufix;
+  return path;
+}
+
+/// A fingerprint of a form, so a client can tell a rebuilt dialog from the one it is showing and remount on
+/// the new defaults rather than keep values the form no longer derives from.
+std::string RevisionOf(const json & value)
+{
+  unsigned long long hash = 1469598103934665603ull;
+  const std::string  text = value.dump();
+  for (const unsigned char c : text) {
+    hash ^= c;
+    hash *= 1099511628211ull;
+  }
+  std::ostringstream out;
+  out << std::hex << hash;
+  return out.str();
+}
+
+/// The axes a **parameter** import can take its parameters from: the ones carrying a label per bin (a fit
+/// result's `Results` axis, whose bins are `mean`, `sigma`, …). An axis without labels names nothing, so it
+/// is not offered.
+std::vector<int> ParameterAxes(THnSparse * sparse)
+{
+  std::vector<int> indices;
+  if (sparse == nullptr) return indices;
+  for (int i = 0; i < sparse->GetNdimensions(); i++) {
+    TAxis * axis = sparse->GetAxis(i);
+    if (axis != nullptr && axis->IsAlphanumeric()) indices.push_back(i);
+  }
+  return indices;
+}
+
+/// The settings a **parameter** import takes, as the dialog's third tab: the axis whose bin labels name the
+/// parameters, the `cfg["axes"]` entry every axis contributes to a per-bin object's path (`mode`, `format`,
+/// `sufix` — the macro's own `cfg["axes"].push_back(...)`), the objects to fetch with that path, and where
+/// the file is written. The tree varies over every axis except the chosen one, one bin each. `file` is the
+/// one being browsed, so the folder of the first bin can be listed and its objects offered.
+json SparseParametersSchema(THnSparse * sparse, TFile * file, const std::string & key, const json & saved = json())
+{
+  const int ndim = sparse != nullptr ? sparse->GetNdimensions() : 0;
+
+  json        axisNames  = json::array();
+  json        axisLabels = json::array();
+  std::string defaultAxis;
+  for (const int i : ParameterAxes(sparse)) {
+    TAxis *           axis = sparse->GetAxis(i);
+    const std::string name = (axis != nullptr && axis->GetName() != nullptr) ? axis->GetName() : "";
+    axisNames.push_back(name);
+    axisLabels.push_back(
+        TString::Format("[%d] %s: %d labels", i, name.c_str(), axis != nullptr ? axis->GetNbins() : 0).Data());
+    // The macro's own axis, when the file has one; else the first axis that can name parameters.
+    if (name == "Results") defaultAxis = name;
+  }
+  if (defaultAxis.empty() && !axisNames.empty()) defaultAxis = axisNames[0].get<std::string>();
+
+  // A configuration kept for these axes overlays the defaults, row by row.
+  std::map<std::string, json> savedRows;
+  if (saved.is_object() && saved.contains("axes") && saved["axes"].is_array()) {
+    for (const auto & row : saved["axes"]) {
+      if (row.is_object() && row.contains("axis") && row["axis"].is_string()) {
+        savedRows[row["axis"].get<std::string>()] = row;
+      }
+    }
+  }
+
+  // The axis whose bin labels name the parameters is **not** a row here: it is not a tree axis and it
+  // contributes no path fragment. Every other axis gets one row.
+  int parameterIndex = -1;
+  for (int i = 0; i < ndim; i++) {
+    TAxis * axis = sparse->GetAxis(i);
+    if (axis != nullptr && axis->GetName() != nullptr && defaultAxis == axis->GetName()) {
+      parameterIndex = i;
+      break;
+    }
+  }
+
+  json rows = json::array();
+  // The path's fragment order starts **reversed**: the last axis of the sparse is the first folder
+  // (`Data/<ce>/<pt>/…` over a sparse ordered `pt, ce`), which is the usual layout, and `#` is there for
+  // the files that say it differently.
+  const int rowCount = parameterIndex >= 0 ? std::max(0, ndim - 1) : ndim;
+  int       position = 0;
+  for (int i = 0; i < ndim; i++) {
+    if (i == parameterIndex) continue;
+    TAxis *           axis  = sparse->GetAxis(i);
+    const std::string name  = (axis != nullptr && axis->GetName() != nullptr) ? axis->GetName() : "";
+    std::string       title = (axis != nullptr && axis->GetTitle() != nullptr) ? axis->GetTitle() : "";
+    if (title.empty()) title = name;
+    position++;
+
+    json row = {{"axis", name},
+                {"axisTitle", title},
+                {"bins", axis != nullptr ? axis->GetNbins() : 0},
+                {"order", rowCount - position + 1},
+                {"mode", "minmax"},
+                {"format", "%.2f_%.2f"},
+                {"sufix", "/"}};
+    const auto kept = savedRows.find(name);
+    if (kept != savedRows.end()) {
+      for (const char * field : {"order", "mode", "format", "sufix"}) {
+        if (!kept->second.contains(field)) continue;
+        if (kept->second[field].is_string() || kept->second[field].is_number_integer()) {
+          row[field] = kept->second[field];
+        }
+      }
+    }
+    rows.push_back(row);
+  }
+
+  // `#` is a **permutation** of 1..N: a form that arrives with two rows on one number (a client that does
+  // not swap them) gets the numbers back in row order, so what it shows is what the path does.
+  {
+    std::vector<std::pair<int, size_t>> ordered;
+    for (size_t i = 0; i < rows.size(); i++) ordered.emplace_back(OrderOf(rows[i], static_cast<int>(i) + 1), i);
+    std::stable_sort(ordered.begin(), ordered.end(),
+                     [](const auto & one, const auto & other) { return one.first < other.first; });
+    for (size_t position = 0; position < ordered.size(); position++) {
+      rows[ordered[position].second]["order"] = static_cast<int>(position) + 1;
+    }
+  }
+
+  // The object import is a **section of its own**, off unless asked for: when it is off the import writes
+  // only the parameters, and the folder is not even read.
+  bool importObjects = false;
+  if (saved.is_object() && saved.contains("importObjects") && saved["importObjects"].is_boolean()) {
+    importObjects = saved["importObjects"].get<bool>();
+  }
+
+  // One prefix for the whole form: a file lays all the objects out under one directory (the macro sets a
+  // `prefix` per object, which is the same string for every one of them).
+  std::string objectsPrefix = "Data/";
+  if (saved.is_object() && saved.contains("objectsPrefix") && saved["objectsPrefix"].is_string()) {
+    objectsPrefix = saved["objectsPrefix"].get<std::string>();
+  }
+
+  // The folder the first bin of every axis reads from, what it holds, and what of it is picked — only worth
+  // reading when the section is on.
+  json                     objectNames    = json::array();
+  json                     objectsDefault = json::array();
+  std::string              objectsFolder;
+  std::vector<std::string> available;
+  if (importObjects) {
+    // The fragments in path order, as the paths are built.
+    json orderedEntries = json::array();
+    {
+      std::vector<std::pair<int, json>> ordered;
+      int                               position = 0;
+      for (const auto & row : rows) {
+        position++;
+        json entry = {{"name", row.value("axis", std::string())}};
+        for (const char * field : {"mode", "format", "sufix"}) entry[field] = row[field];
+        ordered.emplace_back(OrderOf(row, position), entry);
+      }
+      std::stable_sort(ordered.begin(), ordered.end(),
+                       [](const auto & one, const auto & other) { return one.first < other.first; });
+      for (const auto & [order, entry] : ordered) orderedEntries.push_back(entry);
+    }
+
+    objectsFolder = PreviewObjectPath(sparse, orderedEntries, objectsPrefix, "");
+    if (file != nullptr && !objectsFolder.empty()) {
+      TDirectory * dir  = (TDirectory *)file->Get(objectsFolder.c_str());
+      TList *      keys = dir != nullptr ? dir->GetListOfKeys() : nullptr;
+      for (int i = 0; keys != nullptr && i < keys->GetEntries(); i++) {
+        auto * entry = dynamic_cast<TKey *>(keys->At(i));
+        if (entry == nullptr || entry->IsFolder()) continue;
+        available.push_back(entry->GetName());
+      }
+      std::sort(available.begin(), available.end());
+    }
+
+    for (const auto & name : available) objectNames.push_back(name);
+    // All of the folder's objects are picked to begin with; a form that had a selection keeps the names
+    // that still exist there, and an empty one means all — "import none" is the section's own switch.
+    if (saved.is_object() && saved.contains("objects") && saved["objects"].is_array()) {
+      for (const auto & one : saved["objects"]) {
+        if (!one.is_string()) continue;
+        if (std::find(available.begin(), available.end(), one.get<std::string>()) != available.end()) {
+          objectsDefault.push_back(one);
+        }
+      }
+    }
+    if (objectsDefault.empty()) {
+      for (const auto & name : available) objectsDefault.push_back(name);
+    }
+  }
+
+  // The `#` choices: one path position per tree axis.
+  json positions = json::array();
+  for (int i = 1; i <= rowCount; i++) positions.push_back(std::to_string(i));
+
+  json properties = json::object();
+  properties["parameterAxis"] = {
+      {"type", "string"},
+      {"format", "select"},
+      {"title", "Parameter axis"},
+      // The list spells each axis out — its number, its name, how many labels it carries — and a chosen one
+      // is said by its name (the same wording the other import tab's pickers use).
+      {"enum", axisNames},
+      {"axisLabels", axisLabels},
+      {"axisNames", axisNames},
+      {"default", defaultAxis},
+      // The rows, the folder and its objects all follow the axis whose labels are the parameters.
+      {"refresh", true},
+      {"description", "The axis whose bin labels are the parameters: every one of its bins becomes a named "
+                      "parameter, and it is not a dimension of the tree."}};
+  properties["axes"] = {
+      {"type", "array"},
+      {"format", "table"},
+      {"title", "Axis paths"},
+      {"description", "The axes the tree varies over, in the sparse' own order, and what each contributes to "
+                      "a per-bin object's path. `#` is the order of the path's folders — reversed to begin "
+                      "with, so the last axis is the outermost folder."},
+      {"columns", json::array({
+                      {{"key", "order"},
+                       {"title", "#"},
+                       {"type", "integer"},
+                       {"enum", positions},
+                       {"width", "w-12"},
+                       // The positions are a set: choosing one another axis holds swaps the two.
+                       {"unique", true},
+                       // Changing it re-reads the folder and its objects.
+                       {"refresh", true}},
+                      {{"key", "axis"}, {"title", "Axis"}, {"type", "string"}, {"readOnly", true}, {"hint", "axisTitle"}},
+                      {{"key", "bins"}, {"title", "bins"}, {"type", "integer"}, {"readOnly", true}, {"width", "w-16"}},
+                      {{"key", "mode"},
+                       {"title", "mode"},
+                       {"type", "string"},
+                       {"enum", json::array({"minmax", "min", "max", "center", "label", "bin"})}},
+                      {{"key", "format"}, {"title", "format"}, {"type", "string"}},
+                      {{"key", "sufix"}, {"title", "suffix"}, {"type", "string"}},
+                  })},
+      {"default", rows}};
+  properties["importObjects"] = {
+      {"type", "boolean"},
+      {"title", "Import objects"},
+      {"default", importObjects},
+      // Turning it on reads the folder and offers its objects; off is the parameters-only import.
+      {"refresh", true},
+      {"description", "Copy objects from the first bin's folder into every point. Off by default: the import "
+                      "then writes the parameters only."}};
+  if (importObjects) {
+    const std::size_t selected = objectsDefault.size();
+    properties["objectsPrefix"] = {
+        {"type", "string"},
+        {"title", "Objects prefix"},
+        {"description", "The directory every object is read from: <prefix><axis paths><suffix>."},
+        {"default", objectsPrefix}};
+    properties["objectsFolder"] = {
+        {"type", "string"},
+        {"title", "First folder"},
+        {"readOnly", true},
+        {"description", "Where the first bin of every axis reads its objects from — the list below is what it "
+                        "holds."},
+        {"default", objectsFolder + (available.empty() && file != nullptr ? " (no such folder)" : "")}};
+    // What the section would do, in green or red: how many objects are picked, or that the folder has none.
+    properties["objectsHint"] = {
+        {"type", "string"},
+        {"title", "Objects"},
+        {"readOnly", true},
+        {"tone", selected > 0 ? "success" : "danger"},
+        {"default", selected > 0 ? std::to_string(selected) + (selected == 1 ? " object selected" : " objects selected")
+                                 : (objectsFolder.empty() ? std::string("No objects found")
+                                                         : "No objects found in " + objectsFolder)}};
+    properties["objects"] = {
+        {"type", "array"},
+        {"format", "multiselect"},
+        {"title", "Objects to import"},
+        {"items", {{"type", "string"}, {"enum", objectNames}}},
+        {"description", "The objects copied into every point, by name, from the folder above. All are picked "
+                        "to begin with; switch the section off to import the parameters only."},
+        {"default", objectsDefault}};
+  }
+
+  std::string outputDefault = StripCycle(key) + "_ngnt.root";
+  if (saved.is_object() && saved.contains("outputFile") && saved["outputFile"].is_string() &&
+      !saved["outputFile"].get<std::string>().empty()) {
+    outputDefault = saved["outputFile"].get<std::string>();
+  }
+  properties["outputFile"] = {{"type", "string"},
+                              {"title", "Output file"},
+                              {"description", "Where the NGnTree file is written."},
+                              {"default", outputDefault}};
+  properties["nProcesses"] = {{"type", "integer"},
+                              {"title", "Processes"},
+                              {"description", "Worker processes the import is split over. The room's own "
+                                              "CPU count to begin with."},
+                              {"default", RoomCpuCount()}};
+
+  return json{{"type", "object"},
+              {"order", {"parameterAxis", "axes", "importObjects", "objectsPrefix", "objectsFolder",
+                         "objectsHint", "objects", "outputFile", "nProcesses"}},
+              {"properties", properties}};
+}
+
 /// Whether nlohmann would read a braced list as an **object** rather than an array: it makes an object of a
 /// list whose every element is a two-element list of which the first is a string — which is exactly what an
 /// array of string pairs looks like. Such a value is written as `json::array(…)`, so the reading says what
@@ -718,8 +1124,10 @@ std::string ImportMacroText(const json & cfg, const std::string & file, long lon
 {
   // The keys a reader expects first, then anything else the configuration carries, so the settings read
   // in the order they are understood rather than in the order a map happens to hold them.
-  static const std::vector<std::string> first = {"type",    "filename", "directory",   "objects", "axes",
-                                                 "titles",  "binning",  "projections", "outputFile"};
+  static const std::vector<std::string> first = {"type",        "filename",      "directory", "objects",
+                                                 "axes",        "parameterAxis", "retrieveObjects",
+                                                 "titles",      "binning",       "projections",
+                                                 "outputFile"};
   std::vector<std::string>              keys;
   for (const auto & key : first) {
     if (cfg.contains(key)) keys.push_back(key);
@@ -878,6 +1286,130 @@ json SparseImportConfig(const json & form, THnSparse * sparse, const std::string
   json cfg;
   cfg["type"]    = "thnsparse";
   cfg["objects"] = json::array({StripCycle(key)});
+
+  // A **parameter** import: the axis whose bin labels name the parameters, the per-axis path template, and
+  // the objects to fetch at each bin. The tree varies over the remaining axes, so the importer derives its
+  // axes from the object and no `axesTitles`/`projections` are emitted.
+  std::string parameterAxis;
+  if (form.contains("parameterAxis") && form["parameterAxis"].is_string()) {
+    parameterAxis = form["parameterAxis"].get<std::string>();
+  }
+  if (!parameterAxis.empty()) {
+    cfg["parameterAxis"] = parameterAxis;
+
+    // The path template, one entry per axis that is not the parameter axis: `{name, mode, format, sufix}`,
+    // the shape `BuildObjectPath` reads (and the one the macro pushes by hand). The rows' `#` orders the
+    // fragments — a file's folders need not follow the sparse' axis order — so they are sorted by it.
+    std::vector<std::pair<int, json>> ordered;
+    int                               position = 0;
+    if (form.contains("axes") && form["axes"].is_array()) {
+      for (const auto & row : form["axes"]) {
+        position++;
+        if (!row.is_object()) continue;
+        const std::string axis = row.value("axis", std::string());
+        if (axis.empty() || axis == parameterAxis) continue;
+        if (sparse != nullptr) {
+          bool known = false;
+          for (int i = 0; i < sparse->GetNdimensions(); i++) {
+            TAxis * one = sparse->GetAxis(i);
+            if (one != nullptr && one->GetName() != nullptr && axis == one->GetName()) {
+              known = true;
+              break;
+            }
+          }
+          if (!known) continue;
+        }
+        json entry = {{"name", axis}};
+        for (const char * field : {"mode", "format", "sufix"}) {
+          if (!row.contains(field) || !row[field].is_string()) continue;
+          const std::string value = row[field].get<std::string>();
+          if (value.empty()) continue;
+          // A fragment is formatted by the importer with `TString::Format`; a format it may not take is
+          // left out here, so the importer's own fallback runs and the preview says the same thing.
+          if (std::string(field) == "format" && !SafeFormat(value)) continue;
+          entry[field] = value;
+        }
+        int order = position;
+        if (row.contains("order")) {
+          const json & value = row["order"];
+          if (value.is_number_integer()) {
+            order = value.get<int>();
+          }
+          else if (value.is_string()) {
+            // The dialog's `#` is a choice list, whose values are the positions as words.
+            try {
+              order = std::stoi(value.get<std::string>());
+            }
+            catch (...) {
+              order = position;
+            }
+          }
+        }
+        ordered.emplace_back(order, entry);
+      }
+    }
+    std::stable_sort(ordered.begin(), ordered.end(),
+                     [](const auto & one, const auto & other) { return one.first < other.first; });
+
+    json axes = json::array();
+    for (const auto & [order, entry] : ordered) axes.push_back(entry);
+    // Every axis that is not the parameter one contributes a fragment. The dialog has no row for the
+    // parameter axis, so an axis just made the parameter one loses its row until the dialog reopens; it is
+    // still a tree axis and still part of the path, with the importer's defaults.
+    if (sparse != nullptr) {
+      std::set<std::string> covered;
+      for (const auto & entry : axes) covered.insert(entry.value("name", std::string()));
+      for (int i = 0; i < sparse->GetNdimensions(); i++) {
+        TAxis * one = sparse->GetAxis(i);
+        if (one == nullptr || one->GetName() == nullptr) continue;
+        const std::string name = one->GetName();
+        if (name == parameterAxis || covered.count(name) > 0) continue;
+        axes.push_back(json{{"name", name}});
+      }
+    }
+    if (!axes.empty()) cfg["axes"] = axes;
+
+    // The objects to fetch per bin, keyed by the name they take in the entry: the form picks them by name,
+    // and every one sits at `<prefix><axis paths>/<name>`. The section is only on when the form says so
+    // (a caller that names its own `retrieveObjects` rows is taken as asking for them).
+    std::string prefix;
+    if (form.contains("objectsPrefix") && form["objectsPrefix"].is_string()) {
+      prefix = form["objectsPrefix"].get<std::string>();
+    }
+    bool importObjects = false;
+    if (form.contains("importObjects") && form["importObjects"].is_boolean()) {
+      importObjects = form["importObjects"].get<bool>();
+    }
+    json objects = json::object();
+    if (importObjects && form.contains("objects") && form["objects"].is_array()) {
+      for (const auto & one : form["objects"]) {
+        if (!one.is_string()) continue;
+        const std::string name = one.get<std::string>();
+        if (name.empty()) continue;
+        json entry = json::object();
+        if (!prefix.empty()) entry["prefix"] = prefix;
+        entry["sufix"] = "/" + name;
+        objects[name]   = entry;
+      }
+    }
+    else if (form.contains("retrieveObjects") && form["retrieveObjects"].is_array()) {
+      for (const auto & row : form["retrieveObjects"]) {
+        if (!row.is_object()) continue;
+        const std::string name = row.value("name", std::string());
+        if (name.empty()) continue;
+        json entry = json::object();
+        if (!prefix.empty()) entry["prefix"] = prefix;
+        if (row.contains("sufix") && row["sufix"].is_string() && !row["sufix"].get<std::string>().empty()) {
+          entry["sufix"] = row["sufix"];
+        }
+        objects[name] = entry;
+      }
+    }
+    if (!objects.empty()) cfg["retrieveObjects"] = objects;
+
+    cfg["outputFile"] = form.value("outputFile", std::string(StripCycle(key) + "_ngnt.root"));
+    return cfg;
+  }
 
   // The axes the tree varies over, as picked (the first one to begin with).
   std::vector<std::string> chosen;
@@ -1904,19 +2436,35 @@ void toolBrowser()
   });
 
   Ndmspc::RegisterMcpTool(std::string(kInternals) + "/import", {
-      .description = "Import a THnSparse to an NGnTree file with the settings the import tab fills in, "
-                     "and hand the user to the NGNT explorer with it. Internal: the dialog's second tab "
-                     "drives it.",
+      .description = "Import a THnSparse to an NGnTree file with the settings an import tab fills in — the "
+                     "projections tab (axes, titles, projections) or the parameters tab (a parameter axis and "
+                     "the per-axis object path) — and hand the user to the NGNT explorer with it. Internal: "
+                     "the dialog's tabs drive it.",
       .methods     = {"POST"},
       .hidden      = true,
       .inputSchema = {{"properties",
                        {{"key", {{"type", "string"}, {"description", "ROOT key path of the THnSparse."}}},
-                        {"axes", {{"type", "array"}, {"items", {{"type", "string"}}}}},
+                        {"axes", {{"type", "array"},
+                                  {"description", "The axes the tree varies over, or (parameters tab) one row "
+                                                  "per axis with its path template: name, mode, format, sufix."}}},
                         {"axesTitles",
                          {{"type", "array"}, {"description", "One row per axis: its title and rebin."}}},
                         {"projections",
                          {{"type", "array"},
                           {"description", "One row per projection: the axes it is made on."}}},
+                        {"parameterAxis",
+                         {{"type", "string"},
+                          {"description", "The axis whose bin labels name the parameters (parameters tab)."}}},
+                        {"retrieveObjects",
+                         {{"type", "array"},
+                          {"description", "One row per object fetched at each bin: name, prefix, suffix."}}},
+                        {"objects",
+                         {{"type", "array"},
+                          {"items", {{"type", "string"}}},
+                          {"description", "The objects to fetch at each bin, by name (parameters tab)."}}},
+                        {"objectsPrefix",
+                         {{"type", "string"},
+                          {"description", "The directory every object is read from (parameters tab)."}}},
                         {"outputFile",
                          {{"type", "string"}, {"description", "Where the NGnTree file is written."}}}}}},
   });
@@ -2133,6 +2681,15 @@ void toolBrowser()
         // and the import tab each keep their own, and both open on what was last used for them.
         const std::string signature = SparseSignature(sparse);
 
+        // A **parameter** import — the shape `NParamsImport.C` makes — is offered only for an object that
+        // can name its parameters: an axis with a label per bin, and at least one other axis for the tree.
+        const bool withParameters = sparse->GetNdimensions() >= 2 && !ParameterAxes(sparse).empty();
+        // A form that asks to be **re-derived** (its `#` order or parameter axis changed) sends the values
+        // it holds; those are what the schema is built from, exactly as a kept configuration would be.
+        const json parametersSaved =
+            httpIn.contains("parameterAxis") ? httpIn
+                                             : SparseSaved(ctx, ImportSignature(signature) + "#params");
+
         const json projectTab = {{"label", "Project"},
                                  {"schema", SparseDialogSchema(sparse, SparseSaved(ctx, signature))},
                                  {"action", Ndmspc::NRouteContext::Action(std::string(kInternals) + "/project", "POST",
@@ -2156,8 +2713,33 @@ void toolBrowser()
             // client needs to know nothing about what makes one.
             {"macro", std::string(kInternals) + "/macro"}};
 
+        // A **parameter** import — the shape `NParamsImport.C` makes — is offered only for an object that
+        // can name its parameters: an axis with a label per bin, and at least one other axis for the tree.
+        json tabs = json::array({projectTab, importTab});
+        if (withParameters) {
+          tabs.push_back({{"label", "Parameters"},
+                          {"schema", SparseParametersSchema(sparse, file, key, parametersSaved)},
+                          {"action", importAction},
+                          {"submit", "Import"},
+                          {"macro", std::string(kInternals) + "/macro"}});
+        }
+
         ctx.Dialog(StripCycle(sparse->GetName()), projectTab["schema"], projectTab["action"],
-                   json{{"submit", "Project"}}, json::array({projectTab, importTab}));
+                   json{{"submit", "Project"}}, tabs);
+
+        // A field marked `refresh` (the `#` order, the parameter axis) re-asks the dialog with the values it
+        // holds: the envelope names the action that rebuilds it, and a revision of the new form, so a client
+        // remounts on it and the derived fields (folder, objects) follow the user's choice. The tab the user
+        // is working in comes back the same way.
+        if (withParameters) {
+          json &            dialog    = wsOut["payload"]["dialog"];
+          const std::string activeTab = ctx.GetString("tab");
+          dialog["refresh"] = Ndmspc::NRouteContext::Action(std::string(kInternals) + "/sparse", "POST",
+                                                            json{{"key", key}});
+          dialog["revision"] = RevisionOf(tabs.back()["schema"]);
+          if (!activeTab.empty()) dialog["active"] = activeTab;
+        }
+
         Release(sparse); // only its axes were needed; a sparse is big, so do not keep it
         if (ctx.HasError()) return;
         ctx.Success();
@@ -2186,6 +2768,31 @@ void toolBrowser()
           return;
         }
 
+        // A **parameter** import names the axis whose bin labels are the parameters, so say plainly why an
+        // axis cannot be one rather than failing inside the importer (whose message only reaches the log).
+        std::string parameterAxis;
+        if (httpIn.contains("parameterAxis") && httpIn["parameterAxis"].is_string()) {
+          parameterAxis = httpIn["parameterAxis"].get<std::string>();
+        }
+        if (!parameterAxis.empty()) {
+          TAxis * axis = nullptr;
+          for (int i = 0; i < sparse->GetNdimensions(); i++) {
+            TAxis * one = sparse->GetAxis(i);
+            if (one != nullptr && one->GetName() != nullptr && parameterAxis == one->GetName()) {
+              axis = one;
+              break;
+            }
+          }
+          if (axis == nullptr) {
+            ctx.Result("No axis '" + parameterAxis + "' in '" + key + "'");
+            return;
+          }
+          if (!axis->IsAlphanumeric()) {
+            ctx.Result("Axis '" + parameterAxis + "' carries no bin labels to name the parameters");
+            return;
+          }
+        }
+
         // The form's own settings, as the importer takes them. The object is read from the file being
         // browsed, so the configuration names it and the file supplies it.
         const json        cfg = SparseImportConfig(httpIn, sparse, key);
@@ -2194,13 +2801,32 @@ void toolBrowser()
 
         // Keep what the form held, under this object's axes' signature, so importing the same object (or
         // another with the same axes) opens on it — the way the projection dialog remembers its own. Stored
-        // before the sparse is released: the signature is read off its axes.
+        // before the sparse is released: the signature is read off its axes. The two import tabs each keep
+        // their own (they are different forms of the same settings).
         json remembered;
-        remembered["axes"]        = httpIn.contains("axes") ? httpIn["axes"] : json::array();
-        remembered["axesTitles"]  = httpIn.contains("axesTitles") ? httpIn["axesTitles"] : json::array();
-        remembered["projections"] = httpIn.contains("projections") ? httpIn["projections"] : json::array();
-        remembered["outputFile"]  = out;
-        StoreSparse(ctx, ImportSignature(SparseSignature(sparse)), remembered);
+        if (!parameterAxis.empty()) {
+          remembered["parameterAxis"] = parameterAxis;
+          remembered["axes"]          = httpIn.contains("axes") ? httpIn["axes"] : json::array();
+          remembered["objectsPrefix"] = (httpIn.contains("objectsPrefix") && httpIn["objectsPrefix"].is_string())
+                                            ? httpIn["objectsPrefix"]
+                                            : json("Data/");
+          // The section is off unless the form turned it on; that choice comes back with it.
+          remembered["importObjects"] = (httpIn.contains("importObjects") && httpIn["importObjects"].is_boolean())
+                                            ? httpIn["importObjects"]
+                                            : json(false);
+          // Absent means "all the folder holds" — the dialog's own default — so only a real choice is kept.
+          if (httpIn.contains("objects")) remembered["objects"] = httpIn["objects"];
+        }
+        else {
+          remembered["axes"]        = httpIn.contains("axes") ? httpIn["axes"] : json::array();
+          remembered["axesTitles"]  = httpIn.contains("axesTitles") ? httpIn["axesTitles"] : json::array();
+          remembered["projections"] = httpIn.contains("projections") ? httpIn["projections"] : json::array();
+        }
+        remembered["outputFile"] = out;
+        StoreSparse(ctx,
+                    parameterAxis.empty() ? ImportSignature(SparseSignature(sparse))
+                                          : ImportSignature(SparseSignature(sparse)) + "#params",
+                    remembered);
 
         // Run the import the way `ndmspc-run` would: with the process count the form asks for (the room's
         // own CPU count by default), in process mode, and with the run's **progress on the console**.
@@ -2282,8 +2908,21 @@ void toolBrowser()
                                               httpIn.value("drawOpts", std::string()));
         }
         else {
-          httpOut["macro"] = ImportMacroText(SparseImportConfig(httpIn, sparse, key), file->GetName(),
-                                             std::max(1, httpIn.value("nProcesses", 1)));
+          const json  cfg  = SparseImportConfig(httpIn, sparse, key);
+          std::string text = ImportMacroText(cfg, file->GetName(), std::max(1, httpIn.value("nProcesses", 1)));
+          // A parameter import reads objects from a path per bin, which is the one thing about it that is
+          // hard to picture: spell out where each object would come from at the **first** bin of every axis,
+          // with the order, modes and prefix the form holds right now.
+          if (cfg.contains("parameterAxis") && cfg.contains("retrieveObjects") && cfg["retrieveObjects"].is_object()) {
+            text += "\n// The objects this import would read, at the first bin of every axis:\n";
+            for (const auto & [retrievedName, objCfg] : cfg["retrieveObjects"].items()) {
+              const std::string prefix = objCfg.value("prefix", std::string());
+              const std::string sufix  = objCfg.value("sufix", std::string());
+              text += "//   " + retrievedName + " -> " +
+                      PreviewObjectPath(sparse, cfg.value("axes", json::array()), prefix, sufix) + "\n";
+            }
+          }
+          httpOut["macro"] = text;
         }
         Release(sparse);
         ctx.Success();

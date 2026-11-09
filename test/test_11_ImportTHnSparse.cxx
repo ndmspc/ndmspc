@@ -2,12 +2,15 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <vector>
 #include <TFile.h>
 #include <TH1.h>
 #include <THnSparse.h>
 #include <TList.h>
 #include <TSystem.h>
 #include "ndmspc/core/NGnTree.h"
+#include "ndmspc/core/NLogString.h"
+#include "ndmspc/core/NParameters.h"
 
 namespace {
 
@@ -282,5 +285,144 @@ TEST(NImportTHnSparse, ImportsFromAJsonObject)
   delete ngnt;
 
   EXPECT_TRUE(FileExists(outFile));
+  std::remove(outFile.c_str());
+}
+
+/**
+ * A **parameter-axis** import: one axis' bin labels are the parameter names, it leaves the tree's
+ * dimensions, every other axis is one, and each entry carries that slice's projection along the parameter
+ * axis with the parameters filled from it — the shape `NParamsImport.C` makes.
+ */
+TEST(NImportTHnSparse, ImportsAParameterAxis)
+{
+  const std::string inFile  = "/tmp/test_import_thnsparse_params.root";
+  const std::string outFile = "/tmp/test_import_thnsparse_params_ngnt.root";
+
+  {
+    TFile * f = TFile::Open(inFile.c_str(), "RECREATE");
+    ASSERT_NE(f, nullptr);
+    Int_t       bins[2] = {2, 3};
+    Double_t    min[2]  = {0, 0};
+    Double_t    max[2]  = {2, 3};
+    THnSparseD * h      = new THnSparseD("h", "h", 2, bins, min, max);
+    h->GetAxis(0)->SetName("ce");
+    h->GetAxis(1)->SetName("Results");
+    h->GetAxis(1)->SetBinLabel(1, "mean");
+    h->GetAxis(1)->SetBinLabel(2, "sigma");
+    h->GetAxis(1)->SetBinLabel(3, "yield");
+    Double_t v[2] = {0.5, 0.5};
+    h->Fill(v, 3.0);
+    h->Write();
+    f->Close();
+    delete f;
+  }
+
+  json cfg;
+  cfg["type"]          = "thnsparse";
+  cfg["objects"]       = json::array({"h"});
+  cfg["parameterAxis"] = "Results";
+  cfg["outputFile"]    = outFile;
+  // The parameter axis' own row (a form sends one per axis) is not a dimension of the tree.
+  cfg["axes"] = json::array({json{{"name", "ce"}, {"mode", "bin"}, {"format", "%d"}, {"sufix", "_"}},
+                             json{{"name", "Results"}}});
+
+  Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Import(cfg, inFile);
+  ASSERT_NE(ngnt, nullptr);
+  ASSERT_NE(ngnt->GetBinning(), nullptr);
+  ASSERT_EQ(ngnt->GetBinning()->GetAxes().size(), 1u);
+  EXPECT_EQ(ngnt->GetBinning()->GetAxes()[0]->GetName(), std::string("ce"));
+  ASSERT_EQ(ngnt->GetEntries(), 1);
+
+  // The parameters are the axis' labels, in bin order — read off an entry: the branch object is what
+  // `GetEntry` loads.
+  ngnt->GetEntry(0);
+  ASSERT_NE(ngnt->GetParameters(), nullptr);
+  EXPECT_EQ(ngnt->GetParameters()->GetNames(), std::vector<std::string>({"mean", "sigma", "yield"}));
+
+  auto * params = (Ndmspc::NParameters *)ngnt->GetStorageTree()->GetBranchObject("_params");
+  ASSERT_NE(params, nullptr);
+  EXPECT_DOUBLE_EQ(params->GetParameter("mean"), 3.0);
+  // The entry's **first** object is the markdown list of parameters (`value ± error`); the slice's
+  // histogram itself is not stored.
+  TList * out = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
+  ASSERT_NE(out, nullptr);
+  ASSERT_GT(out->GetEntries(), 0);
+  auto * log = dynamic_cast<Ndmspc::NLogString *>(out->At(0));
+  ASSERT_NE(log, nullptr) << "the markdown parameter list is not the first object";
+  EXPECT_EQ(std::string(log->GetType()), "md");
+  const std::string text = log->GetString();
+  EXPECT_NE(text.find("**mean**"), std::string::npos) << text;
+  EXPECT_NE(text.find("3 ± 1.73205"), std::string::npos) << text;
+  bool projection = false;
+  for (int i = 0; i < out->GetEntries(); i++) {
+    TObject * one = out->At(i);
+    if (one != nullptr && std::string(one->GetName()) == "h_proj_Results") projection = true;
+  }
+  EXPECT_FALSE(projection) << "the histogram is replaced by the markdown list";
+  delete ngnt;
+
+  EXPECT_TRUE(FileExists(outFile));
+  std::remove(outFile.c_str());
+}
+
+/**
+ * The per-axis entries locate the objects an import fetches at each bin: `<prefix><axis paths><suffix>`
+ * — here `Data/1/hSignal` for the first `ce` bin (mode `bin`).
+ */
+TEST(NImportTHnSparse, ImportsTheObjectsAParameterImportNames)
+{
+  const std::string inFile  = "/tmp/test_import_thnsparse_params_objects.root";
+  const std::string outFile = "/tmp/test_import_thnsparse_params_objects_ngnt.root";
+
+  {
+    TFile * f = TFile::Open(inFile.c_str(), "RECREATE");
+    ASSERT_NE(f, nullptr);
+    Int_t       bins[2] = {2, 2};
+    Double_t    min[2]  = {0, 0};
+    Double_t    max[2]  = {2, 2};
+    THnSparseD * h      = new THnSparseD("h", "h", 2, bins, min, max);
+    h->GetAxis(0)->SetName("ce");
+    h->GetAxis(1)->SetName("Results");
+    h->GetAxis(1)->SetBinLabel(1, "mean");
+    h->GetAxis(1)->SetBinLabel(2, "sigma");
+    Double_t v[2] = {0.5, 0.5};
+    h->Fill(v, 2.0);
+    h->Write();
+
+    TDirectory * dataDir = f->mkdir("Data");
+    ASSERT_NE(dataDir, nullptr);
+    dataDir->cd();
+    TDirectory * binDir = dataDir->mkdir("1");
+    ASSERT_NE(binDir, nullptr);
+    binDir->cd();
+    TH1D signal("hSignal", "hSignal;m;entries", 4, 0.0, 1.0);
+    signal.Fill(0.5);
+    signal.Write();
+    f->Close();
+    delete f;
+  }
+
+  json cfg;
+  cfg["type"]          = "thnsparse";
+  cfg["objects"]       = json::array({"h"});
+  cfg["parameterAxis"] = "Results";
+  cfg["outputFile"]    = outFile;
+  cfg["axes"]          = json::array({json{{"name", "ce"}, {"mode", "bin"}, {"format", "%d"}, {"sufix", "/"}}});
+  cfg["retrieveObjects"] = json::object({{"hSignal", json{{"prefix", "Data/"}, {"sufix", "/hSignal"}}}});
+
+  Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Import(cfg, inFile);
+  ASSERT_NE(ngnt, nullptr);
+  ASSERT_EQ(ngnt->GetEntries(), 1);
+  ngnt->GetEntry(0);
+  TList * out   = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
+  bool    found = false;
+  ASSERT_NE(out, nullptr);
+  for (int i = 0; i < out->GetEntries(); i++) {
+    TObject * one = out->At(i);
+    if (one != nullptr && std::string(one->GetName()) == "hSignal") found = true;
+  }
+  EXPECT_TRUE(found) << "the object the path names is not in the entry";
+  delete ngnt;
+
   std::remove(outFile.c_str());
 }
