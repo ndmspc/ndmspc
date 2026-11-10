@@ -821,6 +821,10 @@ NHttpServer::~NHttpServer()
     delete fActionWorker;
     fActionWorker = nullptr;
   }
+  // `gNHttpServer` is deliberately left as it is here. Destructors run in an order the host does not
+  // control, and the tool macros read that pointer while they are being torn down too; clearing it
+  // turns "a host is shutting down" into a null dereference inside Cling-compiled code. A host that
+  // tears a server down and keeps running constructs the next one, and that sets it.
 }
 
 void NHttpServer::StartHeartbeatThread()

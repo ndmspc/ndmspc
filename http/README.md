@@ -1039,6 +1039,17 @@ auto * ngnt = Ndmspc::NGnTree::Open(
 - The same URL is reported for a stored file by `GET /api/files` (its `url`) and used by the dialog
   previews (`ndmspc/rbrowser/macro`), so what is previewed, what is downloaded and what the export
   writes all name the file the same way.
+- **The macro names the file by URL by default.** `fileUrl=false` (a query parameter on the `GET`, or
+  a `false` in a `POST` body) writes the plain name instead — what to use when a copy of that file is
+  kept beside the macro and should be the one it reads. The answer carries `payload.fileUrls`, which
+  says whether a URL exists at all, so a client offers the choice only where it makes a difference.
+  Both previews (`ndmspc/macro` and `ndmspc/rbrowser/macro`) take the same argument, and the Run
+  and dialog previews show it as a **Local / Server** switch.
+- **The preview also offers a Simple / Full view**, computed by the client from the macro's own text
+  (`ndmspc-ui`'s `withGuards`): Simple is what the room wrote, one line per step; Full adds a null
+  check after every pointer a step declares, so a run that cannot get its object logs which step
+  failed and returns instead of failing inside the next call. Nothing is asked of the room for it,
+  and neither the recorded combination nor the room changes.
 - Reading it on a laptop needs ROOT with an http(s) network plugin (`root-net-http`, or
   `root-net-curl`/`root-net-davix`), the same requirement the browser tool has.
 - The file is **ephemeral**: it lives in the room's working directory and is gone when the pod scales

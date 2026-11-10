@@ -1638,22 +1638,38 @@ TEST_F(ToolBrowser, TheImportRunsWithTheProcessesTheFormAsksFor)
 /**
  * Both dialog previews name a stored file by the **room's URL**, because a preview is downloaded and
  * run somewhere else - a bare name is a file only the room has. The run keeps reading the room's own
- * file, which is what this also pins.
+ * file, which is what this also pins. `fileUrl: false` asks for the plain name instead, so a copy
+ * kept beside the macro is what it reads.
  */
-TEST_F(ToolBrowser, ThePreviewNamesAStoredFileByItsUrl)
+TEST(ToolBrowserPreview, ThePreviewNamesAStoredFileByItsUrl)
 {
   EnvGuard room("NDMSPC_ROOM", "test-room");
   EnvGuard access("NDMSPC_ROOM_ACCESS", R"({"rw":"rwTok","ro":"roTok"})");
   EnvGuard base("NDMSPC_ROOM_URL_BASE", "https://ndmspc.example.org");
   EnvGuard param("NDMSPC_ROOM_PARAM", "room");
 
-  // A harness of its own: the room's environment is read when its server is constructed.
+  // Its own file, written here: the suite's fixture file is created by the fixture's setup, which this
+  // test does not use. The room's environment is read when its server is constructed, so the harness
+  // is built after the guards above.
+  const std::string name = "browser_preview_url.root";
+  {
+    TFile * file = TFile::Open(name.c_str(), "RECREATE");
+    ASSERT_NE(file, nullptr);
+    const Int_t    nbins[1] = {8};
+    const Double_t xmin[1]  = {0.0};
+    const Double_t xmax[1]  = {2.0};
+    THnSparseD     sparse("hns", "hns", 1, nbins, xmin, xmax);
+    sparse.GetAxis(0)->SetName("mass");
+    sparse.Write();
+    delete file;
+  }
+
   ToolHarness tool(kToolMacro);
-  tool.Call("ndmspc/browser/open", "POST", json{{"file", kFile}});
+  tool.Call("ndmspc/browser/open", "POST", json{{"file", name}});
 
   const std::string url =
-      "https://ndmspc.example.org/api/file?room=test-room&token=roTok&name=" + std::string(kFile);
-  const std::string local = "\"" + std::string(kFile) + "\"";
+      "https://ndmspc.example.org/api/file?room=test-room&token=roTok&name=" + name;
+  const std::string local = "\"" + name + "\"";
 
   const auto imported = tool.Call(
       "ndmspc/rbrowser/macro", "POST",
@@ -1666,6 +1682,20 @@ TEST_F(ToolBrowser, ThePreviewNamesAStoredFileByItsUrl)
   const std::string importMacro = imported.reply["macro"].get<std::string>();
   EXPECT_NE(importMacro.find(url), std::string::npos) << importMacro;
   EXPECT_EQ(importMacro.find(local), std::string::npos) << importMacro;
+  EXPECT_TRUE(imported.reply.value("fileUrls", false)) << imported.reply.dump();
+
+  // The choice of form: the plain name, for a copy kept beside the macro.
+  const auto asLocal = tool.Call("ndmspc/rbrowser/macro", "POST",
+                                 json{{"for", "ndmspc/rbrowser/import"},
+                                      {"key", "hns"},
+                                      {"axes", json::array({"mass"})},
+                                      {"projections", json::array({json::array({0})})},
+                                      {"fileUrl", false},
+                                      {"outputFile", "/tmp/preview_url_ngnt.root"}});
+  ASSERT_EQ(asLocal.reply.value("result", std::string()), "success") << asLocal.reply.dump();
+  const std::string localMacro = asLocal.reply["macro"].get<std::string>();
+  EXPECT_NE(localMacro.find("NGnTree::Import(cfg, " + local), std::string::npos) << localMacro;
+  EXPECT_EQ(localMacro.find("/api/file"), std::string::npos) << localMacro;
 
   const auto projected = tool.Call(
       "ndmspc/rbrowser/macro", "POST",
@@ -1687,6 +1717,7 @@ TEST_F(ToolBrowser, ThePreviewNamesAStoredFileByItsUrl)
                                   {"outputFile", out}});
   ASSERT_EQ(run.reply.value("result", std::string()), "success") << run.reply.dump();
   std::remove(out.c_str());
+  std::remove(name.c_str());
 }
 
 } // namespace

@@ -77,27 +77,32 @@ generate_hsimple()
     return 0
   fi
 
-  local tutorial
-  tutorial="$(mktemp "${TMPDIR:-/tmp}/hsimple.XXXXXX.C")" || {
-    echo "Cannot create a temporary file for hsimple.C" >&2
+  # The macro has to keep ROOT's own name: ROOT runs a file by calling the function it is named after
+  # (`hsimple.C` -> `hsimple()`), so a made-up name like `hsimple.9q2N2O.C` derives
+  # `hsimple_9q2N2O()`, finds no such function, and writes nothing. Hence a temporary *directory*
+  # with the file's real name inside it, rather than a mangled file name.
+  local dir tutorial
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/ndmspc-hsimple.XXXXXX")" || {
+    echo "Cannot create a temporary directory for hsimple.C" >&2
     return 1
   }
+  tutorial="$dir/hsimple.C"
 
   echo "Fetching hsimple.C from $HSIMPLE_MACRO_URL"
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL --retry 3 -o "$tutorial" "$HSIMPLE_MACRO_URL" || {
-      rm -f "$tutorial"
+      rm -rf "$dir"
       echo "Could not fetch hsimple.C; continuing without hsimple.root" >&2
       return 1
     }
   elif command -v wget >/dev/null 2>&1; then
     wget -q -O "$tutorial" "$HSIMPLE_MACRO_URL" || {
-      rm -f "$tutorial"
+      rm -rf "$dir"
       echo "Could not fetch hsimple.C; continuing without hsimple.root" >&2
       return 1
     }
   else
-    rm -f "$tutorial"
+    rm -rf "$dir"
     echo "Neither curl nor wget found, cannot fetch hsimple.C" >&2
     return 1
   fi
@@ -105,14 +110,20 @@ generate_hsimple()
   echo "Generating hsimple.root from $tutorial"
   rm -f hsimple.root
   # ROOT's macro can return a non-zero exit status after writing the file; the file is what matters.
-  root -l -b -q "$tutorial" >/dev/null 2>&1 || true
-  rm -f "$tutorial"
+  # Its output is kept, not discarded: when it fails, that output is the only thing that says why.
+  local output
+  output="$(cd "$PWD" && root -l -b -q "$tutorial" 2>&1)" || true
+  rm -rf "$dir"
   if [ -s hsimple.root ]; then
     return 0
   fi
 
   rm -f hsimple.root
   echo "Could not generate hsimple.root, continuing without it" >&2
+  if [ -n "$output" ]; then
+    echo "ROOT said:" >&2
+    printf '%s\n' "$output" | sed 's/^/  /' >&2
+  fi
   return 1
 }
 
