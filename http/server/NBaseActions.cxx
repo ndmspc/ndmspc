@@ -352,7 +352,12 @@ bool RegisterBaseActions()
                          {{"type", "array"},
                           {"items", {{"type", "string"}}},
                           {"description", "The node ids from a root down to the step to write, for a combination "
-                                          "that is not the active one."}}}}}},
+                                          "that is not the active one."}}},
+                        {"fileUrl",
+                         {{"type", "boolean"},
+                          {"description",
+                           "Write a stored file as its URL (default true), so the macro can read it from "
+                           "anywhere; false writes the plain name, for a copy kept beside the macro."}}}}}},
       .control     = "macro",
       .explorer    = false, // a platform control: the room's own chrome drives it, no tool to offer
   });
@@ -481,13 +486,32 @@ bool RegisterBaseActions()
     // Only the text changes - the recorded node keeps the path the room itself opened. The base is
     // the address this request was made to, which is what a server outside Kubernetes has instead of
     // a configured public one (see NHttpServer::RequestBase).
-    const std::string base = args.value("_base", std::string());
+    //
+    // `fileUrl` picks the form the user wants: the URL (the default, so the macro runs anywhere), or
+    // the plain name - for someone who keeps a copy of that file beside the macro and would rather
+    // have it read that one. `fileUrls` says whether a URL exists at all, so a client can offer the
+    // choice only where it means something. A GET carries its arguments in the query (the server
+    // passes that as `_query`), a caller that posts it may put them in the body.
+    bool fileUrl = true;
+    if (args.contains("fileUrl") && args["fileUrl"].is_boolean()) {
+      fileUrl = args["fileUrl"].get<bool>();
+    }
+    else if (args.contains("_query") && args["_query"].is_string()) {
+      const std::string query = args["_query"].get<std::string>();
+      if (query.find("fileUrl=false") != std::string::npos || query.find("fileUrl=0") != std::string::npos) {
+        fileUrl = false;
+      }
+    }
+    const std::string base     = args.value("_base", std::string());
+    bool              fileUrls = false;
     for (auto & step : steps) {
       if (!step.params.is_object()) continue;
       const auto file = step.params.find("file");
       if (file == step.params.end() || !file->is_string()) continue;
       const std::string url = server->FileUrl(file->get<std::string>(), base);
-      if (!url.empty()) *file = url;
+      if (url.empty()) continue;
+      fileUrls = true;
+      if (fileUrl) *file = url;
     }
 
     // What a session is called is the room's (see RenameSession), and it names the macro: ROOT names a
@@ -509,6 +533,9 @@ bool RegisterBaseActions()
     httpOut["result"]                = "success";
     httpOut["payload"]["name"]       = doc.name + ".C";
     httpOut["payload"]["macro"]      = doc.text;
+    // Whether a stored file here can be named by URL at all: a client offers the choice of form only
+    // when it can make a difference (`fileUrl` picks it).
+    httpOut["payload"]["fileUrls"] = fileUrls;
   };
 
   return true;

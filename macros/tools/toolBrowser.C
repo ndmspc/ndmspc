@@ -1283,11 +1283,15 @@ std::string ProjectMacroText(const std::string & file, const std::string & key, 
 /// Ndmspc::NHttpServer::FileUrl). Without this a preview downloaded to a laptop names a file only
 /// the room has. The base is the address the request was made to, which is what a server run outside
 /// Kubernetes has instead of a configured public one.
-std::string PreviewFileName(const std::string & file, const std::string & base)
+///
+/// @param url Whether to name a stored file by URL (the default): `false` keeps the plain name, for
+///            a copy of that file kept beside the preview.
+std::string PreviewFileName(const std::string & file, const std::string & base, bool url = true)
 {
+  if (!url) return file;
   if (Ndmspc::gNHttpServer == nullptr) return file;
-  const std::string url = Ndmspc::gNHttpServer->FileUrl(file, base);
-  return url.empty() ? file : url;
+  const std::string fileUrl = Ndmspc::gNHttpServer->FileUrl(file, base);
+  return fileUrl.empty() ? file : fileUrl;
 }
 
 /// The configuration the import tab's form holds, as `NGnTree::Import` takes it: the object being looked
@@ -2435,7 +2439,12 @@ void toolBrowser()
       .hidden      = true,
       .inputSchema = {{"properties",
                        {{"for", {{"type", "string"}, {"description", "The tab's own action, being previewed."}}},
-                        {"key", {{"type", "string"}, {"description", "ROOT key path of the THnSparse."}}}}}},
+                        {"key", {{"type", "string"}, {"description", "ROOT key path of the THnSparse."}}},
+                        {"fileUrl",
+                         {{"type", "boolean"},
+                          {"description",
+                           "Name a stored file by its room URL (default true) or by its plain name, for a "
+                           "copy kept beside the preview."}}}}}},
   });
 
   Ndmspc::RegisterMcpTool(std::string(kInternals) + "/project", {
@@ -2894,6 +2903,8 @@ void toolBrowser()
         // The address this request was made to, for a preview that names a stored file by URL. The
         // dispatcher puts it beside `_query`; a server run outside Kubernetes has no configured base.
         const std::string base = httpIn.value("_base", std::string());
+        // The form the user asked for: the URL (default), or the plain name for a local copy.
+        const bool        fileUrl = httpIn.value("fileUrl", true);
         const bool        importing = forAction == std::string(kInternals) + "/import";
         const bool        projecting = forAction == std::string(kInternals) + "/project";
         if (!importing && !projecting) {
@@ -2921,14 +2932,14 @@ void toolBrowser()
         // and ranges the table derives. It goes in the **HTTP** envelope, which is what a websocket reply
         // carries back to the asker (`wsOut` is what is broadcast), and a preview is the asker's own answer.
         if (projecting) {
-          httpOut["macro"] = ProjectMacroText(PreviewFileName(file->GetName(), base), key,
+          httpOut["macro"] = ProjectMacroText(PreviewFileName(file->GetName(), base, fileUrl), key,
                                               ProjectSelection(sparse, httpIn.value("axes", json::array())),
                                               httpIn.value("drawOpts", std::string()));
         }
         else {
           const json  cfg  = SparseImportConfig(httpIn, sparse, key);
-          std::string text =
-              ImportMacroText(cfg, PreviewFileName(file->GetName(), base), std::max(1, httpIn.value("nProcesses", 1)));
+          std::string text = ImportMacroText(cfg, PreviewFileName(file->GetName(), base, fileUrl),
+                                             std::max(1, httpIn.value("nProcesses", 1)));
           // A parameter import reads objects from a path per bin, which is the one thing about it that is
           // hard to picture: spell out where each object would come from at the **first** bin of every axis,
           // with the order, modes and prefix the form holds right now.
@@ -2943,6 +2954,10 @@ void toolBrowser()
           }
           httpOut["macro"] = text;
         }
+        // Whether the open file can be named by URL at all, so the dialog offers the choice of form
+        // only where it makes a difference (`fileUrl` picks it).
+        httpOut["fileUrls"] = Ndmspc::gNHttpServer != nullptr &&
+                              !Ndmspc::gNHttpServer->FileUrl(file->GetName(), base).empty();
         Release(sparse);
         ctx.Success();
       };
