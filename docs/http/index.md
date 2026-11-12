@@ -57,7 +57,7 @@ void toolMyTutorial()
 | --- | --- |
 | Platform | `/api/ndmspc/{health,heartbeat,state,group,reload,pads,session,macro,logs}` |
 | NGnTree | `/api/ndmspc/ngnt/{open,reshape,map,spectra,point}` |
-| ROOT browser | `/api/ndmspc/browser/{open,browse}` + hidden `ndmspc/rbrowser/*` |
+| ROOT browser | `/api/ndmspc/browser/{open,browse}` + hidden `ndmspc/browser/*` |
 | Rooms | `/api/ndmspc/room/{open,status,upgrade,list,capacity,close,clear,watch,state,backup,config,restore,import}` |
 | Statistics | `/api/ndmspc/stats/{summary,users,export,presence}` |
 | MCP | `POST /api/mcp` |
@@ -69,8 +69,15 @@ ndmspc-server -m "macros/tools/toolNgnt.C,toolBrowser.C"
 ```
 
 A bare name inherits the directory of the entry before it; a list that begins with a bare name falls
-back on `$NDMSPC_DIR/macros/tools`. Without `-m`, `toolNgnt.C` and `toolBrowser.C` load
-automatically.
+back on `$NDMSPC_DIR/macros/tools`. `toolNgnt.C` and `toolBrowser.C` load automatically: they are the
+defaults, and `-m` names what a run **adds** to them rather than what replaces them. `--no-default-tools`
+(or `NDMSPC_NO_DEFAULT_TOOLS=1`) loads only the macros named, which is what a deployment shipping a
+single tool of its own wants:
+
+```bash
+ndmspc-server -m ~/my-tools/toolMyThing.C                     # ngnt + browser + my tool
+ndmspc-server --no-default-tools -m ~/my-tools/toolMyThing.C  # my tool only
+```
 
 ## Rooms
 

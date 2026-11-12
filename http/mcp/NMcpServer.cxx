@@ -239,8 +239,21 @@ json NMcpServer::BuildTools() const
 
     const NMcpToolInfo * info = LookupToolInfo(key);
 
-    json inputSchema = json::object();
-    if (inspectorProperties.contains(shortKey) && inspectorProperties[shortKey].is_object()) {
+    // The live schema of a tool is the one **its own group** published. The flat view keeps only the last
+    // writer and every group has an `open`, so reading it handed `ngnt/open` the ML connection's fields
+    // (url, certificate, passphrase) — the form looked like a connection dialog with a `file` on top.
+    const std::string group = key.rfind('/') == std::string::npos ? std::string() : key.substr(0, key.rfind('/'));
+
+    json         inputSchema = json::object();
+    const auto & byGroup     = fServer->GetWorkspaceByGroup();
+    const auto   groupSchema = group.empty() ? byGroup.end() : byGroup.find(group);
+    if (groupSchema != byGroup.end() && groupSchema->second.is_object() &&
+        groupSchema->second.contains(shortKey) && groupSchema->second[shortKey].is_object()) {
+      inputSchema = groupSchema->second[shortKey];
+    }
+    else if (inspectorProperties.contains(shortKey) && inspectorProperties[shortKey].is_object()) {
+      // Nothing has been published for this group yet (a fresh room, or a unit test that seeds only the
+      // flat view): the flat entry is all there is. Once the group publishes, the branch above wins.
       inputSchema = inspectorProperties[shortKey];
     }
     if (!inputSchema.contains("type") || inputSchema["type"].is_null()) inputSchema["type"] = "object";

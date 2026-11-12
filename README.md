@@ -48,9 +48,11 @@ or straight from the container:
 podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:next
 ```
 
-Without `-m`, the server loads the ngnt tool macro and the ROOT file browser
+The server loads the ngnt tool macro and the ROOT file browser by default
 (`toolNgnt.C,toolBrowser.C`); its own base actions (`health`, `state`) are built
-in and need no macro. Point a browser at
+in and need no macro. A macro named with `-m` is loaded **beside** those defaults —
+add `--no-default-tools` to load only your own (e.g.
+`ndmspc-server --no-default-tools -m ~/alice-tools/mlclient/toolMlClient.C`). Point a browser at
 <http://localhost:8080/> for the
 web UI, or use the API at <http://localhost:8080/api/>.
 

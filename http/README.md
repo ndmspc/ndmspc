@@ -987,7 +987,7 @@ Ndmspc::RegisterMcpTool("acme/point", {
 });
 ```
 
-That is how the browser works, too: a click in its tree runs a **hidden** action (`ndmspc/rbrowser/draw`, whose
+That is how the browser works, too: a click in its tree runs a **hidden** action (`ndmspc/browser/draw`, whose
 group declares no `dependsOn`, so it adds no step), and that action records what the step is *on* — the `key`
 that was picked and the `cls` the file reports for it — as the step's **state**, keeping the step's id. Browsing
 therefore moves that one step rather than growing the combination per click, the step is *named* by what it is on
@@ -1007,7 +1007,7 @@ first pick creates it under the `open` step it browses and makes it the group's 
 picks move it. That is why a combination of this tool holds the step at all — and why the export carries the
 object.
 
-`ndmspc/rbrowser/sparse` / `/project` (a THnSparse's projection dialog) record nothing yet, so a projected
+`ndmspc/browser/sparse` / `/project` (a THnSparse's projection dialog) record nothing yet, so a projected
 sparse leaves the previous pick in place; `ndmspc/ngnt/point` declares itself `macroSilent` — it writes no line,
 because it stands for the layer the room is on, which the lines that make objects read as `{{ state.point }}`.
 
@@ -1037,13 +1037,13 @@ auto * ngnt = Ndmspc::NGnTree::Open(
   `code: disabled`, `GET /api/files` reports no `url`, and macros and previews keep the plain name.
   The `currentdir/`/`rootsys/` removal is unconditional either way.
 - The same URL is reported for a stored file by `GET /api/files` (its `url`) and used by the dialog
-  previews (`ndmspc/rbrowser/macro`), so what is previewed, what is downloaded and what the export
+  previews (`ndmspc/browser/macro`), so what is previewed, what is downloaded and what the export
   writes all name the file the same way.
 - **The macro names the file by URL by default.** `fileUrl=false` (a query parameter on the `GET`, or
   a `false` in a `POST` body) writes the plain name instead — what to use when a copy of that file is
   kept beside the macro and should be the one it reads. The answer carries `payload.fileUrls`, which
   says whether a URL exists at all, so a client offers the choice only where it makes a difference.
-  Both previews (`ndmspc/macro` and `ndmspc/rbrowser/macro`) take the same argument, and the Run
+  Both previews (`ndmspc/macro` and `ndmspc/browser/macro`) take the same argument, and the Run
   and dialog previews show it as a **Local / Server** switch.
 - **The preview also offers a Simple / Full view**, computed by the client from the macro's own text
   (`ndmspc-ui`'s `withGuards`): Simple is what the room wrote, one line per step; Full adds a null
@@ -1084,14 +1084,14 @@ ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
 | --- | --- | --- | --- |
 | `ndmspc/browser/open` | `ndmspc/browser` | GET, POST, DELETE | POST opens `file` and publishes the file tree; GET reports the open file; DELETE closes it. |
 | `ndmspc/browser/browse` | `ndmspc/browser` | POST | The browse step: its form is the file tree (`key`, a `format:"tree"` field). Live without being run; expanding a folder and clicking an object run the two actions below. |
-| `ndmspc/rbrowser/ls` | `ndmspc/rbrowser` | POST | Expands the folder at `key` and re-publishes the tree. Hidden — the tree drives it. |
-| `ndmspc/rbrowser/draw` | `ndmspc/rbrowser` | POST, PATCH | Draws the object at `key` (the pad view decides which pad; `drawOpts` is a jsroot option string). With `branch`, it projects that branch into a histogram. Hidden — the tree drives it. |
-| `ndmspc/rbrowser/sparse` | `ndmspc/rbrowser` | POST | For a `THnSparse` at `key`, opens the projection dialog: a table with one line per axis — labelled `index, name [title]` (the title in ROOT TLatex) — and project/min/max/rebin columns, plus draw options. It opens on the last configuration kept for the object's **axis signature** (axes' names, titles, bin counts and bounds), so another object with the same axes comes up with it too. Hidden — the tree drives it. |
-| `ndmspc/rbrowser/project` | `ndmspc/rbrowser` | POST | Projects the `THnSparse` at `key` onto the axes the dialog's `axes` table ticked (1–3 of them) and draws the resulting `TH1`/`TH2`/`TH3`. A row's `min`/`max` cut that axis whether or not it is projected — so a cut on a non-projected axis (a pT window while projecting mass) carves the sample — and a projected row's `rebin` coarsens its output bins. It keeps the configuration for the axis signature. `name` is the projection's name — its own tab and the histogram's name (default `projection`) — and projections named alike share one canvas, so a different name is a tab of its own. `same` **overlays** every projection on one canvas — ROOT composes them onto a `TCanvas` (each after the first drawn `same`, in its own colour), so each projection is a curve of its own and the pad only draws the finished canvas. With `same` **off** the projection is drawn as its own object and **starts a new canvas** — unticking it is the "new canvas"; ticking it adds to the canvas in hand. The same projection (same object, axes and options) is not drawn twice, so a step the server replays to make a combination live does not pile a twin onto the canvas. A `THnSparse` is released as soon as a request has projected it (opening the dialog included), so it is not held between requests — the next projection re-reads it — and a canvas keeps at most ten curves (the oldest falls off), with all of them freed when the file is closed. Hidden — the dialog's submit drives it. |
+| `ndmspc/browser/ls` | `ndmspc/browser` | POST | Expands the folder at `key` and re-publishes the tree. Hidden — the tree drives it. |
+| `ndmspc/browser/draw` | `ndmspc/browser` | POST, PATCH | Draws the object at `key` (the pad view decides which pad; `drawOpts` is a jsroot option string). With `branch`, it projects that branch into a histogram. Hidden — the tree drives it. |
+| `ndmspc/browser/sparse` | `ndmspc/browser` | POST | For a `THnSparse` at `key`, opens the projection dialog: a table with one line per axis — labelled `index, name [title]` (the title in ROOT TLatex) — and project/min/max/rebin columns, plus draw options. It opens on the last configuration kept for the object's **axis signature** (axes' names, titles, bin counts and bounds), so another object with the same axes comes up with it too. Hidden — the tree drives it. |
+| `ndmspc/browser/project` | `ndmspc/browser` | POST | Projects the `THnSparse` at `key` onto the axes the dialog's `axes` table ticked (1–3 of them) and draws the resulting `TH1`/`TH2`/`TH3`. A row's `min`/`max` cut that axis whether or not it is projected — so a cut on a non-projected axis (a pT window while projecting mass) carves the sample — and a projected row's `rebin` coarsens its output bins. It keeps the configuration for the axis signature. `name` is the projection's name — its own tab and the histogram's name (default `projection`) — and projections named alike share one canvas, so a different name is a tab of its own. `same` **overlays** every projection on one canvas — ROOT composes them onto a `TCanvas` (each after the first drawn `same`, in its own colour), so each projection is a curve of its own and the pad only draws the finished canvas. With `same` **off** the projection is drawn as its own object and **starts a new canvas** — unticking it is the "new canvas"; ticking it adds to the canvas in hand. The same projection (same object, axes and options) is not drawn twice, so a step the server replays to make a combination live does not pile a twin onto the canvas. A `THnSparse` is released as soon as a request has projected it (opening the dialog included), so it is not held between requests — the next projection re-reads it — and a canvas keeps at most ten curves (the oldest falls off), with all of them freed when the file is closed. Hidden — the dialog's submit drives it. |
 
 The browse step's `key` field is where the tree lives: its `nodes` come from the file, so browsing and
-drawing happen in the step itself. A node carries the request a click makes — `ndmspc/rbrowser/ls` for a folder,
-`ndmspc/rbrowser/draw` for an object (a branch draws a histogram of that branch) — and clicking records **no
+drawing happen in the step itself. A node carries the request a click makes — `ndmspc/browser/ls` for a folder,
+`ndmspc/browser/draw` for an object (a branch draws a histogram of that branch) — and clicking records **no
 step**, so the tree stays on screen as you draw; it does leave the pick on the `browse` step itself (`key` and the
 class of the object, in its state), which is what the step is *named* by and what the macro written from the
 combination carries. The first pick is what creates that step (it has no Run button), and each later pick moves
@@ -1100,7 +1100,7 @@ it. Only `draw` fills a pad. A node is
 ```json
 { "id": "ntuple", "label": "ntuple;1", "detail": "TNtuple",
   "expandable": true, "loaded": true, "children": [ … ],
-  "action": { "type": "http", "method": "POST", "path": "ndmspc/rbrowser/ls",
+  "action": { "type": "http", "method": "POST", "path": "ndmspc/browser/ls",
               "contentType": "application/json", "payload": { "key": "ntuple" } } }
 ```
 
@@ -1108,7 +1108,7 @@ The `id` (and the `key` the field emits) is the ROOT key path, the `label` is wh
 (cycle number included), and `action` is the request a click makes. A `TTree` expands to its branches
 (so it draws nothing itself); a branch node's own `action` draws a histogram of that branch.
 
-`ndmspc/rbrowser` is a group of its own with **no `dependsOn`**, and that is deliberate: the server records a
+`ndmspc/browser` is a group of its own with **no `dependsOn`**, and that is deliberate: the server records a
 node for every POST of an action in a combination group (a dependency-less one becomes a *root*), so an
 action that must add no step cannot live in `ndmspc/browser`. Both internal actions are `hidden`, so neither
 the Explorer nor the Tools panel lists them; the tree's nodes invoke them by name.
@@ -1117,14 +1117,14 @@ A node that can be expanded is **navigational**: clicking its row opens it (as t
 folder — and a `TTree`, which expands to its branches — draws nothing. Only a leaf draws.
 
 A `THnSparse` is a **leaf** whose click opens a dialog rather than drawing: jsroot has no renderer for
-one, and a projection needs choices (which axes, which range), so the tree sends `ndmspc/rbrowser/sparse`,
+one, and a projection needs choices (which axes, which range), so the tree sends `ndmspc/browser/sparse`,
 which answers with a **dialog** — the generic `payload.dialog` envelope — listing the object's axes.
-Its submit runs `ndmspc/rbrowser/project`, which projects the chosen 1–3 axes with the chosen ranges and draws
+Its submit runs `ndmspc/browser/project`, which projects the chosen 1–3 axes with the chosen ranges and draws
 the resulting `TH1`/`TH2`/`TH3` as an ordinary jsroot envelope. The axis picker is the tool's form, not
 a UI feature: any tool can open a dialog the same way (see [Showing something in a
 pad](#showing-something-in-a-pad)).
 
-The drawing names **no pad**: the `ndmspc/rbrowser/draw` envelope carries no `pad`, so the pad view routes it —
+The drawing names **no pad**: the `ndmspc/browser/draw` envelope carries no `pad`, so the pad view routes it —
 to the pad in hand in **fixed** mode, or to the selected pads in turn in **rotate** mode. The tool never
 has to know how many pads there are or which is showing.
 

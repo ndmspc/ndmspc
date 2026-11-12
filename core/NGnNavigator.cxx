@@ -1966,7 +1966,6 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
   NBinningDef * binningDef    = fGnTree->GetBinning()->GetDefinition();
   THnSparse *   hnsObjContent = binningDef->GetContent();
-  hnsObjContent->Print("all");
   std::vector<std::vector<int>> projections;
   if (projIds.empty()) {
     projIds.resize(fProjection->GetDimension());
@@ -2113,7 +2112,10 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
 
     std::string posfix = NUtils::Join(projNames, '-');
 
-    std::string canvasName = TString::Format("c_%s", posfix.c_str()).Data();
+    // The canvas' name is what a pad's tab reads once the tool shows it, so it says what it draws:
+    // `cpu_usage_Cluster-Node` rather than `c_Cluster-Node`, which told a reader nothing about the parameter.
+    std::string canvasName = parameterName.empty() ? TString::Format("spectra_%s", posfix.c_str()).Data()
+                                                   : parameterName + "_" + posfix;
     NLogTrace("Creating canvas '%s' with size %dx%d", canvasName.c_str(), canvasWidth, canvasHeight);
 
     // Delete existing canvas with same name to prevent crash during auto-deletion
@@ -2198,7 +2200,7 @@ TList * NGnNavigator::DrawSpectra(std::string parameterName, std::vector<int> pr
         NUtils::SetAxisRanges(hsParam, rangesTmp, true);
         TH1 * hProj = NUtils::ProjectTHnSparse(hsParam, {proj[0]}, option);
         if (!hProj || hProj->GetEntries() == 0) {
-          NLogError("Failed to project THnSparse for stack %d with projection IDs: %s", iStack,
+          NLogTrace("Failed to project THnSparse for stack %d with projection IDs: %s", iStack,
                     NUtils::GetCoordsString(proj, -1).c_str());
           delete hProj;
           continue;

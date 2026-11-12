@@ -40,6 +40,7 @@ podman run --rm -p 8080:8080 registry.gitlab.com/ndmspc/ndmspc/base:latest
 ```bash
 # from a configured installation
 ndmspc-server              # loads toolNgnt.C and toolBrowser.C
+ndmspc-server -m myTool.C  # …and my tool beside them (--no-default-tools for mine only)
 ```
 
 See [Install & build](install.md) for the other routes.

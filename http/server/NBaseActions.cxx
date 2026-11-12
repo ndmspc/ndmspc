@@ -185,7 +185,7 @@ bool RegisterBaseActions()
     httpOut["payload"]["pads"] = server->GetPads();
   };
 
-  handlers["ndmspc/state"] = [](std::string method, json & httpIn, json & httpOut, json & /*wsOut*/,
+  handlers["ndmspc/state"] = [](std::string method, json & httpIn, json & httpOut, json & wsOut,
                          std::map<std::string, TObject *> & /*inputs*/) {
     auto server = Ndmspc::gNHttpServer;
 
@@ -237,6 +237,10 @@ bool RegisterBaseActions()
       NLogInfo("Resetting API history and clearing all objects");
       try {
         server->ResetServer();
+        // Every other view is still showing the drawings the room just forgot. The pads go out with the
+        // answer, as they do for a Clear all (`ndmspc/pads`), so each client empties with the room rather
+        // than keeping a view of things it no longer holds.
+        wsOut["payload"]["pads"] = server->GetPads();
         httpOut["result"] = "success";
         httpOut["message"] = "API history and objects reset successfully";
       } catch (const std::exception & e) {

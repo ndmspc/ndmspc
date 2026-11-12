@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdio>
 #include <TBufferJSON.h>
+#include <TGraph.h>
 #include <TObject.h>
 #include <TString.h>
 #include "ndmspc/http/NHttpServer.h"
@@ -237,8 +238,14 @@ void NRouteContext::ShowRoot(TObject * object, const std::string & pad, const st
     for (auto it = extra.begin(); it != extra.end(); ++it) value[it.key()] = it.value();
   }
 
+  // A graph shown with no option is jsroot's **line only** — its painter falls back to `Line = 1` when the
+  // option is empty — so a run of points reads as a stroke, and one or two points as nothing at all. Points
+  // are what a graph is, so markers are the default here; a caller that wants a bare line asks for `"L"`.
+  std::string drawOption = drawOptions;
+  if (drawOption.empty() && object->InheritsFrom(TGraph::Class())) drawOption = "AP";
+
   json options = json::object();
-  if (!drawOptions.empty()) options["drawOpts"] = drawOptions;
+  if (!drawOption.empty()) options["drawOpts"] = drawOption;
 
   // The object's own name reads well as a tab name.
   Show(value, "jsroot", pad, label.empty() ? std::string(object->GetName()) : label, options,
