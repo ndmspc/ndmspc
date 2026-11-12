@@ -38,7 +38,7 @@ struct ToolRouting {
 
 const std::map<std::string, ToolRouting> kToolRouting = {
     {"toolNgnt.C", {{"ndmspc/ngnt/"}, "ndmspc/ngnt/open"}},
-    {"toolBrowser.C", {{"ndmspc/browser/", "ndmspc/rbrowser/"}, "ndmspc/browser/open"}},
+    {"toolBrowser.C", {{"ndmspc/browser/"}, "ndmspc/browser/open"}},
     {"toolSlurm.C", {{"ndmspc/slurm/"}, "ndmspc/slurm/submit"}},
 };
 
@@ -348,12 +348,25 @@ int main(int argc, char ** argv)
   std::string macroFilename;
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: auto-load "
-                 "$NDMSPC_DIR/macros/tools/toolNgnt.C,toolBrowser.C; the base actions are built in). A "
+                 "$NDMSPC_DIR/macros/tools/toolNgnt.C,toolBrowser.C; the base actions are built in). What "
+                 "is named is loaded **beside** those defaults unless --no-default-tools is given, so a "
+                 "tool macro of one's own does not cost the analysis tools. A "
                  "name with no "
                  "directory of its own takes the directory of the entry before it — "
                  "<dir>/one.C,two.C loads both from <dir> — and a list that begins with a bare name "
                  "falls back on $NDMSPC_DIR/macros/tools. Ignored with --rooms, which serves rooms "
                  "only");
+  // `-m` adds to the deployment's own tools rather than replacing them: a tool macro of one's own should
+  // not cost the analysis tools and the file browser. The flag (or the env) asks for exactly what `-m`
+  // names, which is what a deployment that ships only its own tool wants.
+  bool noDefaultTools = false;
+  if (const char * noDefaultsEnv = std::getenv("NDMSPC_NO_DEFAULT_TOOLS");
+      noDefaultsEnv != nullptr && *noDefaultsEnv != '\0') {
+    noDefaultTools = Ndmspc::NUtils::ParseBoolEnv(noDefaultsEnv);
+  }
+  app.add_flag("--no-default-tools", noDefaultTools,
+               "Load only the macros named with -m: the default tools (toolNgnt.C, toolBrowser.C) are "
+               "otherwise loaded beside them (NDMSPC_NO_DEFAULT_TOOLS=1 does the same)");
   app.add_option("-b,--batch", batch, "Batch mode without graphics (default: true)");
   std::string htmlDir = "";
   app.add_option("--html", htmlDir, "Directory with static assets (default: empty, use built-in)");
@@ -412,8 +425,9 @@ int main(int argc, char ** argv)
   AddOidcOptions(&app, oidcConfig);
   AddX509Options(&app, x509Config);
 
-  app.callback([&rootApp, &port, &macroFilename, &batch, &htmlDir, &noHistory, &heartbeat_ms, &withMcp,
-                &withFileUrl, &withRooms, &withWs, &oidcConfig, &x509Config, &httpThreads, &catalogPath]() {
+  app.callback([&rootApp, &port, &macroFilename, &noDefaultTools, &batch, &htmlDir, &noHistory, &heartbeat_ms,
+                &withMcp, &withFileUrl, &withRooms, &withWs, &oidcConfig, &x509Config, &httpThreads,
+                &catalogPath]() {
     gROOT->SetBatch(batch);
     PrepareOidcConfig(oidcConfig, x509Config);
 
@@ -467,19 +481,39 @@ int main(int argc, char ** argv)
       ndmspcMacrosDir      = (envHome && *envHome) ? envHome : "/usr/share/ndmspc";
     }
 
-    if (!withRooms && macroFilename.empty()) {
-      // check if ndmspcMacrosDir is exists
-      if (gSystem->AccessPathName(ndmspcMacrosDir.c_str()) == 0) {
-        // The base actions (health, state) are built into the server, so only the tools a deployment
-        // actually wants have to be named here. The default is the analysis tools and the ROOT file
-        // browser; the second is bare, so it takes the directory the first names.
-        macroFilename =
-            TString::Format("%s/macros/tools/toolNgnt.C,toolBrowser.C", ndmspcMacrosDir.c_str()).Data();
-        NLogInfo("No macro file given, using default macros ...");
-      } else {
-        // just warn and continue, user may provide macro file later
-        NLogError("No macro file given and default macros not found in '%s'. Please provide a macro file with -m option.", ndmspcMacrosDir.c_str());
-        exit(1);
+    // The tools a deployment ships with: the analysis tools and the ROOT file browser (the second is
+    // bare, so it takes the directory the first names). The base actions (health, state) are built into
+    // the server and need none of this.
+    const bool        defaultsAvailable = gSystem->AccessPathName(ndmspcMacrosDir.c_str()) == 0;
+    const std::string defaultMacros =
+        TString::Format("%s/macros/tools/toolNgnt.C,toolBrowser.C", ndmspcMacrosDir.c_str()).Data();
+
+    if (!withRooms) {
+      if (macroFilename.empty()) {
+        if (noDefaultTools) {
+          NLogInfo("No macro given and the default tools are off: serving the server's base actions only.");
+        }
+        else if (defaultsAvailable) {
+          macroFilename = defaultMacros;
+          NLogInfo("No macro file given, using default macros ...");
+        }
+        else {
+          NLogError("No macro file given and default macros not found in '%s'. Please provide a macro file with -m option.",
+                    ndmspcMacrosDir.c_str());
+          exit(1);
+        }
+      }
+      else if (!noDefaultTools && !defaultsAvailable) {
+        // Nothing to add: the installation has no default tool macros, so what `-m` names is all there is.
+        NLogWarning("No default tool macros in '%s'; loading only the macros given with -m.",
+                    ndmspcMacrosDir.c_str());
+      }
+      else if (!noDefaultTools) {
+        // `-m` names what this run adds, not what it replaces: the deployment's tools come beside it.
+        macroFilename = defaultMacros + "," + macroFilename;
+        NLogInfo("Loading the default tools too, with the macros given (--no-default-tools loads only "
+                 "those named): %s",
+                 defaultMacros.c_str());
       }
     }
 

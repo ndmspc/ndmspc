@@ -212,7 +212,7 @@ json NWorkspace::GetInspectorSchema() const
   // Properties: build OpenAPI/JSON-Schema style properties from fWorkspace
   inspector["properties"] = json::object();
   for (auto it = fWorkspace.begin(); it != fWorkspace.end(); ++it) {
-    NLogDebug("Adding workspace key to inspector properties: %s", it.key().c_str());
+    NLogTrace("Adding workspace key to inspector properties: %s", it.key().c_str());
     inspector["properties"][it.key()] = it.value();
     if (!inspector["properties"][it.key()].is_null() && !inspector["properties"][it.key()].contains("type")) {
       inspector["properties"][it.key()]["type"] = "object";

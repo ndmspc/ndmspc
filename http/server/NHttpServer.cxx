@@ -2159,9 +2159,46 @@ bool IsDefaultPageRequest(THttpCallArg * arg)
 
 namespace {
 
-/// @brief The request's own arguments, without the server-added keys (see Dispatch).
-json NodeParams(const json & in)
+/// @brief The properties a tool declares as secrets: `format: "password"`, or `writeOnly`.
+///
+/// A secret is handed to the handler and goes nowhere else — not into the node's arguments, not into the
+/// history a backup restores, not into a log line — so a passphrase typed into a form leaves no trace in
+/// the room.
+std::set<std::string> SecretProperties(const std::string & action)
 {
+  std::set<std::string> secrets;
+  if (gNdmspcMcpTools == nullptr) return secrets;
+  const auto tool = gNdmspcMcpTools->find(action);
+  if (tool == gNdmspcMcpTools->end()) return secrets;
+
+  const auto properties = tool->second.inputSchema.find("properties");
+  if (properties == tool->second.inputSchema.end() || !properties->is_object()) return secrets;
+
+  for (auto it = properties->begin(); it != properties->end(); ++it) {
+    if (!it.value().is_object()) continue;
+    if (it.value().value("format", std::string()) == "password" || it.value().value("writeOnly", false)) {
+      secrets.insert(it.key());
+    }
+  }
+  return secrets;
+}
+
+/// @brief `in` without the values a tool declares as secrets — for whatever is kept or written down.
+json WithoutSecrets(const json & in, const std::string & action)
+{
+  const std::set<std::string> secrets = SecretProperties(action);
+  if (secrets.empty() || !in.is_object()) return in;
+
+  json kept = in;
+  for (const auto & name : secrets) kept.erase(name);
+  return kept;
+}
+
+/// @brief The request's own arguments, without the server-added keys (see Dispatch).
+json NodeParams(const json & in, const std::string & action)
+{
+  const std::set<std::string> secrets = SecretProperties(action);
+
   json params = json::object();
   if (!in.is_object()) return params;
   for (auto it = in.begin(); it != in.end(); ++it) {
@@ -2170,6 +2207,8 @@ json NodeParams(const json & in)
     // The room's own "started, first step not run yet" marker: it is bookkeeping, never an argument a
     // tool is run with, so a form that carries it back must not keep a session looking unrun.
     if (it.key() == "pending") continue;
+    // A passphrase is not an argument the step keeps.
+    if (secrets.find(it.key()) != secrets.end()) continue;
     params[it.key()] = it.value();
   }
   return params;
@@ -2199,6 +2238,14 @@ std::vector<std::string> ActivePathFor(Ndmspc::NInstanceTree & tree, const std::
   return {};
 }
 
+/// @brief Whether `action` is registered as hidden — an internal helper the UI's own nodes drive.
+bool HiddenAction(const std::string & action)
+{
+  if (gNdmspcMcpTools == nullptr) return false;
+  const auto found = gNdmspcMcpTools->find(action);
+  return found != gNdmspcMcpTools->end() && found->second.hidden;
+}
+
 /// @brief Resolve the parent node a POST attaches to, against the dependency template.
 bool ResolveParentInstance(Ndmspc::NInstanceTree & tree, const std::string & action, const json & in,
                            std::string & parentId, std::string & required, std::string & error)
@@ -2208,6 +2255,18 @@ bool ResolveParentInstance(Ndmspc::NInstanceTree & tree, const std::string & act
   if (path.empty() && !need.empty()) path = ActivePathFor(tree, need);
 
   if (need.empty()) {
+    // A **hidden** action is an internal helper (the browser's `ls` and `draw`): nobody runs it as a step,
+    // so it is no root either. It attaches to the node its `path` names, whatever its group declares —
+    // which is how such a helper can live in its tool's own group instead of a second one.
+    if (!path.empty() && HiddenAction(action)) {
+      const std::string id = path.back();
+      if (!tree.Has(id)) {
+        error = "unknown combination node '" + id + "'";
+        return false;
+      }
+      parentId = id;
+      return true;
+    }
     if (!path.empty()) {
       error = action + " is a root action and cannot be nested";
       return false;
@@ -2558,7 +2617,8 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
       if (in.is_object()) in["_base"] = base;
     }
 
-    NLogTrace("Received %s request with content: %s", method.Data(), in.dump().c_str());
+    NLogTrace("Received %s request with content: %s", method.Data(),
+              WithoutSecrets(in, fullpath.Data()).dump().c_str());
 
     // Special-case: provide an OpenAPI-compatible inspector schema endpoint
     const bool isInspectorSchema = fullpath == "openapi/inspector" || fullpath == "inspector/openapi";
@@ -2655,11 +2715,21 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
 
             if (!filled.empty()) {
               fCurrentInstance = filled;
+              // A session that was started and not yet run is a combination beginning: its pads are cleared
+              // **before** the step runs, so a first step that is refused or fails leaves a blank view too —
+              // the user is about to work in this combination either way, and the previous one's drawings
+              // are not this one's.
+              const json before = tree.Params(filled);
+              if (before.is_object() && before.value("pending", false)) {
+                ForgetPads("");
+                wsOut["payload"]["pads"] = fPads;
+              }
             }
             // A *transient* POST runs on the node it hangs off without becoming a step of its own: it
             // draws (a click's spectra) and the combination tree does not grow, so nothing useless is
-            // added to it. The caller asks for it with `"transient": true` in the payload.
-            else if (in.is_object() && in.value("transient", false)) {
+            // added to it. The caller asks for it with `"transient": true` in the payload. A **hidden**
+            // action is the same: an internal helper the tree drives, nobody runs it as a step.
+            else if ((in.is_object() && in.value("transient", false)) || HiddenAction(action)) {
               fCurrentInstance = parentId;
             }
             // Know the session before the handler makes anything: a POST's node is created here - the
@@ -2667,7 +2737,22 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
             // handler makes are keyed by the session they belong to. A handler that fails has its node
             // taken back below, so a refused POST still leaves nothing behind.
             else {
-              created          = tree.Create(action, NodeParams(in), parentId, "");
+              // A root POST that **adds** a root begins a combination: the session it lands on had nothing
+              // in it (a new browser file, an `ml/open`, the start of any chain). What an earlier
+              // combination drew belongs to that one, so the pads are cleared here — before the step runs,
+              // so a refused or failed first step leaves a blank view rather than the previous one's
+              // drawings. A root the tree already holds is a re-run of the session's first step, and
+              // clears nothing.
+              const std::vector<std::string> rootsBefore = parentId.empty() ? tree.Roots()
+                                                                           : std::vector<std::string>();
+              created          = tree.Create(action, NodeParams(in, action), parentId, "");
+              const bool startsCombination =
+                  parentId.empty() &&
+                  std::find(rootsBefore.begin(), rootsBefore.end(), created) == rootsBefore.end();
+              if (startsCombination) {
+                ForgetPads("");
+                wsOut["payload"]["pads"] = fPads;
+              }
               fCurrentInstance = created;
             }
           }
@@ -2678,7 +2763,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
         }
       }
       else {
-        // An ordinary action - the browser's internal `rbrowser/*`, say - belongs to the session its
+        // An ordinary action - the browser's internal `browser/*`, say - belongs to the session its
         // `path` names: the node it acts on.
         const std::vector<std::string> at = RequestPath(in);
         if (!at.empty() && tree.Has(at.front())) fCurrentSession = at.front();
@@ -2744,7 +2829,7 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
           if (runHandler && ok) {
             // It takes the arguments it has just run with, and keeps its token, so it is still that
             // session - and keeps its id, so the room stays on it (see FreshSessionRoot).
-            json params       = NodeParams(in);
+            json params       = NodeParams(in, action);
             params["session"] = tree.Params(filled).value("session", std::string());
             tree.SetParams(filled, params);
             out["combination"]["id"]   = filled;
@@ -2820,18 +2905,27 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
     // tree and its drawing belongs to the click that made it. Recording one would leave an entry no node
     // accounts for - restored, the room would replay a click nobody made - and it is what used to push a
     // group's entry count out of step with its chain, which cost a rebuild (and a reshape) for a click.
+    // A **hidden** action is internal by definition — a helper the tree drives (the browser's `ls` and
+    // `draw`): nobody runs it as a step, so it adds none. That is what lets such helpers live in the group
+    // they belong to instead of a second group of their own.
+    bool hiddenAction = false;
+    if (gNdmspcMcpTools != nullptr) {
+      const auto found = gNdmspcMcpTools->find(fullpath.Data());
+      hiddenAction     = found != gNdmspcMcpTools->end() && found->second.hidden;
+    }
     const bool transientPost =
-        !method.CompareTo("POST") && in.is_object() && in.value("transient", false);
+        (!method.CompareTo("POST") && in.is_object() && in.value("transient", false)) || hiddenAction;
     if (fUseHistory && !transientPost) {
       if (!method.CompareTo("POST")) {
         NLogTrace("Adding history entry for path: %s", fullpath.Data());
         historyEntry = new NHistoryEntry(fullpath.Data(), method.Data());
-        historyEntry->SetPayloadIn(in);
+        historyEntry->SetPayloadIn(WithoutSecrets(in, fullpath.Data()));
         // The node and session the entry belongs to, so its DELETE can be replayed against the right
         // objects even when the request that triggers the replay runs in another session (or none).
         historyEntry->SetNode(fCurrentInstance);
         historyEntry->SetSession(fCurrentSession);
-        NLogTrace("History entry created for path: %s with payload: %s", fullpath.Data(), in.dump().c_str());
+        NLogTrace("History entry created for path: %s with payload: %s", fullpath.Data(),
+                  WithoutSecrets(in, fullpath.Data()).dump().c_str());
         fWorkspace.AddEntry(historyEntry);
       }
     }
@@ -2984,13 +3078,15 @@ void NHttpServer::Dispatch(std::shared_ptr<THttpCallArg> arg, const NRequestIden
       NUtils::RawJsonInjections injections;
       if (NUtils::CollectRawJsonInjections(wsOut, injections)) {
         std::string wsMessageStr = NUtils::InjectRawJson(wsMessage, injections);
-        NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessageStr.c_str());
+        NLogDebug("Broadcasting response from path=%s in=%s", fullpath.Data(),
+                  WithoutSecrets(in, fullpath.Data()).dump().c_str());
         if (fNWsHandler) {
           fNWsHandler->BroadcastUnsafe(wsMessageStr);
         }
       }
       else {
-        NLogDebug("Broadcasting to WebSocket clients for path %s: %s", fullpath.Data(), wsMessage.dump().c_str());
+        NLogDebug("Broadcasting response from path=%s in=%s", fullpath.Data(),
+                  WithoutSecrets(in, fullpath.Data()).dump().c_str());
         WebSocketBroadcast(wsMessage);
       }
     }

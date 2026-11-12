@@ -144,6 +144,10 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     // the mutex only serialises concurrent TCanvas::Constructor calls.
     TString cname = TString::Format("_ndmspc_wk%zu", GetAssignedIndex());
     auto *  c     = new TCanvas(cname, cname, 1, 1);
+    // ROOT must not free it on its own: the canvas is destroyed once, by the deferred-delete drain,
+    // on the thread that owns the graphics state. Left deletable, ROOT's cleanup can free it first and
+    // the drain then deletes a stale pointer, corrupting the heap.
+    c->SetBit(kCanDelete, kFALSE);
     fDeferredDeletes.push_back(c); // cleaned up by FlushDeferredDeletes
   }
 

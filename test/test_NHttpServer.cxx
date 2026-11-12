@@ -854,6 +854,76 @@ TEST(NHttpServerGroupTest, ReEnteringTheSessionTheRoomIsOnKeepsItsLiveChain)
   delete server;
 }
 
+TEST(NHttpServerCombinationTest, ANewCombinationClearsThePads)
+{
+  // Every step draws as it runs, so the room records a pad for the session it ran in (see RecordPads) —
+  // which is what a new combination has to clear.
+  Ndmspc::NHttpFuncPtr draw = [](std::string, json &, json & out, json & wsOut,
+                                 std::map<std::string, TObject *> &) {
+    wsOut["payload"]["pad"] = json::array({json{{"pad", "pad1"}, {"label", "h"}}});
+    out["result"]           = "success";
+  };
+  // A step that fails: its combination has begun all the same, so its pads are cleared just the same.
+  Ndmspc::NHttpFuncPtr fail = [](std::string, json &, json & out, json &,
+                                 std::map<std::string, TObject *> &) {
+    out["result"] = "failure";
+    out["error"]  = "no such file";
+  };
+  std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;
+  handlers["ndmspc/ngnt/open"]    = draw;
+  handlers["ndmspc/ngnt/reshape"] = draw;
+  handlers["ndmspc/browser/open"] = draw;
+  handlers["ndmspc/browser/draw"] = draw;
+  handlers["ndmspc/browser/fail"]    = fail;
+
+  auto * server = new Ndmspc::NHttpServer("", true, 10000, {}, /*startEngine=*/false);
+  server->SetHttpHandlers(handlers);
+
+  Ndmspc::NMcpToolMap   tools;
+  Ndmspc::NMcpToolMap * previous = Ndmspc::gNdmspcMcpTools;
+  tools["ndmspc/ngnt/open"]    = {.session = true};
+  tools["ndmspc/ngnt/reshape"] = {.dependsOn = {"ndmspc/ngnt/open"}};
+  tools["ndmspc/browser/open"] = {.session = true};
+  tools["ndmspc/browser/draw"] = {.dependsOn = {"ndmspc/browser/open"}};
+  tools["ndmspc/browser/fail"]    = {.session = true};
+  Ndmspc::gNdmspcMcpTools      = &tools;
+
+  // A combination with something drawn in it: the layer a client is shown.
+  const json        first = json::parse(RequestJson(server, "POST", "ndmspc/ngnt/open", {{"file", "a.root"}}));
+  const std::string root  = first["combination"]["id"];
+  ASSERT_FALSE(root.empty()) << first.dump();
+  RequestJson(server, "POST", "ndmspc/ngnt/reshape", {{"binningName", "x"}, {"path", json::array({root})}});
+  ASSERT_TRUE(server->GetPads().contains(root)) << "the drawing was not recorded";
+
+  // A new combination whose first step **fails** clears them too: the user is starting a new one either
+  // way, and leaving the previous one's drawings on screen reads as though the run had worked.
+  const json failed = json::parse(RequestJson(server, "POST", "ndmspc/browser/fail", {{"file", "missing.root"}}));
+  EXPECT_TRUE(failed.value("result", std::string()) == "failure") << failed.dump();
+  EXPECT_TRUE(server->GetPads().empty())
+      << "a failed first step left the previous combination's drawings: " << server->GetPads().dump();
+
+  // Another combination begins - another tool's root, the way `Open in NGNT explorer` starts one: the pads
+  // that combination drew are gone, and only this one's own step has drawn since (the handler above draws
+  // on every POST, so the new session's own pad is the one left).
+  const json started = json::parse(RequestJson(server, "POST", "ndmspc/browser/open", {{"file", "b.root"}}));
+  EXPECT_TRUE(started.value("result", std::string()) == "success") << started.dump();
+  const std::string second = started["combination"]["id"];
+  EXPECT_FALSE(server->GetPads().contains(root))
+      << "the previous combination's drawings were left behind: " << server->GetPads().dump();
+  EXPECT_FALSE(server->GetPads().contains("ngnt"))
+      << "a drawing filed under the old combination's group was left behind: " << server->GetPads().dump();
+
+  // A step **inside** the new combination draws there and leaves the pads alone…
+  RequestJson(server, "POST", "ndmspc/browser/draw", {{"path", json::array({second})}});
+  ASSERT_TRUE(server->GetPads().contains(second));
+  // …and re-running the session's first step is not a new combination either (the same root, same args).
+  RequestJson(server, "POST", "ndmspc/browser/open", {{"file", "b.root"}});
+  EXPECT_TRUE(server->GetPads().contains(second)) << "re-running the first step cleared the pads";
+
+  Ndmspc::gNdmspcMcpTools = previous;
+  delete server;
+}
+
 TEST(NHttpServerCombinationTest, ClearingASessionFreesItsOwnObjects)
 {
   std::map<std::string, Ndmspc::NHttpFuncPtr> handlers;

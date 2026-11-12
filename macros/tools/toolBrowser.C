@@ -1,36 +1,36 @@
 ///
 /// toolBrowser.C — a TBrowser-like ROOT file browser, as a tool group.
 ///
-/// Registers: ndmspc/browser/open, ndmspc/browser/browse (the combination) and the internal ndmspc/rbrowser/ls,
-/// ndmspc/rbrowser/draw, ndmspc/rbrowser/sparse, ndmspc/rbrowser/project (hidden helpers the tree drives).
+/// Registers: ndmspc/browser/open, ndmspc/browser/browse (the combination) and the internal ndmspc/browser/ls,
+/// ndmspc/browser/draw, ndmspc/browser/sparse, ndmspc/browser/project (hidden helpers the tree drives).
 ///
-/// URLs:  /api/browser/open, /api/browser/browse, /api/rbrowser/ls, /api/rbrowser/draw,
-///        /api/rbrowser/sparse, /api/rbrowser/project
+/// URLs:  /api/browser/open, /api/browser/browse, /api/browser/ls, /api/browser/draw,
+///        /api/browser/sparse, /api/browser/project
 ///
 /// The tool does everything the browser needs: it opens a ROOT file, walks its keys and directories to
 /// build the tree, and draws a chosen object into a pad. The visible part is a **combination** —
 /// `browse` depends on `open` — so the Explorer shows the group with `open` as the action that starts
 /// it and, under it, the `browse` step:
 ///
-///   open ──▶ browse (the file tree)  ──expand──▶ ndmspc/rbrowser/ls   ──click──▶ ndmspc/rbrowser/draw ──▶ a jsroot pad
+///   open ──▶ browse (the file tree)  ──expand──▶ ndmspc/browser/ls   ──click──▶ ndmspc/browser/draw ──▶ a jsroot pad
 ///
 /// A `THnSparse` is the exception: jsroot cannot draw one, and projecting it needs choices (which
-/// axes, which range). Clicking one opens a **dialog** instead — `ndmspc/rbrowser/sparse` lists the object's
-/// axes in a form, and its submit runs `ndmspc/rbrowser/project`, which projects the chosen 1–3 axes into a
+/// axes, which range). Clicking one opens a **dialog** instead — `ndmspc/browser/sparse` lists the object's
+/// axes in a form, and its submit runs `ndmspc/browser/project`, which projects the chosen 1–3 axes into a
 /// `TH1`/`TH2`/`TH3` and draws that. The dialog is the generic `payload.dialog` envelope a tool
 /// declares and the UI renders, so nothing here needs a THnSparse-specific widget:
 ///
-///   ──click──▶ ndmspc/rbrowser/sparse ──▶ (dialog: use/min/max/rebin per axis) ──submit──▶ ndmspc/rbrowser/project ──▶ a jsroot pad
+///   ──click──▶ ndmspc/browser/sparse ──▶ (dialog: use/min/max/rebin per axis) ──submit──▶ ndmspc/browser/project ──▶ a jsroot pad
 ///
 /// `browse`'s form is the file tree: its `key` field is a `format: "tree"` whose nodes come from the
 /// file, so the browse step is where you browse and draw — expanding a folder loads its children,
 /// clicking an object draws it. Clicking adds **no step**: it draws, and records the pick on the browse
 /// step it was made from (`key`, the `kind` of pick, and the expression a branch was projected with), so
 /// the step follows what you look at and a combination written out as a macro is what you last drew. That
-/// is why `ls` and `draw` live in the separate `rbrowser` group — the server records a node for every POST
-/// of an action in a combination group (a dependency-less one becomes a *root*), so an action that must not
-/// add a step cannot be part of `browser`. They are hidden, so neither the Explorer nor the Tools panel
-/// lists them; the tree's nodes invoke them by name over the websocket.
+/// is why `ls` and `draw` are **hidden** — the server records a node for every POST of a visible action in a
+/// combination group, and a hidden one adds none. They live in `browser` itself (there is no second name),
+/// the Explorer and the Tools panel never list them, and the tree's nodes invoke them by name over the
+/// websocket.
 ///
 /// The argument a node names is called `key` (the ROOT key path) rather than `path`, because `path` is
 /// the server's own combination address (the node ids a request acts on) and is consumed by the
@@ -94,7 +94,7 @@ const char * kOpenKey   = "open";
 const char * kBrowseKey = "browse";
 /// The internal helper group. It declares no `dependsOn`, so the server keeps no combination node for
 /// it: expanding and drawing are the tree's own doing, not steps of the analysis.
-const char * kInternals = "ndmspc/rbrowser";
+const char * kInternals = "ndmspc/browser";
 /// The group whose `open` takes an NGNT file (`ndmspc/ngnt/open`): where a click on the NGNT tree
 /// redirects, so the file is opened in the tool that can walk it rather than drawn here.
 const char * kNgntGroup = "ndmspc/ngnt";
@@ -1798,8 +1798,8 @@ void PublishOpenSchema(Ndmspc::NRouteContext & ctx, const std::string & file)
 }
 
 /// Publish the tree into `ndmspc/browser/browse`'s `key` field, so the browse step's form is the file tree — a
-/// `format: "tree"` field whose nodes come from the file. Expanding a node runs `ndmspc/rbrowser/ls`, clicking
-/// one runs `ndmspc/rbrowser/draw` (the node's own action), so browsing and drawing happen in the step itself.
+/// `format: "tree"` field whose nodes come from the file. Expanding a node runs `ndmspc/browser/ls`, clicking
+/// one runs `ndmspc/browser/draw` (the node's own action), so browsing and drawing happen in the step itself.
 /// `selected` is the key the field starts on ("" for none).
 void PublishTreeSchema(Ndmspc::NRouteContext & ctx, const json & tree, const std::string & selected)
 {
@@ -1932,7 +1932,7 @@ std::string BrowseStepFor(Ndmspc::NInstanceTree & tree, const std::vector<std::s
  * - the macro's line reads exactly what the file holds (`auto * object = (TH1D *) file->Get("hpx");`), which
  *   is what makes the object usable in an interpreter rather than an anonymous `TObject *`;
  * - the combination's label reads it too (`{{ state.key }}`), so the picked object is what the step is called;
- * - a click is not a step of its own (`ndmspc/rbrowser/draw` declares no `dependsOn`), so it leaves the pick
+ * - a click is not a step of its own (`ndmspc/browser/draw` is hidden, so the server keeps no node for it), so it leaves the pick
  *   on one step — the step keeps its id (`NInstanceTree::SetParams`), and browsing moves it rather than
  *   growing the combination a node per click.
  *
@@ -2394,9 +2394,9 @@ void toolBrowser()
       }),
   });
 
-  // The internals the tree drives. They are a group of their own with no `dependsOn`, so the server
-  // keeps no node for them (a POST in a combination group would add a step — or, with no dependency, a
-  // root). Hidden: neither the Explorer nor the Tools panel lists them.
+  // The internals the tree drives. Hidden: neither the Explorer nor the Tools panel lists them, and the
+  // server keeps no node for a hidden action — a POST that is a click, not a step. They live in the
+  // browser's own group, so there is one name for the tool and nothing called `rbrowser`.
   Ndmspc::RegisterMcpTool(std::string(kInternals) + "/ls", {
       .description = "Expand a folder of the open file and re-send the whole tree with its children. "
                      "Internal: the browse step's tree drives it.",
@@ -2583,7 +2583,7 @@ void toolBrowser()
   };
 
   // ===========================================================================
-  //  /api/rbrowser/ls — expand a folder and re-publish the tree (internal)
+  //  /api/browser/ls — expand a folder and re-publish the tree (internal)
   // ===========================================================================
   handlers[std::string(kInternals) + "/ls"] =
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
@@ -2608,7 +2608,7 @@ void toolBrowser()
       };
 
   // ===========================================================================
-  //  /api/rbrowser/draw — draw an object into a pad (internal)
+  //  /api/browser/draw — draw an object into a pad (internal)
   // ===========================================================================
   handlers[std::string(kInternals) + "/draw"] =
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
@@ -2674,7 +2674,7 @@ void toolBrowser()
       };
 
   // ===========================================================================
-  //  /api/rbrowser/sparse — open the THnSparse projection dialog (internal)
+  //  /api/browser/sparse — open the THnSparse projection dialog (internal)
   // ===========================================================================
   handlers[std::string(kInternals) + "/sparse"] =
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
@@ -2770,7 +2770,7 @@ void toolBrowser()
       };
 
   // ===========================================================================
-  //  /api/rbrowser/import — import a THnSparse to an NGnTree file (internal)
+  //  /api/browser/import — import a THnSparse to an NGnTree file (internal)
   // ===========================================================================
   handlers[std::string(kInternals) + "/import"] =
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
@@ -2889,7 +2889,7 @@ void toolBrowser()
       };
 
   // ===========================================================================
-  //  /api/rbrowser/macro — the macro a dialog's form would run (internal)
+  //  /api/browser/macro — the macro a dialog's form would run (internal)
   // ===========================================================================
   handlers[std::string(kInternals) + "/macro"] =
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,
@@ -2963,7 +2963,7 @@ void toolBrowser()
       };
 
   // ===========================================================================
-  //  /api/rbrowser/project — project a THnSparse and draw it (internal)
+  //  /api/browser/project — project a THnSparse and draw it (internal)
   // ===========================================================================
   handlers[std::string(kInternals) + "/project"] =
       [](std::string method, json & httpIn, json & httpOut, json & wsOut,

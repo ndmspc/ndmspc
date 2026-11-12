@@ -685,6 +685,15 @@ class NHttpServer : public THttpServer {
    * @return The flat workspace schema JSON.
    */
   json &                                        GetInspectorWorkspace() { return fWorkspace.GetWorkspace(); }
+  /**
+   * @brief The published schema of every group, keyed by group and then by the action's short name.
+   *
+   * The flat view above keeps only the last writer, and every group has an `open`: a tool's live schema
+   * has to come from its **own** group, which is what this map is for.
+   *
+   * @return Group name -> action short name -> schema.
+   */
+  const std::map<std::string, json> &           GetWorkspaceByGroup() const { return fWorkspaceByGroup; }
   /// @brief Set the group prefix used for workspace routes.
   void                                          SetGroup(const std::string & group) { fGroup = group; }
   /// @brief Get the group prefix used for workspace routes.
