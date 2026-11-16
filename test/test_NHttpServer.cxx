@@ -1602,7 +1602,9 @@ TEST(NHttpServerStoredFileTest, ANameIsOnlyServedWhenItIsAVisibleRegularFileInsi
   EXPECT_NE(ask("room_page.html").find("not_servable"), std::string::npos);
 
   // A symlink out of the room is not one of the room's files.
-  if (!ec) EXPECT_NE(ask("ndmspc_outside_link").find("not_found"), std::string::npos);
+  if (!ec) {
+    EXPECT_NE(ask("ndmspc_outside_link").find("not_found"), std::string::npos);
+  }
 
   // None of them is handed out as a URL either.
   EXPECT_TRUE(server->FileUrl(".half.part").empty());

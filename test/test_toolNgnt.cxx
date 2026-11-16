@@ -40,6 +40,32 @@ using Ndmspc::Test::ToolHarness;
 /// The macro under test, resolved by the test build.
 constexpr const char * kToolMacro = NDMSPC_TOOL_MACRO;
 
+/// Sets an environment variable for as long as the object lives, and puts the old one back after.
+class ScopedEnvVar {
+  public:
+  ScopedEnvVar(std::string name, std::string value) : fName(std::move(name))
+  {
+    const char * previous = std::getenv(fName.c_str());
+    if (previous) {
+      fHadPrevious = true;
+      fPrevious    = previous;
+    }
+    setenv(fName.c_str(), value.c_str(), 1);
+  }
+  ~ScopedEnvVar()
+  {
+    if (fHadPrevious) setenv(fName.c_str(), fPrevious.c_str(), 1);
+    else unsetenv(fName.c_str());
+  }
+  ScopedEnvVar(const ScopedEnvVar &)            = delete;
+  ScopedEnvVar & operator=(const ScopedEnvVar &) = delete;
+
+  private:
+  std::string fName;
+  std::string fPrevious;
+  bool        fHadPrevious{false};
+};
+
 /// The chain as the tool declares it: each action, what it depends on, and where it sits in order.
 struct ToolAction {
   const char * key;
@@ -437,6 +463,236 @@ TEST_F(ToolNgnt, TheReshapeLevelsNameTheirAxes)
   // The words stay the widget's own: a reshape's rows are levels.
   EXPECT_FALSE(levels.contains("groupLabel"));
   EXPECT_FALSE(levels.contains("itemLabel"));
+}
+
+/**
+ * A reshape is offered a worker count, and it starts from 1.
+ *
+ * Whether more threads help depends on how much work one bin of the first layer holds, so the form
+ * offers the choice and leaves it off until it is asked for — a reshape that is fast serially must not
+ * pay for workers nobody wanted.
+ */
+TEST_F(ToolNgnt, TheReshapeOffersOneWorkerByDefault)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  const auto call = fTool->Call("ndmspc/ngnt/open", "POST", json{{"file", kNgntFile}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  const json & workers = call.ws["workspace"]["reshape"]["properties"]["nWorkers"];
+  ASSERT_TRUE(workers.contains("type")) << workers.dump();
+  EXPECT_EQ(workers["type"], "integer");
+  // The form opens on every CPU the process may use: a reshape reads each entry, so serial is the exception.
+  EXPECT_EQ(workers["default"], std::max(1, static_cast<int>(Ndmspc::NUtils::AvailableCpuCount())))
+      << "the worker count must default to the available CPUs, not to 1";
+  EXPECT_GT(workers["default"].get<int>(), 0);
+  EXPECT_FALSE(workers.value("description", std::string()).empty());
+}
+
+/** The worker count the form was left at is what the workspace offers back next time. */
+TEST_F(ToolNgnt, TheReshapeRemembersTheWorkerCount)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  const auto opened = fTool->Call("ndmspc/ngnt/open", "POST", json{{"file", kNgntFile}});
+  ASSERT_EQ(opened.reply.value("result", std::string()), "success") << opened.reply.dump();
+
+  const auto call = fTool->Call("ndmspc/ngnt/reshape", "POST",
+                                json{{"binningName", "default"},
+                                     {"levels", json::array({json::array({0}), json::array({1, 2})})},
+                                     {"nWorkers", 4}});
+  ASSERT_EQ(call.reply.value("result", std::string()), "success") << call.reply.dump();
+
+  const json & workers = call.ws["workspace"]["reshape"]["properties"]["nWorkers"];
+  ASSERT_TRUE(workers.contains("default")) << workers.dump();
+  EXPECT_EQ(workers["default"], 4);
+}
+
+/**
+ * A second reshape of the same combination is served from the cache.
+ *
+ * Building a navigator reads the tree entry by entry, and the same file/binning/levels always give the
+ * same one — so the second request loads it and says so, which is also why its progress bars do not
+ * appear. `refresh` asks for the reshape anyway.
+ *
+ * The cache is turned on here rather than assumed: the suite may run with NDMSPC_RESHAPE_CACHE=0 to
+ * prove the cache is optional, and a test that needed it switched on would fail for that reason.
+ */
+TEST_F(ToolNgnt, ARepeatedReshapeComesFromTheCache)
+{
+  ScopedEnvVar cacheOn("NDMSPC_RESHAPE_CACHE", "1");
+  ScopedEnvVar cacheDir("NDMSPC_CACHE_DIR", "/tmp/test_toolNgnt_cache");
+
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  const auto opened = fTool->Call("ndmspc/ngnt/open", "POST", json{{"file", kNgntFile}});
+  ASSERT_EQ(opened.reply.value("result", std::string()), "success") << opened.reply.dump();
+
+  const json body = {{"binningName", "default"},
+                     {"levels", json::array({json::array({0}), json::array({1, 2})})}};
+  const json forced = {{"binningName", "default"},
+                       {"levels", json::array({json::array({0}), json::array({1, 2})})},
+                       {"refresh", true}};
+
+  // Build it from scratch first, so the entry exists whatever ran before this test.
+  const auto first = fTool->Call("ndmspc/ngnt/reshape", "POST", forced);
+  ASSERT_EQ(first.reply.value("result", std::string()), "success") << first.reply.dump();
+
+  const auto second = fTool->Call("ndmspc/ngnt/reshape", "POST", body);
+  ASSERT_EQ(second.reply.value("result", std::string()), "success") << second.reply.dump();
+  EXPECT_TRUE(second.reply.value("cached", false)) << "a repeated reshape should be served from the cache";
+
+  // ... and what came back is a working navigator, not merely a reply.
+  const auto mapped = fTool->Call("ndmspc/ngnt/map", "POST", json::object());
+  EXPECT_EQ(mapped.reply.value("result", std::string()), "success") << mapped.reply.dump();
+
+  // A forced reshape rebuilds, and says nothing about the cache.
+  const auto rebuilt = fTool->Call("ndmspc/ngnt/reshape", "POST", forced);
+  ASSERT_EQ(rebuilt.reply.value("result", std::string()), "success") << rebuilt.reply.dump();
+  EXPECT_FALSE(rebuilt.reply.value("cached", false)) << "refresh must reshape rather than load";
+}
+
+/**
+ * The three cache modes, and where the entry goes.
+ *
+ * `use` loads, `rebuild` always builds, `ignore` builds and keeps nothing. Where an entry is kept is a separate
+ * choice, and the default follows the input: a local file keeps its own entries, a remote one does not get
+ * written to.
+ */
+TEST_F(ToolNgnt, CacheModesAndHomesAreIndependent)
+{
+  ScopedEnvVar cacheOn("NDMSPC_RESHAPE_CACHE", "1");
+  ScopedEnvVar cacheDir("NDMSPC_CACHE_DIR", "/tmp/test_toolNgnt_cache");
+
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  const auto opened = fTool->Call("ndmspc/ngnt/open", "POST", json{{"file", kNgntFile}});
+  ASSERT_EQ(opened.reply.value("result", std::string()), "success") << opened.reply.dump();
+
+  const json levels = json::array({json::array({0}), json::array({1, 2})});
+  auto       ask    = [&](const json & extra) {
+    json body = {{"binningName", "default"}, {"levels", levels}};
+    for (auto it = extra.begin(); it != extra.end(); ++it) body[it.key()] = it.value();
+    return fTool->Call("ndmspc/ngnt/reshape", "POST", body);
+  };
+
+  // Ignore: neither reads nor writes, so it reports neither a hit nor a store.
+  const auto ignored = ask({{"cache", "ignore"}});
+  ASSERT_EQ(ignored.reply.value("result", std::string()), "success") << ignored.reply.dump();
+  EXPECT_FALSE(ignored.reply.value("cached", false)) << "ignore never reads";
+  EXPECT_FALSE(ignored.reply.value("stored", false)) << "ignore must store nothing";
+
+  // Rebuild: builds and stores, so it reports a store and no hit.
+  const auto rebuilt = ask({{"cache", "rebuild"}});
+  ASSERT_EQ(rebuilt.reply.value("result", std::string()), "success") << rebuilt.reply.dump();
+  EXPECT_FALSE(rebuilt.reply.value("cached", false)) << "rebuild always reshapes";
+  EXPECT_TRUE(rebuilt.reply.value("stored", false)) << "rebuild stores over what was there";
+  EXPECT_EQ(rebuilt.reply.value("home", std::string()), "in-file")
+      << "a local file keeps its entries unless told otherwise";
+
+  // Use: the entry just stored is loaded, and use never writes.
+  const auto used = ask({{"cache", "use"}});
+  ASSERT_EQ(used.reply.value("result", std::string()), "success") << used.reply.dump();
+  EXPECT_TRUE(used.reply.value("cached", false)) << "use loads what rebuild stored";
+  EXPECT_FALSE(used.reply.value("stored", false));
+  EXPECT_EQ(used.reply.value("home", std::string()), "in-file");
+
+  // UseOrStore, and the same request with no mode at all: both load, because that is the default.
+  const auto usedOrStored = ask({{"cache", "use-or-store"}});
+  ASSERT_EQ(usedOrStored.reply.value("result", std::string()), "success") << usedOrStored.reply.dump();
+  EXPECT_TRUE(usedOrStored.reply.value("cached", false)) << "use-or-store loads what is stored";
+
+  const auto omitted = ask(json::object());
+  ASSERT_EQ(omitted.reply.value("result", std::string()), "success") << omitted.reply.dump();
+  EXPECT_TRUE(omitted.reply.value("cached", false)) << "the default is use-or-store";
+
+  // An explicit empty home is the cache directory, and is not the same request as leaving it out.
+  const auto elsewhere = ask({{"cache", "rebuild"}, {"cacheFile", ""}});
+  ASSERT_EQ(elsewhere.reply.value("result", std::string()), "success") << elsewhere.reply.dump();
+  EXPECT_EQ(elsewhere.reply.value("home", std::string()), "cache") << "'cacheFile': '' means the cache directory";
+
+  // An unknown mode is refused rather than silently treated as the default.
+  const auto bad = ask({{"cache", "sometimes"}});
+  EXPECT_NE(bad.reply.value("result", std::string()), "success");
+}
+
+/**
+ * The published schema offers the four modes and the two homes, and its defaults follow the input.
+ *
+ * A local file opens on *Input file*; a remote one on *Cache directory*. Checked on the schema rather than by
+ * opening a remote file, so the test needs no EOS.
+ */
+TEST_F(ToolNgnt, TheFormOffersCacheModesAndHomes)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  const auto opened = fTool->Call("ndmspc/ngnt/open", "POST", json{{"file", kNgntFile}});
+  ASSERT_EQ(opened.reply.value("result", std::string()), "success") << opened.reply.dump();
+
+  const auto reshaped = fTool->Call("ndmspc/ngnt/reshape", "POST",
+                                    json{{"binningName", "default"},
+                                         {"levels", json::array({json::array({0}), json::array({1, 2})})}});
+  ASSERT_EQ(reshaped.reply.value("result", std::string()), "success") << reshaped.reply.dump();
+
+  const json workspace = reshaped.ws.contains("workspace") ? reshaped.ws["workspace"] : json::object();
+  ASSERT_TRUE(workspace.contains("reshape")) << workspace.dump();
+  const json props = workspace["reshape"]["properties"];
+
+  ASSERT_TRUE(props.contains("cache")) << props.dump();
+  EXPECT_EQ(props["cache"]["default"], "use-or-store") << "the default fills the cache as it is used";
+  EXPECT_EQ(props["cache"]["enum"], json::array({"use", "use-or-store", "rebuild", "ignore"}));
+  EXPECT_EQ(props["cache"]["format"], "segmented") << "four answers read best as a row of buttons";
+  ASSERT_TRUE(props.contains("cacheFile")) << props.dump();
+  EXPECT_EQ(props["cacheFile"]["format"], "select");
+  EXPECT_EQ(props["cacheFile"]["default"], std::string(kNgntFile))
+      << "a local input opens on storing in itself";
+
+  // The choices are the two homes as **paths**, so the dropdown reads as where an entry lands rather than as
+  // a pair of categories — and neither is the empty string, which a select draws as "nothing chosen".
+  const json homes = props["cacheFile"]["enum"];
+  ASSERT_EQ(homes.size(), 2u) << homes.dump();
+  EXPECT_NE(homes[0], "") << "the cache file is named by its path";
+  EXPECT_EQ(homes[1], std::string(kNgntFile)) << "and the input by its own";
+  EXPECT_EQ(props["cacheFile"]["labels"].size(), 2u) << props["cacheFile"]["labels"].dump();
+  EXPECT_NE(props["cacheFile"]["labels"][0], props["cacheFile"]["labels"][1])
+      << "the two choices must not read the same, or the dropdown is a coin flip";
+
+  // What the reshape *is* comes first; the worker count belongs to the reshape rather than to where its
+  // result is kept, so it stays at the root above the cache section instead of inside it.
+  const json reshape = workspace["reshape"];
+  ASSERT_TRUE(reshape.contains("order")) << reshape.dump();
+  EXPECT_EQ(reshape["order"], json::array({"binningName", "levels", "nWorkers", "cache", "cacheFile"}))
+      << "binning and levels first, then workers, then everything about the cache";
+  ASSERT_TRUE(reshape.contains("groups")) << reshape.dump();
+  ASSERT_EQ(reshape["groups"].size(), 1u) << reshape["groups"].dump();
+  EXPECT_EQ(reshape["groups"][0]["title"], "Cache");
+  EXPECT_EQ(reshape["groups"][0]["fields"], json::array({"cache", "cacheFile"}))
+      << "workers is not a cache field";
+  EXPECT_EQ(reshape["groups"][0]["collapsed"], false) << "the cache section is shown, not hidden";
+
+  // The remote case, on the schema alone: a root:// name defaults to the cache file, never to a path on the
+  // server that a default must not write to.
+  const auto remote = fTool->Call("ndmspc/ngnt/open", "POST",
+                                  json{{"file", "root://eos.example.com//eos/a/data.root"}});
+  if (remote.reply.value("result", std::string()) == "success") {
+    const json remoteWs = remote.ws.contains("workspace") ? remote.ws["workspace"] : json::object();
+    ASSERT_TRUE(remoteWs.contains("reshape")) << remoteWs.dump();
+    const json remoteProps = remoteWs["reshape"]["properties"];
+    EXPECT_NE(remoteProps["cacheFile"]["default"], "root://eos.example.com//eos/a/data.root")
+        << "a remote input must not default to writing the input";
+    EXPECT_EQ(remoteProps["cacheFile"]["default"], remoteProps["cacheFile"]["enum"][0])
+        << "it opens on the cache file, which is the first choice offered";
+  }
 }
 
 } // namespace

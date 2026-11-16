@@ -90,7 +90,9 @@ NGnTree::NGnTree(TObjArray * axes, std::string filename, std::string treename) :
     return;
   }
 
-  if (axes == nullptr && axes->GetEntries() == 0) {
+  if (axes == nullptr || axes->GetEntries() == 0) {
+    // `||`, not `&&`: the old test dereferenced a null `axes` to read GetEntries(), and an empty axis list
+    // left the tree with no storage at all — which `Process` then dereferenced.
     NLogError("NGnTree::NGnTree: No axes provided, binning is nullptr.");
     MakeZombie();
     return;
@@ -503,6 +505,13 @@ bool NGnTree::Process(NGnProcessFuncPtr func, const json & cfg, std::string binn
 
   if (!fBinning) {
     NLogError("Binning is not initialized in NGnTree !!!");
+    return false;
+  }
+
+  // A tree whose construction failed is a zombie with no storage, and the setup below dereferences it
+  // (`fTreeStorage->GetTree()->GetName()`). Refusing here turns a segfault into a reported failure.
+  if (fTreeStorage == nullptr || fTreeStorage->GetTree() == nullptr) {
+    NLogError("NGnTree::Process: no storage tree; the NGnTree was not initialised (is it a zombie?)");
     return false;
   }
 
@@ -2348,6 +2357,14 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
       point->SetTempObject("inFile", nullptr);
     }
   };
+
+  // A tree that failed to construct has no storage, and every later step dereferences it. Catch it here,
+  // where the axes are still known, rather than at the segfault in Process.
+  if (ngnt->IsZombie()) {
+    NLogError("NGnTree::Import: the output NGnTree could not be created (no usable axes?)");
+    delete ngnt;
+    return nullptr;
+  }
 
   bool rc = ngnt->Process(processFunc, cfg, "default", beginFunc, endFunc);
   delete ngnt;

@@ -153,6 +153,15 @@ documentation for full details.
 - **tcp** — distributed workers on separate machines via ZeroMQ TCP; workers
   are started with the `ndmspc-worker` binary
 
+`NGnNavigator::Reshape` is separate from that machinery: it always runs in-process, and only splits
+**its first layer** across threads (`NDimensionalExecutor::ExecuteParallel`, one worker per bin). A
+single-level reshape cannot be split, because its leaf layer fills the objects into the one node every
+bin shares, and neither can the fork-based modes above (`NGnNavigator::ReshapeWorkerCount` returns 1
+for them). Each worker reads the tree through its own `TFile`/`TTree`, opened on the worker's own
+thread with implicit MT enabled, so nothing of ROOT's tree state is shared; the resulting subtrees are
+disjoint and are attached afterwards, one per projection cell, with no merge step. `NDMSPC_NAV_WORKERS`
+overrides the worker count (1 forces the serial path).
+
 ### Distributed TCP Processing
 
 The `tcp` mode allows analysis to be spread across workers on different

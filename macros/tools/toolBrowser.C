@@ -80,7 +80,14 @@
 #include <ndmspc/http/NRouteContext.h>
 #include <ndmspc/http/NSchemaBuilder.h>
 
-namespace {
+// Everything in this file except `toolBrowser()` lives in its own namespace. Tool macros are not compiled
+// together: the server loads each one into the same Cling session, so two macros that each define a helper
+// of the same name (`ScopedEnv`, `ScopedRunOutput`, …) collide. Cling answers a redefinition by trying to
+// roll back the transaction and can crash in its unloader, so the failure reads as a segfault while loading
+// the second macro rather than as the name clash it is. A namespace per tool keeps the helpers private,
+// where an unnamed namespace does not: every unnamed namespace in a Cling session is the *same* namespace,
+// which is what makes two files collide in the first place.
+namespace Ndmspc::BrowserTools {
 
 /// The tool group: everything before the last `/` of an action, and what a session and its combination tree
 /// are keyed by (`NInstanceTree::GroupOf`). A pick is recorded on the group's live chain, so the recording
@@ -1972,10 +1979,12 @@ bool RecordPick(Ndmspc::NRouteContext & ctx, const std::vector<std::string> & pa
   return true;
 }
 
-} // namespace
+} // namespace Ndmspc::BrowserTools
 
 void toolBrowser()
 {
+  using namespace Ndmspc::BrowserTools;
+
   auto &      handlers = *(Ndmspc::gNdmspcHttpHandlers);
   std::string group    = "ndmspc/browser";
   /** What the family is called where a user reads it (the room's group picker, Help). */

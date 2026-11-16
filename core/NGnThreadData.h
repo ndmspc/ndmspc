@@ -146,7 +146,20 @@ class NGnThreadData : public NThreadData {
   void ExecuteEndFunction();
 
   /**
-   * @brief Delete deferred ROOT objects, skipping TCanvas/TPad (leaked safely).
+   * @brief Take ownership of objects to free at the next drain.
+   *
+   * The drain is what `Process` runs at the end of every bin: it detaches each object from the thread's
+   * pad and then deletes it. Object types the drain keeps (canvases and pads) are retained instead, so
+   * this does not leak what it was given.
+   *
+   * @param objects Objects to free; the vector is emptied.
+   */
+  void DeferDeletes(std::vector<TObject *> & objects);
+
+  /**
+   * @brief Delete deferred ROOT objects, detaching them from the thread's pad first.
+   *
+   * Canvases and pads are kept rather than destroyed — see the note in the implementation.
    */
   void FlushDeferredDeletes();
 

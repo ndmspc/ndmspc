@@ -10,13 +10,31 @@
 #include <ndmspc/core/NLogger.h>
 #include <ndmspc/core/NUtils.h>
 
+/**
+ * The parameter names a tree is built with.
+ *
+ * `NParameters` keeps them as one `TH1D` with a bin per name, and `Reshape` reads that histogram **bin by
+ * bin**, resolving each bin's label to a name (see `NGnNavigator.cxx:830-836`). So a wide `_params` branch
+ * is what makes reading a point cost something — "fake for stress", which is what this tutorial is for.
+ *
+ * Objects do **not** count: `Reshape` disables the `_outputPoint` branch outright
+ * (`NGnNavigator.cxx:472`), so extra histograms per point are never read by it.
+ */
+std::vector<std::string> ParameterNames(int nParamCopies)
+{
+  std::vector<std::string> names{"meanFit", "sigmaFit"};
+  for (int i = 0; i < std::max(0, nParamCopies); i++) names.push_back("fake" + std::to_string(i));
+  return names;
+}
+
 void NCpuStress(std::string outFile = "NCpuStress.root", Long64_t nEntries = 1e7, int rebinMean = 1,
-                int rebinSigma = 1, int nBinsMean = 10, int nBinsSigma = 10)
+                int rebinSigma = 1, int nBinsMean = 10, int nBinsSigma = 10, int nParamCopies = 0)
 {
   gErrorIgnoreLevel = kError;
 
   json cfg;
-  cfg["nEntries"] = nEntries;
+  cfg["nEntries"]     = nEntries;
+  cfg["nParamCopies"] = nParamCopies;
 
   // Create axes
   TObjArray * axes = new TObjArray();
@@ -38,7 +56,7 @@ void NCpuStress(std::string outFile = "NCpuStress.root", Long64_t nEntries = 1e7
   b0["sigma"] = {{rebinSigma}};
   ngnt->GetBinning()->AddBinningDefinition("b0", b0);
 
-  ngnt->InitParameters({"meanFit", "sigmaFit"});
+  ngnt->InitParameters(ParameterNames(nParamCopies));
 
   // Define the processing function
   Ndmspc::NGnProcessFuncPtr processFunc = [](Ndmspc::NBinningPoint * point, TList * /*output*/, TList * outputPoint,
@@ -62,7 +80,7 @@ void NCpuStress(std::string outFile = "NCpuStress.root", Long64_t nEntries = 1e7
     }
 
     // each thread gets its own RNG (thread-safe)
-    TRandom3 rnd(0);
+    thread_local TRandom3 rnd(0);
     for (Long64_t i = 0; i < nEntries; i++) {
       double x = rnd.Gaus(mean, sigma);
       h->Fill(x);
@@ -74,6 +92,7 @@ void NCpuStress(std::string outFile = "NCpuStress.root", Long64_t nEntries = 1e7
 
     // Create Gaussian fit function for the histogram
     TF1 * gausFunc = new TF1("gausFunc", "gaus", -10, 10);
+    gausFunc->AddToGlobalList(false); // prevent registration in ROOT's global list (thread-safe)
 
     // Retrieve fit results and store them in the parameters of the point
     TFitResultPtr fitResult = h->Fit(gausFunc, "QS");
@@ -85,7 +104,16 @@ void NCpuStress(std::string outFile = "NCpuStress.root", Long64_t nEntries = 1e7
     if (pointParams) {
       pointParams->SetParameter("meanFit", fitResult->Parameter(1), fitResult->Error(1));
       pointParams->SetParameter("sigmaFit", fitResult->Parameter(2), fitResult->Error(2));
+
+      // Ballast parameters, so the `_params` branch is as wide as the caller asked for. A reshape reads
+      // all of them for every point, which is the cost this tutorial exists to make measurable.
+      const int nCopies = cfg.contains("nParamCopies") ? cfg["nParamCopies"].get<int>() : 0;
+      for (int i = 0; i < nCopies; i++) {
+        pointParams->SetParameter(("fake" + std::to_string(i)).c_str(), fitResult->Parameter(1) + i,
+                                  fitResult->Error(1));
+      }
     }
+
     outputPoint->Add(h);
     // outputPoint->Add(c);
   };

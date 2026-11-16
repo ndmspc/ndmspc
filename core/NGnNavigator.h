@@ -17,6 +17,30 @@ namespace Ndmspc {
  * in a hierarchical tree structure. Supports projections, children/parent relationships,
  * and integration with NBinningDef and NGnTree.
  *
+ * ## What Reshape builds
+ *
+ * `levels` groups the variable axes of a binning definition into layers; `{{0}, {1, 2}}` is a
+ * two-layer navigator, one axis on top and two below it. `Reshape` walks the layers in order and, for
+ * each bin of a layer, projects that layer's axes into one histogram (the node's *projection*) and
+ * creates one child per projection cell. A child that has layers below it is reshaped in turn, so the
+ * result is a tree whose depth is `levels.size()` and whose branching follows the data: a bin with no
+ * entries gets no child.
+ *
+ * Only the **last** layer fills analysis payload: the objects of the branches (`outputPoint` and any
+ * other `TList` branch) and the parameters of `_params`. Upper layers carry structure and the
+ * aggregated ranges their children report.
+ *
+ * ## Cost and parallelism
+ *
+ * The projection of a layer does not depend on the bin, so it is built once per layer and read by all
+ * of its bins. Layers are reshaped one at a time. The first layer of a multi-layer reshape is split
+ * across threads when the ROOT thread pool has room for them, since its bins are independent
+ * recursions; `NDMSPC_NAV_WORKERS` overrides the count and `1` forces the serial path. A single-layer
+ * reshape and the fork-based execution modes always run serially — see `ReshapeWorkerCount` for why.
+ *
+ * Long reshapes report per-layer progress through `NUtils::ProgressBar` when run output is on
+ * (`NDMSPC_LOG_RUN=1`); `NDMSPC_RESHAPE_PROJECTION=per-bin` restores the older per-bin projection.
+ *
  * @author Martin Vala <mvala@cern.ch>
  */
 class NGnNavigator : public TNamed {
@@ -37,12 +61,19 @@ class NGnNavigator : public TNamed {
 
   /**
    * @brief Reshape navigator using binning name and levels.
-   * @param binningName Name of binning definition.
-   * @param levels Vector of levels.
+   *
+   * The entry point: resolves the binning definition and validates `levels` before delegating to the
+   * recursive form. Every variable axis of the definition must appear in `levels` exactly once; an axis
+   * missing, repeated, or in a layer of its own left empty is an error and returns nullptr. With an empty
+   * `levels` the definition's variable axes are taken as a single layer, which only works up to three
+   * axes — a projection of four or more is refused.
+   *
+   * @param binningName Name of binning definition (empty = the current one).
+   * @param levels Layers of axis indices, outermost first, e.g. `{{0}, {1, 2}}`.
    * @param level Current level (default: 0).
    * @param ranges Map of ranges for axes.
    * @param rangesBase Map of base ranges for axes.
-   * @return Pointer to reshaped NGnNavigator.
+   * @return Pointer to the reshaped root navigator, or nullptr when refused or cancelled.
    */
   NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, size_t level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {});
@@ -60,6 +91,32 @@ class NGnNavigator : public TNamed {
   NGnNavigator * Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {},
                          NGnNavigator * parent = nullptr);
+
+  /**
+   * @brief Reshape a bin sub-range of one level, into the given parent.
+   *
+   * `Reshape` reshapes every bin of a level. This is the same recursion with its first level restricted
+   * to `[minBins, maxBins]` (one entry per axis of that level, ROOT bins), which is what lets a reshape
+   * of the first layer be split across workers: each one reshapes its own sub-range under its own root
+   * navigator and its own `NGnTree`, and the resulting subtrees are attached afterwards.
+   *
+   * The restriction applies to **this** level only; deeper levels always span their full range. Empty
+   * bounds mean "the whole level", i.e. exactly what `Reshape` does.
+   *
+   * @param binningDef Binning definition to reshape.
+   * @param levels Levels as passed to Reshape.
+   * @param level Level to reshape (0 when called for a worker).
+   * @param ranges Axis ranges for this level.
+   * @param rangesBase Base-axis ranges for this level.
+   * @param parent Navigator to reshape into; null creates the root, as in Reshape.
+   * @param minBins Per-axis first bin to reshape (empty = the level's first bin).
+   * @param maxBins Per-axis last bin to reshape (empty = the level's last bin).
+   * @return The reshaped navigator, or nullptr on failure.
+   */
+  NGnNavigator * ReshapeBins(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level,
+                             std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase,
+                             NGnNavigator * parent, const std::vector<int> & minBins,
+                             const std::vector<int> & maxBins);
 
   /**
    * @brief Export navigator data to file.
@@ -164,6 +221,16 @@ class NGnNavigator : public TNamed {
   void SetGnTree(NGnTree * tree) { fGnTree = tree; }
 
   /**
+   * @brief Point this navigator and all its descendants at the given tree.
+   *
+   * A subtree built on a worker points at the worker's private tree, which is closed when the worker is
+   * done. Once such a subtree is attached to the real navigator, it has to be re-pointed at the real tree.
+   *
+   * @param tree Tree to point at.
+   */
+  void SetGnTreeRecursive(NGnTree * tree);
+
+  /**
    * @brief Get vector of child navigators.
    * @return Vector of NGnNavigator pointers.
    */
@@ -226,6 +293,17 @@ class NGnNavigator : public TNamed {
    * @param index Index to set (-1 for append).
    */
   void SetChild(NGnNavigator * child, int index = -1);
+
+  /**
+   * @brief Hand over this navigator's children and forget them, without deleting them.
+   *
+   * Used when a subtree built in isolation (on a worker) is attached to the real navigator: the caller
+   * takes the children out keyed by the projection index they sit at, and the emptied node is discarded.
+   * The returned vector keeps the same indexing as `GetChild`; entries are null where there was no child.
+   *
+   * @return The navigator's children, by index.
+   */
+  std::vector<NGnNavigator *> TakeChildren();
 
   /**
    * @brief Get parent navigator.
@@ -511,6 +589,45 @@ class NGnNavigator : public TNamed {
   // static NGnNavigator * Open(TTree * tree, const std::string & branches = "", TFile * file = nullptr);
 
   private:
+  /**
+   * @brief Build the projection histogram of one reshape layer.
+   *
+   * A level projects a fixed set of axes, so its projection histogram is identical for every bin of
+   * that level. It used to be rebuilt per bin and thrown away; this is the same code, callable once
+   * per level (see `Reshape`) or once per bin (the legacy path, `NDMSPC_RESHAPE_PROJECTION=per-bin`).
+   *
+   * @param binningDef Binning definition holding the source content sparse.
+   * @param axesIds Axis indices projected at this level, in the level's order.
+   * @param ranges Axis ranges to apply to the source sparse before projecting.
+   * @param rangesBase Base-axis ranges, used only to describe them in the projection title.
+   * @param level Level being projected (for logging).
+   * @param leafBump Also map the sparse's reserved bin 0 into the projection (leaf level only).
+   * @return The projection histogram, detached from `gDirectory`, or nullptr on failure.
+   */
+  TH1 * BuildProjection(NBinningDef * binningDef, const std::vector<int> & axesIds,
+                        const std::map<int, std::vector<int>> & ranges,
+                        const std::map<int, std::vector<int>> & rangesBase, size_t level, bool leafBump);
+
+  /**
+   * @brief Locate one bin of a layer inside the layer's projection histogram.
+   * @param hProj Projection histogram built by BuildProjection.
+   * @param coords Coordinates of the bin within the level.
+   * @param nDims Number of projected axes.
+   * @return The projection bin index, or -1 when the coordinates cannot be mapped.
+   */
+  int ProjectionIndex(TH1 * hProj, const std::vector<int> & coords, int nDims) const;
+
+  /**
+   * @brief How many worker threads to reshape a level of `nBinsLevel` bins with.
+   *
+   * One per bin at most, capped by the ROOT thread-pool size, `NDMSPC_NAV_WORKERS` overriding both, and
+   * 1 (the serial path) for the fork-based execution modes.
+   *
+   * @param nBinsLevel Number of bins in the level.
+   * @return Worker count, at least 1.
+   */
+  static size_t ReshapeWorkerCount(size_t nBinsLevel);
+
   NGnTree *                                     fGnTree{nullptr};            ///<! Pointer to the NGnTree
   std::vector<std::string>                      fObjectNames{};              ///< Object names
   std::map<std::string, std::vector<TObject *>> fObjectContentMap{};         ///< Object content map

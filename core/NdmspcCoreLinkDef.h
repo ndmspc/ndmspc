@@ -19,5 +19,11 @@
 #pragma link C++ class Ndmspc::NGnTree + ;
 #pragma link C++ class Ndmspc::NGnThreadData + ;
 #pragma link C++ class Ndmspc::NGnNavigator + ;
+#pragma link C++ class Ndmspc::NGnReshapeWorkerData + ;
+#pragma link C++ class Ndmspc::NCombo + ;
+#pragma link C++ class Ndmspc::NCombo::Result + ;
+#pragma link C++ class Ndmspc::NStress + ;
+#pragma link C++ class Ndmspc::NStress::Sample + ;
+#pragma link C++ class Ndmspc::NStress::RunResult + ;
 #pragma link C++ class Ndmspc::NLogString + ;
 #endif

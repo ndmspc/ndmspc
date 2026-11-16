@@ -2,7 +2,9 @@
 #include <mutex>
 #include <cstring>
 #include <TROOT.h>
+#include <TThread.h>
 #include <TCanvas.h>
+#include <TPad.h>
 #include <TSystem.h>
 #include <THnSparse.h>
 #include "NBinningPoint.h"
@@ -143,12 +145,18 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     // gPad is still nullptr for THIS thread even inside the lock (thread-local);
     // the mutex only serialises concurrent TCanvas::Constructor calls.
     TString cname = TString::Format("_ndmspc_wk%zu", GetAssignedIndex());
-    auto *  c     = new TCanvas(cname, cname, 1, 1);
-    // ROOT must not free it on its own: the canvas is destroyed once, by the deferred-delete drain,
-    // on the thread that owns the graphics state. Left deletable, ROOT's cleanup can free it first and
-    // the drain then deletes a stale pointer, corrupting the heap.
+    TThread::Lock();
+    auto * c = new TCanvas(cname, cname, 1, 1);
+    // Detach it from ROOT's global canvas list, exactly as NUtils::CreateCanvas does. Left listed, this
+    // pad is reachable from every thread's cleanup: deleting a histogram (or anything the pad had drawn)
+    // makes ROOT call TPad::RecursiveRemove on it, which crashed workers under the IPC/TCP executors.
+    gROOT->GetListOfCanvases()->Remove(c);
+    c->ResetBit(kMustCleanup);
+    // ROOT must not free it on its own either: it is kept for the thread's lifetime (see
+    // FlushDeferredDeletes) and ROOT's cleanup freeing it first would leave gPad dangling.
     c->SetBit(kCanDelete, kFALSE);
-    fDeferredDeletes.push_back(c); // cleaned up by FlushDeferredDeletes
+    TThread::UnLock();
+    fDeferredDeletes.push_back(c); // kept by FlushDeferredDeletes, never destroyed on a worker
   }
 
   fNProcessed++;
@@ -309,12 +317,16 @@ void NGnThreadData::Process(const std::vector<int> & coords)
     NLogTrace("NGnThreadData::Process: [%zu] Cleaning output list with %d entries for entry '%lld' ...",
               GetAssignedIndex(), outputPoint->GetEntries(), entry);
     if (!fIsPureCopy) {
-      TObject * obj = nullptr;
+      std::vector<TObject *> drawn;
+      TObject *              obj = nullptr;
       while ((obj = outputPoint->First())) {
         outputPoint->Remove(obj);
-        fDeferredDeletes.push_back(obj);
+        drawn.push_back(obj);
       }
       delete outputPoint;
+      // Drained per bin, so a long run does not accumulate every bin's objects, and detaching what it
+      // frees from the thread's pad first — see FlushDeferredDeletes for why that matters.
+      DeferDeletes(drawn);
       FlushDeferredDeletes();
     }
   }
@@ -533,14 +545,69 @@ void NGnThreadData::ExecuteEndFunction()
   }
 }
 
+void NGnThreadData::DeferDeletes(std::vector<TObject *> & objects)
+{
+  for (TObject * obj : objects) {
+    if (obj != nullptr) fDeferredDeletes.push_back(obj);
+  }
+  objects.clear();
+}
+
 void NGnThreadData::FlushDeferredDeletes()
 {
   if (fDeferredDeletes.empty()) return;
 
-  NLogTrace("NGnThreadData::FlushDeferredDeletes: [%zu] Deleting %zu deferred objects ...", GetAssignedIndex(),
-            fDeferredDeletes.size());
+  // Canvases and pads are handed back rather than destroyed, which is this method's contract. Deleting
+  // a TPad runs TPad::Close(), and this drain happens on a *worker* thread (and, under the IPC/TCP
+  // executors, in a forked worker process); that raced ROOT's graphics state and aborted whole runs
+  // with a segfault inside TPad::Close. The per-thread `gPad` canvas lives in this vector, so it was
+  // the first to go.
+  //
+  // The pad's own primitive list is still disarmed by SafeDeleteObjects, so the histograms and frames it
+  // had drawn are collected and deleted as orphans - only the empty pad object itself is kept. That is
+  // deliberate: a canvas is a scratch pad for user draws (`h->Fit()` needs one), made once per thread,
+  // and reclaiming it would mean destroying the graphics state of a live thread.
+  std::vector<TObject *> deletable;
+  std::vector<TObject *> pads;
+  deletable.reserve(fDeferredDeletes.size());
+  for (TObject * obj : fDeferredDeletes) {
+    if (obj == nullptr) continue;
+    if (obj->InheritsFrom(TPad::Class())) {
+      pads.push_back(obj);
+      continue;
+    }
+    deletable.push_back(obj);
+  }
 
-  NUtils::SafeDeleteObjects(fDeferredDeletes);
+  // Only the pads are carried over; everything else is gone once SafeDeleteObjects has run.
+  fDeferredDeletes = pads;
+
+  if (deletable.empty()) return;
+
+  // Detach each object from the thread's pads before it is freed.
+  //
+  // `h->Fit()` draws into the thread's `gPad`, which leaves the histogram in that pad's list of
+  // primitives — and the pad outlives the bin (it is made once per thread). Deleting the histogram while
+  // the pad still points at it leaves a dangling primitive, and the *next* `TH1::Fit` walks the pad's
+  // list while looking up the function it is about to add, dereferencing the freed histogram. That is
+  // the `TList::FindObject` segfault that aborted forked workers part-way through a fit-heavy run; it
+  // only showed up under the IPC/TCP executors because those reuse one worker object for many bins.
+  //
+  // Removing the link is enough: the pad keeps no ownership of what was drawn on it, so the object can
+  // then be deleted as before.
+  if (gPad) {
+    TList * prims = gPad->GetListOfPrimitives();
+    if (prims) {
+      for (TObject * obj : deletable) {
+        prims->Remove(obj);
+      }
+    }
+  }
+
+  NLogTrace("NGnThreadData::FlushDeferredDeletes: [%zu] Deleting %zu deferred objects, keeping %zu pad(s) ...",
+            GetAssignedIndex(), deletable.size(), pads.size());
+
+  NUtils::SafeDeleteObjects(deletable);
 }
 
 } // namespace Ndmspc

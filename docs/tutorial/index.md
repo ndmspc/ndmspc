@@ -17,7 +17,8 @@ root -l -b -q $NDMSPC_DIR/tutorial/01_executor/NExecutor1D.C
 | `06_binnings` | `NBinnings01Gaus.C`, `NBinnings01GausStress.C` | Several binning definitions in one run |
 | `07_nested_processing` | `NNestedProcessing01Gaus.C` | One tree per point, folded back with `ImportNgnt` |
 | `08_systematics` | `NSystematics01Gaus.C`, `NSystematics02GausCfg.C` | Reference vs variations, driven by `sys.json` |
-| `99_stress` | `NCpuStress.C` | Load testing the executor |
+| `09_caching` | `NReshapeCache01Gaus.C` | Reshape caching: store chosen combinations inside the tree, then load them instead of reshaping |
+| `99_stress` | `NCpuStress.C` | Load testing the executor; `nParamCopies` widens `_params` to make reshape cost measurable |
 
 The step-by-step walkthrough for every lesson — setup, expected output and exercises — is the
 [Tutorial section of the user documentation](https://ndmspc.gitlab.io/docs/ndmspc/quickstart/).

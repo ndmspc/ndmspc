@@ -74,12 +74,73 @@
 #include <ndmspc/core/NCancellation.h>
 #include <ndmspc/core/NGnTree.h>
 #include <ndmspc/core/NGnNavigator.h>
+#include <ndmspc/core/NLogger.h>
 #include <ndmspc/core/NParameters.h>
+#include <ndmspc/core/NReshapeCache.h>
 #include <ndmspc/core/NUtils.h>
 
 // ============================================================================
 //  Helper functions (formerly NGnHandlerUtils)
 // ============================================================================
+
+// Everything in this file except `toolNgnt()` lives in its own namespace. Tool macros are not compiled
+// together: the server loads each one into the same Cling session, so two macros that each define a
+// helper of the same name (`ScopedEnv`, `ScopedRunOutput`, …) collide. Cling answers a redefinition by
+// trying to roll back the transaction and can crash in its unloader, so the failure reads as a
+// segfault while loading the second macro rather than as the name clash it is. A namespace per tool
+// keeps the helpers private, where an anonymous namespace does not: every unnamed namespace in a
+// Cling session is the *same* namespace, which is what makes the two files collide in the first place.
+namespace Ndmspc::NgntTools {
+
+/**
+ * Run output held on (or off) for as long as the object lives, and put back after.
+ *
+ * That is the flag `NUtils::ProgressBar` checks, so it is what makes a reshape's per-layer progress
+ * visible in the server's log while the request runs — the logger reads `NDMSPC_LOG_RUN` once, at
+ * startup, so no single request can turn it on through the environment.
+ */
+class ScopedRunOutput {
+  public:
+  explicit ScopedRunOutput(bool on) : fWas(Ndmspc::NLogger::GetRunOutput())
+  {
+    Ndmspc::NLogger::SetRunOutput(on);
+  }
+  ~ScopedRunOutput() { Ndmspc::NLogger::SetRunOutput(fWas); }
+  ScopedRunOutput(const ScopedRunOutput &)            = delete;
+  ScopedRunOutput & operator=(const ScopedRunOutput &) = delete;
+
+  private:
+  bool fWas{false};
+};
+
+/**
+ * An environment variable set for as long as the object lives, and put back after.
+ *
+ * `NGnNavigator::Reshape` reads its worker count from `NDMSPC_NAV_WORKERS` at the start of every
+ * reshape, so a request can set it for its own duration without touching the server's environment.
+ */
+class ScopedEnv {
+  public:
+  ScopedEnv(const std::string & name, const std::string & value) : fName(name)
+  {
+    const char * was = gSystem->Getenv(name.c_str());
+    fWas             = was != nullptr ? was : "";
+    fHad             = was != nullptr;
+    gSystem->Setenv(fName.c_str(), value.c_str());
+  }
+  ~ScopedEnv()
+  {
+    if (fHad) gSystem->Setenv(fName.c_str(), fWas.c_str());
+    else gSystem->Unsetenv(fName.c_str());
+  }
+  ScopedEnv(const ScopedEnv &)            = delete;
+  ScopedEnv & operator=(const ScopedEnv &) = delete;
+
+  private:
+  std::string fName;
+  std::string fWas;
+  bool        fHad{false};
+};
 
 Ndmspc::NGnNavigator * TraverseNavigator(Ndmspc::NGnNavigator * root, const std::vector<int> & point)
 {
@@ -560,6 +621,15 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
                     .Select("binningName", binningNames)
                     .Title("Binning")
                     .Default(currentBinningName)
+                    // How many threads reshape the first layer with. The core count by default, because a
+                    // reshape reads every entry and is the slow step the worker count exists for.
+                    // `AvailableCpuCount` rather than `hardware_concurrency`: inside a container the node's
+                    // count is not what this process may use.
+                    .Integer("nWorkers")
+                    .Title("Workers")
+                    .Description("Threads reshaping the first layer. Defaults to the CPUs this process may "
+                                 "use; 1 keeps the reshape serial. Ignored by a single-level reshape.")
+                    .Default(std::max(1, static_cast<int>(Ndmspc::NUtils::AvailableCpuCount())))
                     .Build();
   // What each level's numbers read as, so a level is built by picking an axis by name rather than by
   // counting them out (the levels editor's Multi / Names / IDs switch reads these) — and that a
@@ -568,6 +638,74 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
   schema["properties"]["levels"]["axisLabels"] = axisLabels;
   schema["properties"]["levels"]["axisNames"]  = axisNames;
   schema["properties"]["levels"]["unique"]     = true;
+
+  // What to do with the cache: whether it may be read and whether it may be written, as four answers. Short
+  // enough to sit on one row, and each says what happens rather than naming a flag.
+  schema["properties"]["cache"] = {
+      {"type", "string"},
+      {"title", "Mode"},
+      {"format", "segmented"},
+      {"enum", {"use", "use-or-store", "rebuild", "ignore"}},
+      {"labels", {"Use", "Use & store", "Rebuild", "Ignore"}},
+      {"default", "use-or-store"},
+      {"description", "Use: load it when stored; on a miss reshape and keep nothing. Use & store: the same, "
+                      "but the reshaped one is kept, so the cache fills itself (default). Rebuild: do not "
+                      "load it; reshape and store over the old entry. Ignore: do not load it and keep "
+                      "nothing — for iterating on a macro."}};
+
+  // Where an entry is kept, defaulting to what the handler would pick for this kind of input: the input
+  // file itself for local data, the cache directory for remote data.
+  const std::string inputFile    = ngnt->GetStorageTree() ? ngnt->GetStorageTree()->GetFileName() : "";
+  const std::string cacheHome    = Ndmspc::NReshapeCache::DefaultCacheFile(inputFile);
+  const std::string cacheDirFile = Ndmspc::NReshapeCache::CacheFilePath(inputFile);
+
+  // The two homes, offered as the paths they *are* rather than as "Input file" / "Cache directory": a user
+  // choosing where an entry goes wants to see the file it lands in. Real paths also mean the dropdown has no
+  // empty-string value, which a select would otherwise draw as "nothing chosen".
+  std::string cacheShown = cacheDirFile;
+  if (const char * dir = gSystem->Getenv("NDMSPC_CACHE_DIR"); dir != nullptr && dir[0] != '\0') {
+    const std::string base = dir;
+    if (cacheShown.rfind(base + "/", 0) == 0) cacheShown = "$NDMSPC_CACHE_DIR" + cacheShown.substr(base.size());
+  }
+
+  // `CacheFilePath` needs a usable cache directory; with none there is no separate home to offer, so the
+  // input is the only choice.
+  json homes = json::array();
+  if (!cacheDirFile.empty() && cacheDirFile != inputFile) {
+    homes.push_back(cacheDirFile);
+  }
+  if (!inputFile.empty()) homes.push_back(inputFile);
+
+  json homeLabels = json::array();
+  if (!cacheDirFile.empty() && cacheDirFile != inputFile) {
+    homeLabels.push_back(cacheShown);
+  }
+  if (!inputFile.empty()) homeLabels.push_back(inputFile);
+
+  // Defaulting to what the handler would pick for this kind of input: the input file for local data, the
+  // cache file for remote data — which is never a path a select can show blank.
+  std::string homeDefault = cacheHome.empty() ? cacheDirFile : cacheHome;
+  if (homeDefault.empty()) homeDefault = inputFile;
+
+  schema["properties"]["cacheFile"] = {
+      {"type", "string"},
+      {"title", "Store in"},
+      {"format", "select"},
+      {"enum", homes},
+      {"labels", homeLabels},
+      {"default", homeDefault},
+      {"description", cacheHome.empty()
+                          ? "Entries go to the cache file, which leaves the input untouched."
+                          : "Entries go inside the input file, so the cache travels with the data."}};
+
+  // What the form asks first is what a reshape is *about* — the binning and the combination — so those two
+  // come first. `nWorkers` belongs to the reshape itself, not to where its result is kept, so it stays at the
+  // root and sits directly above the section rather than inside it. A group is presentation only: the fields
+  // keep their flat values, so a client sends `nWorkers`, `cache` and `cacheFile` as they are.
+  schema["order"]  = {"binningName", "levels", "nWorkers", "cache", "cacheFile"};
+  schema["groups"] = json::array({{{"title", "Cache"},
+                                   {"fields", {"cache", "cacheFile"}},
+                                   {"collapsed", false}}});
   return schema;
 }
 
@@ -745,10 +883,14 @@ json NgntWorkflowTour(const std::string & group, bool withSpectra = true)
               {"steps", NgntWorkflowTourSteps(group, withSpectra)}};
 }
 
+} // namespace Ndmspc::NgntTools
+
 // ============================================================================
 
 void toolNgnt()
 {
+  using namespace Ndmspc::NgntTools;
+
   auto &      handlers = *(Ndmspc::gNdmspcHttpHandlers);
   // The family's key prefix: `ndmspc` is the platform's namespace, `ngnt` the family (see the naming
   // rule in `http/README.md`), so the keys are `ndmspc/ngnt/open`, `ndmspc/ngnt/reshape`, …
@@ -800,7 +942,32 @@ void toolNgnt()
                             {"levels",
                              {{"type", "array"},
                               {"description", "Nested levels array, e.g. [[0,1,2],[3,4]]."},
-                              {"items", {{"type", "array"}, {"items", {{"type", "integer"}}}}}}}}}},
+                              {"items", {{"type", "array"}, {"items", {{"type", "integer"}}}}}}},
+                            {"nWorkers",
+                             {{"type", "integer"},
+                              {"default", std::max(1, static_cast<int>(Ndmspc::NUtils::AvailableCpuCount()))},
+                              {"description", "Threads reshaping the first layer. Defaults to the CPUs this "
+                                              "process may use; 1 keeps the reshape serial. Ignored by a "
+                                              "single-level reshape."}}},
+                            {"cache",
+                             {{"type", "string"},
+                              {"format", "segmented"},
+                              {"enum", {"use", "use-or-store", "rebuild", "ignore"}},
+                              {"labels", {"Use", "Use & store", "Rebuild", "Ignore"}},
+                              // Declared here as well as in the workspace schema: the form is built from
+                              // this copy until the tool has published its own, and a bare string would be
+                              // drawn as a text box with the four answers unknowable.
+                              {"default", "use-or-store"},
+                              {"description", "Whether the reshape cache may be read and written: 'use' loads "
+                                              "a stored combination and keeps nothing on a miss; "
+                                              "'use-or-store' (default) does the same but keeps it; 'rebuild' "
+                                              "always reshapes and stores over the old entry; 'ignore' always "
+                                              "reshapes and stores nothing."}}},
+                            {"cacheFile",
+                             {{"type", "string"},
+                              {"description", "Where to keep the entry: '' for the cache directory (default for "
+                                              "a remote input), or the input file's own path to store in-file "
+                                              "(default for a local input)."}}}}}},
           .dependsOn   = {group + "/open"},
           .order       = 2,
           .label       = "{{ binningName }} ({{ levels }})",
@@ -998,10 +1165,10 @@ void toolNgnt()
         ctx.Workspace()[reshapeKey] = BuildReshapeSchema(ngnt);
       }
       else {
-        // The schema stays - it carries the defaults the reshapes so far set - but the axes its picker names
-        // are the open file's, so they are refreshed with this one rather than left describing whichever file
-        // was open when the schema was first built. The axes used to be listed in a `hint` as well; the
-        // picker says them now, so there is one place for them.
+        // The schema stays - it carries the defaults the reshapes so far set - but the parts that describe
+        // *this file* are refreshed with it: the axes its picker names, and the homes "Store in" offers,
+        // which are this file's own paths. Without that, opening another file would leave a dropdown
+        // naming the previous one.
         const json built = BuildReshapeSchema(ngnt);
         for (const std::string name : {"axisLabels", "axisNames"}) {
           if (built.contains("properties") && built["properties"].contains("levels") &&
@@ -1009,10 +1176,34 @@ void toolNgnt()
             ctx.Workspace()[reshapeKey]["properties"]["levels"][name] = built["properties"]["levels"][name];
           }
         }
+        for (const std::string name : {"cacheFile"}) {
+          if (built.contains("properties") && built["properties"].contains(name)) {
+            for (const std::string field : {"enum", "labels", "default"}) {
+              if (built["properties"][name].contains(field)) {
+                ctx.Workspace()[reshapeKey]["properties"][name][field] = built["properties"][name][field];
+              }
+            }
+          }
+        }
       }
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
       server->AddInputObject(ctx.ObjectName("ngnt"), ngnt);
+
+      // Combinations already built for this file can be visited without reshaping, so a client can
+      // offer them instead of guessing. Answered here, on open, because it is wanted **before** the
+      // first reshape - after one, the reshape step has its own node and the client has already chosen.
+      //
+      // `prune: true` also clears out entries built from an older version of this file: the digest
+      // carries the file's size and mtime, so those can never be named again. It is asked for rather
+      // than done on every open - it deletes files, and it stats every source file in the cache.
+      Ndmspc::NReshapeCache::Key openKey2;
+      openKey2.FromTree(ngnt);
+      if (httpIn.contains("prune") && httpIn["prune"].is_boolean() && httpIn["prune"].get<bool>()) {
+        const auto pruned = Ndmspc::NReshapeCache::Prune(openKey2.file);
+        httpOut["pruned"] = {{"removed", pruned.removed}, {"kept", pruned.kept}, {"bytesFreed", pruned.bytesFreed}};
+      }
+      httpOut["stored"] = json::parse(Ndmspc::NReshapeCache::List(openKey2.file), nullptr, false);
 
       // The workflow tour follows what the opened tree can do: with no parameters there is nothing to
       // draw spectra for, so it ends at the map (map last, no Save & Run after it) rather than offering a
@@ -1096,16 +1287,70 @@ void toolNgnt()
     if (ctx.IsPost()) {
       std::string                   binningName = ctx.GetString("binningName");
       std::vector<std::vector<int>> levels      = ctx.GetParam("levels", std::vector<std::vector<int>>{});
+      // The form's default is the core count; a client that sends no count gets the same answer rather than a
+      // silent 1, so "reshape with everything this process may use" holds however the request was made.
+      const int defaultWorkers = std::max(1, static_cast<int>(Ndmspc::NUtils::AvailableCpuCount()));
+      const int nWorkers       = std::max(1, ctx.GetInt("nWorkers", defaultWorkers));
+      // Read before `nav` is dropped below: a session that already holds a navigator knows whether
+      // parameters were being averaged, and that is part of what a stored combination is.
+      const bool averages = nav ? nav->GetAverageParameters() : true;
+
+      // What to do with the cache: read it? write it? The four modes answer both, and `refresh` is accepted
+      // as the old name for a rebuild so a request written before them keeps working.
+      std::string cacheModeName = ctx.GetString("cache", "");
+      if (cacheModeName.empty() && ctx.GetParam("refresh", false)) cacheModeName = "rebuild";
+      Ndmspc::NReshapeCache::CacheMode cacheMode = Ndmspc::NReshapeCache::CacheMode::kUseOrStore;
+      if (!Ndmspc::NReshapeCache::ParseMode(cacheModeName, cacheMode)) {
+        ctx.Result("Unknown reshape cache mode '" + cacheModeName +
+                   "'; expected use, use-or-store, rebuild or ignore");
+        return;
+      }
+
+      // Where an entry is kept. Absent means "the default for this kind of input" — in-file for local data,
+      // the cache directory for remote data. An explicit "" is the cache directory, so the two cases have to
+      // be told apart rather than both reading as "".
+      const bool        cacheFileGiven = ctx.In().contains("cacheFile");
+      const std::string cacheFileParam = ctx.GetString("cacheFile", "");
 
       if (nav) {
         server->RemoveInputObject(ctx.ObjectName("navigator"));
         nav = nullptr;
       }
 
-      nav = ngnt->Reshape(binningName, levels, 0, {}, {});
+      // The key names the combination; the home is separate, so the same entry is found wherever it is kept.
+      Ndmspc::NReshapeCache::Key cacheKey;
+      cacheKey.FromTree(ngnt);
+      // "" means "the current definition"; store the resolved name so a map request, which never
+      // receives one, resolves to the same entry instead of "".
+      cacheKey.binning   = binningName.empty() ? ngnt->GetBinning()->GetCurrentDefinitionName() : binningName;
+      cacheKey.levels    = levels;
+      cacheKey.averages  = averages;
+      cacheKey.cacheFile = cacheFileGiven ? cacheFileParam : Ndmspc::NReshapeCache::DefaultCacheFile(cacheKey.file);
+
+      bool cacheHit = false;
+      if (Ndmspc::NReshapeCache::Reads(cacheMode)) {
+        nav = Ndmspc::NReshapeCache::Load(cacheKey, ngnt);
+        cacheHit = nav != nullptr;
+        if (cacheHit) {
+          NLogInfo("[reshape] '%s' %s served from '%s'", binningName.c_str(), json(levels).dump().c_str(),
+                   cacheKey.cacheFile.empty() ? "the cache directory" : cacheKey.cacheFile.c_str());
+        }
+      }
+
+      if (nav == nullptr) {
+        // A reshape over a real tree runs for minutes. Hold run output on for the duration so its
+        // per-layer progress lands in the server's log while the request is still running, instead of
+        // the one start line and one end line it used to print. The worker count is the request's own,
+        // set for its duration only: whether threads help depends on how big one bin's content is, so it
+        // is raised deliberately rather than by default.
+        ScopedRunOutput runOutput(true);
+        ScopedEnv       navWorkers("NDMSPC_NAV_WORKERS", std::to_string(nWorkers));
+        nav = ngnt->Reshape(binningName, levels, 0, {}, {});
+      }
       if (Ndmspc::NCancellation::IsCancelled()) {
         // The reshape was cancelled mid-way: the navigator is partial and belongs to no session, so
-        // drop it and report a cancellation (the client stops waiting without an error notice).
+        // drop it and report a cancellation (the client stops waiting without an error notice). A
+        // cancelled navigator is never stored — it is not the combination, only part of it.
         NLogInfo("[CANCEL][reshape] cancelled; discarding partial navigator %p", (void *)nav);
         delete nav;
         httpOut["result"] = "failure";
@@ -1119,6 +1364,13 @@ void toolNgnt()
         return;
       }
 
+      // Keep the built navigator, so the next request for this combination loads instead of reshaping.
+      // Best-effort: a cache that cannot be written leaves the reshape it just served unaffected, and `ignore`
+      // stores nothing at all.
+      const bool stored = !cacheHit && Ndmspc::NReshapeCache::Writes(cacheMode)
+                              ? Ndmspc::NReshapeCache::Store(cacheKey, nav)
+                              : false;
+
       server->AddInputObject(ctx.ObjectName("navigator"), nav);
 
       if (!ctx.Workspace()[reshapeKey].contains("type")) {
@@ -1127,13 +1379,24 @@ void toolNgnt()
 
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "levels", levels);
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "binningName", binningName);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "nWorkers", nWorkers);
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
       if (!ctx.Workspace()[mapKey].contains("type")) {
         ctx.Workspace()[mapKey] = BuildMapSchema();
       }
-      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "binningName", binningName);
+      // No `binningName` default for the map step: it draws the navigator it is handed, so it has no binning
+      // field of its own (`BuildMapSchema` declares none) and a default written here could never land — it
+      // only logged "property 'binningName' is not declared in the schema, ignoring default" on every reshape.
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
+
+      // Additive, so a client that does not know them is unaffected: which of load/reshape stored happened,
+      // and where the entry went, explain why the progress bars did or did not appear.
+      if (cacheHit) httpOut["cached"] = true;
+      if (stored) httpOut["stored"] = true;
+      if (cacheHit || stored) {
+        httpOut["home"] = cacheKey.cacheFile.empty() ? "cache" : (cacheKey.cacheFile == cacheKey.file ? "in-file" : "cache-file");
+      }
 
       ctx.Success();
       return;
@@ -1184,9 +1447,46 @@ void toolNgnt()
 
       json nested;
       if (nav->GetLevel() == 0) {
-        json exportCfg;
-        exportCfg["averages"] = averages;
-        nav->ExportToJson(nested, nav, std::vector<std::string>{}, exportCfg);
+        // Exporting the whole navigator to JSON is what a map request spends its time on, so the
+        // result is kept beside the navigator and re-read instead of rebuilt. The key has to carry
+        // `averages` too: a per-request override changes what the export contains, so the two must not
+        // share a kept copy.
+        Ndmspc::NReshapeCache::Key mapKeyDef;
+        mapKeyDef.FromTree(ngnt);
+        // The navigator is what is being exported, so its own levels are what the export depends on -
+        // read from the object rather than from the reshape step's workspace, which may since have been
+        // edited to a combination this navigator is not. The binning name has to match the one the
+        // reshape stored under, or this looks in a different entry and never finds the kept export.
+        mapKeyDef.levels   = nav->GetLevels();
+        mapKeyDef.binning  = ngnt->GetBinning()->GetCurrentDefinitionName();
+        mapKeyDef.averages = averages;
+        // The home the navigator was reshaped into, so the export is looked for beside it. The map step has
+        // no cache fields of its own — it draws the navigator it is handed — so this follows the reshape's
+        // default for the kind of input.
+        mapKeyDef.cacheFile = Ndmspc::NReshapeCache::DefaultCacheFile(mapKeyDef.file);
+
+        std::string kept;
+        if (Ndmspc::NReshapeCache::LoadMapJson(mapKeyDef, kept)) {
+          nested = json::parse(kept, nullptr, false);
+          if (nested.is_discarded()) {
+            NLogWarning("[map] the kept export could not be parsed; exporting again");
+            nested = json::object();
+          }
+          else {
+            // At Info so the saving is visible in a room's log: a map that reads the kept export
+            // explains why it did not spend its time exporting.
+            NLogInfo("[map] served the export kept for this combination (%zu bytes)", kept.size());
+          }
+        }
+
+        if (nested.is_null() || nested.empty()) {
+          json exportCfg;
+          exportCfg["averages"] = averages;
+          nav->ExportToJson(nested, nav, std::vector<std::string>{}, exportCfg);
+          // Keep it, but only if it looks usable — a failed export must not be remembered.
+          if (!nested.empty()) Ndmspc::NReshapeCache::StoreMapJson(mapKeyDef, nested.dump());
+        }
+
         // Dump to file for debugging
         const char * tmpFile = gSystem->Getenv("NDMSPC_NGNG_EXPORT_JSON_FILE");
         if (tmpFile) {

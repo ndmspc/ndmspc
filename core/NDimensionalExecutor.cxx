@@ -24,6 +24,7 @@
 #include "NCancellation.h"
 #include "NDimensionalIpcRunner.h"
 #include "NGnThreadData.h"
+#include "NGnReshapeWorkerData.h"
 #include "NUtils.h"
 
 namespace Ndmspc {
@@ -2311,5 +2312,10 @@ template void NDimensionalExecutor::ExecuteParallel<NGnThreadData>(
     const std::function<void(const std::vector<int> & coords, NGnThreadData & thread_object)> & func,
     std::vector<NGnThreadData> &                                                                  thread_objects,
     const std::function<bool()> &                                                                 shouldStop);
+
+template void NDimensionalExecutor::ExecuteParallel<NGnReshapeWorkerData>(
+    const std::function<void(const std::vector<int> & coords, NGnReshapeWorkerData & thread_object)> & func,
+    std::vector<NGnReshapeWorkerData> &                                                                thread_objects,
+    const std::function<bool()> &                                                                      shouldStop);
 
 } // namespace Ndmspc

@@ -1,4 +1,7 @@
+#include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -21,6 +24,7 @@
 #include "NBinningDef.h"
 #include "NCancellation.h"
 #include "NDimensionalExecutor.h"
+#include "NGnReshapeWorkerData.h"
 #include "NGnTree.h"
 #include "NLogger.h"
 #include "NParameters.h"
@@ -181,12 +185,295 @@ NGnNavigator * NGnNavigator::Reshape(std::string binningName, std::vector<std::v
            binningName.c_str());
   return Reshape(binningDef, levels, level, ranges, rangesBase);
 }
+TH1 * NGnNavigator::BuildProjection(NBinningDef * binningDef, const std::vector<int> & axesIds,
+                                   const std::map<int, std::vector<int>> & ranges,
+                                   const std::map<int, std::vector<int>> & rangesBase, size_t level, bool leafBump)
+{
+  ///
+  /// Build the projection histogram of a reshape layer.
+  ///
+  /// The axes projected at a level do not depend on the bin, so this is built once per level and
+  /// shared by all of its bins (see NGnNavigator::Reshape). The body is the code that used to run
+  /// inside the per-bin loop, unchanged.
+  ///
+
+  THnSparse * hnsIn = binningDef->GetContent();
+  Int_t       nDims = axesIds.size();
+
+  NUtils::SetAxisRanges(hnsIn, ranges); // Set the ranges for the axes
+
+  std::string name  = "";
+  std::string title = "";
+  for (auto & axisId : axesIds) {
+    TAxis * a = hnsIn->GetAxis(axisId);
+    title += std::string(a->GetName()) + " vs ";
+    name += TString::Format("%s-", a->GetName()).Data();
+  }
+  name = name.substr(0, name.size() - 1);    // Remove last "_"
+  if (name.empty()) name = "hns_proj";       // default name
+  title = title.substr(0, title.size() - 4); // Remove last " vs "
+  if (ranges.size() > 0) title += " for ranges: ";
+  for (const auto & [axisId, range] : rangesBase) {
+    TAxis * a = hnsIn->GetAxis(axisId);
+    if (a->IsAlphanumeric()) {
+      title += TString::Format("%s[%s]", a->GetName(), a->GetBinLabel(range[0]));
+    }
+    else {
+      title += TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
+    }
+  }
+
+  TH1 * hProj = nullptr;
+  if (nDims == 1) {
+    hProj = hnsIn->Projection(axesIds[0]);
+    if (!hProj) {
+      NLogError("NGnNavigator::BuildProjection: Projection failed for level %zu !!!", level);
+      return nullptr;
+    }
+    hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
+    // set name from hnsIn
+    TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
+    TAxis * axisProjX = hProj->GetXaxis();
+    axisProjX->SetName(axisIn0->GetName());
+    // apply lables from hnsIn to hProj
+    if (axisIn0->IsAlphanumeric()) {
+      for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+        axisProjX->SetBinLabel(b, axisIn0->GetBinLabel(b));
+      }
+    }
+  }
+  else if (nDims == 2) {
+    // TODO: Check the order of axes is really correct
+    hProj = hnsIn->Projection(axesIds[1], axesIds[0]);
+    if (!hProj) {
+      NLogError("NGnNavigator::BuildProjection: Projection failed for level %zu !!!", level);
+      return nullptr;
+    }
+    hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
+    TAxis * axisIn1   = hnsIn->GetAxis(axesIds[0]);
+    TAxis * axisIn0   = hnsIn->GetAxis(axesIds[1]);
+    TAxis * axisProjX = hProj->GetXaxis();
+    TAxis * axisProjY = hProj->GetYaxis();
+    axisProjX->SetName(axisIn1->GetName());
+    axisProjY->SetName(axisIn0->GetName());
+    // apply lables from hnsIn to hProj
+    if (axisIn1->IsAlphanumeric()) {
+      for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+        axisProjX->SetBinLabel(b, axisIn1->GetBinLabel(b));
+      }
+    }
+
+    if (axisIn0->IsAlphanumeric()) {
+      for (int b = 1; b <= hProj->GetNbinsY(); b++) {
+        axisProjY->SetBinLabel(b, axisIn0->GetBinLabel(b));
+      }
+    }
+  }
+  else if (nDims == 3) {
+    hProj = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
+    if (!hProj) {
+      NLogError("NGnNavigator::BuildProjection: Projection failed for level %zu !!!", level);
+      return nullptr;
+    }
+    hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
+    TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
+    TAxis * axisIn1   = hnsIn->GetAxis(axesIds[1]);
+    TAxis * axisIn2   = hnsIn->GetAxis(axesIds[2]);
+    TAxis * axisProjX = hProj->GetXaxis();
+    TAxis * axisProjY = hProj->GetYaxis();
+    TAxis * axisProjZ = hProj->GetZaxis();
+    axisProjX->SetName(axisIn0->GetName());
+    axisProjY->SetName(axisIn1->GetName());
+    axisProjZ->SetName(axisIn2->GetName());
+    // apply lables from hnsIn to hProj
+    if (axisIn0->IsAlphanumeric()) {
+      for (int b = 1; b <= hProj->GetNbinsX(); b++) {
+        axisProjX->SetBinLabel(b, axisIn0->GetBinLabel(b));
+      }
+    }
+
+    if (axisIn1->IsAlphanumeric()) {
+      for (int b = 1; b <= hProj->GetNbinsY(); b++) {
+        axisProjY->SetBinLabel(b, axisIn1->GetBinLabel(b));
+      }
+    }
+    if (axisIn2->IsAlphanumeric()) {
+      for (int b = 1; b <= hProj->GetNbinsZ(); b++) {
+        axisProjZ->SetBinLabel(b, axisIn2->GetBinLabel(b));
+      }
+    }
+  }
+  else {
+    NLogError("NGnNavigator::BuildProjection: Cannot project THnSparse with %d dimensions", nDims);
+    return nullptr;
+  }
+
+  hProj->SetName(name.c_str());
+  hProj->SetTitle(title.c_str());
+  // Increase all bin contents by 1 to avoid empty bins
+  double content;
+  int    dim = hProj->GetDimension();
+  if (dim == 1) {
+    for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
+      content = hProj->GetBinContent(x);
+      if (content > 0) {
+        hProj->SetBinContent(x, content + 1.0);
+      }
+    }
+  }
+  else if (dim == 2) {
+    for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
+      for (int y = 1; y <= hProj->GetNbinsY(); ++y) {
+        content = hProj->GetBinContent(x, y);
+        if (content > 0) {
+          hProj->SetBinContent(x, y, content + 1.0);
+        }
+      }
+    }
+  }
+  else if (dim == 3) {
+    for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
+      for (int y = 1; y <= hProj->GetNbinsY(); ++y) {
+        for (int z = 1; z <= hProj->GetNbinsZ(); ++z) {
+          content = hProj->GetBinContent(x, y, z);
+          if (content > 0) {
+            hProj->SetBinContent(x, y, z, content + 1.0);
+          }
+        }
+      }
+    }
+  }
+
+  if (!leafBump) return hProj;
+
+  // Handle special THnSparse reserved first cell without looping: use
+  // GetBinContent(0, coords) which fills coords for the linear bin 0.
+  Int_t   nd         = hnsIn->GetNdimensions();
+  Int_t * firstCoord = new Int_t[nd];
+  content            = hnsIn->GetBinContent(0, firstCoord); // fills firstCoord
+  // If bin 0 exists (firstVal may be 0.0), map its coordinates to projection
+  // bin indices and increment that projection bin by +1.
+  if (firstCoord) {
+    if (nDims == 1) {
+      int bx = firstCoord[axesIds[0]];
+      if (hProj->GetBinContent(bx) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX()) {
+        hProj->SetBinContent(bx, hProj->GetBinContent(bx) + 1.0);
+      }
+    }
+    else if (nDims == 2) {
+      int bx = firstCoord[axesIds[0]];
+      int by = firstCoord[axesIds[1]];
+      if (hProj->GetBinContent(bx, by) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 &&
+          by <= hProj->GetNbinsY()) {
+        hProj->SetBinContent(bx, by, hProj->GetBinContent(bx, by) + 1.0);
+      }
+    }
+    else if (nDims == 3) {
+      int bx = firstCoord[axesIds[0]];
+      int by = firstCoord[axesIds[1]];
+      int bz = firstCoord[axesIds[2]];
+
+      if (hProj->GetBinContent(bx, by, bz) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 &&
+          by <= hProj->GetNbinsY() && bz >= 1 && bz <= hProj->GetNbinsZ()) {
+        hProj->SetBinContent(bx, by, bz, hProj->GetBinContent(bx, by, bz) + 1.0);
+      }
+    }
+  }
+  delete[] firstCoord;
+
+  return hProj;
+}
+
+int NGnNavigator::ProjectionIndex(TH1 * hProj, const std::vector<int> & coords, int nDims) const
+{
+  ///
+  /// Locate a bin of a reshape layer inside the layer's projection histogram
+  ///
+
+  if (hProj == nullptr) return -1;
+
+  if (nDims == 1) {
+    return hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]));
+  }
+  if (nDims == 2) {
+    return hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]),
+                             hProj->GetYaxis()->GetBinCenter(coords[1]));
+  }
+  if (nDims == 3) {
+    return hProj->FindFixBin(hProj->GetXaxis()->GetBinCenter(coords[0]),
+                             hProj->GetYaxis()->GetBinCenter(coords[1]),
+                             hProj->GetZaxis()->GetBinCenter(coords[2]));
+  }
+  return -1;
+}
+
+size_t NGnNavigator::ReshapeWorkerCount(size_t nBinsLevel)
+{
+  ///
+  /// How many worker threads to reshape a level with
+  ///
+  /// One per bin at most, since each bin is one task. The count comes from the first of these that is set:
+  ///
+  /// 1. `NDMSPC_NAV_WORKERS` — the reshape's own knob, and what the ngnt tool sets from its `nWorkers`
+  ///    field.
+  /// 2. `NDMSPC_MAX_PROCESSES` — so `ndmspc-run -n 22` also means 22 reshape workers. It is the count a
+  ///    user already uses to say "use my cores", and falling back to it means they do not have to learn a
+  ///    second variable for the same intent.
+  /// 3. The CPUs this process may use (`NUtils::AvailableCpuCount`), which is the node's count unless a
+  ///    cgroup limits it.
+  ///
+  /// The default used to be serial, on the grounds that a small reshape spent more time starting threads
+  /// than reading a bin. Measured, that is not what happens: a reshape reads every entry, and with a
+  /// worker per bin the wall time drops as soon as a bin holds real work. The cost of being wrong is a
+  /// few milliseconds of thread start-up, while the cost of a silent 1 on a large tree is minutes — so the
+  /// default is now the core count, and `1` is asked for explicitly.
+  ///
+  /// Deciding *per bin* whether threads are worth it — measuring the first bin and switching to serial if
+  /// it finished quickly — is deliberately left out of this change.
+  ///
+  /// Fork-based modes are left out: this is in-process threads only, and forking inside a long-lived server
+  /// process is not wanted.
+  ///
+  const char * envMode = gSystem->Getenv("NDMSPC_EXECUTION_MODE");
+  if (envMode && (std::string(envMode) == "ipc" || std::string(envMode) == "process" ||
+                  std::string(envMode) == "tcp")) {
+    return 1;
+  }
+
+  // A worker count is a positive integer; `NDMSPC_MAX_PROCESSES` may also be a token list (`2:3`), of
+  // which the first token is the count for the top level — parse that and ignore the rest.
+  auto parseCount = [](const char * value) -> size_t {
+    if (value == nullptr || value[0] == '\0') return 0;
+    const char * end    = value;
+    long         parsed = std::strtol(value, const_cast<char **>(&end), 10);
+    return parsed > 0 ? static_cast<size_t>(parsed) : 0;
+  };
+
+  size_t nWorkers = parseCount(gSystem->Getenv("NDMSPC_NAV_WORKERS"));
+  if (nWorkers == 0) nWorkers = parseCount(gSystem->Getenv("NDMSPC_MAX_PROCESSES"));
+  if (nWorkers == 0) nWorkers = static_cast<size_t>(std::max(1.0, NUtils::AvailableCpuCount()));
+
+  if (nWorkers > nBinsLevel) nWorkers = nBinsLevel;
+  return nWorkers < 1 ? 1 : nWorkers;
+}
+
 NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level,
                                      std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase,
                                      NGnNavigator * parent)
 {
   ///
   /// Reshape the navigator
+  ///
+  return ReshapeBins(binningDef, std::move(levels), level, std::move(ranges), std::move(rangesBase), parent, {}, {});
+}
+
+NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level,
+                                         std::map<int, std::vector<int>> ranges,
+                                         std::map<int, std::vector<int>> rangesBase, NGnNavigator * parent,
+                                         const std::vector<int> & minBins, const std::vector<int> & maxBins)
+{
+  ///
+  /// Reshape one bin sub-range of a level (the whole level when the bounds are empty)
   ///
   NUtils::DisableObjectAutoRegistration();
 
@@ -231,262 +518,108 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
     std::vector<int> minsBin;
     std::vector<int> maxsBin;
+    const bool       restrictBins = !minBins.empty() && minBins.size() == levels[level].size();
     for (auto & idx : levels[level]) {
       NLogTrace("NGnNavigator::Reshape: [B%d] Axis %d: %s", level, idx,
                 binningDef->GetContent()->GetAxis(idx)->GetName());
       // int minBase = 0, maxBase = 0;
       // NUtils::GetAxisRangeInBase(GetAxis(idx), 1, GetAxis(idx)->GetNbins(), fBinning->GetAxes()[idx], minBase,
       // maxBase); ranges[idx] = {minBase, maxBase};            // Set the ranges for the axis
-      minsBin.push_back(1);                                                  // Get the minimum bin edge);
-      maxsBin.push_back(binningDef->GetContent()->GetAxis(idx)->GetNbins()); // Get the maximum bin edge);
+      if (restrictBins) {
+        // A worker reshapes one bin of this level; deeper levels below it still span their full range.
+        const size_t pos = minsBin.size();
+        minsBin.push_back(minBins[pos]);
+        maxsBin.push_back(maxBins.empty() ? minBins[pos] : maxBins[pos]);
+      }
+      else {
+        minsBin.push_back(1);                                                  // Get the minimum bin edge);
+        maxsBin.push_back(binningDef->GetContent()->GetAxis(idx)->GetNbins()); // Get the maximum bin edge);
+      }
       NLogTrace("NGnNavigator::Reshape: [B%d] Axis %d: %s bins=[%d,%d]", level, idx,
                 binningDef->GetContent()->GetAxis(idx)->GetName(), minsBin.back(), maxsBin.back());
     }
 
     NDimensionalExecutor executorBin(minsBin, maxsBin);
-    auto                 loop_task_bin = [this, current, binningDef, levels, level, ranges,
-                                          rangesBase](const std::vector<int> & coords) {
+
+    // Per-layer progress, shown only when run output is on (NDMSPC_LOG_RUN=1, or the reshape handler
+    // turning it on for the duration of a request). Deeper levels are entered once per parent bin, so
+    // only level 0 announces itself and a single-bin level draws nothing; the bars are per node, which
+    // is what makes them count across the whole level.
+    size_t       nBinsLevel = 1;
+    for (size_t d = 0; d < minsBin.size(); d++) nBinsLevel *= (maxsBin[d] - minsBin[d] + 1);
+    const bool   showProgress = nBinsLevel > 1;
+    const auto   startLevel   = std::chrono::high_resolution_clock::now();
+    std::atomic<size_t> nBinsDone{0};
+    // A reshape worker also enters at level 0, restricted to one bin; only the call that reshapes the
+    // whole level announces the levels, or the header would be printed once per worker.
+    if (level == 0 && minBins.empty()) {
+      std::string allLevels;
+      for (size_t l = 0; l < levels.size(); l++) {
+        allLevels += TString::Format("%s([%s])", l == 0 ? "" : " -> ",
+                                     NUtils::GetCoordsString(levels[l]).c_str()).Data();
+      }
+      NLogRun("Reshape: %zu level(s) %s", levels.size(), allLevels.c_str());
+    }
+
+    // A layer projects a fixed set of axes, so its projection histogram is the same for every bin.
+    // Build it once here (the default) instead of once per bin, which threw away all but the first.
+    // NDMSPC_RESHAPE_PROJECTION=per-bin restores the old behaviour, one call away, without a rebuild.
+    const char * projectionMode = gSystem->Getenv("NDMSPC_RESHAPE_PROJECTION");
+    const bool   perLevelProjection = !(projectionMode && std::string(projectionMode) == "per-bin");
+    if (perLevelProjection) {
+      TH1 * hProjLevel = BuildProjection(binningDef, levels[level], ranges, rangesBase, level,
+                                         level == fNLevels - 1);
+      if (!hProjLevel) {
+        NLogError("NGnNavigator::Reshape: Failed to build the projection for level %zu !!!", level);
+        if (branch) branch->SetBranchStatus(outputPointStatus);
+        return nullptr;
+      }
+      current->SetProjection(hProjLevel);
+    }
+
+    auto loop_task_bin = [this, current, binningDef, levels, level, ranges, rangesBase, perLevelProjection,
+                          &nBinsDone, nBinsLevel, startLevel, showProgress](const std::vector<int> & coords) {
       NLogTrace("NGnNavigator::Reshape: [B%d] Processing coordinates: coords=%s levels=%s", level,
                 NUtils::GetCoordsString(coords, -1).c_str(), NUtils::GetCoordsString(levels[level]).c_str());
       NLogTrace("NGnNavigator::Reshape: [L%d] Generating %zuD histogram %s with ranges: %s", level,
                 levels[level].size(), NUtils::GetCoordsString(levels[level]).c_str(), ranges.size() == 0 ? "[]" : "");
 
       std::vector<int> axesIds = levels[level];
-      ///////// Make projection histogram /////////
-      // THnSparse * hns   = nullptr;
-      Int_t nDims = axesIds.size();
-      auto  dims  = std::make_unique<Int_t[]>(nDims);
-      // Int_t       dims[nDims];
-      for (int i = 0; i < nDims; i++) {
-        dims[i] = axesIds[i];
-      }
-      THnSparse * hnsIn = binningDef->GetContent();
+      Int_t            nDims   = axesIds.size();
+      THnSparse *      hnsIn   = binningDef->GetContent();
 
-      NUtils::SetAxisRanges(hnsIn, ranges); // Set the ranges for the axes
-      // hns = static_cast<THnSparse *>(hnsIn->ProjectionND(axesIds.size(), dims.get(), "O"));
-      // if (!hns) {
-      //   NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
-      //   return;
-      // }
-
-      //   // int nCells = h->GetNcells();
-      //   // h->SetMinimum(0);
-      //   // h->SetStats(kFALSE);
-      std::string name  = "";
-      std::string title = "";
-      for (auto & axisId : axesIds) {
-        TAxis * a = hnsIn->GetAxis(axisId);
-        title += std::string(a->GetName()) + " vs ";
-        name += TString::Format("%s-", a->GetName()).Data();
-      }
-      name = name.substr(0, name.size() - 1);    // Remove last "_"
-      if (name.empty()) name = "hns_proj";       // default name
-      title = title.substr(0, title.size() - 4); // Remove last " vs "
-      if (ranges.size() > 0) title += " for ranges: ";
-      for (const auto & [axisId, range] : rangesBase) {
-        // NLogDebug("XX Axis '%s' range: [%d, %d]", GetAxis(axisId)->GetName(), range[0], range[1]);
-        TAxis * a = hnsIn->GetAxis(axisId);
-        if (a->IsAlphanumeric()) {
-          title += TString::Format("%s[%s]", a->GetName(), a->GetBinLabel(range[0]));
-        }
-        else {
-          title +=
-              TString::Format("%s[%.2f,%.2f]", a->GetName(), a->GetBinLowEdge(range[0]), a->GetBinUpEdge(range[1]));
-        }
-      }
-      // hns->SetTitle(title.c_str());
-      // // hns is only needed to derive name/title strings; delete it now to
-      // // avoid leaking one THnSparse per bin iteration.
-      // delete hns;
-      // hns = nullptr;
-      // hns->Print();
-
-      // TODO: Handle it via NGnSparseObject
-      // if (obj->GetHnSparse() == nullptr) {
-      //   NLogDebug("NGnNavigator::Reshape: Setting histogram '%s' ...", hns->GetTitle());
-      //   obj->SetHnSparse(hns);
-      // }
-
-      int   indexInProj = -1;
-      TH1 * hProj       = nullptr;
-      // if (level < 3) {
-      if (nDims == 1) {
-        hProj = hnsIn->Projection(axesIds[0]);
-        hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
-        // set name from hnsIn
-        TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
-        TAxis * axisProjX = hProj->GetXaxis();
-        axisProjX->SetName(axisIn0->GetName());
-        // apply lables from hnsIn to hProj
-        if (axisIn0->IsAlphanumeric()) {
-          for (int b = 1; b <= hProj->GetNbinsX(); b++) {
-            axisProjX->SetBinLabel(b, axisIn0->GetBinLabel(b));
-          }
-        }
-        indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]));
-      }
-      else if (nDims == 2) {
-        // TODO: Check the order of axes is really correct
-        hProj = hnsIn->Projection(axesIds[1], axesIds[0]);
-        hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
-        TAxis * axisIn1   = hnsIn->GetAxis(axesIds[0]);
-        TAxis * axisIn0   = hnsIn->GetAxis(axesIds[1]);
-        TAxis * axisProjX = hProj->GetXaxis();
-        TAxis * axisProjY = hProj->GetYaxis();
-        axisProjX->SetName(axisIn1->GetName());
-        axisProjY->SetName(axisIn0->GetName());
-        // apply lables from hnsIn to hProj
-        if (axisIn1->IsAlphanumeric()) {
-          for (int b = 1; b <= hProj->GetNbinsX(); b++) {
-            axisProjX->SetBinLabel(b, axisIn1->GetBinLabel(b));
-          }
-        }
-
-        if (axisIn0->IsAlphanumeric()) {
-          for (int b = 1; b <= hProj->GetNbinsY(); b++) {
-            axisProjY->SetBinLabel(b, axisIn0->GetBinLabel(b));
-          }
-        }
-        indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]), axisProjY->GetBinCenter(coords[1]));
-      }
-      else if (nDims == 3) {
-        hProj = hnsIn->Projection(axesIds[0], axesIds[1], axesIds[2]);
-        hProj->SetDirectory(nullptr); // detach from gDirectory; navigator owns this histogram
-        TAxis * axisIn0   = hnsIn->GetAxis(axesIds[0]);
-        TAxis * axisIn1   = hnsIn->GetAxis(axesIds[1]);
-        TAxis * axisIn2   = hnsIn->GetAxis(axesIds[2]);
-        TAxis * axisProjX = hProj->GetXaxis();
-        TAxis * axisProjY = hProj->GetYaxis();
-        TAxis * axisProjZ = hProj->GetZaxis();
-        axisProjX->SetName(axisIn0->GetName());
-        axisProjY->SetName(axisIn1->GetName());
-        axisProjZ->SetName(axisIn2->GetName());
-        // apply lables from hnsIn to hProj
-        if (axisIn0->IsAlphanumeric()) {
-          for (int b = 1; b <= hProj->GetNbinsX(); b++) {
-            axisProjX->SetBinLabel(b, axisIn0->GetBinLabel(b));
-          }
-        }
-
-        if (axisIn1->IsAlphanumeric()) {
-          for (int b = 1; b <= hProj->GetNbinsY(); b++) {
-            axisProjY->SetBinLabel(b, axisIn1->GetBinLabel(b));
-          }
-        }
-        if (axisIn2->IsAlphanumeric()) {
-          for (int b = 1; b <= hProj->GetNbinsZ(); b++) {
-            axisProjZ->SetBinLabel(b, axisIn2->GetBinLabel(b));
-          }
-        }
-        indexInProj = hProj->FindFixBin(axisProjX->GetBinCenter(coords[0]), axisProjY->GetBinCenter(coords[1]),
-                                        axisProjZ->GetBinCenter(coords[2]));
-      }
-      else {
-        NLogError("NGnNavigator::Reshape: Cannot project THnSparse with %d dimensions", nDims);
-        return;
-      }
-      if (!hProj) {
-        NLogError("NGnNavigator::Reshape: Projection failed for level %d !!!", level);
-        return;
-      }
-
-      hProj->SetName(name.c_str());
-      hProj->SetTitle(title.c_str());
-      // Increase all bin contents by 1 to avoid empty bins
-      double content;
-      int    dim = hProj->GetDimension();
-      if (dim == 1) {
-        for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
-          content = hProj->GetBinContent(x);
-          if (content > 0) {
-            hProj->SetBinContent(x, content + 1.0);
-          }
-        }
-      }
-      else if (dim == 2) {
-        for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
-          for (int y = 1; y <= hProj->GetNbinsY(); ++y) {
-            content = hProj->GetBinContent(x, y);
-            if (content > 0) {
-              hProj->SetBinContent(x, y, content + 1.0);
-            }
-          }
-        }
-      }
-      else if (dim == 3) {
-        for (int x = 1; x <= hProj->GetNbinsX(); ++x) {
-          for (int y = 1; y <= hProj->GetNbinsY(); ++y) {
-            for (int z = 1; z <= hProj->GetNbinsZ(); ++z) {
-              content = hProj->GetBinContent(x, y, z);
-              if (content > 0) {
-                hProj->SetBinContent(x, y, z, content + 1.0);
-              }
-            }
-          }
-        }
-      }
-
-      // Handle special THnSparse reserved first cell without looping: use
-      // GetBinContent(0, coords) which fills coords for the linear bin 0.
-      if (level == fNLevels - 1) {
-        Int_t   nd         = hnsIn->GetNdimensions();
-        Int_t * firstCoord = new Int_t[nd];
-        // Double_t firstVal =
-        content = hnsIn->GetBinContent(0, firstCoord); // fills firstCoord
-        // If bin 0 exists (firstVal may be 0.0), map its coordinates to projection
-        // bin indices and increment that projection bin by +1.
-        if (firstCoord) {
-          if (nDims == 1) {
-            int bx = firstCoord[axesIds[0]];
-            if (hProj->GetBinContent(bx) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX()) {
-              hProj->SetBinContent(bx, hProj->GetBinContent(bx) + 1.0);
-            }
-          }
-          else if (nDims == 2) {
-            int bx = firstCoord[axesIds[0]];
-            int by = firstCoord[axesIds[1]];
-            if (hProj->GetBinContent(bx, by) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 &&
-                by <= hProj->GetNbinsY()) {
-              hProj->SetBinContent(bx, by, hProj->GetBinContent(bx, by) + 1.0);
-            }
-          }
-          else if (nDims == 3) {
-            int bx = firstCoord[axesIds[0]];
-            int by = firstCoord[axesIds[1]];
-            int bz = firstCoord[axesIds[2]];
-
-            if (hProj->GetBinContent(bx, by, bz) < 0.5 && bx >= 1 && bx <= hProj->GetNbinsX() && by >= 1 &&
-                by <= hProj->GetNbinsY() && bz >= 1 && bz <= hProj->GetNbinsZ()) {
-              hProj->SetBinContent(bx, by, bz, hProj->GetBinContent(bx, by, bz) + 1.0);
-            }
-          }
-        }
-        delete[] firstCoord;
-      }
-
-      NLogTrace("NGnNavigator::Reshape: [L%d] Projection histogram '%s' for coords=%s index=%d", level,
-                hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
-      //
-      // hProj->SetMinimum(0);
-      // hProj->SetStats(kFALSE);
-      // hProj->Draw();
-      // gPad->ModifiedUpdate();
-      // gSystem->Sleep(1000);
-      // }
-      // hProj->Print();
-      // hProj->Draw("colz text");
-      // `current` is shared across all bin iterations at this level. The
-      // projection is identical for every iteration (ranges are fixed), so
-      // only store it once.  Subsequent iterations delete the duplicate and
-      // reuse the already-stored pointer so that `nCells` below stays valid.
-      if (current->GetProjection() == nullptr) {
-        current->SetProjection(hProj);
-      }
-      else {
-        delete hProj;
+      // The projection of a level does not depend on the bin, so in the default mode it was built
+      // once below and is only read here. NDMSPC_RESHAPE_PROJECTION=per-bin rebuilds and discards it
+      // like the code used to, so a suspect shared histogram can be ruled out without a rebuild.
+      TH1 * hProj = nullptr;
+      if (perLevelProjection) {
         hProj = current->GetProjection();
       }
+      else {
+        TH1 * hBuilt = BuildProjection(binningDef, axesIds, ranges, rangesBase, level, level == fNLevels - 1);
+        if (!hBuilt) {
+          NLogError("NGnNavigator::Reshape: Projection failed for level %zu !!!", level);
+          return;
+        }
+        // Keep the first one, as before: later iterations of this legacy path discard their copy.
+        if (current->GetProjection() == nullptr) {
+          current->SetProjection(hBuilt);
+        }
+        else {
+          delete hBuilt;
+        }
+        hProj = current->GetProjection();
+      }
+      if (hProj == nullptr) {
+        NLogError("NGnNavigator::Reshape: Projection histogram is null for level %zu !!!", level);
+        return;
+      }
+
       //////// End of projection histogram ////////
+
+      int indexInProj = ProjectionIndex(hProj, coords, nDims);
+      NLogTrace("NGnNavigator::Reshape: [L%zu] Projection histogram '%s' for coords=%s index=%d", level,
+                hProj->GetTitle(), NUtils::GetCoordsString(coords, -1).c_str(), indexInProj);
 
       std::map<int, std::vector<int>> rangesTmp     = ranges;
       std::map<int, std::vector<int>> rangesBaseTmp = rangesBase;
@@ -506,11 +639,6 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
         rangesTmp[axesIds[i]]     = {c, c};             // Set the range for the first axis
         rangesBaseTmp[axesIds[i]] = {minBase, maxBase}; // Set the range for the first axis
         i++;
-      }
-
-      if (hProj == nullptr) {
-        NLogError("NGnNavigator::Reshape: Projection histogram is null for level %d !!!", level);
-        return;
       }
 
       size_t nCells = hProj->GetNcells();
@@ -759,13 +887,125 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
       }
       if (current->GetChildren().size() != nCells) current->SetChildrenSize(nCells);
       current->SetChild(currentChild, indexInProj); // Set the child at the index
-      // execute next child
-      Reshape(binningDef, levels, level + 1, rangesTmp, rangesBaseTmp, currentChild);
+      // execute next child (always the full range: the restriction is this level's only)
+      ReshapeBins(binningDef, levels, level + 1, rangesTmp, rangesBaseTmp, currentChild, {}, {});
+
+      if (showProgress) {
+        NUtils::ProgressBar(++nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+      }
     };
     // A cancelled action stops at the next point and unwinds: the loop returns, the navigator is left
     // partly built, and the caller (NGnTree::Reshape -> the ngnt/reshape handler) reports the
     // cancellation and cleans up.
-    executorBin.Execute(loop_task_bin, []() { return NCancellation::IsCancelled(); });
+    //
+    // The first layer of a multi-level reshape is split across worker threads when they are available:
+    // each bin of that layer is an independent recursion that builds its own child and its own subtree,
+    // so workers reshape disjoint bins and the subtrees are attached afterwards, in projection order.
+    // A single-level reshape cannot be split — the leaf layer fills its objects into `current`, the one
+    // node every bin shares — and neither can a sub-range call, which a worker makes for itself.
+    // NDMSPC_RESHAPE_PROJECTION=per-bin asks for the old code path, which is serial by definition.
+    size_t nWorkers = 1;
+    if (level == 0 && levels.size() > 1 && !restrictBins && perLevelProjection && !NCancellation::IsCancelled()) {
+      nWorkers = ReshapeWorkerCount(nBinsLevel);
+    }
+
+    if (nWorkers > 1) {
+      NLogRun("Reshape: level 0 on %zu threads", nWorkers);
+      std::vector<NGnReshapeWorkerData> workers(nWorkers);
+      for (size_t w = 0; w < nWorkers; w++) {
+        if (!workers[w].Init(w, fGnTree, binningDef->GetName(), levels, ranges, rangesBase)) {
+          NLogError("NGnNavigator::Reshape: Cannot start reshape worker %zu !!!", w);
+          return nullptr;
+        }
+      }
+
+      // ROOT's TFile/TTree are only safe to read from several threads once implicit MT is on; a worker
+      // opens its own file on its own thread (NGnReshapeWorkerData::OpenTree). Restored afterwards, as
+      // NGnTree::Process does around its own thread pool.
+      const bool prevImplicitMT = ROOT::IsImplicitMTEnabled();
+      NUtils::EnableMT((Int_t)nWorkers);
+      const bool prevBatch     = gROOT->IsBatch();
+      const Bool_t prevMustClean = gROOT->MustClean();
+      gROOT->SetBatch(kTRUE);
+      gROOT->SetMustClean(kFALSE);
+
+      // The subtrees are collected per worker and attached here, once, on this thread.
+      std::vector<std::map<int, NGnNavigator *>> perWorker(nWorkers);
+      executorBin.ExecuteParallel<NGnReshapeWorkerData>(
+          [&](const std::vector<int> & coords, NGnReshapeWorkerData & worker) {
+            worker.Process(coords);
+            if (showProgress) {
+              NUtils::ProgressBar(++nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+            }
+          },
+          workers, []() { return NCancellation::IsCancelled(); });
+
+      gROOT->SetMustClean(prevMustClean);
+      gROOT->SetBatch(prevBatch);
+      if (!prevImplicitMT) ROOT::DisableImplicitMT();
+
+      for (size_t w = 0; w < nWorkers; w++) {
+        perWorker[w] = workers[w].TakeSubtrees();
+      }
+
+      // One child per projection cell, in the same order a serial reshape would have created them.
+      // The projection is built before the workers start, so its cell count is the size the children
+      // vector must have; refusing to attach from an unknown one keeps a silent empty navigator from
+      // ever being produced.
+      if (current->GetProjection() == nullptr) {
+        NLogError("NGnNavigator::Reshape: Root navigator has no projection, cannot attach %zu worker result(s) !!!",
+                  nWorkers);
+        for (auto & leftovers : perWorker) {
+          for (auto & [cell, extra] : leftovers) delete extra;
+        }
+        return nullptr;
+      }
+      size_t nCells = (size_t)current->GetProjection()->GetNcells();
+      if (current->GetChildren().size() != nCells) current->SetChildrenSize(nCells);
+      for (size_t idx = 0; idx < nCells; idx++) {
+        NGnNavigator * child = nullptr;
+        for (size_t w = 0; w < nWorkers && child == nullptr; w++) {
+          auto it = perWorker[w].find((int)idx);
+          if (it == perWorker[w].end()) continue;
+          child = it->second;
+          perWorker[w].erase(it);
+        }
+        if (child == nullptr) continue;
+        child->SetGnTreeRecursive(fGnTree);
+        child->SetParent(current);
+        if (current->GetChild(idx) == nullptr) {
+          current->SetChild(child, idx);
+        }
+        else {
+          // The slot was already taken (the same cell reshaped twice); a serial reshape keeps the
+          // first, so drop the newcomer rather than leak it.
+          NLogDebug("NGnNavigator::Reshape: cell %zu already has a child, dropping the extra subtree", idx);
+          delete child;
+        }
+      }
+      // Anything left over is a duplicate cell (two bins of this layer mapping to one projection bin),
+      // which a serial reshape would have merged into one child; drop the extras.
+      for (auto & leftovers : perWorker) {
+        for (auto & [idx, extra] : leftovers) {
+          NLogDebug("NGnNavigator::Reshape: dropping duplicate subtree for cell %d", idx);
+          delete extra;
+        }
+      }
+
+      // Only a cancelled run leaves the bar short of 100%; a finished one closed its own line, and
+      // drawing it again printed the same 100% bar twice.
+      if (showProgress && NUtils::IsProgressLineOpen()) {
+        NUtils::ProgressBar(nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+      }
+    }
+    else {
+      executorBin.Execute(loop_task_bin, []() { return NCancellation::IsCancelled(); });
+      // Close the layer's bar if it is still open — a cancellation stops short of 100%, and the next
+      // layer must not be appended to a half-drawn line. A run that finished closed its own line.
+      if (showProgress && NUtils::IsProgressLineOpen()) {
+        NUtils::ProgressBar(nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+      }
+    }
   }
   else {
     NLogTrace("NGnNavigator::Reshape: Reached the end of levels, level=%d", level);
@@ -777,7 +1017,9 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 
   NLogTrace("NGnNavigator::Reshape: =========== Reshaping navigator for level %d DONE ================", level);
 
-  if (level == 0) {
+  // As with the header above: a worker's call is an entry at level 0 too, so only the whole-level call
+  // reports the finished navigator.
+  if (level == 0 && minBins.empty()) {
     NLogInfo("NGnNavigator::Reshape: Reshaping navigator DONE.");
     // print exported axes from indexes from levels
     for (size_t l = 0; l < levels.size(); l++) {
@@ -1657,6 +1899,27 @@ void NGnNavigator::SetChild(NGnNavigator * child, int index)
     fChildren[index < 0 ? fChildren.size() : index] = child;
     child->SetParent(this);
   }
+}
+
+void NGnNavigator::SetGnTreeRecursive(NGnTree * tree)
+{
+  ///
+  /// Point this navigator and all its descendants at the given tree
+  ///
+  fGnTree = tree;
+  for (auto * child : fChildren) {
+    if (child) child->SetGnTreeRecursive(tree);
+  }
+}
+
+std::vector<NGnNavigator *> NGnNavigator::TakeChildren()
+{
+  ///
+  /// Hand over the children and forget them, without deleting them
+  ///
+  std::vector<NGnNavigator *> children = std::move(fChildren);
+  fChildren.clear();
+  return children;
 }
 
 NGnNavigator * NGnNavigator::GetChild(std::vector<std::vector<size_t>> coords) const

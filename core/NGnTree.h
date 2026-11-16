@@ -303,13 +303,29 @@ class NGnTree : public TObject {
    */
   TList * Projection(const json & cfg, std::string binningName = "");
   /**
-   * @brief Reshape navigator using binning name and levels.
-   * @param binningName Name of binning definition.
-   * @param levels Vector of levels.
+   * @brief Reshape the tree's binning into a navigator hierarchy.
+   *
+   * This is the usual way to prepare a tree for display: it groups the definition's variable axes into
+   * layers and builds one navigator node per filled bin of each layer, with the analysis objects and
+   * parameters attached at the deepest layer. See NGnNavigator for what the resulting tree contains.
+   *
+   * A reshape reads the tree entry by entry and can take minutes on a real analysis file. It is the one
+   * heavy operation that reports what it is doing: with run output on (`NDMSPC_LOG_RUN=1`, or for the
+   * duration of an `ndmspc/ngnt/reshape` request) it prints one progress bar per layer. Its first layer
+   * is reshaped on several threads when they are available; `NDMSPC_NAV_WORKERS` sets how many, and `1`
+   * forces the serial path.
+   *
+   * The caller owns the result and must delete it. A cancelled reshape (see `NCancellation`) returns a
+   * partially built navigator; callers that offer cancellation should check `NCancellation::IsCancelled`
+   * and discard it, as the HTTP handler does.
+   *
+   * @param binningName Name of binning definition (empty = the current one).
+   * @param levels Layers of axis indices, outermost first, e.g. `{{0}, {1, 2}}`; empty means all
+   *        variable axes as one layer (up to three of them).
    * @param level Current level (default: 0).
    * @param ranges Map of ranges for axes.
    * @param rangesBase Map of base ranges for axes.
-   * @return Pointer to reshaped NGnNavigator.
+   * @return The reshaped root navigator, or nullptr when the levels are refused.
    */
   NGnNavigator * Reshape(std::string binningName, std::vector<std::vector<int>> levels, int level = 0,
                          std::map<int, std::vector<int>> ranges = {}, std::map<int, std::vector<int>> rangesBase = {});

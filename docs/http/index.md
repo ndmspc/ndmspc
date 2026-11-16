@@ -79,6 +79,31 @@ ndmspc-server -m ~/my-tools/toolMyThing.C                     # ngnt + browser +
 ndmspc-server --no-default-tools -m ~/my-tools/toolMyThing.C  # my tool only
 ```
 
+## Reshape: progress and threads
+
+Reshaping a tree is the one heavy action that reports what it is doing while it runs.
+`ndmspc/ngnt/reshape` holds run output on for the duration of the request, so the server log carries
+one line per layer plus a progress bar with elapsed time and an ETA:
+
+```
+[RUN] Reshape: 2 level(s) ([[0]]) -> ([[1,2]])
+[L0][==================================================] 100% (5/5) Elapsed: 00:00:01 ETA: 00:00:00
+[L1][==================================================] 100% (30/30) Elapsed: 00:00:03 ETA: 00:00:00
+```
+
+Outside a request the bars are gated on `NDMSPC_LOG_RUN`, so an idle server stays quiet. A reshape
+can still be cancelled (`POST /api/cancel`), and the partial navigator is discarded.
+
+The **first layer** of a multi-layer reshape is split across worker threads, because each of its bins
+is an independent recursion; the resulting subtrees are attached afterwards, one per projection cell.
+The reshape form's **Workers** field (`nWorkers`) sets the count and defaults to **1**, since whether
+threads help depends on how much data one bin holds; `NDMSPC_NAV_WORKERS` sets the same thing and `1`
+forces the serial path. A single-layer reshape and the fork-based modes (`ipc`, `tcp`) always run
+serially — a single layer fills its objects into the one node every bin shares.
+
+`NDMSPC_RESHAPE_PROJECTION=per-bin` selects the older per-bin projection code. It is serial by design
+and exists to rule the shared projection histogram out if a reshape ever looks wrong.
+
 ## Rooms
 
 `--rooms true` (or `NDMSPC_ROOMS=1`) turns the server into a room router: one Knative Service per
