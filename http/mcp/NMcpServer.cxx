@@ -251,9 +251,14 @@ json NMcpServer::BuildTools() const
         groupSchema->second.contains(shortKey) && groupSchema->second[shortKey].is_object()) {
       inputSchema = groupSchema->second[shortKey];
     }
-    else if (inspectorProperties.contains(shortKey) && inspectorProperties[shortKey].is_object()) {
-      // Nothing has been published for this group yet (a fresh room, or a unit test that seeds only the
-      // flat view): the flat entry is all there is. Once the group publishes, the branch above wins.
+    else if (byGroup.empty() && inspectorProperties.contains(shortKey) && inspectorProperties[shortKey].is_object()) {
+      // Nothing has been published per group yet — a fresh room, or a unit test that seeds only the flat
+      // view — so the flat entry is all there is and it can only be this tool's.
+      //
+      // Once *any* group has published, the flat view is off limits here: it keeps only the last writer,
+      // and every group has an `open`, so reading it handed `ndmspc/ml/open` the `file` field of an
+      // `ndmspc/ngnt/open` that had run earlier (the ML form showed a filename it never declares). A group
+      // that has not published yet starts from its own declaration instead, which is the truth.
       inputSchema = inspectorProperties[shortKey];
     }
     if (!inputSchema.contains("type") || inputSchema["type"].is_null()) inputSchema["type"] = "object";

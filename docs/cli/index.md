@@ -10,7 +10,7 @@ All binaries install next to each other and share the same environment (`NDMSPC_
 | `ndmspc-worker` | A worker that attaches to an IPC/TCP supervisor |
 | `ndmspc-mcp` | MCP server over stdin/stdout |
 | `ndmspc-ws-client` | WebSocket client for scripts (OIDC or X509) |
-| `ndmspc-cli` | Batch pipeline commands (`file`, `merge`, `binning`) and `record` (tutorial videos) |
+| `ndmspc-cli` | Batch pipeline commands (`file`, `merge`, `binning`, `combo`, `stress`) and `record` (tutorial videos) |
 | `ndmspc-tutorials` | Run the tutorial macros into the current directory |
 | `ndmspc-chat` | Terminal chat client for the server |
 
@@ -56,6 +56,131 @@ ndmspc-mcp -m /path/toolNgnt.C --all-tools
 ```
 
 JSON-RPC on stdout; logs go to stderr.
+
+## `ndmspc-cli combo`
+
+Precaches a processed NGnTree file: reshape the combinations you choose and store them **inside the file**, so
+whoever opens it later gets those navigators without reshaping. Optionally their map JSON is stored too, which
+makes the first map a file read instead of an export.
+
+A processed file holds only the tree and its outputs. `combo` is what adds combinations to it:
+
+```bash
+# store two combinations, with their map JSON
+ndmspc-cli combo -i data.root --levels '[[0,2],[1]];[[0,1,2]]' --map --run
+
+# what the file offers now
+ndmspc-cli combo -i data.root --list
+```
+
+- `--levels` takes several combinations separated by `;`. Each is JSON (`[[0,2],[1]]`) or the plain spelling
+  `0,2:1` (`:` between layers, `,` between axes) — the same habit as `stress --axes`. Without it, every axis
+  is stored in two layers.
+- `--map` also stores each combination's exported JSON.
+- `--refresh` rebuilds a combination that is already stored; by default a stored one is left alone, since
+  rebuilding it costs the reshape it was meant to save.
+- `--list` prints the stored entries as JSON and exits.
+
+A combination that the tree cannot take (levels that miss an axis) is reported and not stored — a file is
+never left advertising something it cannot serve.
+
+**If you precache the same file from several jobs at once**, they are serialised by an advisory lock on a
+`<file>.lock` sidecar: ROOT's `UPDATE` open rewrites the whole file, so two writers would otherwise drop each
+other's entries while both reported success. Readers need no lock — a session opening the file is unaffected.
+
+### From ROOT/Cling
+
+`Ndmspc::NCombo` is a library class, so the same precache can be driven from a session:
+
+```cpp
+Ndmspc::NGnTree * t = Ndmspc::NGnTree::Open("data.root");
+std::vector<Ndmspc::NCombo::Result> results;
+Ndmspc::NCombo::Store(t, {{{0, 2}, {1}}, {{0, 1, 2}}}, "", /*withMap=*/true, /*refresh=*/false, results);
+delete t;
+```
+
+## `ndmspc-cli stress`
+
+Builds a big NGnTree out of one source file and measures reshape on it, with and without the cache — for
+sizing a real analysis, or for checking that the cache is worth its keep on your data.
+
+```bash
+# build a grid of 10 x 20 copies of data.root, then measure
+ndmspc-cli stress --source data.root --axes a1=10,a2=20 --workdir /tmp/stress --run
+```
+
+The grid is a directory per bin holding a real copy, which the directory importer turns back into a tree.
+The directories are only bin labels: the axis names and their order come from the copy tree, so
+`--axes a2=2,a1=3` is what decides that `a2` is the first axis. The copies are made by `NGnTree::Process`,
+so `--mode`/`-n` select how they are spread (`ipc`, `tcp`, `thread`) like everywhere else.
+
+`--source` may be omitted, in which case a synthetic tree is generated (`--bins`, `--entries`).
+
+`--axes` takes `:` between axes and `,` between labels, so a name and a count can be mixed freely:
+
+```bash
+--axes a1=label1,label2:a2=2:a3=alpha,beta:a4=2
+```
+
+A bare number is a **count** of numbered bins (`a4=2` is `1,2`); anything else is a label, which becomes the
+directory name. The older single-comma form (`a1=x,a2=2`) is still accepted, since existing commands use it.
+
+A ready-made source for stressing reshape is `NCpuStress.C`, whose `nParamCopies` argument widens each
+point's `_params` branch. That is the knob that matters: reshape disables the `_outputPoint` branch
+(`NGnNavigator.cxx:472`) and reads `_params` bin by bin, so extra objects per point cost nothing while
+extra parameters cost a great deal. Measured here, one 64-point source:
+
+| `nParamCopies` | reshape |
+| --- | --- |
+| 0 | 0.004 s |
+| 500 | 0.36 s |
+| 2000 | 4.1 s |
+
+```bash
+ndmspc-run -n 22 tutorial/99_stress/NCpuStress.C --macro-params '"stress.root",20000,1,1,8,8,2000'
+```
+
+### What it measures
+
+| phase | what it is |
+| --- | --- |
+| `cold cache-off` | the honest baseline: `NDMSPC_RESHAPE_CACHE=0` |
+| `cold cache-on` | the first build plus what storing it costs (runs once, so the median cannot hide it) |
+| `warm cache-hit` | the same combination again — what a revisit costs |
+
+A phase that cannot reshape is reported as having **no timing** rather than as a fast one: a failed
+reshape returns instantly, and would otherwise read as an enormous speed-up.
+
+### Several runs, one tree
+
+`--out-results` writes the runs as an ordinary NGnTree — one point per run and phase, with `seconds` and
+`ratio` parameters and a readable log per point. Measuring two storages therefore gives two runs in one
+tree, which can be reshaped and drawn like any other:
+
+```bash
+ndmspc-cli stress --axes a1=10,a2=20 --workdir /tmp/stress --label local --out-results local.root --run
+ndmspc-cli stress --axes a1=10,a2=20 --workdir /eos/stress --label eos  --out-results eos.root   --run
+```
+
+### From ROOT/Cling
+
+`Ndmspc::NStress` is a library class, so the same measurement can be driven from a session and the runs
+compared there:
+
+```cpp
+Ndmspc::NStress s;
+s.SetWorkdir("/tmp/stress");
+s.SetAxes("a1=10,a2=20");
+s.SetSource("data.root");     // omit to generate
+s.Run("local");
+s.SetWorkdir("/eos/stress");  // same measurement, another storage
+s.Run("eos");
+s.GetResults("both.root");    // both runs, one tree
+```
+
+A note on cold measurements: entries are stored inside the copied files, so they survive between runs. A
+`cold` phase on a workdir that was measured before is really a cache hit, and the tool says so when it
+detects it — rebuild the tree for a true baseline.
 
 ## `ndmspc-cli record`
 

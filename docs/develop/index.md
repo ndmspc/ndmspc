@@ -39,6 +39,10 @@ podman exec -u "$USER" -w "$PWD" fedora-toolbox-45 bash -lc 'WITH_TEST=true ./sc
 - Tool keys follow `namespace/group[/subgroup]/action`; a non-conforming key throws at registration.
 - Tool macros are annotated, not compiled: descriptions, schemas, dependencies and tours live in the
   macro beside the handler.
+- A tool macro keeps everything but its entry point in a namespace of its own
+  (`namespace Ndmspc::FooTools { … }`). Macros share one Cling session, so a helper defined at file
+  scope in two macros collides — and Cling crashes in its unloader rather than reporting the clash.
+  An anonymous namespace does not help: all of them are the same namespace.
 
 ## Documentation
 

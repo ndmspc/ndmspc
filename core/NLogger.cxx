@@ -403,6 +403,9 @@ void NLogger::Log(const char * file, int line, logs::Severity level, const char 
 
   // Console output (if enabled)
   if (fgConsoleOutput) {
+    // A progress bar is drawn with a carriage return and no newline, so this line would otherwise be
+    // written on top of it. Close that line first.
+    NUtils::EndProgressLine();
     std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
     std::cout << log_line.str() << std::endl;
   }
@@ -516,6 +519,7 @@ void NLogger::RunLog(const char * format, ...)
   // is independent from NDMSPC_LOG_CONSOLE so callers can suppress normal
   // logger output but still show run progress.
   if (fgRunOutput) {
+    NUtils::EndProgressLine();
     std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
     std::cout << log_line.str() << std::endl;
   }
@@ -565,6 +569,7 @@ void NLogger::ForceLog(const char * format, ...)
 
   // Always print to console, regardless of fgRunOutput or fgConsoleOutput
   {
+    NUtils::EndProgressLine();
     std::lock_guard<std::recursive_mutex> lock(fgLoggerMutex);
     std::cout << log_line.str() << std::endl;
   }

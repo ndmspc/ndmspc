@@ -690,6 +690,35 @@ void toolMyCustom()
 }
 ```
 
+### Give a tool macro its own namespace
+
+Tool macros are **not compiled together**: the server loads each one into the same Cling session, so
+whatever a macro defines at file scope is visible to every macro loaded after it. Two macros that each
+define a helper of the same name collide — and Cling answers a redefinition by trying to roll the
+transaction back, which can crash inside its unloader. The symptom is a segfault while *loading the
+second macro*, naming no file of yours, so it reads as a broken server rather than as a name clash.
+
+Put everything except the entry point in a namespace of its own:
+
+```cpp
+namespace Ndmspc::MyPluginTools {
+
+class ScopedEnv { /* ... */ };
+json BuildMySchema();          // helpers stay private
+
+} // namespace Ndmspc::MyPluginTools
+
+void toolMyPlugin()             // the one exported name, which ROOT must find
+{
+  using namespace Ndmspc::MyPluginTools;
+  // ...
+}
+```
+
+An **anonymous** namespace does not help here: every unnamed namespace in a Cling session is the same
+namespace, so two files using them still collide. `toolNgnt.C` and `toolBrowser.C` each carry a named
+namespace for exactly this reason.
+
 `NMcpToolInfo` fields:
 
 | Field | Meaning |
@@ -1200,6 +1229,142 @@ vocabulary: the UI draws whatever `payload.pad` names and forwards whatever `han
 ignores every other key a payload may hold. One object per envelope is also how a tool asks for
 *tabs*: two envelopes naming two objects are two tabs, whereas one envelope carrying a ROOT list is
 one canvas with the list's items drawn on top of each other (jsroot's reading of a list).
+
+### Reshape: progress and threads
+
+A reshape over a real tree can run for minutes, and it is the one action that reports what it is
+doing while it does it. `ndmspc/ngnt/reshape` holds the logger's run output on for the duration of the
+request, so the server log carries one line per layer plus a progress bar with elapsed time and an ETA:
+
+```
+[RUN] Reshape: 2 level(s) ([[0]]) -> ([[1,2]])
+[L0][==================================================] 100% (5/5) Elapsed: 00:00:01 ETA: 00:00:00
+[L1][==================================================] 100% (30/30) Elapsed: 00:00:03 ETA: 00:00:00
+```
+
+The bars are gated on run output throughout; with it off (`NDMSPC_LOG_RUN=0`, the default outside a
+request) the reshape is silent. `POST /api/cancel` still aborts mid-reshape, and the partial navigator
+is discarded.
+
+The **first layer** is reshaped in parallel when it is not also the last layer: each of its bins is an
+independent recursion, so they are spread over worker threads and the resulting subtrees are attached
+afterwards. `NDMSPC_NAV_WORKERS` sets the worker count (capped at the number of bins; 1 forces the
+serial path). The fork-based execution modes (`ipc`, `tcp`) always reshape serially.
+`NDMSPC_RESHAPE_PROJECTION=per-bin` selects the older per-bin projection code, which is serial and
+exists to rule the shared projection histogram out if a reshape ever looks wrong.
+
+The worker count is also a form field: `POST ndmspc/ngnt/reshape {binningName, levels, nWorkers}`,
+offered to the UI as **Workers** and defaulting to **the CPUs this process may use** — the node's count
+unless a cgroup limits it, which is what `NUtils::AvailableCpuCount` reports. A reshape reads every tree
+entry, so serial is the exception and `1` is asked for explicitly. A request that omits `nWorkers` gets
+the same default rather than a silent 1. The request sets `NDMSPC_NAV_WORKERS` for its own duration and
+restores the previous value afterwards.
+
+Outside the tool, the same count is resolved from the environment: `NDMSPC_NAV_WORKERS`, then
+`NDMSPC_MAX_PROCESSES` (so `ndmspc-run -n 22` means 22 workers), then the available CPUs.
+
+### The reshape cache
+
+A reshaped navigator is a function of its inputs — the source file, the binning definition, the levels
+and whether parameters are averaged — so the same request always produces the same one. It is therefore
+computed once and **stored**: a later `reshape` for that combination loads the stored navigator instead
+of reading every tree entry again. The reply carries `"cached": true` when that happened, which is also
+why no progress bars appear.
+
+**What to do with the cache** is one request field, `cache`. There are two questions — *may I read it?* and
+*if I have to reshape, may I keep it?* — and four answers, because both questions can be asked separately:
+
+| `cache` | load | reshape | keep it |
+|---|---|---|---|
+| **`use`** | yes | only on a miss | no — a miss is a one-off |
+| **`use-or-store`** (default) | yes | only on a miss | yes, so the cache fills itself |
+| **`rebuild`** | no | always | yes, over the old entry |
+| **`ignore`** | no | always | no — for iterating on a macro |
+
+`use` and `ignore` both keep nothing; they differ in whether an existing entry is used.
+`rebuild` and `ignore` both reshape unconditionally; they differ in whether the result is kept.
+
+The form shows these as four buttons; the MCP argument is the same field. `refresh: true` is still accepted as
+the old name for `rebuild`.
+
+**Where an entry is kept** is a separate field, `cacheFile` — and it is not part of what a combination
+*is*, so the same entry is found wherever it lives. It names a home by **path**, which is what the form's
+`Store in` dropdown offers:
+
+| `cacheFile` | the entry goes | the input |
+|---|---|---|
+| the input's own path | in-file, under `reshape/<digest>/` | is written |
+| the path of that input's cache file | the cache file | is never opened `UPDATE` |
+
+`""` is accepted as the shorthand for "that input's cache file" (it is what the field meant before the drop-down
+named real paths), so a client can still ask for the cache home without computing the mirrored path itself.
+
+The **default follows the input**, because the two cases have different consequences:
+
+- a **local** file keeps its own entries, so a fully precached file travels with its data: whoever opens
+  it gets the fast path, including a different room;
+- a **remote** input (`root://`, `alien://`, `http(s)://`) defaults to the cache file instead — writing
+  into shared storage is an `UPDATE` round-trip to a filesystem the caller may not be allowed to write;
+- a local file that **cannot** be written (chmod 0444, a read-only mount, a file another writer holds)
+  falls back to the cache file, so a read-only source still never reshapes twice.
+
+**The cache file mirrors the input's path**, so one input maps to exactly one cache file:
+
+```
+local    /work/a/data.root          ->  $NDMSPC_CACHE_DIR/work/a/data.root
+EOS      root://h//eos/a/data.root  ->  $NDMSPC_CACHE_DIR/h/eos/a/data.root
+```
+
+It holds the same `reshape/<digest>/` layout as an in-file cache, and it keeps the **host** as well as
+the directory path, so two files with the same basename in different places never share one. The
+directory itself defaults to `~/.cache/ndmspc`.
+
+```bash
+curl -s -X POST -d '{"binningName":"default","levels":[[0],[1,2]]}' .../ngnt/reshape
+# {"result":"success","stored":true,"home":"in-file", ...}      built, stored
+curl -s -X POST -d '{"binningName":"default","levels":[[0],[1,2]]}' .../ngnt/reshape
+# {"result":"success","cached":true,"home":"in-file", ...}       loaded
+curl -s -X POST -d '{"binningName":"default","levels":[[0],[1,2]],"cacheFile":""}' .../ngnt/reshape
+# {"result":"success","cached":true,"home":"cache", ...}         read from the cache file
+```
+
+`home` is `in-file`, `cache` or `cache-file`, so a client can say where a combination was found or put.
+What a combination is keyed by is the tree's **content** — its entry and byte counts — not the file's
+size and modification time. That is deliberate: writing an entry changes the file, so a timestamped key
+would invalidate its own entry the moment it was stored. Adding data to the tree still misses, and the
+old entry becomes unreachable garbage for `prune` to clear.
+
+- **Several combinations per file** coexist: each combination is its own entry, so switching between
+  `[[0],[1,2]]` and `[[0,1],[2]]` reshapes each once. `POST ndmspc/ngnt/open` answers `"stored"` — the
+  combinations already built for the file it opened, from both homes — so a client can offer them
+  before reshaping anything. Listing reads only entry metadata, never the navigators:
+  ```json
+  "stored": [{"digest":"c7a48e75e6f7fadf","file":"/data/a.root","binning":"default",
+              "levels":[[0,1],[2]],"averages":true,"nLevels":2,"nChildren":676,
+              "bytes":634325,"created":1005720127808,"home":"in-file"}]
+  ```
+- **The map export is kept too.** Exporting the navigator to JSON is the slow part of a `map` request
+  (137 ms and 1.6 MB on a 32-child navigator), so the result is stored beside the navigator and read
+  back (0.1 ms). A map that does so logs `served the export kept for this combination`. The kept copy
+  is keyed with the averaging flag as well, because that changes what the export contains.
+- `NDMSPC_RESHAPE_CACHE=0` turns reading *and* writing off; `NDMSPC_CACHE_DIR` moves the cache file
+  store. An entry written by another cache format is dropped rather than served.
+- A source that gains or loses data is a different combination, so its old entries are never found and
+  the next reshape rebuilds. Those entries would otherwise sit there, one set per rewrite. `POST
+  ndmspc/ngnt/open {file, prune: true}` removes them and answers what it did
+  (`{"removed":1,"kept":1,"bytesFreed":0}`). It is opt-in because it deletes: it keeps every entry
+  matching the file as it is **now**, and leaves a combination whose source cannot be read untouched,
+  since its staleness cannot be shown.
+- Storing is best-effort: a cache that cannot be written logs and the reshape is returned uncached.
+  A cancelled reshape is never stored — it is part of a combination, not the combination.
+
+**Reading and writing.** Reads are lock-free: a reader opens the tree `READ` and never takes a lock, so any
+number of readers run alongside a writer. Writers are **serialised** by an advisory `flock` on the file the
+entry lives in — the tree file for an in-file entry, the cache file otherwise — because ROOT's `UPDATE` open
+is a read-modify-write of the whole file. Without it two processes precaching one tree each dropped the
+other's entry — silently, and with a zero exit status. The lock is local and advisory: it does not coordinate
+across NFS nodes without a working `flock`, and it is skipped for a `root://` store, where the storage element
+must provide the protection.
 
 A **nested reshape** is the case that uses this. Each navigator layer goes as its own envelope, so
 `levels = [[0],[1,2]]` fills its pad with one tab per layer, named by that layer's axes as the map

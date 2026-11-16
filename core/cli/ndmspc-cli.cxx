@@ -43,6 +43,9 @@
 
 #include "ndmspc/core/NLogger.h"
 #include "ndmspc/core/NUtils.h"
+#include "ndmspc/core/NCombo.h"
+#include "ndmspc/core/NGnTree.h"
+#include "ndmspc/core/NStress.h"
 #include "ndmspc/ndmspc.h"
 
 namespace {
@@ -853,6 +856,64 @@ int main(int argc, char ** argv)
                          "Comma-separated object names/patterns to skip (appended to 'excludeObjects')");
 
   // ---------------------------------------------------------------------------
+  //  stress — build a big NGnTree from one file, then measure reshape on it
+  // ---------------------------------------------------------------------------
+  std::string              stressSource, stressWorkdir, stressAxes, stressBasename, stressLevels;
+  long long                stressMaxBytes = -1;
+  int                      stressRepeat   = 1;
+  int                      stressBins     = 6;
+  int                      stressEntries  = 20000;
+  bool                     stressMeasure  = false;
+  bool                     stressNoVerify = false;
+  bool                     stressForce    = false;
+  std::string              stressLabel, stressOutResults;
+
+  auto * stressCmd = app.add_subcommand(
+      "stress", "Build a big NGnTree from one file (a grid of copies) and measure reshape with and without the cache");
+  stressCmd->fallthrough(); // accept the run options (--run/-v/--mode/...) after the subcommand too
+  stressCmd->add_option("--source", stressSource,
+                        "Source NGnTree to replicate; without it a synthetic one is generated");
+  stressCmd->add_option("--axes", stressAxes,
+                        "Grid axes as a1=10,a2=20 (a count, or a comma list of labels) — their order is the "
+                        "order the axes are declared in");
+  stressCmd->add_option("--workdir", stressWorkdir, "Where the grid of copies is built");
+  stressCmd->add_option("--basename", stressBasename, "File name inside every leaf (default: d.root)");
+  stressCmd->add_option("--levels", stressLevels, "Levels to reshape, as JSON (default: [[0],[1,2]])");
+  stressCmd->add_option("--max-bytes", stressMaxBytes, "Refuse a layout bigger than this many bytes");
+  stressCmd->add_option("--repeat", stressRepeat, "Measure each phase this many times, report the median");
+  stressCmd->add_option("--bins", stressBins, "Synthetic source: axis values per dimension");
+  stressCmd->add_option("--entries", stressEntries, "Synthetic source: entries per object");
+  stressCmd->add_flag("--measure", stressMeasure, "Skip building; only measure an existing workdir");
+  stressCmd->add_flag("--no-verify", stressNoVerify, "Skip the consistency check");
+  stressCmd->add_flag("--force", stressForce, "Rebuild even when the layout already looks right");
+  stressCmd->add_option("--label", stressLabel, "What to call this run in the results (default: the workdir)");
+  stressCmd->add_option("--out-results", stressOutResults,
+                        "Write the runs as an NGnTree (one point per run and phase) to this file");
+
+  // ---------------------------------------------------------------------------
+  //  combo — reshape chosen combinations of one file and store them in it
+  // ---------------------------------------------------------------------------
+  std::string comboIn, comboBinning;
+  bool                     comboMap     = false;
+  bool                     comboRefresh = false;
+  bool                     comboList    = false;
+
+  auto * comboCmd = app.add_subcommand(
+      "combo", "Reshape chosen combinations of an NGnTree file and store them inside it (precaching)");
+  comboCmd->fallthrough();
+  comboCmd->add_option("-i,--input", comboIn, "The NGnTree file to precache");
+  // NOT a std::vector<std::string>: CLI11 splits a vector's value on commas, and a levels value IS commas
+  // (`[[0,2],[1]]` arrived as three pieces). One string, `;` between combinations.
+  std::string comboLevelsText;
+  comboCmd->add_option("--levels", comboLevelsText,
+                       "The combinations to store, ';' between them: '[[0,2],[1]];[[0,1,2]]' or '0,2:1;0,1,2'. "
+                       "Without it every axis in two layers");
+  comboCmd->add_option("--binning", comboBinning, "Binning definition to reshape (default: the current one)");
+  comboCmd->add_flag("--map", comboMap, "Also store each combination's map JSON, so a first map is a file read");
+  comboCmd->add_flag("--refresh", comboRefresh, "Rebuild a combination that is already stored");
+  comboCmd->add_flag("--list", comboList, "List what is already stored and exit");
+
+  // ---------------------------------------------------------------------------
   //  record — replay the tool tours declared in tools/list
   // ---------------------------------------------------------------------------
   std::string recordUrl         = "http://localhost:8080";
@@ -1039,6 +1100,115 @@ int main(int argc, char ** argv)
     if (!run) return Finish(PrintPlanBinning(cfg, binningIn, binningOut, ""));
 
     rc = Ndmspc::NUtils::NGnTreeBinning(cfg, "") ? 0 : 1;
+  }
+  else if (*stressCmd) {
+    Ndmspc::NStress stress;
+    stress.SetWorkdir(stressWorkdir);
+    if (!stressBasename.empty()) stress.SetBasename(stressBasename);
+    if (!stressLevels.empty()) stress.SetLevels(stressLevels);
+    if (!stressSource.empty()) stress.SetSource(stressSource);
+    if (stressMaxBytes >= 0) stress.SetMaxBytes(stressMaxBytes);
+    stress.SetRepeat(stressRepeat);
+    stress.SetGenerate(stressBins, stressEntries);
+    stress.SetForce(stressForce);
+    stress.SetVerify(!stressNoVerify);
+
+    if (stressWorkdir.empty()) {
+      NLogError("ndmspc-cli: --workdir is required for stress");
+      return Finish(1);
+    }
+    if (stressAxes.empty()) {
+      NLogError("ndmspc-cli: --axes is required for stress");
+      return Finish(1);
+    }
+    stress.SetAxes(stressAxes);
+
+    if (!run && !stressMeasure) {
+      NLogPrint("ndmspc-cli: planning only - pass --run to execute (nothing is written)");
+      NLogPrint("ndmspc-cli: job          : stress (grid of copies, then measure reshape)");
+      stress.Print();
+      return Finish(0);
+    }
+
+    if (!stressMeasure && !stress.Build()) return Finish(1);
+    if (!stressNoVerify && !stress.Verify()) return Finish(1);
+
+    rc = stress.Run(stressLabel) ? 0 : 1;
+
+    // The runs as an ordinary NGnTree, so several of them (a local disk and an EOS copy) can be
+    // imported into one N-dimensional tree and reshaped together.
+    if (!stressOutResults.empty() && !stress.GetRuns().empty()) {
+      if (Ndmspc::NGnTree * results = stress.GetResults(stressOutResults)) {
+        NLogPrint("ndmspc-cli: results      : %s", stressOutResults.c_str());
+        delete results;
+      }
+    }
+  }
+  else if (*comboCmd) {
+    if (comboIn.empty()) {
+      NLogError("ndmspc-cli: --input is required for combo");
+      return Finish(1);
+    }
+
+    // Listing asks the file what it already holds, which is how a client discovers what a precache offers.
+    if (comboList) {
+      NLogPrint("%s", Ndmspc::NCombo::List(comboIn).c_str());
+      return Finish(0);
+    }
+
+    Ndmspc::NGnTree * tree = Ndmspc::NGnTree::Open(comboIn);
+    if (tree == nullptr || tree->IsZombie()) {
+      NLogError("ndmspc-cli: cannot open '%s'", comboIn.c_str());
+      delete tree;
+      return Finish(1);
+    }
+
+    // No --levels means "every axis, two layers", which is the one combination a bare precache implies.
+    std::vector<std::string> requested;
+    {
+      std::stringstream ss(comboLevelsText);
+      std::string       one;
+      while (std::getline(ss, one, ';')) {
+        if (!one.empty()) requested.push_back(one);
+      }
+    }
+    if (requested.empty()) requested.push_back(Ndmspc::NCombo::DefaultLevels(tree));
+
+    std::vector<std::vector<std::vector<int>>> combinations;
+    for (const std::string & text : requested) {
+      std::vector<std::vector<int>> levels;
+      if (!Ndmspc::NCombo::ParseLevels(text, levels)) {
+        NLogError("ndmspc-cli: --levels '%s' is unusable — expected [[0,2],[1]] or 0,2:1", text.c_str());
+        delete tree;
+        return Finish(1);
+      }
+      combinations.push_back(levels);
+    }
+
+    if (!run) {
+      NLogPrint("ndmspc-cli: planning only - pass --run to execute (nothing is written)");
+      NLogPrint("ndmspc-cli: job          : combo (precache combinations into the file)");
+      NLogPrint("ndmspc-cli: input        : %s", comboIn.c_str());
+      for (const auto & combination : combinations) {
+        NLogPrint("ndmspc-cli: levels       : %s", json(combination).dump().c_str());
+      }
+      NLogPrint("ndmspc-cli: map json     : %s", comboMap ? "stored too" : "not stored");
+      NLogPrint("ndmspc-cli: refresh      : %s", comboRefresh ? "yes" : "no (already-stored combinations are kept)");
+      delete tree;
+      return Finish(0);
+    }
+
+    std::vector<Ndmspc::NCombo::Result> results;
+    const bool ok = Ndmspc::NCombo::Store(tree, combinations, comboBinning, comboMap, comboRefresh, results);
+    delete tree;
+
+    for (const auto & result : results) {
+      const std::string what = result.already ? "already stored" : (result.stored ? "stored" : "NOT stored");
+      NLogPrint("ndmspc-cli: %-16s %s%s  children=%zu levels=%zu  digest=%s", json(result.levels).dump().c_str(),
+                what.c_str(), result.mapStored ? " + map" : "", result.children, result.nLevels,
+                result.digest.c_str());
+    }
+    return Finish(ok ? 0 : 1);
   }
   else if (*recordCmd) {
     RecordOptions options;

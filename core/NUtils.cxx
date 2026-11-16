@@ -1,6 +1,7 @@
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE // flock() and friends
 #endif
+#include <atomic>
 #include <cstddef>
 #include <cmath>
 #include <fcntl.h>
@@ -97,6 +98,16 @@ static std::mutex gProgressThrottleMutex;
  * @brief Map of callsite->last progress print time.
  */
 static std::unordered_map<void *, std::chrono::high_resolution_clock::time_point> gLastProgressTime;
+
+/**
+ * @brief Whether the current line holds an unterminated progress bar.
+ *
+ * A bar is drawn with a leading `\r` and only a finished one ends its line. Until then, anything else
+ * written to the console lands on top of it — the next log line and the bar collide, which read as
+ * `...[L0][===...]  20% (117/580) ...22:34:37.189] [INFO] Reshaping navigator DONE.`. Whoever prints a
+ * line closes the progress line first (see NLogger), so this says whether there is one to close.
+ */
+static std::atomic<bool> gProgressLineOpen{false};
 
 /**
  * @brief Minimum seconds between progress updates (configurable via NDMSPC_PROGRESS_THROTTLE_SEC).
@@ -308,6 +319,170 @@ int NUtils::Cp(std::string source, std::string destination, Bool_t progressbar)
   NLogInfo("Copying file from '%s' to '%s' ...", source.c_str(), destination.c_str());
   rc = TFile::Cp(source.c_str(), destination.c_str(), progressbar);
   return rc;
+}
+
+namespace {
+
+/// Run one EOS mgm command through TFile::Open; return the server's raw reply.
+std::string EosMgm(const std::string & host, const std::string & query)
+{
+  // `filetype=raw` is what makes the server answer with text (mgm.proc.stdout) instead of trying to hand
+  // back a ROOT file. This is the same command interface NUtils::FindEos uses for `find`.
+  const std::string url = "root://" + host + "//proc/user/?" + query + "&filetype=raw";
+  TFile *           file = TFile::Open(url.c_str());
+  std::string       out;
+  if (file != nullptr && !file->IsZombie()) {
+    const Long64_t size = file->GetSize();
+    auto           buffer = std::make_unique<char[]>(size + 1);
+    if (size > 0) file->ReadBuffer(buffer.get(), 0, size);
+    buffer[size] = '\0';
+    out          = buffer.get();
+    file->Close();
+  }
+  delete file;
+  return out;
+}
+
+/// The `mgm.proc.stdout` field of a reply, which is where a listing ends up.
+std::string EosStdout(const std::string & reply)
+{
+  const std::string marker = "mgm.proc.stdout=";
+  const auto        at     = reply.find(marker);
+  if (at == std::string::npos) return "";
+  const auto begin = at + marker.size();
+  const auto end   = reply.find("&mgm.proc.stderr=", begin);
+  return reply.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+}
+
+/// Whether an EOS reply reports success (the server is explicit about it).
+bool EosOk(const std::string & reply)
+{
+  const std::string marker = "mgm.proc.retc=0";
+  return reply.find(marker) != std::string::npos;
+}
+
+/// Remove an EOS path and everything under it, bottom-up.
+bool EosRemoveTree(const std::string & host, const std::string & path, bool recursive)
+{
+  // `xrdfs rm -r` is refused by some servers, so the tree is walked with `ls` and emptied by hand.
+  const std::string listing = EosStdout(EosMgm(host, "mgm.cmd=ls&mgm.path=" + path + "&mgm.option=l"));
+
+  std::vector<std::string> children;
+  size_t                   pos = 0;
+  while (pos < listing.size()) {
+    const auto        end   = listing.find('\n', pos);
+    std::string       line  = listing.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+    pos                     = (end == std::string::npos) ? listing.size() : end + 1;
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+    if (!line.empty()) children.push_back(line);
+  }
+
+  if (!children.empty() && !recursive) {
+    NLogError("NUtils::Rm: '%s' is a non-empty directory (pass recursive to remove it)", path.c_str());
+    return false;
+  }
+
+  bool ok = true;
+  for (const std::string & line : children) {
+    const bool        isDir = line.compare(0, 1, "d") == 0;
+    const std::string name  = line.substr(line.find_last_of(' ') + 1);
+    const std::string child = path + "/" + name;
+    if (isDir) {
+      ok = EosRemoveTree(host, child, true) && ok;
+    }
+    else {
+      ok = EosOk(EosMgm(host, "mgm.cmd=rm&mgm.path=" + child)) && ok;
+    }
+  }
+
+  // rmdir on a file is refused, so a leaf is removed with rm instead.
+  const bool removed = EosOk(EosMgm(host, "mgm.cmd=rmdir&mgm.path=" + path)) ||
+                       EosOk(EosMgm(host, "mgm.cmd=rm&mgm.path=" + path));
+  return removed && ok;
+}
+
+} // namespace
+
+double NUtils::Now()
+{
+  // steady_clock, not system_clock: a duration must not be affected by the system time being adjusted
+  // mid-measurement, which is exactly what happens on a shared machine running NTP.
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+double NUtils::Since(double since)
+{
+  if (since <= 0) return 0.0;
+  return Now() - since;
+}
+
+bool NUtils::Rm(const std::string & path, bool recursive)
+{
+  ///
+  /// Remove a file or a whole tree, locally or on a storage element
+  ///
+
+  if (path.empty()) {
+    NLogError("NUtils::Rm: An empty path was given");
+    return false;
+  }
+
+  const bool remote = path.find("://") != std::string::npos;
+  if (remote) {
+    TUrl url(path.c_str());
+    const std::string host = url.GetHost();
+    if (host.empty()) {
+      NLogError("NUtils::Rm: '%s' has no host", path.c_str());
+      return false;
+    }
+    const std::string file = url.GetFile();
+    if (file.empty() || file == "/") {
+      NLogError("NUtils::Rm: refusing to remove the root of '%s'", path.c_str());
+      return false;
+    }
+    if (file.find("://") == std::string::npos && path.find("root://") != 0) {
+      NLogError("NUtils::Rm: only root:// paths can be removed remotely ('%s')", path.c_str());
+      return false;
+    }
+    NLogInfo("NUtils::Rm: removing '%s' on '%s' ...", file.c_str(), host.c_str());
+    return EosRemoveTree(host, file, recursive);
+  }
+
+  // Local: a file, a link, or a directory tree.
+  FileStat_t stat;
+  if (gSystem->GetPathInfo(path.c_str(), stat) != 0) {
+    NLogInfo("NUtils::Rm: '%s' is already gone", path.c_str());
+    return true;
+  }
+
+  // A directory is walked; anything else is a file or a link, which unlink removes either way.
+  if (!(stat.fMode & kS_IFDIR)) return gSystem->Unlink(path.c_str()) == 0;
+
+  if (!recursive) {
+    NLogError("NUtils::Rm: '%s' is a directory (pass recursive to remove it)", path.c_str());
+    return false;
+  }
+
+  void * handle = gSystem->OpenDirectory(path.c_str());
+  if (handle == nullptr) {
+    NLogError("NUtils::Rm: cannot read directory '%s'", path.c_str());
+    return false;
+  }
+
+  bool                     ok = true;
+  std::vector<std::string> entries;
+  while (const char * name = gSystem->GetDirEntry(handle)) {
+    const std::string entry = name;
+    if (entry == "." || entry == "..") continue;
+    entries.push_back(entry);
+  }
+  gSystem->FreeDirectory(handle);
+
+  for (const std::string & entry : entries) {
+    ok = Rm(path + "/" + entry, true) && ok;
+  }
+  // TSystem has no rmdir; the C library does, which is all this needs once the tree is empty.
+  return ::rmdir(path.c_str()) == 0 && ok;
 }
 
 TAxis * NUtils::CreateAxisFromLabels(const std::string & name, const std::string & title,
@@ -2107,6 +2282,7 @@ void NUtils::ProgressBar(int current, int total, std::string prefix, std::string
     std::cout << "] 100% (0/0)";
     if (!suffix.empty()) std::cout << " [" << suffix << "]";
     std::cout << std::endl;
+    gProgressLineOpen = false;
     std::cout << std::flush;
     return;
   }
@@ -2144,7 +2320,13 @@ void NUtils::ProgressBar(int current, int total, std::string prefix, std::string
   std::cout << "] " << static_cast<int>(percentage * 100.0) << "%"
             << " (" << current << "/" << total << ")";
   if (!suffix.empty()) std::cout << " [" << suffix << "]";
-  if (current == total) std::cout << std::endl;
+  if (current == total) {
+    std::cout << std::endl;
+    gProgressLineOpen = false;
+  }
+  else {
+    gProgressLineOpen = true;
+  }
   std::cout << std::flush; // Ensure immediate output
 }
 
@@ -2166,6 +2348,7 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
     std::cout << "] 100% | ETA: 00:00:00 | elapsed: 00:00:00 | 0/0";
     if (!suffix.empty()) std::cout << " [" << suffix << "]";
     std::cout << std::endl;
+    gProgressLineOpen = false;
     std::cout << std::flush;
     return;
   }
@@ -2216,8 +2399,29 @@ void NUtils::ProgressBar(int current, int total, std::chrono::high_resolution_cl
             << "Elapsed: " << FormatTime(elapsedSeconds) << " "
             << "ETA: " << FormatTime(estimatedRemainingSeconds);
   if (!suffix.empty()) std::cout << " [" << suffix << "]";
-  if (current == total) std::cout << std::endl;
+  if (current == total) {
+    std::cout << std::endl;
+    gProgressLineOpen = false;
+  }
+  else {
+    gProgressLineOpen = true;
+  }
   std::cout << std::flush; // Ensure immediate output
+}
+
+bool NUtils::IsProgressLineOpen()
+{
+  return gProgressLineOpen;
+}
+
+void NUtils::EndProgressLine()
+{
+  if (!gProgressLineOpen.exchange(false)) return;
+  // Under the logger's mutex, like every other console write, so a line cannot land between the
+  // newline and whatever the caller is about to print.
+  std::lock_guard<std::recursive_mutex> lock(NLogger::GetLoggerMutex());
+  std::cout << std::endl;
+  std::cout << std::flush;
 }
 
 TCanvas * NUtils::CreateCanvas(const std::string & name, const std::string & title, int width, int height)
@@ -2287,7 +2491,16 @@ void NUtils::SafeDeleteObjects(std::vector<TObject *> & objects)
     prims->Clear("nodelete");
   }
 
-  // Delete all input objects (canvas/pad destructors find empty primitive lists)
+  // Delete all input objects (canvas/pad destructors find empty primitive lists).
+  //
+  // MustClean is restored **first**, deliberately. Deleting with it off skips TObject::RecursiveRemove,
+  // so ROOT's global lists (gROOT->GetListOfFunctions(), the histogram lists, …) keep pointers to the
+  // objects just freed. The next ROOT call that walks one of those lists — a second `TH1::Fit`, which
+  // scans the function list — then dereferences freed memory and crashes. That is what aborted forked
+  // IPC workers on the second bin of a fit-heavy macro. The primitive lists are already disarmed above,
+  // so the cascade this function exists to avoid cannot happen; letting RecursiveRemove run is safe and
+  // is what keeps the global lists consistent.
+  gROOT->SetMustClean(prevMustClean);
   for (auto * obj : objects) {
     if (obj) delete obj;
   }
@@ -2297,8 +2510,6 @@ void NUtils::SafeDeleteObjects(std::vector<TObject *> & objects)
   for (auto * obj : orphans) {
     delete obj;
   }
-
-  gROOT->SetMustClean(prevMustClean);
 }
 
 void NUtils::SafeDeleteTList(TList *& lst)

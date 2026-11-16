@@ -93,6 +93,44 @@ class NUtils : TObject {
    * @return Status code (0 for success).
    */
   static int Cp(std::string source, std::string destination, Bool_t progressbar = kTRUE);
+
+  /**
+   * @brief Remove a file or a whole directory tree, locally or on a storage element.
+   *
+   * One call for both worlds, because callers should not have to know where their data lives:
+   *
+   * - **Local paths** use `TSystem` (unlink, then a recursive walk for a directory).
+   * - **`root://` (EOS/XRootD)** uses the server's own `mgm.cmd` interface, opened through
+   *   `TFile::Open` with `filetype=raw` — the same mechanism `FindEos` uses for `find`. No `eos`/`xrdfs`
+   *   binary is required, and no shell is involved.
+   *
+   * `xrdfs rm -r` is refused by some servers ("Removing relative path '-r' is disallowed"), so a remote
+   * tree is walked and emptied bottom-up with `mgm.cmd=ls`, `mgm.cmd=rm` and `mgm.cmd=rmdir` instead.
+   *
+   * @param path The file or directory to remove; a URL or a local path.
+   * @param recursive Descend into a directory. False refuses a non-empty directory rather than failing
+   *        halfway through it.
+   * @return True when everything named was removed (or was already gone).
+   */
+  static bool Rm(const std::string & path, bool recursive = false);
+
+  /**
+   * @brief A monotonic timestamp in seconds, for timing a phase.
+   *
+   * `steady_clock`, so it cannot jump when the system time is adjusted — which is what a duration needs.
+   * Only differences between two readings are meaningful; the origin is arbitrary.
+   *
+   * @return Seconds since an unspecified origin.
+   */
+  static double Now();
+
+  /**
+   * @brief The elapsed seconds between two `Now()` readings.
+   * @param since A value previously returned by `Now()`.
+   * @return Seconds elapsed since then; 0 when `since` is not positive.
+   */
+  static double Since(double since);
+
   static bool CreateDirectory(const std::string & path);
   /**
    * @brief Parse a boolean-like environment value string.
@@ -702,6 +740,25 @@ class NUtils : TObject {
    */
   static void ProgressBar(int current, int total, std::chrono::high_resolution_clock::time_point startTime,
                           std::string prefix = "", std::string suffix = "", int barWidth = 50);
+
+  /**
+   * @brief Whether a progress bar has been written and its line not yet closed.
+   *
+   * A bar is drawn with a carriage return and no newline, so whatever prints next lands on top of it.
+   * Anything that writes a line while a bar is up calls `EndProgressLine()` first; this says whether
+   * that is needed.
+   *
+   * @return True when a bar is on the current line.
+   */
+  static bool IsProgressLineOpen();
+
+  /**
+   * @brief Close the line a progress bar was drawn on, if any, so the next output starts afresh.
+   *
+   * Writes the newline the bar withheld. Does nothing when no bar is open, so it is safe to call before
+   * every line of output.
+   */
+  static void EndProgressLine();
 
   /**
    * @brief Create a ROOT TCanvas with specified name, title, and dimensions.

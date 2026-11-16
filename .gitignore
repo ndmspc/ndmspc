@@ -30,6 +30,8 @@
 
 *.root
 *.par
+*.pcm
+*.d
 
 build
 out

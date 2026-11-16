@@ -2,7 +2,7 @@
 
 The two macros here are **thin wrappers**: the implementation lives in the library as
 `Ndmspc::NUtils::FileToNGnTree()` and `Ndmspc::NUtils::NGnTreeMerge()` (`core/NUtils.{h,cxx}`), so
-the project must be built and installed (`toolbox run -c fedora-toolbox-44 -- bash -lc 'cd ndmspc
+the project must be built and installed (`toolbox run -c fedora-toolbox-45 -- bash -lc 'cd ndmspc
 && ./scripts/make.sh install'`) before running them.
 
 Both functions take the configuration as a **`json` object**. Each macro builds its default
