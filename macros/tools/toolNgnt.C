@@ -211,20 +211,23 @@ json DrawnNodePath(Ndmspc::NRouteContext & ctx)
 /**
  * Record the spectra call the macro's line makes, on the step itself.
  *
- * The step's arguments are the form's, and a form may leave `axismargin` or `minmaxMode` out — the room then
- * uses its own defaults, which the export cannot know (they are not the library's). So the room records what
- * it actually did: the parameter the line is for (the first of those drawn) and the two values it resolved.
- * It is the step's bookkeeping (`NInstanceTree::SetParams`), so its form never shows them, and the line the
- * tool declared reads the room's call rather than a guess at it.
+ * The step's arguments are the form's, and a form may leave `axismargin`, `minmaxMode` or `startPad` out — the
+ * room then uses its own defaults, which the export cannot know (they are not the library's). So the room
+ * records what it actually did: the parameters and the pad drawn for, the parameter the line is for (the first
+ * of those drawn) and the two values it resolved. The step then reads back as the call it made, the way any
+ * step run from its form does; `parameter` stays the step's own hidden bookkeeping, and the line the tool
+ * declared reads the room's call rather than a guess at it.
  *
  * @param ctx The request.
  * @param parameters The parameters the spectra were drawn for (the first names the macro's line).
+ * @param startPad The first pad the spectra were put on.
  * @param axismargin The edge margin in use.
  * @param minmaxMode The min/max mode in use.
  * @param point The layer it drew for, recorded as the step's own state (see `NRouteContext::SetStatePoint`).
  */
-void RecordSpectraCall(Ndmspc::NRouteContext & ctx, const std::vector<std::string> & parameters, double axismargin,
-                       const std::string & minmaxMode, const std::vector<int> & point)
+void RecordSpectraCall(Ndmspc::NRouteContext & ctx, const std::vector<std::string> & parameters,
+                       const std::string & startPad, double axismargin, const std::string & minmaxMode,
+                       const std::vector<int> & point)
 {
   Ndmspc::NHttpServer * server = ctx.Server();
   if (server == nullptr) return;
@@ -236,6 +239,8 @@ void RecordSpectraCall(Ndmspc::NRouteContext & ctx, const std::vector<std::strin
 
   json params = tree.Params(node);
   if (!params.is_object()) params = json::object();
+  params["parameters"] = parameters;
+  params["startPad"]   = startPad;
   params["parameter"]  = parameters.empty() ? std::string() : parameters.front();
   params["axismargin"] = axismargin;
   params["minmaxMode"] = minmaxMode;
@@ -274,6 +279,70 @@ void RecordLayerPoint(Ndmspc::NRouteContext & ctx)
 
   recorded["point"] = json::array();
   tree.SetState(node, recorded);
+}
+
+/// A reshape cache mode as the form names it (the four answers `cache` offers).
+std::string CacheModeName(Ndmspc::NReshapeCache::CacheMode mode)
+{
+  switch (mode) {
+    case Ndmspc::NReshapeCache::CacheMode::kUse: return "use";
+    case Ndmspc::NReshapeCache::CacheMode::kRebuild: return "rebuild";
+    case Ndmspc::NReshapeCache::CacheMode::kIgnore: return "ignore";
+    case Ndmspc::NReshapeCache::CacheMode::kUseOrStore: break;
+  }
+  return "use-or-store";
+}
+
+/// The home a reshape writes to, as the request names it or as the form offers it for this input.
+///
+/// The form's "Store in" choices are the cache file and the input file itself (see `BuildReshapeSchema`), so
+/// an omitted home is recorded as the choice the form would have opened on rather than as the empty string a
+/// select draws as "nothing chosen".
+std::string ReshapeCacheHome(Ndmspc::NGnTree * ngnt, bool given, const std::string & asked)
+{
+  if (given && !asked.empty()) return asked;
+  if (ngnt == nullptr || ngnt->GetStorageTree() == nullptr) return "";
+  const std::string input = ngnt->GetStorageTree()->GetFileName();
+  if (input.empty()) return "";
+
+  // An explicit empty home is the cache directory, and an omitted one follows the input: in-file for local
+  // data, the cache directory for remote data (see `NReshapeCache::DefaultCacheFile`).
+  const std::string inFile = Ndmspc::NReshapeCache::DefaultCacheFile(input);
+  if (!given && !inFile.empty()) return inFile;
+  const std::string cacheFile = Ndmspc::NReshapeCache::CacheFilePath(input);
+  return cacheFile.empty() ? input : cacheFile;
+}
+
+/**
+ * Record the arguments a step actually ran with, on the step itself.
+ *
+ * A request may leave a field out and let the handler choose (a pad, a cache mode, a worker count). The node
+ * is created from the request alone (`NHttpServer::NodeParams`), so without this the inspector - which fills
+ * an existing step's form from the node's parameters - shows those fields empty, and a label reading
+ * `{{ mappingPad }}` has nothing to show. Recording what the handler resolved makes the step say what ran,
+ * exactly as a step run from the form does. It is the step's own bookkeeping (`NInstanceTree::SetParams`),
+ * the same way `RecordSpectraCall` records the spectra call; the label is rendered again with it.
+ *
+ * @param ctx The request; the step it runs for is the room's current instance.
+ * @param arguments The values the handler resolved. Null members are left alone.
+ */
+void RecordStepArguments(Ndmspc::NRouteContext & ctx, const json & arguments)
+{
+  if (!arguments.is_object() || arguments.empty()) return;
+  Ndmspc::NHttpServer * server = ctx.Server();
+  if (server == nullptr) return;
+  const std::string & node = server->GetCurrentInstance();
+  if (node.empty()) return;
+
+  Ndmspc::NInstanceTree tree(server->GetCombinations());
+  if (!tree.Has(node)) return; // not a step of a combination: nothing to record on
+
+  json params = tree.Params(node);
+  if (!params.is_object()) params = json::object();
+  for (auto it = arguments.begin(); it != arguments.end(); ++it) {
+    if (!it.value().is_null()) params[it.key()] = it.value();
+  }
+  tree.SetParams(node, params);
 }
 
 json BuildMapClickAction(const std::vector<int> & point, int level, const std::string & group = "",
@@ -705,7 +774,7 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
   schema["order"]  = {"binningName", "levels", "nWorkers", "cache", "cacheFile"};
   schema["groups"] = json::array({{{"title", "Cache"},
                                    {"fields", {"cache", "cacheFile"}},
-                                   {"collapsed", false}}});
+                                   {"collapsed", true}}});
   return schema;
 }
 
@@ -1047,7 +1116,9 @@ void toolNgnt()
                             {"parameter", {{"type", "string"}, {"hidden", true}}}}}},
           .dependsOn   = {group + "/map"},
           .order       = 4,
-          .label       = "{{ parameters }}",
+          // The parameter the line is for (the first of those drawn, recorded with the call), so the step
+          // reads as the analysis rather than as the JSON of a list the form happens to hold.
+          .label       = "{{ parameter }}",
           // What this step is in C++, for a combination written out as a macro (`ndmspc/macro`): the spectra
           // the room obtained, as the list the library hands back — nothing is drawn, and the user goes on
           // with the list themselves. It is taken at the layer the step is on (the same walk the map's line
@@ -1373,12 +1444,23 @@ void toolNgnt()
 
       server->AddInputObject(ctx.ObjectName("navigator"), nav);
 
+      // The step says what it ran with, including the values the request left to the handler: the resolved
+      // binning (an empty name means the file's current definition), the levels the navigator was actually
+      // built with, the worker count, and where the cache was read or kept. A step run from the form already
+      // holds these, because the form sends them; this is what makes an MCP run read back the same way.
+      RecordStepArguments(ctx, json{{"binningName", cacheKey.binning},
+                                    {"levels", nav->GetLevels()},
+                                    {"nWorkers", nWorkers},
+                                    {"cache", CacheModeName(cacheMode)},
+                                    {"cacheFile", ReshapeCacheHome(ngnt, cacheFileGiven, cacheFileParam)}});
+
       if (!ctx.Workspace()[reshapeKey].contains("type")) {
         ctx.Workspace()[reshapeKey] = BuildReshapeSchema(ngnt);
       }
 
-      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "levels", levels);
-      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "binningName", binningName);
+      // The form's next start is the call that just ran, not the request that named only part of it.
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "levels", nav->GetLevels());
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "binningName", cacheKey.binning);
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "nWorkers", nWorkers);
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
@@ -1504,6 +1586,11 @@ void toolNgnt()
                    ", cannot render map");
         return;
       }
+
+      // The step says which pads it drew on and whether it averaged deeper levels, even when the request
+      // left them out (see RecordStepArguments). Recorded after the drawing succeeded, so a failed map does
+      // not read back as one that ran.
+      RecordStepArguments(ctx, json{{"mappingPad", mappingPad}, {"contentPad", contentPad}, {"averages", averages}});
 
       // A repeated map POST first drops the previous "map" entry, which also
       // drops it as an orphaned workspace key, so the schema has to be built
@@ -1743,7 +1830,7 @@ void toolNgnt()
       // it drew for (see RecordSpectraCall) — the layer only here, after the walk above, since that is what
       // settles it (a point may name a bin that holds no data, and the walk moves to the level's first bin
       // that does).
-      RecordSpectraCall(ctx, parameters, minmax, minmaxMode, point);
+      RecordSpectraCall(ctx, parameters, spectraPad, minmax, minmaxMode, point);
 
       int padIndex = ParsePadIndex(spectraPad);
       // A fresh draw owns the pads it draws to (`replace`), so spectra from another combination do not
@@ -1813,7 +1900,7 @@ void toolNgnt()
 
       // A drill draws spectra for the same parameter the step is on: the step keeps reading what it drew,
       // including the layer the drill landed on.
-      RecordSpectraCall(ctx, parameters, minmax, minmaxMode, point);
+      RecordSpectraCall(ctx, parameters, spectraPad, minmax, minmaxMode, point);
 
       RenderSpectra(ctx, navCurrent, parameters, minmax, minmaxMode, padIndex, point);
       ctx.Success();
