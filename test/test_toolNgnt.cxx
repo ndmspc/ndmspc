@@ -78,7 +78,7 @@ const ToolAction kChain[] = {
     {"ndmspc/ngnt/open", "", "{{ file }}", 1},
     {"ndmspc/ngnt/reshape", "ndmspc/ngnt/open", "{{ binningName }} ({{ levels }})", 2},
     {"ndmspc/ngnt/map", "ndmspc/ngnt/reshape", "{{ mappingPad }}", 3},
-    {"ndmspc/ngnt/spectra", "ndmspc/ngnt/map", "{{ parameters }}", 4},
+    {"ndmspc/ngnt/spectra", "ndmspc/ngnt/map", "{{ parameter }}", 4},
     {"ndmspc/ngnt/point", "ndmspc/ngnt/map", "", 5},
 };
 
@@ -678,7 +678,7 @@ TEST_F(ToolNgnt, TheFormOffersCacheModesAndHomes)
   EXPECT_EQ(reshape["groups"][0]["title"], "Cache");
   EXPECT_EQ(reshape["groups"][0]["fields"], json::array({"cache", "cacheFile"}))
       << "workers is not a cache field";
-  EXPECT_EQ(reshape["groups"][0]["collapsed"], false) << "the cache section is shown, not hidden";
+  EXPECT_EQ(reshape["groups"][0]["collapsed"], true) << "the cache section starts folded away";
 
   // The remote case, on the schema alone: a root:// name defaults to the cache file, never to a path on the
   // server that a default must not write to.
@@ -693,6 +693,70 @@ TEST_F(ToolNgnt, TheFormOffersCacheModesAndHomes)
     EXPECT_EQ(remoteProps["cacheFile"]["default"], remoteProps["cacheFile"]["enum"][0])
         << "it opens on the cache file, which is the first choice offered";
   }
+}
+
+/**
+ * A step says what it ran with, even when the request left the arguments out.
+ *
+ * The inspector fills an existing step's form from the node's parameters, so a request that omits a field -
+ * the pads of a map, the cache a reshape used, the parameter a spectra drew for - would leave the step
+ * reading empty even though the handler resolved it. Recording the resolved call on the node is what makes an
+ * MCP run read back the way a run from the form does.
+ */
+TEST_F(ToolNgnt, AStepRecordsTheArgumentsItResolved)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  Ndmspc::NHttpServer * server = fTool->Server();
+
+  const json opened = Dispatch(server, "POST", "ndmspc/ngnt/open", {{"file", kNgntFile}});
+  ASSERT_EQ(opened["result"], "success") << opened.dump();
+
+  // Binning and levels are named; the worker count, the cache mode and the home are left to the handler.
+  const json reshaped = Dispatch(server, "POST", "ndmspc/ngnt/reshape",
+                                 {{"binningName", "default"}, {"levels", json::array({json::array({0, 1, 2})})}});
+  ASSERT_EQ(reshaped["result"], "success") << reshaped.dump();
+  const std::string reshapeId = reshaped["combination"]["id"];
+
+  const json mapped = Dispatch(server, "POST", "ndmspc/ngnt/map", json::object());
+  ASSERT_EQ(mapped["result"], "success") << mapped.dump();
+  const std::string mapId = mapped["combination"]["id"];
+
+  const json spectra = Dispatch(server, "POST", "ndmspc/ngnt/spectra", json::object());
+  ASSERT_EQ(spectra["result"], "success") << spectra.dump();
+  const std::string spectraId = spectra["combination"]["id"];
+
+  Ndmspc::NInstanceTree tree(server->GetCombinations());
+  ASSERT_EQ(tree.Active(), (std::vector<std::string>{opened["combination"]["id"].get<std::string>(), reshapeId, mapId,
+                                                     spectraId}))
+      << tree.ToTree().dump();
+
+  const json reshape = tree.Params(reshapeId);
+  EXPECT_EQ(reshape.value("binningName", std::string()), "default");
+  EXPECT_EQ(reshape.value("levels", json()), json::array({json::array({0, 1, 2})}));
+  EXPECT_EQ(reshape.value("nWorkers", 0), std::max(1, static_cast<int>(Ndmspc::NUtils::AvailableCpuCount())))
+      << "the worker count the reshape used is part of the step";
+  EXPECT_EQ(reshape.value("cache", std::string()), "use-or-store") << "the default cache mode is recorded";
+  const std::string home = reshape.value("cacheFile", std::string());
+  EXPECT_NE(home.find(kNgntFile), std::string::npos) << "a local input keeps its entries in itself: " << home;
+  EXPECT_EQ(tree.Get(reshapeId)["label"].get<std::string>(), "default ([[0,1,2]])");
+
+  const json map = tree.Params(mapId);
+  EXPECT_EQ(map.value("mappingPad", std::string()), "pad1") << "the pads the map defaulted to are recorded";
+  EXPECT_EQ(map.value("contentPad", std::string()), "pad2");
+  EXPECT_EQ(map.value("averages", false), true);
+  EXPECT_EQ(tree.Get(mapId)["label"].get<std::string>(), "pad1") << "the label reads the pad the map drew on";
+
+  const json drawn = tree.Params(spectraId);
+  EXPECT_EQ(drawn.value("parameters", json()), json::array({"meanFit"})) << "the parameter the form left out";
+  EXPECT_EQ(drawn.value("startPad", std::string()), "pad3") << "the first pad the spectra landed on";
+  EXPECT_EQ(drawn.value("parameter", std::string()), "meanFit") << "what the macro's line is for";
+  EXPECT_EQ(drawn.value("axismargin", 0.0), 1.0);
+  EXPECT_EQ(drawn.value("minmaxMode", std::string()), "V");
+  EXPECT_EQ(tree.Get(spectraId)["label"].get<std::string>(), "meanFit")
+      << "the step is named by the parameter it drew for, not by the JSON of a list";
 }
 
 } // namespace
