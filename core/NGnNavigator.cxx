@@ -470,7 +470,8 @@ NGnNavigator * NGnNavigator::Reshape(NBinningDef * binningDef, std::vector<std::
 NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level,
                                          std::map<int, std::vector<int>> ranges,
                                          std::map<int, std::vector<int>> rangesBase, NGnNavigator * parent,
-                                         const std::vector<int> & minBins, const std::vector<int> & maxBins)
+                                         const std::vector<int> & minBins, const std::vector<int> & maxBins,
+                                         const std::string & progressPrefix, const std::string & progressOfLevel)
 {
   ///
   /// Reshape one bin sub-range of a level (the whole level when the bounds are empty)
@@ -550,6 +551,16 @@ NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<s
     const bool   showProgress = nBinsLevel > 1;
     const auto   startLevel   = std::chrono::high_resolution_clock::now();
     std::atomic<size_t> nBinsDone{0};
+    // The bin a worker was handed, in dispatch order: `nBinsDone` only knows what has *finished*, so the
+    // parallel entry point reads zero for every worker that starts before the first one returns.
+    std::atomic<size_t> nBinsStarted{0};
+    // What this level's bar is tagged with: where the enclosing loops are, then this level ("L0 3/5 | L1"),
+    // with this level's own place when the caller counts for it (a worker over the first layer). The counter
+    // inside the parentheses stays this level's own.
+    const TString levelTag =
+        progressOfLevel.empty()
+            ? TString::Format("%sL%zu", progressPrefix.c_str(), level)
+            : TString::Format("%sL%zu %s", progressPrefix.c_str(), level, progressOfLevel.c_str());
     // A reshape worker also enters at level 0, restricted to one bin; only the call that reshapes the
     // whole level announces the levels, or the header would be printed once per worker.
     if (level == 0 && minBins.empty()) {
@@ -578,7 +589,8 @@ NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<s
     }
 
     auto loop_task_bin = [this, current, binningDef, levels, level, ranges, rangesBase, perLevelProjection,
-                          &nBinsDone, nBinsLevel, startLevel, showProgress](const std::vector<int> & coords) {
+                          &nBinsDone, nBinsLevel, startLevel, showProgress,
+                          levelTag](const std::vector<int> & coords) {
       NLogTrace("NGnNavigator::Reshape: [B%d] Processing coordinates: coords=%s levels=%s", level,
                 NUtils::GetCoordsString(coords, -1).c_str(), NUtils::GetCoordsString(levels[level]).c_str());
       NLogTrace("NGnNavigator::Reshape: [L%d] Generating %zuD histogram %s with ranges: %s", level,
@@ -887,11 +899,17 @@ NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<s
       }
       if (current->GetChildren().size() != nCells) current->SetChildrenSize(nCells);
       current->SetChild(currentChild, indexInProj); // Set the child at the index
-      // execute next child (always the full range: the restriction is this level's only)
-      ReshapeBins(binningDef, levels, level + 1, rangesTmp, rangesBaseTmp, currentChild, {}, {});
+      // execute next child (always the full range: the restriction is this level's only). The child's bar says
+      // which bin of this level it is under: `nBinsDone` counts the bins *finished*, so the one being processed
+      // is the next. A level with a single bin names itself without a `1/1`.
+      const std::string childPrefix =
+          nBinsLevel > 1
+              ? TString::Format("%s %zu/%zu | ", levelTag.Data(), nBinsDone.load() + 1, nBinsLevel).Data()
+              : TString::Format("%s | ", levelTag.Data()).Data();
+      ReshapeBins(binningDef, levels, level + 1, rangesTmp, rangesBaseTmp, currentChild, {}, {}, childPrefix);
 
       if (showProgress) {
-        NUtils::ProgressBar(++nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+        NUtils::ProgressBar(++nBinsDone, nBinsLevel, startLevel, levelTag.Data());
       }
     };
     // A cancelled action stops at the next point and unwinds: the loop returns, the navigator is left
@@ -933,9 +951,14 @@ NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<s
       std::vector<std::map<int, NGnNavigator *>> perWorker(nWorkers);
       executorBin.ExecuteParallel<NGnReshapeWorkerData>(
           [&](const std::vector<int> & coords, NGnReshapeWorkerData & worker) {
+            // The worker reshapes one bin of this level, so its own tag has to carry the place it is at.
+            const size_t started = ++nBinsStarted;
+            worker.SetProgressOfLevel(nBinsLevel > 1
+                                          ? TString::Format("%zu/%zu", started, nBinsLevel).Data()
+                                          : "");
             worker.Process(coords);
             if (showProgress) {
-              NUtils::ProgressBar(++nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+              NUtils::ProgressBar(++nBinsDone, nBinsLevel, startLevel, levelTag.Data());
             }
           },
           workers, []() { return NCancellation::IsCancelled(); });
@@ -995,7 +1018,7 @@ NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<s
       // Only a cancelled run leaves the bar short of 100%; a finished one closed its own line, and
       // drawing it again printed the same 100% bar twice.
       if (showProgress && NUtils::IsProgressLineOpen()) {
-        NUtils::ProgressBar(nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+        NUtils::ProgressBar(nBinsDone, nBinsLevel, startLevel, levelTag.Data());
       }
     }
     else {
@@ -1003,7 +1026,7 @@ NGnNavigator * NGnNavigator::ReshapeBins(NBinningDef * binningDef, std::vector<s
       // Close the layer's bar if it is still open — a cancellation stops short of 100%, and the next
       // layer must not be appended to a half-drawn line. A run that finished closed its own line.
       if (showProgress && NUtils::IsProgressLineOpen()) {
-        NUtils::ProgressBar(nBinsDone, nBinsLevel, startLevel, TString::Format("L%zu", level).Data());
+        NUtils::ProgressBar(nBinsDone, nBinsLevel, startLevel, levelTag.Data());
       }
     }
   }

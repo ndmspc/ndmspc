@@ -19,7 +19,12 @@ errors[i] = sum(sigma_k^2) / N^2      variance of the unweighted mean
 ```
 
 `errors` are stored as variances (matching the leaf `errors`, i.e. `fSumw2`), and
-the average is propagated recursively up to the root.
+the average is propagated recursively up to the root. That is also how the viewer reads
+them: the map's `content` copies a parameter's `values` into a drawn histogram, and its
+`errors` — again as they are, they are already the variance — when the step is asked to
+show the errors instead of the values. The drawing's range is the export's `min`/`max`
+(or `minE`/`maxE` for the errors), so a level the export has no `values` for falls back
+to the entry ids its projection carries.
 
 Averaging is **on by default**. It can be turned off for large navigators, which
 avoids the extra JSON size and CPU cost; higher levels then keep only the

@@ -111,7 +111,8 @@ void NGnReshapeWorkerData::Process(const std::vector<int> & coords)
   std::unique_ptr<NGnNavigator> worker(new NGnNavigator());
   worker->SetGnTree(fTree);
 
-  NGnNavigator * root = worker->ReshapeBins(binningDef, fLevels, 0, fRanges, fRangesBase, nullptr, coords, coords);
+  NGnNavigator * root = worker->ReshapeBins(binningDef, fLevels, 0, fRanges, fRangesBase, nullptr, coords, coords,
+                                            "", fProgressOfLevel);
   if (root == nullptr) {
     NLogError("NGnReshapeWorkerData::Process: Reshape failed for bin %s", NUtils::GetCoordsString(coords).c_str());
     return;

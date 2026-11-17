@@ -60,6 +60,16 @@ class NGnReshapeWorkerData : public NThreadData {
   virtual void Process(const std::vector<int> & coords) override;
 
   /**
+   * @brief Record where the bin this worker reshapes sits in its layer's progress ("3/5").
+   *
+   * The layer's own bar is drawn by the caller, which alone knows the total; without this the worker's
+   * progress tag could name its level but not its place in it.
+   *
+   * @param place "done/total" for the layer, or empty to leave it out.
+   */
+  void SetProgressOfLevel(const std::string & place) { fProgressOfLevel = place; }
+
+  /**
    * @brief The subtrees this worker built, keyed by the projection cell they belong at.
    *
    * The caller owns them from here on: it attaches each one to the real navigator's slot and deletes
@@ -90,6 +100,7 @@ class NGnReshapeWorkerData : public NThreadData {
   std::map<int, std::vector<int>> fRanges{};        ///< Ranges for the first layer
   std::map<int, std::vector<int>> fRangesBase{};    ///< Base ranges for the first layer
   size_t                         fNReshaped{0};     ///< Bins reshaped
+  std::string                    fProgressOfLevel{}; ///< Where this worker's bin sits ("3/5")
   std::map<int, NGnNavigator *>  fSubtrees{};       ///< Subtree per projection index (owned)
 
   /// \cond CLASSIMP

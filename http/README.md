@@ -759,6 +759,7 @@ into a text box and a parameter list into a JSON box.
 | `items.type`, `items.items.type` | an array's element type; `array` again for levels | a list editor; the levels editor |
 | `default` | the current value (a list for a multi-select) | what the form starts from |
 | `render` | `checkbox` / `radio` for the alternate widget | a checkbox list, a radio list |
+| `refresh` | a field whose change re-derives what the step shows; the client re-asks the tool with the form as it now stands | the drawing is replaced where it is, without a Save & Run |
 | `hint` (schema root) | text about the form as a whole | a muted line above the fields |
 
 The picker follows `format` when it is declared and the shape when it is not, so a tool that declares
@@ -1370,6 +1371,31 @@ A **nested reshape** is the case that uses this. Each navigator layer goes as it
 `levels = [[0],[1,2]]` fills its pad with one tab per layer, named by that layer's axes as the map
 itself labels them (`phi`, `phi-eta`) — and a drill-down into a layer replaces the tabs, so the strip
 always describes where the navigator is rather than growing a trail.
+
+**What a mapping's bins hold.** By default they are the entry ids the projection carries. `content`
+picks the entry ids (`id`, the default) or one of the tree's parameters instead, and a parameter's cells
+come from the same export the 3D view reads (`fArrays`) — the export the map already keeps beside the
+reshape, so a layer costs nothing extra. `fixedRange` (off by default) scales the drawing by that export's range for
+**the whole layer** (`min` of the nodes' `min`, `max` of their `max` — the range the 3D view uses,
+so a layer's slices compare with each other); left off, the canvas fits what the slice draws. A layer whose
+axes are labelled (categorical, `entries = 1000`) always keeps the canvas's fit — a range describes a
+continuous quantity, which named bins are not. `errors`
+(off by default) is the second reading of the same layer: the bins then hold the parameter's own errors
+from the export instead of its values, as stored — the numbers the 3D view scales by when it scales by
+the error — and the tab's title says so (`meanFit errors`). The first layer carries that choice beside its
+`content` (`errors: true`), so a viewer that scales by either — the 3D scene's `scaleBy` — follows the
+drawing instead of the values behind it. An entry id has no error, so it applies to a parameter only. A **3-axis** level is drawn offset by its own minimum — jsroot sizes a TH3 cube by
+`∛|value|`, so a signed value would lose its sign and a layer of `meanFit` would grow a cube at -2.5 as
+much as at +2.5. With the offset the cube sizes grow with the value, the way the 3D view's heights do;
+the colours are unchanged, cells with no data are left at 0 (not drawn), and the pad's TH3 cells then
+read as offsets rather than the parameter itself (the nested export keeps the true numbers).
+Changing either re-draws the mapping **in place**: a `PATCH` of the step with no drill coordinate
+replaces each layer's own tab, so the tab the user is on stays put, and a level the export has no values
+for falls back to its entry ids. A bin click still names its entry, because a parameter value in the
+cell is not one: the id is read from the projection at the clicked bin (`args.bin`). The **first layer
+also says what the drawing shows** (`content`, next to the `nested` export), so a viewer that keeps its
+own array selection — the 3D scene's default is the entry ids — opens on the same quantity instead of
+having to guess it from the picture.
 
 ### Clicks: what the UI sends back
 
