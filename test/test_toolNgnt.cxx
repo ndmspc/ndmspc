@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -678,7 +680,8 @@ TEST_F(ToolNgnt, TheFormOffersCacheModesAndHomes)
   EXPECT_EQ(reshape["groups"][0]["title"], "Cache");
   EXPECT_EQ(reshape["groups"][0]["fields"], json::array({"cache", "cacheFile"}))
       << "workers is not a cache field";
-  EXPECT_EQ(reshape["groups"][0]["collapsed"], true) << "the cache section starts folded away";
+  EXPECT_EQ(reshape["groups"][0]["collapsed"], true)
+      << "the cache section starts closed: the reshape is about the binning and the levels";
 
   // The remote case, on the schema alone: a root:// name defaults to the cache file, never to a path on the
   // server that a default must not write to.
@@ -692,6 +695,570 @@ TEST_F(ToolNgnt, TheFormOffersCacheModesAndHomes)
         << "a remote input must not default to writing the input";
     EXPECT_EQ(remoteProps["cacheFile"]["default"], remoteProps["cacheFile"]["enum"][0])
         << "it opens on the cache file, which is the first choice offered";
+  }
+}
+
+/// Open the tutorial's tree and reshape it the way the tests below draw it: two layers, `[mean]` and `[sigma]`.
+void OpenAndReshape(ToolHarness & tool)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  ASSERT_EQ(tool.Call("ndmspc/ngnt/open", "POST", {{"file", kNgntFile}}).reply["result"], "success");
+  ASSERT_EQ(tool.Call("ndmspc/ngnt/reshape", "POST",
+                      {{"binningName", "default"},
+                       {"levels", json::array({json::array({0}), json::array({1, 2})})}})
+                .reply["result"],
+            "success");
+}
+
+/// Whether two JSON arrays of numbers agree.
+///
+/// ROOT's serializer writes a zero as `0` where the export has `0.0` (and JSON equality is by type), and a
+/// value that is copied into a histogram and serialized again is not bit-identical to the one it came from:
+/// the arrays are the same numbers, so they are compared as such.
+bool CloseNumbers(const json & left, const json & right, double tolerance = 1e-12)
+{
+  if (!left.is_array() || !right.is_array() || left.size() != right.size()) return false;
+  for (size_t i = 0; i < left.size(); i++) {
+    if (!left[i].is_number() || !right[i].is_number()) return false;
+    const double a = left[i].get<double>();
+    const double b = right[i].get<double>();
+    if (std::fabs(a - b) > tolerance * std::max(1.0, std::fabs(a))) return false;
+  }
+  return true;
+}
+
+/**
+ * Every layer draws the values of **its own** slice of the export.
+ *
+ * A deeper layer is a child node of the export, not the root again: the root's own `fArray` is the 0/1 presence
+ * mask (the export overwrites it), so the first set cell names the child bin the walk descended into.
+ */
+TEST_F(ToolNgnt, EveryLayerShowsItsOwnSlicesValues)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall byMean = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}});
+  ASSERT_EQ(byMean.reply["result"], "success") << byMean.reply.dump();
+  const json pads = ToolHarness::Pads(byMean);
+  ASSERT_GE(pads.size(), 2u) << "the mapping draws the navigator's two levels";
+
+  const json & root = pads[0]["value"]["nested"];
+  ASSERT_TRUE(root.contains("fArray")) << root.dump();
+  ASSERT_TRUE(root.contains("children")) << root.dump();
+
+  // The export's root `fArray` is the presence mask: the first set cell is the child the layer walk took.
+  int childBin = -1;
+  for (size_t i = 0; i < root["fArray"].size() && childBin < 0; i++) {
+    if (root["fArray"][i].is_number() && root["fArray"][i].get<double>() != 0.0) childBin = static_cast<int>(i);
+  }
+  ASSERT_GE(childBin, 0) << root["fArray"].dump();
+
+  const json & child = root["children"]["content"][childBin];
+  ASSERT_TRUE(child.contains("fArrays")) << child.dump();
+  ASSERT_TRUE(child["fArrays"].contains("meanFit")) << child["fArrays"].dump();
+
+  // The deeper layer's cells are that child's values, not the root's.
+  EXPECT_TRUE(CloseNumbers(pads[1]["value"]["fArray"], child["fArrays"]["meanFit"]["values"]))
+      << "the second layer must show its own slice";
+  EXPECT_FALSE(CloseNumbers(pads[0]["value"]["fArray"], pads[1]["value"]["fArray"]))
+      << "the two layers are different slices of the tree";
+}
+
+/**
+ * The map's form offers what a mapping can show: the entry ids its bins hold, or one of the tree's
+ * parameters — the same numbers the export carries for the 3D view — plus the range and error switches.
+ */
+TEST_F(ToolNgnt, TheMapFormOffersParametersRangeAndErrors)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/open", "POST", {{"file", kNgntFile}}).reply["result"], "success");
+  // The map's schema is published by the reshape, which is where this form is first offered.
+  const Ndmspc::Test::ToolCall reshaped =
+      fTool->Call("ndmspc/ngnt/reshape", "POST",
+                  {{"binningName", "default"},
+                   {"levels", json::array({json::array({0}), json::array({1, 2})})}});
+  ASSERT_EQ(reshaped.reply["result"], "success") << reshaped.reply.dump();
+  const json workspace = reshaped.ws.contains("workspace") ? reshaped.ws["workspace"] : json::object();
+  ASSERT_TRUE(workspace.contains("map")) << workspace.dump();
+  const json & schema = workspace["map"];
+  ASSERT_TRUE(schema.contains("properties")) << schema.dump();
+  const json & props = schema["properties"];
+
+  ASSERT_TRUE(props.contains("content")) << props.dump();
+  EXPECT_EQ(props["content"]["format"], "select");
+  EXPECT_EQ(props["content"]["default"], "id") << "a mapping shows the entry ids until asked otherwise";
+  EXPECT_EQ(props["content"]["refresh"], true) << "changing it re-draws the mapping without a run";
+  // The ids first, then the parameters this tree carries.
+  EXPECT_EQ(props["content"]["enum"], json::array({"id", "meanFit", "sigmaFit"})) << props["content"].dump();
+
+  ASSERT_TRUE(props.contains("fixedRange")) << props.dump();
+  EXPECT_EQ(props["fixedRange"]["type"], "boolean");
+  EXPECT_EQ(props["fixedRange"]["default"], false) << "the canvas fits what a slice draws until asked otherwise";
+  ASSERT_TRUE(props.contains("errors")) << props.dump();
+  EXPECT_EQ(props["errors"]["type"], "boolean");
+  EXPECT_EQ(props["errors"]["default"], false) << "errors are not shown until they are asked for";
+
+  EXPECT_EQ(schema["order"], json::array({"content", "errors", "fixedRange", "mappingPad", "contentPad", "averages"}))
+      << schema.dump();
+}
+
+/**
+ * A mapping can show one of the tree's parameters instead of the entry ids its bins hold.
+ *
+ * The values are the ones the nested export carries for the same cells (`fArrays`), which is what the 3D
+ * view reads: the tab keeps the layer's label, so it is the same tab with different cells, and the ids are
+ * still one request away.
+ */
+TEST_F(ToolNgnt, AMapShowsAParameterInTheBins)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall byId = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(byId.reply["result"], "success") << byId.reply.dump();
+  const Ndmspc::Test::ToolCall byMean = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}});
+  ASSERT_EQ(byMean.reply["result"], "success") << byMean.reply.dump();
+
+  const json idPads   = ToolHarness::Pads(byId);
+  const json meanPads = ToolHarness::Pads(byMean);
+  ASSERT_FALSE(idPads.empty()) << byId.ws.dump();
+  ASSERT_FALSE(meanPads.empty()) << byMean.ws.dump();
+
+  const json & value = meanPads[0]["value"];
+  // The cells hold the parameter, read from the same export this layer carries for the 3D view.
+  ASSERT_TRUE(value.contains("nested")) << value.dump();
+  ASSERT_TRUE(value["nested"].contains("fArrays")) << value["nested"].dump();
+  const json & arrays = value["nested"]["fArrays"]["meanFit"];
+  ASSERT_TRUE(arrays.contains("values")) << arrays.dump();
+  EXPECT_TRUE(CloseNumbers(value["fArray"], arrays["values"]));
+  // The layer also says which quantity it holds, so a viewer (the 3D scene) can open on it instead of the ids.
+  EXPECT_EQ(value["content"], "meanFit") << value.dump();
+  EXPECT_EQ(idPads[0]["value"]["content"], "id") << idPads[0]["value"].dump();
+
+  // Still the layer's own tab, over the same cells: what changed is what they hold.
+  EXPECT_EQ(meanPads[0]["label"], idPads[0]["label"]);
+  EXPECT_EQ(value["fArray"].size(), idPads[0]["value"]["fArray"].size());
+  EXPECT_FALSE(CloseNumbers(value["fArray"], idPads[0]["value"]["fArray"]))
+      << "the ids and the parameter are not the same numbers";
+}
+
+/**
+ * The canvas fits what a slice draws, and a layer of **labelled** bins keeps that fit even when asked otherwise.
+ *
+ * Left off (the default), ROOT's unset sentinel travels with the histogram and jsroot fits the cells it draws.
+ * Asked for, a range is only for a continuous quantity: this fixture's sparse binning **names every bin**
+ * (`mean = -2.5`, `entries = 1000`), so its layers are all categorical and none takes the export's range. A
+ * layer of measured, unlabelled bins would take it — no fixture here has one.
+ */
+TEST_F(ToolNgnt, AMapLetsTheCanvasFitAndKeepsItForLabelledLayers)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall fitting = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}});
+  ASSERT_EQ(fitting.reply["result"], "success") << fitting.reply.dump();
+  const json fittingValue = ToolHarness::Pads(fitting)[0]["value"];
+  EXPECT_DOUBLE_EQ(fittingValue["fMinimum"].get<double>(), -1111.0) << "ROOT's unset range: the canvas fits";
+  EXPECT_DOUBLE_EQ(fittingValue["fMaximum"].get<double>(), -1111.0);
+
+  const Ndmspc::Test::ToolCall forced =
+      fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}, {"fixedRange", true}});
+  ASSERT_EQ(forced.reply["result"], "success") << forced.reply.dump();
+  const json forcedValue = ToolHarness::Pads(forced)[0]["value"];
+  EXPECT_DOUBLE_EQ(forcedValue["fMinimum"].get<double>(), -1111.0)
+      << "a layer of labelled bins is not given a numeric range";
+  EXPECT_DOUBLE_EQ(forcedValue["fMaximum"].get<double>(), -1111.0);
+}
+
+/**
+ * The parameter's errors are the second reading of the same layer: the bins hold them instead of the values.
+ *
+ * `fArrays`' errors are written as the **square** of the parameter error (`ExportToJson`), and the 3D view
+ * scales by them as they are stored (`THnPainter::getBinError`), so they go into the cells unchanged — no
+ * square root on the way in, and no error bars either, because the errors *are* the picture. Off by default:
+ * a mapping is read for its values.
+ */
+TEST_F(ToolNgnt, AMapDrawsAParametersErrorsWhenAsked)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall plain = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}});
+  ASSERT_EQ(plain.reply["result"], "success") << plain.reply.dump();
+  const json plainValue = ToolHarness::Pads(plain)[0]["value"];
+  EXPECT_TRUE(plainValue["fSumw2"].empty()) << "a mapping of values carries no errors";
+  EXPECT_FALSE(plainValue.contains("errors")) << plainValue.dump();
+  EXPECT_EQ(plainValue["fTitle"], "meanFit") << plainValue.dump();
+
+  const Ndmspc::Test::ToolCall withErrors =
+      fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}, {"errors", true}});
+  ASSERT_EQ(withErrors.reply["result"], "success") << withErrors.reply.dump();
+  const json envelope = ToolHarness::Pads(withErrors)[0];
+  const json value    = envelope["value"];
+  const json arrays   = value["nested"]["fArrays"]["meanFit"];
+  const json errors   = arrays["errors"];
+  ASSERT_FALSE(errors.empty()) << errors.dump();
+  EXPECT_TRUE(CloseNumbers(value["fArray"], errors)) << "the cells hold the export's errors, as stored";
+  EXPECT_FALSE(CloseNumbers(value["fArray"], arrays["values"])) << "and not the values they belong to";
+  EXPECT_TRUE(value["fSumw2"].empty()) << "the errors are the picture, not bars drawn on it";
+  EXPECT_EQ(value["errors"], true) << "and the layer says so, so a viewer can scale by the error";
+  EXPECT_EQ(value["fName"], "mean_meanFit_errors") << value.dump();
+  EXPECT_EQ(value["fTitle"], "meanFit errors") << value.dump();
+}
+
+/**
+ * A layer with no values to show falls back to its own projection rather than going blank.
+ *
+ * With averaging off, a deeper level of the export carries only min/max — there is no per-cell value to put
+ * in the bins — so that layer draws the entry ids it always did.
+ */
+TEST_F(ToolNgnt, AParameterWithoutValuesFallsBackToTheProjection)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall byId = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(byId.reply["result"], "success") << byId.reply.dump();
+
+  const Ndmspc::Test::ToolCall plain =
+      fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}, {"averages", false}});
+  ASSERT_EQ(plain.reply["result"], "success") << plain.reply.dump();
+  const json pads = ToolHarness::Pads(plain);
+  ASSERT_FALSE(pads.empty()) << plain.ws.dump();
+  const json & value = pads[0]["value"];
+  // The root has no values of its own when nothing was averaged, so its bins are the ids again.
+  EXPECT_FALSE(value["nested"]["fArrays"]["meanFit"].contains("values"))
+      << value["nested"]["fArrays"]["meanFit"].dump();
+  EXPECT_TRUE(CloseNumbers(value["fArray"], ToolHarness::Pads(byId)[0]["value"]["fArray"]));
+}
+
+/**
+ * Changing what a mapping shows re-draws it in place: the layer's own tab is replaced and no step is added.
+ *
+ * That is the request a form's `refresh` field makes — a PATCH of the step itself, with no drill
+ * coordinate — and it is what keeps the user on the tab they were looking at.
+ */
+TEST_F(ToolNgnt, ARedrawPatchReplacesTheLayersWithoutAddingAStep)
+{
+  ScopedEnvVar cacheOn("NDMSPC_RESHAPE_CACHE", "1");
+  ScopedEnvVar cacheDir("NDMSPC_CACHE_DIR", "/tmp/test_toolNgnt_cache");
+
+  Ndmspc::NHttpServer * server = fTool->Server();
+
+  const json opened = Dispatch(server, "POST", "ndmspc/ngnt/open", {{"file", kNgntFile}});
+  ASSERT_EQ(opened["result"], "success") << opened.dump();
+  const std::string openId = opened["combination"]["id"];
+
+  const json reshaped = Dispatch(server, "POST", "ndmspc/ngnt/reshape",
+                                 {{"binningName", "default"},
+                                  {"levels", json::array({json::array({0}), json::array({1, 2})})},
+                                  {"refresh", true},
+                                  {"path", json::array({openId})}});
+  ASSERT_EQ(reshaped["result"], "success") << reshaped.dump();
+  const std::string reshapeId = reshaped["combination"]["id"];
+
+  const json mapped =
+      Dispatch(server, "POST", "ndmspc/ngnt/map", {{"path", json::array({openId, reshapeId})}});
+  ASSERT_EQ(mapped["result"], "success") << mapped.dump();
+  const std::string mapId = mapped["combination"]["id"];
+
+  const json redrawn = Dispatch(server, "PATCH", "ndmspc/ngnt/map",
+                                {{"content", "sigmaFit"}, {"path", json::array({openId, reshapeId, mapId})}});
+  ASSERT_EQ(redrawn["result"], "success") << redrawn.dump();
+  EXPECT_FALSE(redrawn.contains("combination")) << "a redraw must not create a step: " << redrawn.dump();
+
+  // The step the request named now says what it shows, and it is the same node.
+  Ndmspc::NInstanceTree tree(server->GetCombinations());
+  ASSERT_TRUE(tree.Has(mapId)) << tree.ToTree().dump();
+  EXPECT_EQ(tree.Params(mapId).value("content", std::string()), "sigmaFit") << tree.Params(mapId).dump();
+  ASSERT_TRUE(tree.Params(mapId).contains("fixedRange")) << tree.Params(mapId).dump();
+  EXPECT_EQ(tree.Params(mapId)["fixedRange"], false) << "the form did not ask for the export's range";
+}
+
+/**
+ * The redraw's envelopes replace the layer's own tab where it stands.
+ *
+ * `replace` is what a *fresh* map asks for, so its pad drops what it held; a redraw passes it off, which is
+ * what keeps the user on the tab they were looking at — and no `reveal` is asked for either. No export is
+ * assumed to be kept: a redraw is a deliberate change, so it may produce the one it needs.
+ */
+TEST_F(ToolNgnt, ARedrawReplacesTheTabsItAlreadyDrew)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall first = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(first.reply["result"], "success") << first.reply.dump();
+  const json firstPads = ToolHarness::Pads(first);
+  ASSERT_FALSE(firstPads.empty()) << first.ws.dump();
+  EXPECT_TRUE(firstPads[0].contains("replace")) << "a fresh map owns the pad";
+
+  const Ndmspc::Test::ToolCall redrawn = fTool->Call("ndmspc/ngnt/map", "PATCH", {{"content", "sigmaFit"}});
+  ASSERT_EQ(redrawn.reply["result"], "success") << redrawn.reply.dump();
+  const json pads = ToolHarness::Pads(redrawn);
+  ASSERT_FALSE(pads.empty()) << redrawn.ws.dump();
+  EXPECT_FALSE(pads[0].contains("replace")) << "a redraw replaces the tab it belongs to: " << pads[0].dump();
+  EXPECT_FALSE(redrawn.ws["payload"].contains("reveal")) << "and it does not move the tab the user is on";
+  EXPECT_EQ(pads[0]["label"], firstPads[0]["label"]) << "the layer keeps its tab";
+  // The redraw names the tree it belongs to and leaves the export out — it is big, and a viewer keeps the copy the
+  // drawing that owned the pad sent. The cells are the newly chosen parameter, read from that same export.
+  EXPECT_EQ(pads[0]["value"]["generation"], firstPads[0]["value"]["generation"]) << pads[0]["value"].dump();
+  EXPECT_FALSE(pads[0]["value"].contains("nested"))
+      << "a redraw does not repeat the export: " << pads[0]["value"].dump();
+  const json & arrays = firstPads[0]["value"]["nested"]["fArrays"]["sigmaFit"];
+  EXPECT_TRUE(CloseNumbers(pads[0]["value"]["fArray"], arrays["values"]))
+      << "the layer is re-drawn with the newly chosen parameter";
+}
+
+/**
+ * A redraw of a navigator this step has never drawn replaces the pad.
+ *
+ * A redraw keeps the pad on purpose — that is what keeps the user on the tab they are looking at — but the first
+ * map after a **reshape** draws a new navigator, and the previous reshape's tabs would stay beside the new drawing
+ * (a pad merges tabs by label). A viewer that reads the pad's tabs for its scene could then keep showing the old
+ * tree, so the reshape stamps a generation, the map records the one it drew, and a redraw that finds them different
+ * replaces instead of appending.
+ */
+TEST_F(ToolNgnt, ARedrawAfterANewReshapeReplacesThePad)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall first = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(first.reply["result"], "success") << first.reply.dump();
+  EXPECT_TRUE(ToolHarness::Pads(first)[0].contains("replace")) << "a fresh map owns the pad";
+
+  const Ndmspc::Test::ToolCall sameNavigator = fTool->Call("ndmspc/ngnt/map", "PATCH", {{"content", "sigmaFit"}});
+  ASSERT_EQ(sameNavigator.reply["result"], "success") << sameNavigator.reply.dump();
+  EXPECT_FALSE(ToolHarness::Pads(sameNavigator)[0].contains("replace"))
+      << "the navigator did not change, so the redraw keeps the pad";
+
+  // A second reshape builds a new navigator.
+  const Ndmspc::Test::ToolCall reshaped =
+      fTool->Call("ndmspc/ngnt/reshape", "POST",
+                  {{"binningName", "default"},
+                   {"levels", json::array({json::array({0}), json::array({1, 2})})}});
+  ASSERT_EQ(reshaped.reply["result"], "success") << reshaped.reply.dump();
+
+  const Ndmspc::Test::ToolCall afterReshape = fTool->Call("ndmspc/ngnt/map", "PATCH", {{"content", "meanFit"}});
+  ASSERT_EQ(afterReshape.reply["result"], "success") << afterReshape.reply.dump();
+  const json pads = ToolHarness::Pads(afterReshape);
+  ASSERT_FALSE(pads.empty()) << afterReshape.ws.dump();
+  EXPECT_TRUE(pads[0].contains("replace"))
+      << "a new navigator replaces what the pad held, so no tab of the old one survives: " << pads[0].dump();
+
+  const Ndmspc::Test::ToolCall again = fTool->Call("ndmspc/ngnt/map", "PATCH", {{"content", "sigmaFit"}});
+  ASSERT_EQ(again.reply["result"], "success") << again.reply.dump();
+  EXPECT_FALSE(ToolHarness::Pads(again)[0].contains("replace"))
+      << "the generation is recorded by the draw that consumed it";
+}
+
+/**
+ * A redraw of the same navigator says so, so a viewer can keep the scene it already has.
+ *
+ * The map form's own fields (`content`, `errors`, `fixedRange`) redraw the same tree, and so does a drill: the
+ * drawing carries the navigator's `generation`, which a new reshape bumps and nothing else changes. A viewer that
+ * compared it would rebuild its scene only for a new navigator — rebuilding costs the level the reader walked down
+ * to, since the painter starts again at the root.
+ */
+TEST_F(ToolNgnt, ARedrawCarriesTheGenerationOfTheTreeItDraws)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  const Ndmspc::Test::ToolCall mapped = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(mapped.reply["result"], "success") << mapped.reply.dump();
+  const json first = ToolHarness::Pads(mapped);
+  ASSERT_FALSE(first.empty()) << mapped.ws.dump();
+  ASSERT_TRUE(first[0]["value"].contains("generation")) << first[0]["value"].dump();
+  const json firstGeneration = first[0]["value"]["generation"];
+
+  const Ndmspc::Test::ToolCall redrawn = fTool->Call("ndmspc/ngnt/map", "PATCH",
+                                                    {{"content", "meanFit"}, {"errors", true}, {"fixedRange", true}});
+  ASSERT_EQ(redrawn.reply["result"], "success") << redrawn.reply.dump();
+  const json redrawnPads = ToolHarness::Pads(redrawn);
+  ASSERT_FALSE(redrawnPads.empty()) << redrawn.ws.dump();
+  EXPECT_EQ(redrawnPads[0]["value"]["generation"], firstGeneration)
+      << "the same tree, so a viewer keeps its scene: " << redrawnPads[0]["value"].dump();
+  EXPECT_EQ(redrawnPads[0]["value"]["content"], "meanFit") << "the reading it shows still travels";
+
+  // Switching back to the entry ids only changes the 2D cells: the tree stays on the pad, because that is what a
+  // 3D viewer draws (losing it would read as a different kind of drawing and rebuild the scene).
+  const Ndmspc::Test::ToolCall byId = fTool->Call("ndmspc/ngnt/map", "PATCH", {{"content", "id"}});
+  ASSERT_EQ(byId.reply["result"], "success") << byId.reply.dump();
+  const json byIdPads = ToolHarness::Pads(byId);
+  ASSERT_FALSE(byIdPads.empty()) << byId.ws.dump();
+  EXPECT_EQ(byIdPads[0]["value"]["content"], "id") << byIdPads[0]["value"].dump();
+  EXPECT_EQ(byIdPads[0]["value"]["generation"], firstGeneration)
+      << "the same tree, so a viewer keeps its scene and its export";
+  EXPECT_FALSE(byIdPads[0]["value"].contains("nested")) << "and the export is not repeated for it";
+
+  // A new navigator is a different tree, and a viewer has to rebuild for it.
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/reshape", "POST",
+                        {{"binningName", "default"},
+                         {"levels", json::array({json::array({0}), json::array({1, 2})})}})
+                .reply["result"],
+            "success");
+  const Ndmspc::Test::ToolCall again = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}});
+  ASSERT_EQ(again.reply["result"], "success") << again.reply.dump();
+  const json againPads = ToolHarness::Pads(again);
+  ASSERT_FALSE(againPads.empty()) << again.ws.dump();
+  EXPECT_NE(againPads[0]["value"]["generation"], firstGeneration) << "a new reshape is a new tree";
+}
+
+/**
+ * A click still names its entry while the bins hold a parameter.
+ *
+ * The id is not in the cell any more — the parameter's value is — so it is read from the layer the click was
+ * drawn on, at the bin the click names. That value may be integer-ish, so `args.cont` must not be mistaken
+ * for an id.
+ */
+TEST_F(ToolNgnt, AClickNamesItsEntryWhileAParameterIsShown)
+{
+  ASSERT_NO_FATAL_FAILURE(OpenAndReshape(*fTool));
+
+  // The ids come from a mapping that shows them: its cells hold `entry + 1`, and the navigator's two levels
+  // are the two envelopes. A parameter's own cells cannot name an entry — that is the point.
+  const Ndmspc::Test::ToolCall byIdMapping = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "id"}});
+  ASSERT_EQ(byIdMapping.reply["result"], "success") << byIdMapping.reply.dump();
+  const json idPads = ToolHarness::Pads(byIdMapping);
+  ASSERT_GE(idPads.size(), 2u) << "the mapping draws the navigator's two levels";
+
+  // A non-empty cell of the deepest layer: a ROOT bin, and the layer's children are indexed by them.
+  const json & leafCells = idPads[1]["value"]["fArray"];
+  int          leafBin   = -1;
+  for (size_t i = 1; i < leafCells.size() && leafBin < 0; i++) {
+    if (leafCells[i].is_number() && leafCells[i].get<double>() >= 1.0) leafBin = static_cast<int>(i);
+  }
+  ASSERT_GE(leafBin, 0) << leafCells.dump();
+
+  // The deepest layer's cells hold `entry + 1`, which the id-mode click would have carried as `args.cont`.
+  const int entry = static_cast<int>(std::lround(leafCells[leafBin].get<double>())) - 1;
+  ASSERT_GE(entry, 0) << leafCells.dump();
+
+  // The drawing the click lands on shows the parameter, not the ids.
+  const Ndmspc::Test::ToolCall shown = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}});
+  ASSERT_EQ(shown.reply["result"], "success") << shown.reply.dump();
+
+  // Two clicks on the same cell: with the parameter shown only the bin names the entry, and the id-mode
+  // click names it through `cont`. The drawing starts at the navigator, so the click's base point is empty.
+  const Ndmspc::Test::ToolCall byParameter =
+      fTool->Call("ndmspc/ngnt/map", "PATCH",
+                  {{"content", "meanFit"},
+                   {"point", json::array()},
+                   {"level", 1},
+                   {"args", {{"bin", leafBin}}}});
+  ASSERT_EQ(byParameter.reply["result"], "success") << byParameter.reply.dump();
+  const Ndmspc::Test::ToolCall byId = fTool->Call("ndmspc/ngnt/map", "PATCH",
+                                                  {{"content", "id"},
+                                                   {"point", json::array()},
+                                                   {"level", 1},
+                                                   {"args", {{"bin", leafBin}, {"cont", entry + 1}}}});
+  ASSERT_EQ(byId.reply["result"], "success") << byId.reply.dump();
+
+  const auto contentOf = [](const Ndmspc::Test::ToolCall & call) {
+    json names = json::array();
+    for (const auto & envelope : ToolHarness::Pads(call)) {
+      if (envelope.value("pad", std::string()) == "pad2") names.push_back(envelope.value("label", std::string()));
+    }
+    return names;
+  };
+  const json byParameterDrawn = contentOf(byParameter);
+  const json byIdDrawn        = contentOf(byId);
+  EXPECT_FALSE(byParameterDrawn.empty())
+      << "a click while a parameter is shown must still find its entry: " << byParameter.ws.dump();
+  EXPECT_EQ(byParameterDrawn, byIdDrawn) << "the same cell names the same entry either way";
+}
+
+/**
+ * The parameters a mapping can show follow the tree that is open.
+ *
+ * The dropdown is built when the reshape publishes the map's schema, so another file's list has to be
+ * refreshed on open — and a choice that named a parameter the new tree does not have goes back to the entry
+ * ids, which is where the handler falls back to anyway.
+ */
+TEST_F(ToolNgnt, TheMapContentListFollowsTheOpenFile)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/open", "POST", {{"file", kNgntFile}}).reply["result"], "success");
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/reshape", "POST",
+                        {{"binningName", "default"},
+                         {"levels", json::array({json::array({0}), json::array({1, 2})})}})
+                .reply["result"],
+            "success");
+  // A mapping run remembers the choice it was given, as the form's default.
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}}).reply["result"], "success");
+
+  // Another file, with no parameters at all.
+  WriteNoParameterNgnt(kNoParamNgntFile);
+  const Ndmspc::Test::ToolCall reopened = fTool->Call("ndmspc/ngnt/open", "POST", {{"file", kNoParamNgntFile}});
+  ASSERT_EQ(reopened.reply["result"], "success") << reopened.reply.dump();
+
+  const json workspace = reopened.ws.contains("workspace") ? reopened.ws["workspace"] : json::object();
+  ASSERT_TRUE(workspace.contains("map")) << workspace.dump();
+  const json & content = workspace["map"]["properties"]["content"];
+  EXPECT_EQ(content["enum"], json::array({"id"})) << content.dump();
+  EXPECT_EQ(content["default"], "id") << "a parameter this file does not have falls back to the ids";
+}
+
+/**
+ * A 3-axis layer is drawn from its own minimum.
+ *
+ * jsroot sizes a TH3 cell by the cube root of |content|, so a signed value would lose its sign — a `meanFit`
+ * layer would grow a cube at -2.5 exactly as much as at +2.5, where the 3D view's heights ramp with the value
+ * (ndmvr scales by `(value - min)/(max - min)`). The drawn cells are therefore `value - min` on a small floor:
+ * the sizes grow with the value and the colours span the same interval as before. Cells the export marks 0
+ * (no data) stay 0, which jsroot does not draw.
+ */
+TEST_F(ToolNgnt, AThreeAxisLayerIsDrawnFromItsMinimum)
+{
+  std::ifstream existing(kNgntFile);
+  if (!existing.good()) NSingleBinning01Gaus(std::string(kNgntFile));
+  existing.close();
+
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/open", "POST", {{"file", kNgntFile}}).reply["result"], "success");
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/reshape", "POST",
+                        {{"binningName", "default"}, {"levels", json::array({json::array({0, 1, 2})})}})
+                .reply["result"],
+            "success");
+
+  const Ndmspc::Test::ToolCall mapped = fTool->Call("ndmspc/ngnt/map", "POST", {{"content", "meanFit"}});
+  ASSERT_EQ(mapped.reply["result"], "success") << mapped.reply.dump();
+  const json pads = ToolHarness::Pads(mapped);
+  ASSERT_EQ(pads.size(), 1u) << "one level, one layer: " << mapped.ws.dump();
+
+  const json & value = pads[0]["value"];
+  ASSERT_EQ(value.value("_typename", std::string()).substr(0, 3), "TH3") << value.dump();
+
+  const json & arrays = value["nested"]["fArrays"]["meanFit"];
+  ASSERT_TRUE(arrays.contains("values")) << arrays.dump();
+  const json & truth = arrays["values"];
+  const json & drawn = value["fArray"];
+  ASSERT_EQ(drawn.size(), truth.size());
+
+  double low   = 0.0;
+  double high  = 0.0;
+  bool   known = false;
+  for (const auto & one : truth) {
+    if (!one.is_number() || one.get<double>() == 0.0) continue;
+    low   = known ? std::min(low, one.get<double>()) : one.get<double>();
+    high  = known ? std::max(high, one.get<double>()) : one.get<double>();
+    known = true;
+  }
+  ASSERT_TRUE(known) << truth.dump();
+  const double floor = 1e-3 * (high - low);
+
+  for (size_t i = 0; i < truth.size(); i++) {
+    const double original = truth[i].get<double>();
+    if (original == 0.0) {
+      EXPECT_DOUBLE_EQ(drawn[i].get<double>(), 0.0) << "an empty cell must stay empty at " << i;
+      continue;
+    }
+    EXPECT_GT(drawn[i].get<double>(), 0.0) << "a cell with data must be drawn above zero at " << i;
+    EXPECT_NEAR(drawn[i].get<double>(), (original - low) + floor, 1e-9 * std::max(1.0, std::fabs(original)))
+        << "the cell must be its offset from the layer's minimum, at " << i;
   }
 }
 

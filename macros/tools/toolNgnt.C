@@ -17,6 +17,14 @@
 ///   open ──▶ reshape ──▶ map ──┬─▶ spectra
 ///                              └─▶ point
 ///
+/// `map` normally draws each layer's projection, whose bins hold the entry ids. Its `content` may instead
+/// name one of the tree's parameters: a temporary histogram is built from that level's `fArrays` in the
+/// nested export — the same numbers the 3D view reads — so a 2D mapping shows mean/sigma rather than ids.
+/// `fixedRange` takes the drawing's range from the export. `errors` makes the bins hold that parameter's
+/// errors instead of its values — the same `fArrays` numbers the 3D view scales by, and an entry id has none,
+/// so it applies to a parameter only. All three are re-drawn in place when a form changes them (a PATCH with
+/// no drill coordinate), and a bin click still names its entry by reading the projection at the clicked bin.
+///
 /// Usage:
 ///   ndmspc-server -m "toolNgnt.C"
 ///
@@ -56,7 +64,9 @@
 ///
 
 #include <algorithm>
+#include <cmath>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 #include <TBufferJSON.h>
@@ -190,6 +200,89 @@ std::string PadArg(Ndmspc::NRouteContext & ctx, const std::string & key, const s
   const json wsDef = ctx.GetWorkspaceDefault(route, key);
   if (wsDef.is_string() && !wsDef.get<std::string>().empty()) return wsDef.get<std::string>();
   return fallback;
+}
+
+/// What a mapping layer's bins show, and how it is drawn.
+///
+/// One value for the three choices the map's form offers, so the drawing functions take what the picture
+/// *is* rather than a run of same-typed flags. Resolved once per request (see {@link MapShowOf}).
+struct MapShow {
+  std::string content{"id"};    ///< "id" (the projection's entry ids), or a parameter's name
+  bool        fixedRange{false}; ///< scale by the layer's range from the export, else jsroot fits
+  bool        errors{false};    ///< the bins hold the parameter's errors instead of its values
+};
+
+/// What this request should show: the request's own answer, else the room's remembered choice, else the
+/// defaults — the order `averages` is resolved in.
+MapShow MapShowOf(Ndmspc::NRouteContext & ctx, const std::string & mapKey)
+{
+  MapShow show;
+  json &  in = ctx.In();
+
+  if (in.contains("content") && in["content"].is_string()) show.content = in["content"].get<std::string>();
+  else {
+    const json def = ctx.GetWorkspaceDefault(mapKey, "content");
+    if (def.is_string() && !def.get<std::string>().empty()) show.content = def.get<std::string>();
+  }
+  if (in.contains("fixedRange") && in["fixedRange"].is_boolean()) show.fixedRange = in["fixedRange"].get<bool>();
+  else {
+    const json def = ctx.GetWorkspaceDefault(mapKey, "fixedRange");
+    if (def.is_boolean()) show.fixedRange = def.get<bool>();
+  }
+  if (in.contains("errors") && in["errors"].is_boolean()) show.errors = in["errors"].get<bool>();
+  else {
+    const json def = ctx.GetWorkspaceDefault(mapKey, "errors");
+    if (def.is_boolean()) show.errors = def.get<bool>();
+  }
+  return show;
+}
+
+/// The generation a reshape stamps on the navigator it builds, and whether a map is drawing a new one.
+///
+/// A reshape replaces the navigator, so the map that follows must **replace** its pad rather than redraw the tabs
+/// it already has: the previous reshape's tabs would otherwise stay beside the new drawing, and a viewer that reads
+/// the pad's tabs for its scene (the 3D view takes its tree from the newest one) could keep showing the old shape.
+/// The stamp is a counter, so two reshapes in a row still differ, and it is a hidden field of both steps: it is
+/// carried between them, not asked of a person.
+bool MapDrawsNewNavigator(Ndmspc::NRouteContext & ctx, const std::string & mapKey, const std::string & reshapeKey)
+{
+  const json drawn = ctx.GetWorkspaceDefault(mapKey, "generation");
+  const json built = ctx.GetWorkspaceDefault(reshapeKey, "generation");
+  return (drawn.is_number() ? drawn.get<long long>() : -1) != (built.is_number() ? built.get<long long>() : 0);
+}
+
+/// Record the generation this map drew, so the next map knows whether the navigator changed under it.
+void RecordMapGeneration(Ndmspc::NRouteContext & ctx, const std::string & mapKey, const std::string & reshapeKey)
+{
+  const json built = ctx.GetWorkspaceDefault(reshapeKey, "generation");
+  Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "generation",
+                                     built.is_number() ? built.get<long long>() : 0);
+}
+
+/// Whether the tree holds the parameter `name`.
+///
+/// A remembered `content` outlives the file it was chosen for, so a name this tree does not have falls back
+/// to the entry ids rather than failing the map.
+bool HasParameter(Ndmspc::NGnTree * ngnt, const std::string & name)
+{
+  if (name.empty() || name == "id") return true;
+  Ndmspc::NParameters * params = ngnt == nullptr ? nullptr : ngnt->GetParameters();
+  if (params == nullptr) return false;
+  const auto names = params->GetNames();
+  return std::find(names.begin(), names.end(), name) != names.end();
+}
+
+/// The averaging a map request draws with: the request's, else the room's remembered choice, else the
+/// navigator's own. It names the export the parameter values come from, so a redraw has to resolve it the
+/// same way the run that drew the pad did.
+bool AveragesArg(Ndmspc::NRouteContext & ctx, const std::string & mapKey, Ndmspc::NGnNavigator * nav)
+{
+  bool averages = nav != nullptr ? nav->GetAverageParameters() : true;
+  const json def = ctx.GetWorkspaceDefault(mapKey, "averages");
+  if (def.is_boolean()) averages = def.get<bool>();
+  json & in = ctx.In();
+  if (in.contains("averages") && in["averages"].is_boolean()) averages = in["averages"].get<bool>();
+  return averages;
 }
 
 // The combination node this request runs for, as the path a click on what it drew should name.
@@ -345,8 +438,25 @@ void RecordStepArguments(Ndmspc::NRouteContext & ctx, const json & arguments)
   tree.SetParams(node, params);
 }
 
+/**
+ * Record what a mapping shows on the step itself.
+ *
+ * A redraw (`refresh` in the form) draws from values the request carried, and a map run by a client may
+ * leave one of them out and let the handler choose. Keeping what was resolved on the node means the step
+ * reads back as what is on the pad — the form fills its fields from the node's arguments — instead of
+ * describing a mapping the user is not looking at. The writing is `RecordStepArguments`; a map only knows
+ * which fields are its own.
+ *
+ * @param ctx The request; the step it runs for is the room's current instance.
+ * @param show What was drawn.
+ */
+void RecordMapShow(Ndmspc::NRouteContext & ctx, const MapShow & show)
+{
+  RecordStepArguments(ctx, json{{"content", show.content}, {"fixedRange", show.fixedRange}, {"errors", show.errors}});
+}
+
 json BuildMapClickAction(const std::vector<int> & point, int level, const std::string & group = "",
-                         const json & nodePath = json::array())
+                         const json & nodePath = json::array(), const MapShow & show = MapShow{})
 {
   json action;
   action["type"]             = "http";
@@ -359,6 +469,12 @@ json BuildMapClickAction(const std::vector<int> & point, int level, const std::s
   // The map this click was drawn from (see DrawnNodePath): the drill belongs to that node, not to
   // whichever map the live combination is on by the time it is clicked.
   if (!nodePath.empty()) action["payload"]["path"] = nodePath;
+  // What this drawing shows, so the drill keeps showing the same quantity on the same range: a click is
+  // read against what it was drawn for, not against whatever the step's form holds by then. The defaults
+  // are left out - the server resolves them the same way (MapShowOf).
+  if (show.content != "id") action["payload"]["content"] = show.content;
+  if (!show.fixedRange) action["payload"]["fixedRange"] = false;
+  if (show.errors) action["payload"]["errors"] = true;
   return action;
 }
 
@@ -422,6 +538,335 @@ std::string LayersLabel(TH1 * proj)
   return "map";
 }
 
+/// The values a parameter takes at one depth of a view.
+///
+/// A layer's drawing is scaled by the range of **the whole layer**, not of the one slice it shows: that is what
+/// makes two slices of a layer comparable, and it is the range the 3D view uses — ndmvr's `fixed` scale reads
+/// `minMaxValue[depth][parameter]`, built by `computeMinContentPerLayer`/`computeMaxContentPerLayer` as the min
+/// of `.min` and the max of `.max` over every node at that depth (`ndmvr-core/src/utils/histogramUtils.js`).
+struct LayerRange {
+  bool   known{false}; ///< whether the depth carries the parameter at all
+  double min{0.0};
+  double max{0.0};
+};
+
+/// Whether any axis of `hist` is categorical: its bins are **named** rather than measured (`entries = 1000`,
+/// `phi = 0.5`). A range is a statement about a continuous quantity, so a drawing of named bins keeps the
+/// canvas's own fit — the exported min/max describes the cells, not a scale those bins can be read on.
+bool HasCategoricalAxis(TH1 * hist)
+{
+  if (hist == nullptr) return false;
+
+  std::vector<TAxis *> axes{hist->GetXaxis()};
+  if (hist->GetDimension() >= 2) axes.push_back(hist->GetYaxis());
+  if (hist->GetDimension() >= 3) axes.push_back(hist->GetZaxis());
+
+  for (const auto * axis : axes) {
+    if (axis == nullptr) continue;
+    for (int bin = 1; bin <= axis->GetNbins(); bin++) {
+      const char * label = axis->GetBinLabel(bin);
+      if (label != nullptr && *label != '\0') return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A copy of `projection` whose bins hold one parameter's values — or its errors — instead of entry ids.
+ *
+ * It is the object the 3D painter reads out of band from `fArrays` (`THnPainter::getBinContent(obj, ...,
+ * selectedArray)`) made into something jsroot can draw unchanged: the level's own axes, bins and labels, so
+ * the layer keeps its tab, with the exported numbers in the cells. `show.errors` puts the export's `errors`
+ * in the cells instead of its `values` — the same array the 3D view scales by when it is set to scale by the
+ * error, and nothing is squared or rooted on the way in. The drawing's range is the layer's (see
+ * {@link LayerRange}) when `fixedRange` is asked for. A layer of labelled (categorical) bins always keeps the
+ * canvas's fit: a range describes a continuous quantity, which those bins are not.
+ *
+ * @param projection The level's projection: the source of the axes, and of the entry ids.
+ * @param arrays The level's `fArrays[<parameter>]` in the nested export.
+ * @param show What to draw (which parameter, the range, the errors).
+ * @param range The range the whole layer carries for the parameter — what the 3D view scales by.
+ * @return The copy, or nullptr when this level's export carries no values for that parameter — the caller
+ *         then draws the projection itself.
+ */
+std::unique_ptr<TH1> ParameterProjection(TH1 * projection, const json & arrays, const MapShow & show,
+                                         const LayerRange & range)
+{
+  // What the cells hold: the parameter's own values, or its errors when the map asks for those.
+  const char * cells = show.errors ? "errors" : "values";
+  if (projection == nullptr || !arrays.is_object() || !arrays.contains(cells) ||
+      !arrays[cells].is_array()) {
+    return nullptr;
+  }
+  // `SetContent` copies exactly fNcells values, so the export has to cover the projection's cells. A level
+  // the export averaged has one value per cell; a level it could not has none at all.
+  const auto values = arrays[cells].get<std::vector<double>>();
+  if (values.size() != static_cast<size_t>(projection->GetNcells())) return nullptr;
+
+  std::unique_ptr<TH1> copy(dynamic_cast<TH1 *>(projection->Clone()));
+  if (copy == nullptr) return nullptr;
+  // Detach from gDirectory, so the file does not claim ownership of a drawing that goes out of scope.
+  copy->SetDirectory(nullptr);
+  copy->SetName(
+      (std::string(projection->GetName()) + "_" + show.content + (show.errors ? "_errors" : "")).c_str());
+
+  // jsroot sizes a TH3 cell by the cube root of |content| (`TH3Painter::draw3DBins`), so a negative value grows
+  // a cube exactly as much as a positive one and a layer of signed values reads as a V — where the 3D view's
+  // boxes grow along the value (ndmvr scales by `(value - min)/(max - min)`). So a 3D layer is drawn from
+  // `value - min`: the sizes then ramp with the value the way the 3D view's heights do, and the colours span the
+  // same interval as before. Cells with no data keep the export's 0 (jsroot does not draw them), and the lowest
+  // value sits on a small floor so that slice of the layer stays visible instead of collapsing to nothing.
+  // A TH1 (bars) and a TH2 (colour) draw the value itself, so the sign is theirs and they are not offset.
+  std::vector<double> content = values;
+  bool                shifted = false;
+  if (projection->GetDimension() == 3) {
+    double low  = 0.0;
+    double high = 0.0;
+    bool   known = false;
+    for (const double value : values) {
+      if (value == 0.0) continue; // the export's marker for a cell with no data
+      low   = known ? std::min(low, value) : value;
+      high  = known ? std::max(high, value) : value;
+      known = true;
+    }
+    if (known && high > low) {
+      const double floor = 1e-3 * (high - low);
+      for (auto & value : content) {
+        if (value != 0.0) value = (value - low) + floor;
+      }
+      shifted = true;
+    }
+  }
+  copy->SetContent(content.data());
+
+  // A shifted drawing is scaled by its own span already (the offset is this node's, not the layer's), so a range
+  // would have to be expressed in the drawn frame; the canvas fit is exactly that span.
+  if (!shifted && show.fixedRange && range.known && !HasCategoricalAxis(projection)) {
+    // The layer's range, as the 3D view takes it. A degenerate one keeps a span so a layer's cells are not
+    // all one colour (ndmvr does the same: `contentMin = contentMax - 0.2`).
+    double min = range.min;
+    double max = range.max;
+    if (min == max) min = max - 0.2;
+    copy->SetMinimum(min);
+    copy->SetMaximum(max);
+  }
+  else {
+    // ROOT's unset sentinel: jsroot then fits the drawn values. Without this a minimum the shared
+    // projection carries (`ExportToJson` sets 0 on it) would leak into the picture.
+    copy->SetMinimum();
+    copy->SetMaximum();
+  }
+  copy->SetStats(false);
+  return copy;
+}
+
+/// The nested export's node for the child at a ROOT bin of a level: `children.content` is indexed by the
+/// bin (index 0 is the underflow slot, never a child), the same order `GetChildren()` and
+/// {@link RenderMapLayers} walk. nullptr when that slot holds no child.
+const json * NestedChild(const json & node, size_t bin)
+{
+  if (!node.is_object() || !node.contains("children")) return nullptr;
+  const json & children = node["children"];
+  if (!children.is_object() || !children.contains("content")) return nullptr;
+  const json & content = children["content"];
+  if (!content.is_array() || bin >= content.size()) return nullptr;
+  return content[bin].is_object() ? &content[bin] : nullptr;
+}
+
+/// The export's node for the layer a drill point names: the walk {@link TraverseNavigator} makes.
+const json * NestedAt(const json & root, const std::vector<int> & point)
+{
+  const json * node = root.is_object() ? &root : nullptr;
+  for (const auto & bin : point) {
+    if (node == nullptr) break;
+    node = NestedChild(*node, static_cast<size_t>(bin));
+  }
+  return node;
+}
+
+/// Collect `parameter`'s per-depth range over the export rooted at `node` (depth 0 is that node itself).
+///
+/// The walk covers the whole export, every child at each depth, because a layer compares its slices with each
+/// other — not only the first-child chain the drawing happens to walk down.
+///
+/// @param node The export node the view starts from.
+/// @param depth Its depth in the view (0 for the first layer).
+/// @param parameter The parameter to measure.
+/// @param errors Measure the parameter's errors instead of its values: the export carries their own range
+///        (`minE`/`maxE`) beside the values' one.
+/// @param ranges Filled in place: `ranges[d]` is depth `d`'s range.
+void CollectLayerRanges(const json & node, size_t depth, const std::string & parameter, bool errors,
+                        std::vector<LayerRange> & ranges)
+{
+  if (!node.is_object()) return;
+
+  const json * arrays = nullptr;
+  if (node.contains("fArrays") && node["fArrays"].is_object() && node["fArrays"].contains(parameter)) {
+    arrays = &node["fArrays"][parameter];
+  }
+
+  bool   known = false;
+  double min   = 0.0;
+  double max   = 0.0;
+  const char * lowKey  = errors ? "minE" : "min";
+  const char * highKey = errors ? "maxE" : "max";
+  const char * cellKey = errors ? "errors" : "values";
+  if (arrays != nullptr) {
+    if (arrays->contains(lowKey) && (*arrays)[lowKey].is_number() && arrays->contains(highKey) &&
+        (*arrays)[highKey].is_number()) {
+      min   = (*arrays)[lowKey].get<double>();
+      max   = (*arrays)[highKey].get<double>();
+      known = true;
+    }
+    else if (arrays->contains(cellKey) && (*arrays)[cellKey].is_array()) {
+      // The export's own range is what ndmvr prefers; this is its fallback for a node that carries the cells
+      // but no range (the spread of them, the empty ones left out).
+      for (const auto & one : (*arrays)[cellKey]) {
+        if (!one.is_number()) continue;
+        const double value = one.get<double>();
+        if (value == 0.0) continue;
+        min   = known ? std::min(min, value) : value;
+        max   = known ? std::max(max, value) : value;
+        known = true;
+      }
+    }
+  }
+
+  if (known) {
+    if (ranges.size() <= depth) ranges.resize(depth + 1);
+    LayerRange & range = ranges[depth];
+    range.min          = range.known ? std::min(range.min, min) : min;
+    range.max          = range.known ? std::max(range.max, max) : max;
+    range.known        = true;
+  }
+
+  if (node.contains("children") && node["children"].is_object() && node["children"].contains("content")) {
+    for (const auto & child : node["children"]["content"]) {
+      if (child.is_object()) CollectLayerRanges(child, depth + 1, parameter, errors, ranges);
+    }
+  }
+}
+
+/**
+ * The layer a click was drawn on.
+ *
+ * A click names its layer with `level` and the base point its drawing came from (`point`, which
+ * `ResolveDrillPoint` then extends with the clicked cell), so the layer is that base walked down the same
+ * first-child steps {@link RenderMapLayers} makes. The navigator a click *resolves* to is one step below the
+ * layer — the clicked cell's child — which is not where the drawn bins came from.
+ *
+ * @return The layer, or nullptr when the request does not name one.
+ */
+Ndmspc::NGnNavigator * ClickedLayer(Ndmspc::NGnNavigator * nav, const json & in)
+{
+  if (!in.contains("level") || !in["level"].is_number()) return nullptr;
+  const int level = in["level"].get<int>();
+  if (level < 0) return nullptr;
+
+  std::vector<int>      base;
+  Ndmspc::NGnNavigator * layer = nav;
+  if (in.contains("point") && in["point"].is_array()) {
+    base  = in["point"].get<std::vector<int>>();
+    layer = TraverseNavigator(nav, base);
+  }
+  for (int at = layer == nullptr ? -1 : layer->GetLevel(); layer != nullptr && at < level; at++) {
+    layer = layer->GetFirstChild();
+  }
+  return layer;
+}
+
+/**
+ * The entry a click on a mapping bin names.
+ *
+ * The projection's bins hold `entry + 1`, which is what `args.cont` carries while the mapping shows the
+ * ids. When it shows a parameter instead, the bins hold that parameter's value, so the id is read from the
+ * layer's own projection at the same bin: jsroot reports it as `args.bin` (the UI makes a TH1's zero-based
+ * bin 1-based; a TH2/TH3 bin is already the global one) and its axis bins as `args.binx`/`biny`/`binz`.
+ *
+ * @param at The navigator of the layer that was clicked.
+ * @param in The request: `args` is the renderer's report of the click.
+ * @return The entry index, or -1 when the click names no bin of this layer.
+ */
+int EntryFromClick(Ndmspc::NGnNavigator * at, const json & in)
+{
+  TH1 * projection = at == nullptr ? nullptr : at->GetProjection();
+  if (projection == nullptr || !in.contains("args") || !in["args"].is_object()) return -1;
+  const json & args = in["args"];
+
+  long index = -1;
+  if (args.contains("binx") && args["binx"].is_number()) {
+    // Axis bins, which `GetBin` turns into the projection's own cell number for 1D, 2D and 3D alike.
+    const int bx = args["binx"].get<int>();
+    const int by = args.contains("biny") && args["biny"].is_number() ? args["biny"].get<int>() : 0;
+    const int bz = args.contains("binz") && args["binz"].is_number() ? args["binz"].get<int>() : 0;
+    index        = projection->GetBin(bx, by, bz);
+  }
+  else if (args.contains("bin") && args["bin"].is_number()) {
+    // A TH2/TH3 reports its global bin, and a TH1's is made one-based by the UI: both are the cell number.
+    index = std::lround(args["bin"].get<double>());
+  }
+  if (index < 0 || index >= projection->GetNcells()) return -1;
+
+  // A global bin, clamped by `GetBinContent`; it is the projection's own cell (entry + 1) either way.
+  const double content = projection->GetBinContent(static_cast<int>(index));
+  if (!(content >= 1.0)) return -1;
+  return static_cast<int>(std::lround(content)) - 1;
+}
+
+/**
+ * The whole navigator's nested export, read from the reshape cache when it is kept there.
+ *
+ * Exporting the navigator is what a map request spends its time on, so the result is kept beside the
+ * navigator and re-read instead of rebuilt (`NReshapeCache::LoadMapJson`). The key carries `averages` too:
+ * a per-request override changes what the export contains, so the two must not share a kept copy.
+ *
+ * @param exportIfMissing Whether a missing export may be produced. A fresh map says yes; a drawing that
+ *        merely re-renders what a pad already holds does not pay for one.
+ */
+json NavigatorExport(Ndmspc::NGnTree * ngnt, Ndmspc::NGnNavigator * nav, bool averages, bool exportIfMissing)
+{
+  Ndmspc::NReshapeCache::Key key;
+  key.FromTree(ngnt);
+  // The navigator is what is being exported, so its own levels are what the export depends on — read from
+  // the object rather than from the reshape step's workspace, which may since have been edited to a
+  // combination this navigator is not. The binning name has to match the one the reshape stored under.
+  key.levels   = nav->GetLevels();
+  key.binning  = ngnt->GetBinning()->GetCurrentDefinitionName();
+  key.averages = averages;
+  // The map step has no cache fields of its own — it draws the navigator it is handed — so the home
+  // follows the reshape's default for the kind of input.
+  key.cacheFile = Ndmspc::NReshapeCache::DefaultCacheFile(key.file);
+
+  std::string kept;
+  if (Ndmspc::NReshapeCache::LoadMapJson(key, kept)) {
+    json nested = json::parse(kept, nullptr, false);
+    if (!nested.is_discarded()) {
+      // At Trace: a map that reads the kept export is the common case, so it is not worth a line in a room's
+      // log — what matters there is a map that had to export.
+      NLogTrace("[map] served the export kept for this combination (%zu bytes)", kept.size());
+      return nested;
+    }
+    NLogWarning("[map] the kept export could not be parsed; exporting again");
+  }
+
+  json nested;
+  if (!exportIfMissing) return nested;
+
+  json exportCfg;
+  exportCfg["averages"] = averages;
+  nav->ExportToJson(nested, nav, std::vector<std::string>{}, exportCfg);
+  // Keep it, but only if it looks usable — a failed export must not be remembered.
+  if (!nested.empty()) Ndmspc::NReshapeCache::StoreMapJson(key, nested.dump());
+
+  // Dump to file for debugging
+  const char * tmpFile = gSystem->Getenv("NDMSPC_NGNG_EXPORT_JSON_FILE");
+  if (tmpFile) {
+    Ndmspc::NUtils::SaveRawFile(tmpFile, nested.dump());
+    NLogDebug("[Server] Exported nested navigator structure to %s", tmpFile);
+  }
+  return nested;
+}
+
 /// The slice a drill passed through, as one term per axis of each level above a layer. Defined below;
 /// used by {@link RenderSpectra} for a spectrum's title.
 std::string DrillLabel(Ndmspc::NGnNavigator * navCurrent, const std::vector<int> & point);
@@ -435,11 +880,16 @@ std::string DrillLabel(Ndmspc::NGnNavigator * navCurrent, const std::vector<int>
  *
  * @param drill The path this drawing came from, so a click knows where it stands.
  * @param replace Whether the first layer drops the pad's tabs (what a *fresh* map does, so a map for
- *        another combination does not linger beside it); a drill passes `false` and appends.
+ *        another combination does not linger beside it); a drill passes `false` and appends, and a
+ *        redraw too, so the layer the user is on stays put.
+ * @param nested The export node for `nav` (see `NavigatorExport`/`NestedAt`): where each layer's
+ *        `fArrays` come from, and what the first envelope carries for the 3D view.
+ * @param show What the bins hold (see `MapShow`).
  * @return How many layers were drawn; none at all is a failure the caller reports.
  */
 size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, const std::string & pad,
-                       const json & drill, bool replace, const json & nested = json())
+                       const json & drill, bool replace, const json & nested = json(),
+                       const MapShow & show = MapShow{})
 {
   const size_t           nLevels = nav->GetNLevels();
   Ndmspc::NGnNavigator * at      = nav;
@@ -449,6 +899,15 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
   // same way a spectrum's title does.
   std::vector<int> walk    = drill.is_array() ? drill.get<std::vector<int>>() : std::vector<int>{};
   const json       drawnAt = DrawnNodePath(ctx);
+  // The export node for the layer being drawn: it descends with the navigator, by the same child bins.
+  const json * nestedHere = nested.is_object() ? &nested : nullptr;
+  // What each depth of this view carries for the parameter, so a layer is scaled like the 3D view scales it
+  // (see LayerRange): the whole layer, not only the slice this walk draws. Only worth walking for when a range
+  // was asked for - the default leaves the canvas to fit.
+  std::vector<LayerRange> ranges;
+  if (show.content != "id" && show.fixedRange && nested.is_object()) {
+    CollectLayerRanges(nested, 0, show.content, show.errors, ranges);
+  }
   for (size_t level = nav->GetLevel(); at != nullptr && level < nLevels; level++) {
     TH1 * proj = at->GetProjection();
     if (proj == nullptr) {
@@ -461,22 +920,64 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
       // the same a second time. A layer under nothing (the top of a fresh drawing) keeps its own title.
       const std::string slice = DrillLabel(at, walk);
       if (!slice.empty()) proj->SetTitle(slice.c_str());
+
+      // What the bins hold: the layer's own entry ids, or a parameter's values from the same export the
+      // 3D view reads (`fArrays`, one entry per cell of this projection). The tab stays the layer's label,
+      // so switching what is shown replaces the same tab; the title names the quantity, which is new.
+      std::unique_ptr<TH1> parameter;
+      if (show.content != "id") {
+        if (nestedHere != nullptr && nestedHere->contains("fArrays") && (*nestedHere)["fArrays"].is_object() &&
+            (*nestedHere)["fArrays"].contains(show.content)) {
+          // The depth within this view names the layer whose range the drawing takes.
+          const size_t     depth = level - nav->GetLevel();
+          const LayerRange range = depth < ranges.size() ? ranges[depth] : LayerRange{};
+          parameter = ParameterProjection(proj, (*nestedHere)["fArrays"][show.content], show, range);
+        }
+        if (parameter == nullptr) {
+          NLogInfo("[Server] map: level %zu has no '%s' %s in the export, showing its entry ids", level,
+                   show.content.c_str(), show.errors ? "errors" : "values");
+        }
+      }
+      TH1 * shown = proj;
+      if (parameter != nullptr) {
+        const std::string quantity = show.errors ? show.content + " errors" : show.content;
+        const std::string title    = slice.empty() ? quantity : slice + " | " + quantity;
+        parameter->SetTitle(title.c_str());
+        shown = parameter.get();
+      }
+
       json clicks = json::array();
-      clicks.push_back(BuildMapClickAction(drill, level, "ndmspc/ngnt", drawnAt));
+      clicks.push_back(BuildMapClickAction(drill, level, "ndmspc/ngnt", drawnAt, show));
       // One level above the last is where drilling stops, so a spectra makes sense there: the click also
       // draws the spectra for that point. That is a *transient* POST - it shows on the spectra pad and
       // adds nothing to the combination (see BuildSpectraClickAction).
       if (level + 2 == nLevels) clicks.push_back(BuildSpectraClickAction(drill, level, "ndmspc/ngnt", drawnAt));
       // The first layer carries `replace` for a fresh map, so the pad drops what it held (a map from
-      // another combination included); a drill appends its layers to what is there.
+      // another combination included); a drill and a redraw append to what is there.
       // The tab keeps the layer's own label: it is what identifies the tab, so anything that changes
       // with a drill would make a new tab instead of replacing the same one.
       // The first layer is the mapping histogram; it carries the navigator's nested export, as the
-      // older `httpNgnt` map did on its list. The deeper layers are projections of the same data and
-      // do not repeat it.
-      const json extra =
-          (drew == 0 && nested.is_object() && !nested.empty()) ? json{{"nested", nested}} : json::object();
-      ctx.ShowRoot(proj, pad, LayersLabel(proj), "", json{{"click", clicks}}, replace && drew == 0, extra);
+      // older `httpNgnt` map did on its list, and what this drawing shows — its `content`, and whether the bins
+      // hold that quantity's errors — so a viewer can open on the same reading. The 3D scene keeps its own array
+      // and scaling choices, whose defaults are the entry ids and the value, so without them a mapping drawn for
+      // `meanFit` errors would come up as the ids, scaled by the value. The deeper layers are projections of the
+      // same data and do not repeat either.
+      json extra = json::object();
+      if (drew == 0) {
+        // Which navigator this tree is. A form field of this step (`content`, `errors`, `fixedRange`) redraws the
+        // same tree, and so does a drill, while a reshape builds a new one: the stamp tells a viewer when it must
+        // rebuild its scene and when it can keep the one it has (a rebuild costs the level the reader walked to).
+        const json generation = ctx.GetWorkspaceDefault("reshape", "generation");
+        extra["generation"] = generation.is_number() ? generation.get<long long>() : 0;
+        // The export is big, so a *redraw* does not carry it: a form field or a drill names the tree in
+        // `generation` and a viewer goes on with the copy it kept. A drawing that owns the pad (a fresh map) or a
+        // tree the step has never drawn sends it, because that pad may have nothing to go on.
+        const bool carriesTree = replace || MapDrawsNewNavigator(ctx, "map", "reshape");
+        if (nested.is_object() && !nested.empty() && carriesTree) extra["nested"] = nested;
+        if (!show.content.empty()) extra["content"] = show.content;
+        if (show.errors) extra["errors"] = true;
+      }
+      ctx.ShowRoot(shown, pad, LayersLabel(proj), "", json{{"click", clicks}}, replace && drew == 0, extra);
       drew++;
     }
     // The next layer down: the first child this level has. Not `GetChild(0)` - a bin is a ROOT bin
@@ -487,6 +988,7 @@ size_t RenderMapLayers(Ndmspc::NRouteContext & ctx, Ndmspc::NGnNavigator * nav, 
     if (first == nullptr) break;
     // The bin this layer took is part of the next layer's slice.
     walk.push_back(static_cast<int>(bin));
+    if (nestedHere != nullptr) nestedHere = NestedChild(*nestedHere, bin);
     at = first;
   }
   return drew;
@@ -772,26 +1274,84 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
   // root and sits directly above the section rather than inside it. A group is presentation only: the fields
   // keep their flat values, so a client sends `nWorkers`, `cache` and `cacheFile` as they are.
   schema["order"]  = {"binningName", "levels", "nWorkers", "cache", "cacheFile"};
+  // Not a field a person fills: the generation a map compares against (see MapDrawsNewNavigator).
+  schema["properties"]["generation"] = {
+      {"type", "integer"},
+      {"hidden", true},
+      {"description", "Which reshape built the navigator, so the next map knows to replace what it drew."}};
+  // The cache is where the result goes, not what the reshape is about, so the section starts closed: a form
+  // should ask for the binning and the levels first.
   schema["groups"] = json::array({{{"title", "Cache"},
                                    {"fields", {"cache", "cacheFile"}},
                                    {"collapsed", true}}});
   return schema;
 }
 
-json BuildMapSchema(const std::string & mappingPad = "pad1", const std::string & contentPad = "pad2")
+json BuildMapSchema(Ndmspc::NGnTree * ngnt, const std::string & mappingPad = "pad1",
+                    const std::string & contentPad = "pad2")
 {
-  return Ndmspc::NSchemaBuilder()
-      .String("mappingPad")
-      .Title("Mapping pad")
-      .Default(mappingPad)
-      .String("contentPad")
-      .Title("Content pad")
-      .Default(contentPad)
-      .Boolean("averages")
-      .Title("Average deeper levels")
-      .Description("Average deeper-level parameter values/errors into higher levels (disable for large navigators)")
-      .Default(true)
-      .Build();
+  json schema = Ndmspc::NSchemaBuilder()
+                    .String("mappingPad")
+                    .Title("Mapping pad")
+                    .Default(mappingPad)
+                    .String("contentPad")
+                    .Title("Content pad")
+                    .Default(contentPad)
+                    .Boolean("averages")
+                    .Title("Average deeper levels")
+                    .Description("Average deeper-level parameter values/errors into higher levels (disable for "
+                                 "large navigators)")
+                    .Default(true)
+                    .Build();
+
+  // What the bins can show: the entry ids the projection carries, or one of the parameters the tree holds -
+  // the same numbers the export writes into `fArrays` and the 3D view reads. The names are data and come
+  // with the open file; the field's shape is declared here (and in the tool's MCP schema) so a form can
+  // draw it before anything has been opened.
+  json                   contents = json::array({"id"});
+  Ndmspc::NParameters *  params   = ngnt == nullptr ? nullptr : ngnt->GetParameters();
+  if (params != nullptr) {
+    for (const auto & name : params->GetNames()) contents.push_back(name);
+  }
+  schema["properties"]["content"] = {
+      {"type", "string"},
+      {"title", "Mapping shows"},
+      {"format", "select"},
+      {"enum", contents},
+      {"default", "id"},
+      {"refresh", true},
+      {"description", "What the mapping's bins hold: an entry id, or one of the tree's parameters."}};
+
+  // The range the drawing uses. Off by default: the canvas fits what the slice actually draws, which is what a
+  // first look wants. On, it takes the range the export carries for the whole layer — the range the 3D view
+  // uses, so the slices of a layer compare with each other. Applies to a parameter content.
+  schema["properties"]["fixedRange"] = {
+      {"type", "boolean"},
+      {"title", "Fixed range"},
+      {"default", false},
+      {"refresh", true},
+      {"description", "Scale by the range the export carries for this layer (what the 3D view uses, so a "
+                      "layer's slices compare) instead of letting the canvas fit what this slice draws. "
+                      "Applies to a parameter content; a layer of labelled (categorical) bins always keeps "
+                      "the canvas's fit."}};
+
+  // The parameter's errors as the picture itself. Off by default: a mapping is read for its values, and the
+  // error map is a second reading of the same layer.
+  schema["properties"]["errors"] = {
+      {"type", "boolean"},
+      {"title", "Errors"},
+      {"default", false},
+      {"refresh", true},
+      {"description", "Show the parameter's errors in the bins instead of its values (its fArrays errors, "
+                      "drawn as they are stored). Applies to a parameter; an entry id has no error."}};
+
+  schema["order"] = {"content", "errors", "fixedRange", "mappingPad", "contentPad", "averages"};
+  // The generation this step drew last (see RecordMapGeneration); hidden, it is bookkeeping between steps.
+  schema["properties"]["generation"] = {
+      {"type", "integer"},
+      {"hidden", true},
+      {"description", "The reshape this step last drew; a new one makes the next map replace the pad."}};
+  return schema;
 }
 
 json BuildSpectraSchema(Ndmspc::NGnTree * ngnt, const std::vector<std::string> & defaultParams = {},
@@ -1050,14 +1610,41 @@ void toolNgnt()
       group + "/map",
       {
           .description = "Project the current navigator level onto pads. POST renders the projection "
-                         "(mappingPad, contentPad, averages), PATCH drills down using a point/level/bin, "
-                         "DELETE clears the map.",
+                         "(mappingPad, contentPad, averages, content), PATCH drills down using a point/level/bin "
+                         "or, with none of them, re-renders what the step draws with its current content, DELETE "
+                         "clears the map. 'content' names what the bins hold: 'id' (the entry ids) or one of the "
+                         "tree's parameters; 'errors' shows the parameter's errors in the bins instead of its "
+                         "values and 'fixedRange' takes the drawing's range from the export.",
           .methods     = {"POST", "PATCH", "DELETE"},
           .inputSchema = {{"properties",
                            {{"mappingPad", {{"type", "string"}, {"description", "Pad that shows the map."}}},
                             {"contentPad", {{"type", "string"}, {"description", "Pad that shows the content."}}},
                             {"averages",
                              {{"type", "boolean"}, {"description", "Average deeper levels into higher levels."}}},
+                            // The names this can be are data and arrive live in the workspace schema, which
+                            // the merge keeps; the shape is all this declares.
+                            {"content",
+                             {{"type", "string"},
+                              {"format", "select"},
+                              {"refresh", true},
+                              {"description", "What the mapping's bins hold: an entry id, or one of the tree's "
+                                              "parameters."}}},
+                            {"fixedRange",
+                             {{"type", "boolean"},
+                              {"title", "Fixed range"},
+                              {"default", false},
+                              {"refresh", true},
+                              {"description", "Scale by the range the export carries for this layer (what the 3D "
+                                              "view uses) instead of letting the canvas fit the drawn slice. "
+                                              "Applies to a parameter content; a layer of labelled "
+                                              "(categorical) bins always keeps the canvas's fit."}}},
+                            {"errors",
+                             {{"type", "boolean"},
+                              {"title", "Errors"},
+                              {"default", false},
+                              {"refresh", true},
+                              {"description", "Show the parameter's errors in the bins instead of its values. "
+                                              "Applies to a parameter content; an entry id has no error."}}},
                             {"point",
                              {{"type", "array"},
                               {"items", {{"type", "integer"}}},
@@ -1173,6 +1760,7 @@ void toolNgnt()
 
     std::string openKey    = "open";
     std::string reshapeKey = "reshape";
+    std::string mapKey     = "map";
 
     if (ctx.IsGet()) {
       if (ngnt && !ngnt->IsZombie()) {
@@ -1286,6 +1874,26 @@ void toolNgnt()
         params = ngnt->GetParameters();
       }
       const bool hasParams = params != nullptr && !params->GetNames().empty();
+
+      // A mapping's `content` lists this tree's parameters, so another file's list is not left in the
+      // dropdown — the built-in `id` always is. A default naming a parameter this tree does not have goes
+      // back to the ids, which is what the handler would fall back to anyway.
+      json & mapSchema = ctx.Workspace()[mapKey];
+      if (mapSchema.contains("properties") && mapSchema["properties"].contains("content")) {
+        json contents = json::array({"id"});
+        if (hasParams) {
+          for (const auto & name : params->GetNames()) contents.push_back(name);
+        }
+        mapSchema["properties"]["content"]["enum"] = contents;
+
+        const json & chosen = mapSchema["properties"]["content"]["default"];
+        if (chosen.is_string() &&
+            std::find(contents.begin(), contents.end(), chosen) == contents.end()) {
+          mapSchema["properties"]["content"]["default"] = "id";
+        }
+        wsOut["workspace"][mapKey] = mapSchema;
+      }
+
       if (Ndmspc::gNdmspcMcpTools != nullptr) {
         auto * tools   = Ndmspc::gNdmspcMcpTools;
         auto   spectra = tools->find("ndmspc/ngnt/spectra");
@@ -1462,10 +2070,14 @@ void toolNgnt()
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "levels", nav->GetLevels());
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "binningName", cacheKey.binning);
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "nWorkers", nWorkers);
+      // A new navigator: stamp it, so the first map after this reshape replaces its pad (MapDrawsNewNavigator).
+      const json generation = ctx.GetWorkspaceDefault(reshapeKey, "generation");
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[reshapeKey], "generation",
+                                         (generation.is_number() ? generation.get<long long>() : 0) + 1);
       wsOut["workspace"][reshapeKey] = ctx.Workspace()[reshapeKey];
 
       if (!ctx.Workspace()[mapKey].contains("type")) {
-        ctx.Workspace()[mapKey] = BuildMapSchema();
+        ctx.Workspace()[mapKey] = BuildMapSchema(ngnt);
       }
       // No `binningName` default for the map step: it draws the navigator it is handed, so it has no binning
       // field of its own (`BuildMapSchema` declares none) and a default written here could never land — it
@@ -1513,96 +2125,62 @@ void toolNgnt()
 
     std::string mapKey     = "map";
     std::string spectraKey = "spectra";
+    std::string reshapeKey = "reshape";
 
     if (ctx.IsPost()) {
       std::string mappingPad = ctx.GetString("mappingPad", "pad1");
       std::string contentPad = ctx.GetString("contentPad", "pad2");
       NLogTrace("Mapping pad: %s, Content pad: %s", mappingPad.c_str(), contentPad.c_str());
 
-      // Averaging can be disabled per request (or via the map workspace default) for large navigators
-      bool averages = nav->GetAverageParameters();
-      {
-        json wsDef = ctx.GetWorkspaceDefault(mapKey, "averages");
-        if (wsDef.is_boolean()) averages = wsDef.get<bool>();
-      }
-      if (httpIn.contains("averages") && httpIn["averages"].is_boolean()) averages = httpIn["averages"].get<bool>();
+      // Averaging can be disabled per request (or via the map workspace default) for large navigators; it
+      // also names the export the parameter values come from (see AveragesArg).
+      const bool averages = AveragesArg(ctx, mapKey, nav);
 
+      MapShow show = MapShowOf(ctx, mapKey);
+      if (!HasParameter(ngnt, show.content)) {
+        NLogWarning("[map] '%s' is not a parameter of this tree; showing the entry ids", show.content.c_str());
+        show.content = "id";
+      }
+
+      // The export each layer's parameter values come from, and what the first layer carries for the 3D
+      // view. Exporting the whole navigator to JSON is what a map request spends its time on, so the result
+      // is kept beside the navigator and re-read instead of rebuilt (see `NavigatorExport`).
       json nested;
       if (nav->GetLevel() == 0) {
-        // Exporting the whole navigator to JSON is what a map request spends its time on, so the
-        // result is kept beside the navigator and re-read instead of rebuilt. The key has to carry
-        // `averages` too: a per-request override changes what the export contains, so the two must not
-        // share a kept copy.
-        Ndmspc::NReshapeCache::Key mapKeyDef;
-        mapKeyDef.FromTree(ngnt);
-        // The navigator is what is being exported, so its own levels are what the export depends on -
-        // read from the object rather than from the reshape step's workspace, which may since have been
-        // edited to a combination this navigator is not. The binning name has to match the one the
-        // reshape stored under, or this looks in a different entry and never finds the kept export.
-        mapKeyDef.levels   = nav->GetLevels();
-        mapKeyDef.binning  = ngnt->GetBinning()->GetCurrentDefinitionName();
-        mapKeyDef.averages = averages;
-        // The home the navigator was reshaped into, so the export is looked for beside it. The map step has
-        // no cache fields of its own — it draws the navigator it is handed — so this follows the reshape's
-        // default for the kind of input.
-        mapKeyDef.cacheFile = Ndmspc::NReshapeCache::DefaultCacheFile(mapKeyDef.file);
-
-        std::string kept;
-        if (Ndmspc::NReshapeCache::LoadMapJson(mapKeyDef, kept)) {
-          nested = json::parse(kept, nullptr, false);
-          if (nested.is_discarded()) {
-            NLogWarning("[map] the kept export could not be parsed; exporting again");
-            nested = json::object();
-          }
-          else {
-            // At Info so the saving is visible in a room's log: a map that reads the kept export
-            // explains why it did not spend its time exporting.
-            NLogInfo("[map] served the export kept for this combination (%zu bytes)", kept.size());
-          }
-        }
-
-        if (nested.is_null() || nested.empty()) {
-          json exportCfg;
-          exportCfg["averages"] = averages;
-          nav->ExportToJson(nested, nav, std::vector<std::string>{}, exportCfg);
-          // Keep it, but only if it looks usable — a failed export must not be remembered.
-          if (!nested.empty()) Ndmspc::NReshapeCache::StoreMapJson(mapKeyDef, nested.dump());
-        }
-
-        // Dump to file for debugging
-        const char * tmpFile = gSystem->Getenv("NDMSPC_NGNG_EXPORT_JSON_FILE");
-        if (tmpFile) {
-          Ndmspc::NUtils::SaveRawFile(tmpFile, nested.dump());
-          NLogDebug("[Server] Exported nested navigator structure to %s", tmpFile);
-        }
+        nested = NavigatorExport(ngnt, nav, averages, /*exportIfMissing=*/true);
       }
 
       // One envelope per layer, so the pad tabs them: the projection at this level and then the first
       // child's at each level below. The object goes as the projection itself, never as a list, which
       // jsroot would draw into one canvas, item on top of item.
-      if (RenderMapLayers(ctx, nav, mappingPad, json::array(), /*replace=*/true, nested) == 0) {
+      if (RenderMapLayers(ctx, nav, mappingPad, json::array(), /*replace=*/true, nested, show) == 0) {
         NLogError("[Server] map POST: no projection to show for nav=%p", (void *)nav);
         ctx.Result("Failed to get projection for the current navigator level " + std::to_string(nav->GetLevel()) +
                    ", cannot render map");
         return;
       }
 
-      // The step says which pads it drew on and whether it averaged deeper levels, even when the request
-      // left them out (see RecordStepArguments). Recorded after the drawing succeeded, so a failed map does
-      // not read back as one that ran.
+      // The step says which pads it drew on and whether it averaged deeper levels, even when the request left
+      // them out (see RecordStepArguments), and what the drawing shows (see RecordMapShow). Recorded after the
+      // drawing succeeded, so a failed map does not read back as one that ran.
       RecordStepArguments(ctx, json{{"mappingPad", mappingPad}, {"contentPad", contentPad}, {"averages", averages}});
+      RecordMapShow(ctx, show);
 
       // A repeated map POST first drops the previous "map" entry, which also
       // drops it as an orphaned workspace key, so the schema has to be built
       // again here. Writing the defaults into a missing schema would otherwise
       // create stubs that carry only a default and lose their `type`.
       if (!ctx.Workspace()[mapKey].contains("type")) {
-        ctx.Workspace()[mapKey] = BuildMapSchema(mappingPad, contentPad);
+        ctx.Workspace()[mapKey] = BuildMapSchema(ngnt, mappingPad, contentPad);
       }
 
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "mappingPad", mappingPad);
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "contentPad", contentPad);
       Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "averages", averages);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "content", show.content);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "fixedRange", show.fixedRange);
+      Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "errors", show.errors);
+      RecordMapGeneration(ctx, mapKey, reshapeKey);
       wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
 
       // The spectra step is offered only when there is something to draw for: a tree with no parameters
@@ -1630,6 +2208,50 @@ void toolNgnt()
     if (ctx.IsPatch()) {
       NLogTrace("[Server] PATCH map received: %s", httpIn.dump().c_str());
 
+      MapShow show = MapShowOf(ctx, mapKey);
+      if (!HasParameter(ngnt, show.content)) {
+        NLogWarning("[map] '%s' is not a parameter of this tree; showing the entry ids", show.content.c_str());
+        show.content = "id";
+      }
+
+      const bool hasArgs  = httpIn.contains("args") && httpIn["args"].is_object();
+      const bool hasPoint = httpIn.contains("point") && httpIn["point"].is_array();
+      const bool hasLevel = httpIn.contains("level") && httpIn["level"].is_number();
+      const bool hasBin   = hasArgs && httpIn["args"].contains("bin");
+      if (!hasPoint && !hasLevel && !hasBin) {
+        // No drill coordinate: a form's `refresh` changed what the mapping shows, so re-display what this
+        // step already draws. `replace=false` replaces each layer's own tab where it stands, so the pad
+        // keeps the tab the user is on and no layer is revealed - a redraw is not a drill.
+        const std::string mappingPad = PadArg(ctx, "mappingPad", "pad1");
+        // A redraw is a deliberate change of what the step shows, so it may produce the export it needs; a click
+        // may not (see the drill below). It carries the tree whatever `content` says: the 3D scene draws the tree,
+        // not the cells, so switching to the entry ids must not take it off the pad — a viewer reads that as a
+        // different kind of drawing and rebuilds.
+        const json nested = NavigatorExport(ngnt, nav, AveragesArg(ctx, mapKey, nav), /*exportIfMissing=*/true);
+        // A redraw normally keeps the pad (that is what keeps the user on their tab), but a redraw of a navigator
+        // this step has never drawn is a *new* drawing: replace, so no tab of the previous reshape survives.
+        const bool fresh = MapDrawsNewNavigator(ctx, mapKey, reshapeKey);
+        if (RenderMapLayers(ctx, nav, mappingPad, json::array(), /*replace=*/fresh, nested, show) == 0) {
+          NLogError("[Server] map PATCH redraw: no projection to show for nav=%p", (void *)nav);
+          ctx.Result("Failed to get projection for the current navigator level " +
+                     std::to_string(nav->GetLevel()) + ", cannot render map");
+          return;
+        }
+        // The step now says what it shows (see RecordMapShow). Nothing is created: a PATCH updates the step
+        // it names rather than adding one to the combination.
+        RecordMapShow(ctx, show);
+        if (!ctx.Workspace()[mapKey].contains("type")) {
+          ctx.Workspace()[mapKey] = BuildMapSchema(ngnt, mappingPad);
+        }
+        Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "content", show.content);
+        Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "fixedRange", show.fixedRange);
+        Ndmspc::NSchemaBuilder::SetDefault(ctx.Workspace()[mapKey], "errors", show.errors);
+        RecordMapGeneration(ctx, mapKey, reshapeKey);
+        wsOut["workspace"][mapKey] = ctx.Workspace()[mapKey];
+        ctx.Success();
+        return;
+      }
+
       std::vector<int> point = ResolveDrillPoint(ctx, httpIn);
 
       ctx.SetStatePoint(point);
@@ -1646,7 +2268,21 @@ void toolNgnt()
         // layer, so a click opens the deeper projection rather than leaving the user on the tab they
         // clicked. A fresh map does not ask for it - its first layer is new and shows on its own.
         wsOut["payload"]["reveal"] = true;
-        RenderMapLayers(ctx, navCurrent, mappingPad, point, /*replace=*/false);
+        // The export node for the layer the drill landed on: the same walk the navigator took, so the deeper
+        // layers show the same quantity on the same slice. Read from the kept export only - a click does not
+        // pay for an export that is not there (the layers then fall back to their entry ids).
+        // Read whatever the step shows: the tree is what the 3D scene draws, so a click must not take it off the
+        // pad. A click does not pay for an export that is not there, hence `exportIfMissing=false`.
+        json       nested;
+        const json root = NavigatorExport(ngnt, nav, AveragesArg(ctx, mapKey, nav), /*exportIfMissing=*/false);
+        if (const json * at = NestedAt(root, point)) nested = *at;
+        // The drilled layers fall back to their entry ids without it — say so, rather than drawing a picture the
+        // step's form does not describe.
+        if ((!nested.is_object() || nested.empty()) && show.content != "id") {
+          NLogWarning("[map] no export is kept for this combination: the drilled layers show their entry ids. "
+                      "Run the map step again to keep one");
+        }
+        RenderMapLayers(ctx, navCurrent, mappingPad, point, /*replace=*/false, nested, show);
 
         if (navCurrent->GetLevel() == nav->GetNLevels() - 1) {
           NLogTrace("[Server] Reached final level navigator for point: %s [%d/%d]", json(point).dump().c_str(),
@@ -1676,7 +2312,13 @@ void toolNgnt()
         // so a click's entry is one less than that. The translation belongs here, in the tool that
         // knows what its cells mean — the UI only passes the click's args on.
         int entry = ctx.GetInt("entry");
-        if (entry < 0 && httpIn.contains("args") && httpIn["args"].is_object() && httpIn["args"].contains("cont") &&
+        if (entry < 0 && show.content != "id") {
+          // The drawn bins hold the parameter, not an id, so `args.cont` is that value: the id is read from
+          // the layer the click was drawn on, at the bin it names (see ClickedLayer/EntryFromClick).
+          Ndmspc::NGnNavigator * drawnOn = ClickedLayer(nav, httpIn);
+          entry                          = EntryFromClick(drawnOn != nullptr ? drawnOn : navCurrent, httpIn);
+        }
+        if (entry < 0 && show.content == "id" && hasArgs && httpIn["args"].contains("cont") &&
             httpIn["args"]["cont"].is_number()) {
           entry = httpIn["args"]["cont"].get<int>() - 1;
         }

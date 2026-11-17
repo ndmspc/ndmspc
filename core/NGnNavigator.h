@@ -111,12 +111,17 @@ class NGnNavigator : public TNamed {
    * @param parent Navigator to reshape into; null creates the root, as in Reshape.
    * @param minBins Per-axis first bin to reshape (empty = the level's first bin).
    * @param maxBins Per-axis last bin to reshape (empty = the level's last bin).
+   * @param progressPrefix The enclosing levels' part of this level's progress bar tag ("L0 3/5 | " under the
+   *        first level), so a bar says where the nested loops are; empty at the top of a drawing.
+   * @param progressOfLevel This level's own place ("3/5"), for a caller that reshapes one bin of it and counts
+   *        the rest itself — a reshape worker over the first layer. Empty when the level counts itself.
    * @return The reshaped navigator, or nullptr on failure.
    */
   NGnNavigator * ReshapeBins(NBinningDef * binningDef, std::vector<std::vector<int>> levels, size_t level,
                              std::map<int, std::vector<int>> ranges, std::map<int, std::vector<int>> rangesBase,
                              NGnNavigator * parent, const std::vector<int> & minBins,
-                             const std::vector<int> & maxBins);
+                             const std::vector<int> & maxBins, const std::string & progressPrefix = "",
+                             const std::string & progressOfLevel = "");
 
   /**
    * @brief Export navigator data to file.
