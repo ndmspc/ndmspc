@@ -1525,6 +1525,15 @@ void NGnNavigator::ExportToJson(json & j, NGnNavigator * obj, std::vector<std::s
 
   if (!hasContent) j["children"].erase("content");
 
+  // A node with nothing below it still marks itself as part of a nested export: `children`, empty. A viewer
+  // recognises a tree by the key rather than by its shape, so even a one-level mapping reads as one — and a leaf
+  // says where its level ends instead of leaving a reader to guess (the painter ignores an empty `children` when
+  // it works out how many levels there are).
+  if (!j.contains("children") || !j["children"].is_object()) j["children"] = json::object();
+  if (!j["children"].contains("content") || !j["children"]["content"].is_array()) {
+    j["children"]["content"] = json::array();
+  }
+
   if (obj->GetParent() == nullptr) {
     // NLogDebug("NGnNavigator::ExportJson: LLLLLLLLLLLLLLLLLLLLLLast");
     int i = -1;

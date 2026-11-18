@@ -1012,6 +1012,47 @@ TEST_F(ToolNgnt, ARedrawReplacesTheTabsItAlreadyDrew)
 }
 
 /**
+ * A leaf marks where its level ends: `children`, empty.
+ *
+ * A viewer reads a tree by its keys rather than by its shape, so even a one-level export is recognised as a nested
+ * drawing. Its own file, because the export is kept beside the data and keyed by data and levels — not by the code
+ * that wrote it — so the shared one could answer with an export from an older build.
+ */
+TEST_F(ToolNgnt, ALeafSaysItsLevelEnds)
+{
+  const std::string file = "/tmp/test_toolNgnt_leaf.root";
+  std::remove(file.c_str());
+  NSingleBinning01Gaus(file);
+
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/open", "POST", {{"file", file}}).reply["result"], "success");
+  ASSERT_EQ(fTool->Call("ndmspc/ngnt/reshape", "POST",
+                        {{"binningName", "default"},
+                         {"levels", json::array({json::array({0}), json::array({1, 2})})}})
+                .reply["result"],
+            "success");
+  const Ndmspc::Test::ToolCall mapped = fTool->Call("ndmspc/ngnt/map", "POST");
+  ASSERT_EQ(mapped.reply["result"], "success") << mapped.reply.dump();
+  const json pads = ToolHarness::Pads(mapped);
+  ASSERT_FALSE(pads.empty()) << mapped.ws.dump();
+  const json & root = pads[0]["value"]["nested"];
+  ASSERT_TRUE(root.contains("children")) << pads[0]["value"].dump();
+  const json & kids = root["children"]["content"];
+  ASSERT_TRUE(kids.is_array()) << root.dump();
+
+  int childBin = -1;
+  for (size_t i = 1; i < kids.size() && childBin < 0; i++) {
+    if (kids[i].is_object()) childBin = static_cast<int>(i);
+  }
+  ASSERT_GE(childBin, 0) << kids.dump();
+  const json & child = kids[childBin];
+  ASSERT_TRUE(child.contains("children")) << child.dump();
+  const json & below = child["children"];
+  ASSERT_TRUE(below.contains("content")) << below.dump();
+  EXPECT_TRUE(below["content"].is_array()) << below.dump();
+  EXPECT_TRUE(below["content"].empty()) << "a leaf has nothing below it: " << below.dump();
+}
+
+/**
  * A redraw of a navigator this step has never drawn replaces the pad.
  *
  * A redraw keeps the pad on purpose — that is what keeps the user on the tab they are looking at — but the first
