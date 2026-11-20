@@ -1,19 +1,57 @@
+# Pinned third-party releases. Each URL is verified with the SHA256 of the published archive
+# (URL_HASH below): bumping a *_VERSION means recomputing that hash in the same change, e.g.
+#   curl -fsSL -o x <url> && sha256sum x
+# The git-tag fallback (USE_FAST_FETCH=OFF) cannot be hash-checked and stays tag-based.
+#
+# The URL is spelled once here, used both by the ndmspc_find_or_fetch() calls below and by
+# `make dist`, which vendors the archive into the source tarball (NDMSPC_DEPS_VENDOR_ARGS).
 set(HTTPLIB_VERSION "v0.54.1")
+set(HTTPLIB_URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/${HTTPLIB_VERSION}.tar.gz)
+set(HTTPLIB_URL_HASH "SHA256=7310f5312e1423830d649b38ed028e9db86303a979ccbfdbd1c4b1574f422dfb")
 set(JWT_CPP_VERSION "v0.7.2")
+set(JWT_CPP_URL https://github.com/Thalhammer/jwt-cpp/archive/refs/tags/${JWT_CPP_VERSION}.tar.gz)
+set(JWT_CPP_URL_HASH "SHA256=6e815d86c168eb521a27937d603747dec0ca3c39ffc12d6fa72e2cf78a5b02d2")
 set(NLOHMANN_JSON_VERSION "v3.11.3")
+set(NLOHMANN_JSON_URL https://github.com/nlohmann/json/releases/download/${NLOHMANN_JSON_VERSION}/include.zip)
+set(NLOHMANN_JSON_URL_HASH "SHA256=a22461d13119ac5c78f205d3df1db13403e58ce1bb1794edc9313677313f4a9d")
 set(CLI11_VERSION "v2.5.0")
+set(CLI11_URL https://github.com/CLIUtils/CLI11/archive/refs/tags/${CLI11_VERSION}.tar.gz)
+set(CLI11_URL_HASH "SHA256=17e02b4cddc2fa348e5dbdbb582c59a3486fa2b2433e70a0c3bacb871334fd55")
 set(FTXUI_VERSION "v7.0.3")
+set(FTXUI_URL https://github.com/ArthurSonzogni/FTXUI/releases/download/${FTXUI_VERSION}/ftxui-amalgamated.zip)
+set(FTXUI_URL_HASH "SHA256=63d13bb65747bdbf0edf04d83ce490708022371cf378f15fad8489249ea4fd9a")
+
+# Archives `make dist` vendors into the source tarball, as <name> <url> <hash> triples, so a
+# build from the tarball configures without network access. All pinned deps are listed, not
+# only the enabled ones: the tarball is built with one option set and may be configured with
+# another (e.g. WITH_TUI), and every archive here is already pinned and verified.
+set(NDMSPC_DEPS_VENDOR_ARGS
+  NLOHMANN_JSON "${NLOHMANN_JSON_URL}" "${NLOHMANN_JSON_URL_HASH}"
+  CLI11          "${CLI11_URL}"          "${CLI11_URL_HASH}"
+  FTXUI          "${FTXUI_URL}"          "${FTXUI_URL_HASH}"
+  HTTPLIB        "${HTTPLIB_URL}"        "${HTTPLIB_URL_HASH}"
+  JWT_CPP        "${JWT_CPP_URL}"        "${JWT_CPP_URL_HASH}"
+)
 
 option(USE_FAST_FETCH "Fast fetch mode" ON)
 include(FetchContent)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "Disable update step")
 include(NdmspcFindOrFetch)
 
+# Where the pinned archives are read from: a source tarball from `make dist` carries them in
+# third-party/ (see scripts/fetch-deps.sh), and a checkout that has run `make dist` keeps that
+# directory as a cache, so nothing is downloaded twice. Set -DNDMSPC_DEPS_DIR=<dir> to point a
+# build at archives that are already on disk. Unset: download them.
+if(NOT DEFINED NDMSPC_DEPS_DIR AND EXISTS "${CMAKE_SOURCE_DIR}/third-party")
+  set(NDMSPC_DEPS_DIR "${CMAKE_SOURCE_DIR}/third-party")
+endif()
+
 # ------------------ Dependencies via find_package or FetchContent ------------------
 ndmspc_find_or_fetch(
   NAME NLOHMANN_JSON
   VERSION ${NLOHMANN_JSON_VERSION}
-  URL https://github.com/nlohmann/json/releases/download/${NLOHMANN_JSON_VERSION}/include.zip
+  URL ${NLOHMANN_JSON_URL}
+  URL_HASH ${NLOHMANN_JSON_URL_HASH}
   GIT_REPOSITORY https://github.com/nlohmann/json.git
   INCLUDE_SUBDIR include
   REQUIRED
@@ -22,7 +60,8 @@ ndmspc_find_or_fetch(
 ndmspc_find_or_fetch(
   NAME CLI11
   VERSION ${CLI11_VERSION}
-  URL https://github.com/CLIUtils/CLI11/archive/refs/tags/${CLI11_VERSION}.tar.gz
+  URL ${CLI11_URL}
+  URL_HASH ${CLI11_URL_HASH}
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
   INCLUDE_SUBDIR include
   REQUIRED
@@ -54,7 +93,8 @@ if(WITH_TUI)
   ndmspc_find_or_fetch(
     NAME FTXUI
     VERSION ${FTXUI_VERSION}
-    URL https://github.com/ArthurSonzogni/FTXUI/releases/download/${FTXUI_VERSION}/ftxui-amalgamated.zip
+    URL ${FTXUI_URL}
+    URL_HASH ${FTXUI_URL_HASH}
     INCLUDE_SUBDIR .
     REQUIRED
     NO_ADD_SUBDIRECTORY
@@ -79,7 +119,8 @@ if (WITH_HTTP OR WITH_AI)
   ndmspc_find_or_fetch(
     NAME HTTPLIB
     VERSION ${HTTPLIB_VERSION}
-    URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/${HTTPLIB_VERSION}.tar.gz
+    URL ${HTTPLIB_URL}
+    URL_HASH ${HTTPLIB_URL_HASH}
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
     INCLUDE_SUBDIR .
     REQUIRED
@@ -137,7 +178,8 @@ if (WITH_HTTP)
   ndmspc_find_or_fetch(
     NAME JWT_CPP
     VERSION ${JWT_CPP_VERSION}
-    URL https://github.com/Thalhammer/jwt-cpp/archive/refs/tags/${JWT_CPP_VERSION}.tar.gz
+    URL ${JWT_CPP_URL}
+    URL_HASH ${JWT_CPP_URL_HASH}
     GIT_REPOSITORY https://github.com/Thalhammer/jwt-cpp.git
     INCLUDE_SUBDIR include
     REQUIRED

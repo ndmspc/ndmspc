@@ -29,6 +29,17 @@ set(NDMSPC_UI_BUILD_OUTPUT_DIR ${CMAKE_BINARY_DIR}/ndmspc-ui)
 
 set(NDMSPC_UI_EMBEDDED_ARCHIVE "${CMAKE_SOURCE_DIR}/ui/ndmspc-ui-page.tar.gz")
 set(NDMSPC_UI_EMBEDDED_VERSION_FILE "${CMAKE_SOURCE_DIR}/ui/ndmspc-ui-page.version")
+set(NDMSPC_UI_EMBEDDED_SHA256_FILE "${CMAKE_SOURCE_DIR}/ui/ndmspc-ui-page.sha256")
+
+# The expected hash of the page archive: -D / $ENV wins, then the checksum `make dist` embeds
+# beside the page. Empty means "not known" — the archive is then only as trustworthy as TLS,
+# but the hash it did have is printed so it can be pinned from the log.
+set(NDMSPC_UI_PAGE_SHA256_EXPECTED "")
+if(DEFINED ENV{NDMSPC_UI_PAGE_SHA256} AND NOT "$ENV{NDMSPC_UI_PAGE_SHA256}" STREQUAL "")
+  set(NDMSPC_UI_PAGE_SHA256_EXPECTED "$ENV{NDMSPC_UI_PAGE_SHA256}")
+elseif(DEFINED NDMSPC_UI_PAGE_SHA256 AND NOT "${NDMSPC_UI_PAGE_SHA256}" STREQUAL "")
+  set(NDMSPC_UI_PAGE_SHA256_EXPECTED "${NDMSPC_UI_PAGE_SHA256}")
+endif()
 
 set(NDMSPC_UI_VERSION_USED "")
 if(NOT NDMSPC_UI_VERSION_PINNED
@@ -44,6 +55,18 @@ if(NOT NDMSPC_UI_VERSION_PINNED
       "Using the ndmspc-ui page embedded in the source tarball ('${NDMSPC_UI_VERSION_USED}'); "
       "-DNDMSPC_UI_FETCH=ON downloads the current one instead")
   configure_file("${NDMSPC_UI_EMBEDDED_ARCHIVE}" "${NDMSPC_UI_ARCHIVE}" COPYONLY)
+
+  # The embedded checksum is what `make dist` recorded when it downloaded this very page. It
+  # catches a tarball that was cut open and re-packed with a different page, or corrupted
+  # storage, without needing network access. An older tarball predating the file is accepted.
+  if(NDMSPC_UI_PAGE_SHA256_EXPECTED STREQUAL ""
+     AND EXISTS "${NDMSPC_UI_EMBEDDED_SHA256_FILE}")
+    file(STRINGS "${NDMSPC_UI_EMBEDDED_SHA256_FILE}" _ui_embedded_sha_line LIMIT_COUNT 1)
+    string(REGEX MATCH "^[0-9a-fA-F]+" NDMSPC_UI_PAGE_SHA256_EXPECTED "${_ui_embedded_sha_line}")
+  endif()
+  if(NDMSPC_UI_PAGE_SHA256_EXPECTED STREQUAL "")
+    message(STATUS "  the tarball carries no ui/ndmspc-ui-page.sha256; the embedded page is not verified")
+  endif()
 else()
   # --- Download the page ---
   # Fetched on every configure so `next` tracks the latest ndmspc-ui build.
@@ -71,6 +94,45 @@ else()
   if(NOT NDMSPC_UI_VERSION_USED STREQUAL NDMSPC_UI_VERSION)
     message(STATUS "ndmspc-ui page '${NDMSPC_UI_VERSION}' is not published; using '${NDMSPC_UI_VERSION_USED}'")
   endif()
+endif()
+
+# The published slot (`v1.4-stable`, `next`) is republished, so it does not say which build the
+# bytes are. The page stamps its own version at build time (VITE_APP_VERSION, from the tag in a
+# release pipeline), which does; resolve it so the log and the embedded .version name the real
+# build and not just the slot it came from.
+set(NDMSPC_UI_PAGE_BUILD "")
+if(EXISTS "${CMAKE_SOURCE_DIR}/scripts/ui-page-tag.sh")
+  execute_process(
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/ui-page-tag.sh" "${NDMSPC_UI_ARCHIVE}"
+    OUTPUT_VARIABLE NDMSPC_UI_PAGE_BUILD
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+endif()
+# An embedded .version already reads "<slot> (<build>)", so only say it again when it does not.
+if(NOT NDMSPC_UI_PAGE_BUILD STREQUAL "")
+  string(FIND "${NDMSPC_UI_VERSION_USED}" "(${NDMSPC_UI_PAGE_BUILD})" _ui_build_shown)
+  if(_ui_build_shown EQUAL -1)
+    message(STATUS "ndmspc-ui page '${NDMSPC_UI_VERSION_USED}' is build ${NDMSPC_UI_PAGE_BUILD}")
+  endif()
+endif()
+
+# Verify whatever page we are about to serve and report the hash, so every configure states the
+# exact bytes it used and a pinned hash is enforced (a floating -stable/next slot cannot be
+# pinned, but the value printed here is what a later pin is seeded from).
+file(SHA256 "${NDMSPC_UI_ARCHIVE}" _ui_sha_actual)
+if(NDMSPC_UI_PAGE_SHA256_EXPECTED STREQUAL "")
+  message(STATUS "ndmspc-ui page '${NDMSPC_UI_VERSION_USED}' sha256: ${_ui_sha_actual}")
+else()
+  string(TOLOWER "${NDMSPC_UI_PAGE_SHA256_EXPECTED}" _ui_sha_expected_lower)
+  if(NOT _ui_sha_actual STREQUAL _ui_sha_expected_lower)
+    message(FATAL_ERROR
+        "ndmspc-ui page '${NDMSPC_UI_VERSION_USED}' does not match NDMSPC_UI_PAGE_SHA256.\n"
+        "  expected: ${_ui_sha_expected_lower}\n"
+        "  actual:   ${_ui_sha_actual}\n"
+        "The archive was downloaded from ${NDMSPC_UI_BASE_URL}/${NDMSPC_UI_VERSION_USED}/ndmspc-ui-page.tar.gz "
+        "(or came embedded in the source tarball). Refusing to install a page whose bytes differ.")
+  endif()
+  message(STATUS "ndmspc-ui page '${NDMSPC_UI_VERSION_USED}' sha256 verified: ${_ui_sha_actual}")
 endif()
 
 # Unpack into a clean directory so switching versions cannot leave stale assets.

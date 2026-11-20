@@ -37,8 +37,53 @@ page.
 
 `make dist` (`make srpm`, the source tarball attached to a tag's Release) embeds the page
 it would have downloaded into `ui/ndmspc-ui-page.tar.gz`, with the chosen version in
-`ui/ndmspc-ui-page.version`. A build from that tarball — no `.git`, page present — uses it
-and needs no network; the configure log says `Using the ndmspc-ui page embedded …`.
+`ui/ndmspc-ui-page.version` and the archive's sha256 in `ui/ndmspc-ui-page.sha256`. A build
+from that tarball — no `.git`, page present — uses it and needs no network; the configure log
+says `Using the ndmspc-ui page embedded …`. The embedded checksum is verified before the page
+is extracted, so a tarball re-packed with a different page is refused. Check it by hand with:
+
+```bash
+cd ui && sha256sum -c ndmspc-ui-page.sha256
+```
+
+The published tarball has its own `.sha256` beside the download
+(`…/releases/<tag>/downloads/ndmspc-1.4.18-source-with-ui.tar.gz.sha256`), so the download can
+be verified with `sha256sum -c`. The version maps to a file in the ndmspc-ui package registry:
+
+```
+https://gitlab.com/api/v4/projects/ndmspc%2Fndmspc-ui/packages/generic/ndmspc-ui-page/<version>/ndmspc-ui-page.tar.gz
+```
+
+## Which build a slot holds
+
+`v1.4-stable` and `next` are **slots**, republished on every matching ndmspc-ui pipeline, so the
+slot name does not identify the bytes. The page stamps its own version at build time
+(`VITE_APP_VERSION`, the tag in a release pipeline) and shows it in the user menu; the configure
+log and `make dist` read that stamp back and report it:
+
+```
+-- ndmspc-ui page 'v1.4-stable' is build 1.4.15
+-- ndmspc-ui page 'v1.4-stable' sha256 verified: 3bb64c48…
+```
+
+`v1.4-stable` here is the slot that was fetched; `1.4.15` is the build it actually contains. The
+stamp comes from the page itself, so it is only as trustworthy as the page — pin
+`NDMSPC_UI_PAGE_SHA256` when that matters.
+
+## Verifying a downloaded page
+
+Each configure prints the sha256 of the page it is about to serve, so a byte-identical page can
+be required explicitly:
+
+```bash
+NDMSPC_UI_PAGE_SHA256=<sha256> scripts/make.sh install
+cmake ../ -DNDMSPC_UI_PAGE_SHA256=<sha256> ...
+```
+
+The value is checked against the downloaded (or embedded) archive and a mismatch fails the
+configure naming both hashes. It defaults to the embedded `ui/ndmspc-ui-page.sha256` when there
+is one. The floating `v<major>.<minor>-stable` and `next` slots cannot be pinned this way — they
+are republished — so pin `NDMSPC_UI_VERSION` too when the bytes matter.
 
 Two switches control it:
 

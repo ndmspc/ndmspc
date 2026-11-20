@@ -6,9 +6,16 @@ if(NOT DOXYGEN_FOUND)
 endif()
 
 include(FetchContent)
+# Pinned release rather than refs/heads/main: a floating branch changes under us and cannot be
+# verified. Bumping the version means recomputing the hash in the same change:
+#   curl -fsSL -o x <url> && sha256sum x
+set(DOXYGEN_AWESOME_CSS_VERSION "v2.5.0")
+set(DOXYGEN_AWESOME_CSS_URL_HASH
+    "SHA256=853d5939f724fd3b388b8a33f5459ba8a50a7972df3e721d7d66da05d82eea33")
 FetchContent_Declare(
   doxygen-awesome-css
-  URL https://github.com/jothepro/doxygen-awesome-css/archive/refs/heads/main.zip
+  URL https://github.com/jothepro/doxygen-awesome-css/archive/refs/tags/${DOXYGEN_AWESOME_CSS_VERSION}.zip
+  URL_HASH ${DOXYGEN_AWESOME_CSS_URL_HASH}
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(doxygen-awesome-css)

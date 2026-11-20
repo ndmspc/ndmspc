@@ -105,6 +105,8 @@ build-rpm-copr:
 # Builds the source tarball and publishes it to the package registry. `make dist` embeds
 # the ndmspc-ui page (see NDMSPC_UI_EMBED), so the uploaded archive builds without
 # network access; the release-source job links it from the tag's Release.
+# The page's sha256 travels inside the tarball beside it, and the tarball's own sha256 is
+# published next to the download, so a consumer can verify both ends.
 build-source:
   stage: deploy
   tags:
@@ -119,6 +121,12 @@ build-source:
     - test -n "$TARBALL"
     - tar tzf "$TARBALL" > build/source-contents.txt
     - grep -q '/ui/ndmspc-ui-page.tar.gz' build/source-contents.txt || { echo "$TARBALL has no embedded ndmspc-ui page"; exit 1; }
+    # The checksum is what lets a build from the tarball verify that page; never publish
+    # without it.
+    - grep -q '/ui/ndmspc-ui-page.sha256' build/source-contents.txt || { echo "$TARBALL has no embedded ndmspc-ui page checksum"; exit 1; }
+    # The pinned archives are vendored so a production build needs no network (make dist
+    # fills third-party/ from the hashes in cmake/deps.cmake).
+    - grep -q '/third-party/nlohmann_json/include.zip' build/source-contents.txt || { echo "$TARBALL has no vendored dependencies; rebuild with NDMSPC_DIST_VENDOR_DEPS=ON"; exit 1; }
     # The name says what it is: GitLab also lists the plain `git archive` as a source
     # archive on the Release, and the two are otherwise indistinguishable.
     - ASSET_NAME="ndmspc-${CI_COMMIT_TAG#v}-source-with-ui.tar.gz"
@@ -126,6 +134,12 @@ build-source:
       curl --fail --location --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
         --upload-file "$TARBALL" \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ndmspc-source/${CI_COMMIT_TAG}/${ASSET_NAME}"
+    - sha256sum "$TARBALL" | sed "s| .*|  ${ASSET_NAME}|" > build/${ASSET_NAME}.sha256
+    - cat build/${ASSET_NAME}.sha256
+    - |
+      curl --fail --location --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file "build/${ASSET_NAME}.sha256" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ndmspc-source/${CI_COMMIT_TAG}/${ASSET_NAME}.sha256"
   only:
     - tags
 
@@ -151,28 +165,30 @@ release-source:
       set -eu
       test -n "${CI_COMMIT_TAG:-}" || { echo "release-source must run on a tag pipeline"; exit 1; }
       ASSET_NAME="ndmspc-${CI_COMMIT_TAG#v}-source-with-ui.tar.gz"
-      ASSET_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ndmspc-source/${CI_COMMIT_TAG}/${ASSET_NAME}"
       if glab release view "$CI_COMMIT_TAG" --repo "$CI_PROJECT_PATH" >/dev/null 2>&1; then
         echo "Release $CI_COMMIT_TAG exists; keeping its notes and adding the source tarball"
-        OLD_LINK_ID=$(glab api "projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}/assets/links" |
-          jq -r --arg n "$ASSET_NAME" '.[] | select(.name == $n) | .id' | sed -n '1p')
-        if [ -n "$OLD_LINK_ID" ]; then
-          echo "Replacing existing asset link $OLD_LINK_ID"
-          glab api --method DELETE \
-            "projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}/assets/links/${OLD_LINK_ID}" >/dev/null
-        fi
       else
         glab release create "$CI_COMMIT_TAG" \
           --repo "$CI_PROJECT_PATH" \
           --ref "$CI_COMMIT_SHA" \
           --name "NDMSPC $CI_COMMIT_TAG" \
-          --notes "Source tarball with the ndmspc-ui page embedded: extracting and building it needs no network."
+          --notes "Source tarball with the ndmspc-ui page embedded: extracting and building it needs no network. The .sha256 beside it verifies the download."
       fi
-      glab api --method POST "projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}/assets/links" \
-        --raw-field "name=${ASSET_NAME}" \
-        --raw-field "url=${ASSET_URL}" \
-        --raw-field "direct_asset_path=/${ASSET_NAME}" \
-        --raw-field "link_type=package"
+      # The tarball and the sha256 file that verifies it (see build-source).
+      for name in "$ASSET_NAME" "${ASSET_NAME}.sha256"; do
+        OLD_LINK_ID=$(glab api "projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}/assets/links" |
+          jq -r --arg n "$name" '.[] | select(.name == $n) | .id' | sed -n '1p')
+        if [ -n "$OLD_LINK_ID" ]; then
+          echo "Replacing existing asset link $OLD_LINK_ID ($name)"
+          glab api --method DELETE \
+            "projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}/assets/links/${OLD_LINK_ID}" >/dev/null
+        fi
+        glab api --method POST "projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}/assets/links" \
+          --raw-field "name=${name}" \
+          --raw-field "url=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/ndmspc-source/${CI_COMMIT_TAG}/${name}" \
+          --raw-field "direct_asset_path=/${name}" \
+          --raw-field "link_type=package"
+      done
   only:
     - tags
 

@@ -22,8 +22,8 @@ HTTP/AI builds need OpenSSL ≥ 3 (httplib 0.54). CMake chooses it with `NDMSPC_
 In an aliBuild environment OpenSSL 1.1 is used by ROOT. The recipe's default (`v1`) builds
 ndmspc against that same 1.1; `system` links the system OpenSSL 3 while ROOT keeps 1.1. In the
 mixed case both libraries coexist (`libssl.so.3` vs `libssl.so.1.1`, matched by exact SONAME),
-so the v1 entry can stay in `LD_LIBRARY_PATH`. The aliBuild recipe (`ci/ndmspc.sh`) selects the
-mode with `NDMSPC_OPENSSL_MODE`:
+so the v1 entry can stay in `LD_LIBRARY_PATH`. The aliBuild recipe (`ci/ndmspc.sh`, written by
+cmake from `ci/ndmspc.sh.in`) selects the mode with `NDMSPC_OPENSSL_MODE`:
 
 - `v1` (default) — OpenSSL from `OPENSSL_ROOT` (the aliBuild/ROOT 1.1);
 - `system` — ignore `OPENSSL_ROOT`, use the system OpenSSL ≥ 3;
