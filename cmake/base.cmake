@@ -82,6 +82,23 @@ configure_file(
   "${CMAKE_SOURCE_DIR}/${CMAKE_PROJECT_NAME}.spec"
 )
 
+# aliBuild recipe. Its `tag:` pins the release aliBuild checks out, and it was bumped by hand
+# (so it drifted from the tree). cmake/version.cmake already knows the version, so write it:
+# on develop that is the nearest tag (the latest release), on a release build exactly the tag.
+# With no tag at all the version is the 9999.0.0 placeholder, which is not something aliBuild
+# can check out, so the line is commented out with the reason instead.
+if(NDMSPC_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+" AND NOT NDMSPC_VERSION MATCHES "^9999\\.")
+  set(NDMSPC_ALIBUILD_TAG_LINE "tag: \"v${NDMSPC_VERSION}\"")
+else()
+  set(NDMSPC_ALIBUILD_TAG_LINE
+    "# tag: <not written: this tree carries no release tag to pin>")
+endif()
+configure_file(
+  "${CMAKE_SOURCE_DIR}/ci/${CMAKE_PROJECT_NAME}.sh.in"
+  "${CMAKE_SOURCE_DIR}/ci/${CMAKE_PROJECT_NAME}.sh"
+  @ONLY
+)
+
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 
@@ -166,16 +183,25 @@ include(cmake/deps.cmake)
 # same version as this tree, and (NDMSPC_UI_EMBED, the default) the ndmspc-ui page, so
 # building it needs no network. NDMSPC_UI_CANDIDATES comes from cmake/version.cmake, so
 # the page picked for the tarball is the one a build would have downloaded.
+#
+# The pinned third-party archives are vendored into <source>/third-party (NDMSPC_DIST_VENDOR_DEPS)
+# so the tarball can be configured offline too, without re-downloading them; each is verified
+# against the hash in cmake/deps.cmake before it is kept.
+set(NDMSPC_DEPS_VENDOR_DIR "${CMAKE_SOURCE_DIR}/third-party")
+set(_ndmspc_dist_commands
+  COMMAND "${CMAKE_SOURCE_DIR}/scripts/write-version.sh")
 if(NDMSPC_UI_EMBED)
-  add_custom_target(dist
-    COMMAND "${CMAKE_SOURCE_DIR}/scripts/write-version.sh"
-    COMMAND "${CMAKE_SOURCE_DIR}/scripts/fetch-ui-page.sh" ${NDMSPC_UI_CANDIDATES}
-    COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
-else()
-  add_custom_target(dist
-    COMMAND "${CMAKE_SOURCE_DIR}/scripts/write-version.sh"
-    COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+  list(APPEND _ndmspc_dist_commands
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/fetch-ui-page.sh" ${NDMSPC_UI_CANDIDATES})
 endif()
+if(NDMSPC_DIST_VENDOR_DEPS)
+  list(APPEND _ndmspc_dist_commands
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/fetch-deps.sh"
+            "${NDMSPC_DEPS_VENDOR_DIR}" ${NDMSPC_DEPS_VENDOR_ARGS})
+endif()
+list(APPEND _ndmspc_dist_commands COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+add_custom_target(dist ${_ndmspc_dist_commands})
+unset(_ndmspc_dist_commands)
 # A normal (not cache) guard: a cached "included" flag would keep the stale CPack config
 # files after a reconfigure (e.g. when the version changes).
 unset(CMAKE_CPACK_MODULE_INCLUDED CACHE)

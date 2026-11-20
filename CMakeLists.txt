@@ -13,6 +13,7 @@ option(WITH_HTTP "Compile with HTTP part (includes the prebuilt web UI page)" ON
 # Packaging and fetching of the prebuilt ndmspc-ui page (see ui/README.md).
 option(NDMSPC_UI_EMBED "Embed the ndmspc-ui page in the source tarball (make dist)" ON)
 option(NDMSPC_UI_FETCH "Download the ndmspc-ui page even when a source tarball embeds one" OFF)
+option(NDMSPC_DIST_VENDOR_DEPS "Vendor the pinned dependency archives in the source tarball (make dist)" ON)
 option(WITH_TUI "Compile the terminal UIs (http/tui)" OFF)
 option(WITH_HEP "Compile with HEP part" ON)
 # option(WITH_PARQUET "Compile with Parquet support" OFF)

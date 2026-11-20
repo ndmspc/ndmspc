@@ -1,6 +1,6 @@
 package: ndmspc
 version: "%(tag_basename)s"
-tag: "v1.4.0"
+@NDMSPC_ALIBUILD_TAG_LINE@
 requires:
   - ROOT
   - JAliEn-ROOT

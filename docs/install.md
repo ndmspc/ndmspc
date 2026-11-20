@@ -24,7 +24,9 @@ sudo dnf install ndmspc
 
 ## aliBuild
 
-The recipe is [`ci/ndmspc.sh`](https://gitlab.com/ndmspc/ndmspc/-/blob/develop/ci/ndmspc.sh):
+The recipe is
+[`ci/ndmspc.sh.in`](https://gitlab.com/ndmspc/ndmspc/-/blob/develop/ci/ndmspc.sh.in), which cmake
+writes to `ci/ndmspc.sh` with the `tag:` pinned from the checkout, so the pin is never stale:
 
 ```bash
 aliBuild build ndmspc
