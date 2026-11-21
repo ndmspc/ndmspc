@@ -1376,6 +1376,38 @@ bool NUtils::LoadJsonFileRelative(json & cfg, const std::string & filename, cons
   return LoadJsonFile(cfg, path);
 }
 
+std::string NUtils::CurrentMacroDirectory()
+{
+  ///
+  /// Directory of the macro being executed
+  ///
+
+  // A direct `root file.C` run leaves the processed file with the interpreter.
+  const char * current = gInterpreter->GetCurrentMacroName();
+  if (current != nullptr && *current != '\0') {
+    const char * dir = gSystem->DirName(current);
+    if (dir != nullptr && *dir != '\0') return dir;
+  }
+
+  // `ndmspc-run` executes macros through TMacro::Exec, where the interpreter knows no file, and
+  // exports the list it runs as NDMSPC_MACRO: the first entry naming a directory is where the macros
+  // live (a bare name takes the directory of the entry before it).
+  if (const char * macroList = gSystem->Getenv("NDMSPC_MACRO")) {
+    const std::string       entries(macroList);
+    std::string::size_type start = 0;
+    while (start <= entries.size()) {
+      const std::string::size_type end   = entries.find(',', start);
+      const std::string            entry = entries.substr(start, end == std::string::npos ? std::string::npos : end - start);
+      const char *                 dir   = gSystem->DirName(entry.c_str());
+      if (dir != nullptr && *dir != '\0' && std::string(dir) != ".") return dir;
+      if (end == std::string::npos) break;
+      start = end + 1;
+    }
+  }
+
+  return "";
+}
+
 std::string NUtils::InjectRawJson(json & j, const RawJsonInjections & injections)
 {
   const std::string kPlaceholderBase = "##RAW_JSON_INJECT_";
@@ -1609,8 +1641,31 @@ std::vector<std::string> NUtils::FindEos(std::string path, std::string filename)
     tokens.push_back(intermediate);
   }
   std::string linesString = tokens[0];
-  for (auto & line : NUtils::Tokenize(linesString, '\n')) {
-    files.push_back("root://" + host + "/" + line);
+  return EosFindPaths(linesString, host);
+}
+
+std::vector<std::string> NUtils::EosFindPaths(const std::string & listing, const std::string & host)
+{
+  ///
+  /// The paths an `eos find -f` listing names, as URLs under `host`.
+  ///
+  /// A symlink is listed as `<path> -> <target>`, and it is the **path** that was found: the target is
+  /// where that path points, which is not what the finder asked for (it need not even be under the path
+  /// searched). Whole-line parsing used to send `root://host/<path> -> <target>` on as one path, so the
+  /// line is cut at its ` -> ` and only what is left of it is kept.
+  ///
+  std::vector<std::string> files;
+  for (auto & line : Tokenize(listing, '\n')) {
+    const std::string::size_type arrow = line.find(" -> ");
+    std::string                  path  = arrow == std::string::npos ? line : line.substr(0, arrow);
+
+    // The raw listing is read off the wire, so a line may carry the CR of a CRLF or trailing blanks.
+    const std::string::size_type first = path.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) continue;
+    const std::string::size_type last = path.find_last_not_of(" \t\r\n");
+    path                              = path.substr(first, last - first + 1);
+
+    files.push_back("root://" + host + "/" + path);
   }
   return files;
 }

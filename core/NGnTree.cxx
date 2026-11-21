@@ -2375,6 +2375,18 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
   return NGnTree::Open(outputFile);
 }
 
+/// \brief Default output file for an import that names none: the input file's path with `_ngnt.root` in
+/// place of its extension (`.../PAR.root` -> `.../PAR_ngnt.root`), so it sits next to the input.
+std::string DefaultImportedOutputFile(const std::string & inFile)
+{
+  const std::string::size_type slash = inFile.find_last_of('/');
+  const std::string::size_type dot   = inFile.find_last_of('.');
+  if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) {
+    return inFile + "_ngnt.root";
+  }
+  return inFile.substr(0, dot) + "_ngnt.root";
+}
+
 } // namespace
 
 NGnTree * NGnTree::Import(const std::string & jsonFile, const std::string & filename, const std::string & directory)
@@ -2398,7 +2410,7 @@ NGnTree * NGnTree::Import(const json & cfg, const std::string & filename, const 
   std::string basedir    = cfg.value("basedir", "");
   std::string fileName   = filename.empty() ? cfg.value("filename", "") : filename;
   std::string dir        = directory.empty() ? cfg.value("directory", "") : directory;
-  std::string outputFile = cfg.value("outputFile", "imported_ngnt.root");
+  std::string outputFile = cfg.value("outputFile", "");
 
   // An entry may be a bare axis name or an object carrying its path template (`{name, mode, …}`, see
   // `BuildObjectPath`); a parameter-axis import need not name its axes at all.
@@ -2452,12 +2464,22 @@ NGnTree * NGnTree::Import(const json & cfg, const std::string & filename, const 
     if (!basedir.empty() && inFile.front() != '/') {
       inFile = basedir + "/" + inFile;
     }
-    return ImportTHnSparseObjects(inFile, dir, paramNames, cfg);
+    // An empty `outputFile` writes next to the input: `PAR.root` -> `PAR_ngnt.root` in the same path.
+    if (outputFile.empty()) {
+      outputFile = DefaultImportedOutputFile(inFile);
+    }
+    json cfgOut          = cfg;
+    cfgOut["outputFile"] = outputFile;
+    return ImportTHnSparseObjects(inFile, dir, paramNames, cfgOut);
   }
 
   if (basedir.empty() || fileName.empty()) {
     NLogError("NGnTree::Import: 'basedir' and 'filename' must be specified in the configuration !!!");
     return nullptr;
+  }
+
+  if (outputFile.empty()) {
+    outputFile = "imported_ngnt.root";
   }
 
   if (type == "simple") {

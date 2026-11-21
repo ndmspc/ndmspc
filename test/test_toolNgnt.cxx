@@ -462,6 +462,8 @@ TEST_F(ToolNgnt, TheReshapeLevelsNameTheirAxes)
   // so the editor keeps a level from taking an axis another already has.
   EXPECT_EQ(levels["axisNames"][0], "mean");
   EXPECT_EQ(levels["unique"], true);
+  // A level is a projection, so the order its axes are picked in is the order they project in.
+  EXPECT_EQ(levels["order"], "pick");
   // The words stay the widget's own: a reshape's rows are levels.
   EXPECT_FALSE(levels.contains("groupLabel"));
   EXPECT_FALSE(levels.contains("itemLabel"));

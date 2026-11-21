@@ -757,6 +757,7 @@ into a text box and a parameter list into a JSON box.
 | `nodes` | a nested tree a `format:"tree"` field picks from (each node `{id, label, detail?, children?}`) | a collapsible tree; the field's value is the selected node's `id` |
 | `columns` | a `format:"table"` field's columns (each `{key, title?, type?, format?, readOnly?}`); the value is a list of row objects | a line per row; each cell is the widget its column's type names, a read-only column the row's label. `format:"rootlatex"` renders ROOT TLatex (`#eta`, `p_{T}`) as text |
 | `items.type`, `items.items.type` | an array's element type; `array` again for levels | a list editor; the levels editor |
+| `order` (on a levels property) | `list` (default) keeps a level's bins in the list's order; `pick` keeps the order they were picked in, so `[[0, 1, 2]]` picked as 1, 0, 2 is sent as `[[1, 0, 2]]` | the order the Multi select writes its row in |
 | `default` | the current value (a list for a multi-select) | what the form starts from |
 | `render` | `checkbox` / `radio` for the alternate widget | a checkbox list, a radio list |
 | `refresh` | a field whose change re-derives what the step shows; the client re-asks the tool with the form as it now stands | the drawing is replaced where it is, without a Save & Run |
