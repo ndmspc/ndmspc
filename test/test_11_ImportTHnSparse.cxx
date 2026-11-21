@@ -289,6 +289,47 @@ TEST(NImportTHnSparse, ImportsFromAJsonObject)
 }
 
 /**
+ * An **empty** `outputFile` names none: the import writes next to its input, replacing the input's
+ * extension with `_ngnt.root` (`PAR.root` -> `PAR_ngnt.root`), so naming no output does not silently
+ * leave the tree in memory or drop it in the working directory.
+ */
+TEST(NImportTHnSparse, EmptyOutputFileWritesNextToTheInput)
+{
+  const std::string inFile  = "/tmp/test_import_thnsparse_default.root";
+  const std::string outFile = "/tmp/test_import_thnsparse_default_ngnt.root";
+  std::remove(outFile.c_str());
+
+  {
+    TFile * f = TFile::Open(inFile.c_str(), "RECREATE");
+    ASSERT_NE(f, nullptr);
+    Int_t       bins[1] = {6};
+    Double_t    min[1]  = {0};
+    Double_t    max[1]  = {6};
+    THnSparseF * h      = new THnSparseF("h", "h", 1, bins, min, max);
+    h->GetAxis(0)->SetName("x");
+    Double_t v[1] = {1};
+    h->Fill(v);
+    h->Write();
+    f->Close();
+    delete f;
+  }
+
+  json cfg;
+  cfg["type"]       = "thnsparse";
+  cfg["objects"]    = json::array({"h"});
+  cfg["axes"]       = json::array({"x"});
+  cfg["outputFile"] = "";
+
+  Ndmspc::NGnTree * ngnt = Ndmspc::NGnTree::Import(cfg, inFile);
+  ASSERT_NE(ngnt, nullptr);
+  delete ngnt;
+
+  EXPECT_TRUE(FileExists(outFile));
+  std::remove(outFile.c_str());
+  std::remove(inFile.c_str());
+}
+
+/**
  * A **parameter-axis** import: one axis' bin labels are the parameter names, it leaves the tree's
  * dimensions, every other axis is one, and each entry carries that slice's projection along the parameter
  * axis with the parameters filled from it — the shape `NParamsImport.C` makes.

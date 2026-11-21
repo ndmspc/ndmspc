@@ -1209,6 +1209,9 @@ json BuildReshapeSchema(Ndmspc::NGnTree * ngnt)
   schema["properties"]["levels"]["axisLabels"] = axisLabels;
   schema["properties"]["levels"]["axisNames"]  = axisNames;
   schema["properties"]["levels"]["unique"]     = true;
+  // A level is a projection, so the order its axes are picked in **is** the order they project in:
+  // `[[0, 1, 2]]` picked as 1, 0, 2 is sent as `[[1, 0, 2]]` rather than sorted back into list order.
+  schema["properties"]["levels"]["order"]      = "pick";
 
   // What to do with the cache: whether it may be read and whether it may be written, as four answers. Short
   // enough to sit on one row, and each says what happens rather than naming a flag.

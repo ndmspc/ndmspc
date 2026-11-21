@@ -184,3 +184,67 @@ TEST(ExecMacro, WithoutACacheTheMacroIsInterpreted)
 
   std::filesystem::remove_all(dir);
 }
+
+namespace {
+
+const std::string kHost = "eos.ndmspc.io";
+/** The plain path `eos find` prints — no `root://<host>` prefix; the result carries that. */
+const std::string kBase    = "/eos/ndmspc/scratch/ndmspc/demo/alice/rsn/import/systematics_multi";
+const std::string kTargets = "/eos/ndmspc/scratch/ndmspc/demo/alice/rsn/import/systematics_flat";
+const std::string kRoot    = "root://" + kHost;
+
+/** What `eos find -f --name PAR_ngnt.root <base>` prints: a plain path, or a symlink's `path -> target`. */
+std::string Listing(const std::string & name, const std::string & target = "")
+{
+  return kBase + "/" + name + "/PAR_ngnt.root" + (target.empty() ? "" : " -> " + target);
+}
+
+/** The URL the finder answers with for a path it printed (`root://<host>/` before the path's own `/`). */
+std::string Url(const std::string & path)
+{
+  return kRoot + "/" + path;
+}
+
+} // namespace
+
+TEST(EosFindPaths, ASymlinkIsItsPathAndNotItsTarget)
+{
+  // The finder was asked which paths under the base match the name. A symlink answers with both halves,
+  // and the target is where it points — possibly outside the base altogether — so only the path is kept.
+  const std::string listing = Listing("dca_0p05/default", kTargets + "/dca_cut-dca_0p05/PAR_ngnt.root");
+
+  EXPECT_EQ(NUtils::EosFindPaths(listing, kHost),
+            (std::vector<std::string>{Url(kBase + "/dca_0p05/default/PAR_ngnt.root")}));
+}
+
+TEST(EosFindPaths, APlainPathIsKeptWhole)
+{
+  EXPECT_EQ(NUtils::EosFindPaths(Listing("default/default"), kHost),
+            (std::vector<std::string>{Url(kBase + "/default/default/PAR_ngnt.root")}));
+}
+
+TEST(EosFindPaths, EveryLineIsOnePathInTheOrderPrinted)
+{
+  const std::string listing = Listing("dca_0p05") + "\n" + Listing("one", kTargets + "/a") + "\n" +
+                              Listing("two", kTargets + "/b") + "\n" + Listing("ncls_60", kTargets + "/c");
+
+  EXPECT_EQ(NUtils::EosFindPaths(listing, kHost),
+            (std::vector<std::string>{Url(kBase + "/dca_0p05/PAR_ngnt.root"),
+                                      Url(kBase + "/one/PAR_ngnt.root"),
+                                      Url(kBase + "/two/PAR_ngnt.root"),
+                                      Url(kBase + "/ncls_60/PAR_ngnt.root")}));
+}
+
+TEST(EosFindPaths, BlanksAndCarriageReturnsAreDropped)
+{
+  // The listing comes off the wire, so a line may carry the CR of a CRLF, and an empty line names nothing.
+  EXPECT_EQ(NUtils::EosFindPaths("  " + Listing("one") + "  \r\n\n\t" + Listing("two") + "\r\n", kHost),
+            (std::vector<std::string>{Url(kBase + "/one/PAR_ngnt.root"),
+                                      Url(kBase + "/two/PAR_ngnt.root")}));
+}
+
+TEST(EosFindPaths, AnEmptyListingNamesNothing)
+{
+  EXPECT_EQ(NUtils::EosFindPaths("", kHost), (std::vector<std::string>{}));
+  EXPECT_EQ(NUtils::EosFindPaths("  \n\t\r\n", kHost), (std::vector<std::string>{}));
+}

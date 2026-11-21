@@ -1,0 +1,18 @@
+{
+  "type": "thnsparse",
+  "objects": ["sResults"],
+  "axes": [
+    { "format": "%.2f_%.2f", "mode": "minmax", "name": "axis2-ce", "sufix": "/" },
+    { "format": "%.2f_%.2f", "mode": "minmax", "name": "axis1-pt", "sufix": "/" }
+  ],
+  "parameterAxis": "Results",
+  "retrieveObjects": {
+    "cFit":      { "prefix": "Data/", "sufix": "/cFit" },
+    "cNorm":     { "prefix": "Data/", "sufix": "/cNorm" },
+    "cOverview": { "prefix": "Data/", "sufix": "/cOverview" },
+    "hBg":       { "prefix": "Data/", "sufix": "/hBg" },
+    "hBgNorm":   { "prefix": "Data/", "sufix": "/hBgNorm" },
+    "hPeak":     { "prefix": "Data/", "sufix": "/hPeak" },
+    "hSignal":   { "prefix": "Data/", "sufix": "/hSignal" }
+  }
+}

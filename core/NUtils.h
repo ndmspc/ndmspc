@@ -226,6 +226,17 @@ class NUtils : TObject {
   static bool LoadJsonFileRelative(json & cfg, const std::string & filename, const std::string & baseDir);
 
   /**
+   * @brief Directory of the macro being executed, so its sibling files can be found.
+   *
+   * ROOT's interpreter names the processed file for a direct `root file.C` run. `ndmspc-run`
+   * executes macros through `TMacro::Exec`, where that name is null, so its exported macro list
+   * (`NDMSPC_MACRO`) supplies the directory there.
+   *
+   * @return The macro's directory, or an empty string when it cannot be determined.
+   */
+  static std::string CurrentMacroDirectory();
+
+  /**
    * @brief Type describing raw JSON injections.
    *
    * Each entry is a pair where the first element is a vector of nested keys
@@ -535,6 +546,18 @@ class NUtils : TObject {
    * @return Vector of found EOS file paths.
    */
   static std::vector<std::string> FindEos(std::string path, std::string filename = "");
+
+  /**
+   * @brief The paths an `eos find -f` listing names, as URLs under `host`.
+   *
+   * A symlink is listed as `<path> -> <target>`; its path is what was found, so a line is cut at that
+   * ` -> ` and only its left side is kept.
+   *
+   * @param listing One path per line, as `eos find -f` prints it.
+   * @param host The host the URLs are under (e.g. `eos.ndmspc.io`).
+   * @return Vector of `root://<host>/<path>` URLs.
+   */
+  static std::vector<std::string> EosFindPaths(const std::string & listing, const std::string & host);
 
   /**
    * @brief Get unique values from vector of strings at specified axis.
