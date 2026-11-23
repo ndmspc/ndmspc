@@ -2261,18 +2261,24 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
             }
           }
 
-          // What the entry shows, as **markdown**: one line per parameter, `value ± error`. It is the
-          // point's **first** object — ahead of the objects a path names — so the result is what a viewer
-          // reads first. The histogram is not stored: the numbers live in `_params`, and this is how a
-          // person reads them.
+          // What the entry shows, as **markdown**: the slice it belongs to, then a table of its parameters.
+          // It is the point's **first** object — ahead of the objects a path names — so the result is what a
+          // viewer reads first. The histogram is not stored: the numbers live in `_params`, and this is how
+          // a person reads them.
           if (hParam->GetEntries() > 0) {
             auto * log = new Ndmspc::NLogString("parameters", "Parameters");
             log->SetType("md");
             const std::string slice = point->GetString("", false);
-            if (!slice.empty()) log->AddLine("**%s**", slice.c_str());
+            if (!slice.empty()) {
+              log->AddLine("**%s**", slice.c_str());
+              // A table has to start its own block, or it is read as the tail of the paragraph above it.
+              log->AddLine("");
+            }
+            log->AddLine("| Parameter | Value | Error |");
+            log->AddLine("| --- | --- | --- |");
             for (int bin = 1; bin <= hParam->GetNbinsX(); bin++) {
               const char * label = hParam->GetXaxis()->GetBinLabel(bin);
-              log->AddLine("- **%s**: %.6g ± %.6g", (label != nullptr && label[0] != '\0') ? label : "?",
+              log->AddLine("| %s | %.6g | %.6g |", (label != nullptr && label[0] != '\0') ? label : "?",
                            hParam->GetBinContent(bin), hParam->GetBinError(bin));
             }
             outputPoint->Add(log);
