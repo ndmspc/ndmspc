@@ -2537,8 +2537,24 @@ NGnTree * NGnTree::ImportNgnt(const std::string & findPath, const std::string & 
   NGnTree * ngnt = new NGnTree(ngntArray, outputFile);
   ngnt->SetIsPureCopy(true);
 
-  // return nullptr;
-  ngnt->GetBinning()->AddBinningDefinition("default", b);
+  // The directory axes describe a sparse set: only the files that exist are real points. Filling
+  // the product of their labels would enumerate millions of combinations for a handful of files,
+  // so the points are pinned to what was found and the content axes (which every point leaves
+  // open) are the only ones expanded.
+  std::vector<std::vector<NBinningPointAxis>> points;
+  for (const auto & labels : NUtils::LabelsFromDirectory(paths, findPathClean, fileName, headers)) {
+    std::vector<NBinningPointAxis> point;
+    for (const auto & label : labels) point.push_back(NBinningPointAxis::Label(label));
+    points.push_back(std::move(point));
+  }
+  if (points.empty()) {
+    NLogWarning("NGnTree::ImportNgnt: No directory labels for the %zu file(s); filling the full product",
+                paths.size());
+    ngnt->GetBinning()->AddBinningDefinition("default", b);
+  }
+  else {
+    ngnt->GetBinning()->AddBinningDefinition("default", b, points);
+  }
 
   if (params.size() > 0) {
     ngnt->InitParameters(params);

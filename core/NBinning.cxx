@@ -413,116 +413,357 @@ void NBinning::PrintContent(Option_t * option) const
   delete[] bins;
 }
 
-Long64_t NBinning::FillAll(NBinningDef * def)
+NBinningPointAxis NBinningPointAxis::Label(const std::string & value)
+{
+  NBinningPointAxis one;
+  one.form  = Form::kLabel;
+  one.label = value;
+  return one;
+}
+
+NBinningPointAxis NBinningPointAxis::Bin(int bin)
+{
+  NBinningPointAxis one;
+  one.form   = Form::kBin;
+  one.minBin = bin;
+  one.maxBin = bin;
+  return one;
+}
+
+NBinningPointAxis NBinningPointAxis::Bins(int first, int last)
+{
+  NBinningPointAxis one;
+  one.form   = Form::kRange;
+  one.minBin = first;
+  one.maxBin = last;
+  if (first == OPEN && last == OPEN) one.form = Form::kAll;
+  return one;
+}
+
+NBinningPointAxis NBinningPointAxis::Range(double first, double last)
+{
+  NBinningPointAxis one;
+  one.form = Form::kValueRange;
+  one.from = first;
+  one.to   = last;
+  return one;
+}
+
+NBinningPointAxis NBinningPointAxis::Rebin(int width, int start, int id)
+{
+  NBinningPointAxis one;
+  one.form  = Form::kRebin;
+  one.rebin = width;
+  one.start = start;
+  one.id    = id;
+  return one;
+}
+
+NBinningPointAxis PointAxisFromJson(const json & value, bool * ok)
 {
   ///
-  /// Fill content binnings from mapping
+  /// Read one axis' selection from its JSON form
   ///
-  Long64_t nBinsFilled = 0;
-  bool     runOutput   = NLogger::GetRunOutput();
-  bool isWorker = getenv("NDMSPC_WORKER_ENDPOINT") != nullptr;
-  
-  // fContent->Reset();
 
-  std::vector<int>                           mins(fMap->GetAxis(0)->GetNbins(), 1);
-  std::vector<int>                           maxs(fMap->GetAxis(0)->GetNbins(), 0);
+  auto done = [ok](const NBinningPointAxis & one) {
+    if (ok != nullptr) *ok = true;
+    return one;
+  };
+  auto fail = [ok]() {
+    if (ok != nullptr) *ok = false;
+    return NBinningPointAxis::All();
+  };
+
+  if (value.is_string()) {
+    const std::string text = value.get<std::string>();
+    if (text == "*" || text == "all") return done(NBinningPointAxis::All());
+    return done(NBinningPointAxis::Label(text));
+  }
+
+  if (value.is_number_integer()) return done(NBinningPointAxis::Bin(value.get<int>()));
+
+  if (value.is_object()) {
+    if (value.contains("label") && value["label"].is_string()) {
+      return done(NBinningPointAxis::Label(value["label"].get<std::string>()));
+    }
+    if (value.contains("rebin")) {
+      return done(NBinningPointAxis::Rebin(value.value("rebin", 1), value.value("start", 1), value.value("id", 1)));
+    }
+    if (value.contains("from") || value.contains("to")) {
+      const double from = value.value("from", 0.0);
+      const double to   = value.value("to", 0.0);
+      return done(NBinningPointAxis::Range(from, to));
+    }
+    return fail();
+  }
+
+  if (value.is_array()) {
+    // An empty array is the whole axis; otherwise `[min]`, `[min, max]` with null = open.
+    if (value.empty()) return done(NBinningPointAxis::All());
+
+    const int minBin = value[0].is_null() ? NBinningPointAxis::OPEN : value[0].get<int>();
+    const int maxBin = value.size() < 2 || value[1].is_null() ? NBinningPointAxis::OPEN
+                                                             : value[1].get<int>();
+    if (value.size() == 1) return done(NBinningPointAxis::Bins(minBin, NBinningPointAxis::OPEN));
+    return done(NBinningPointAxis::Bins(minBin, maxBin));
+  }
+
+  return fail();
+}
+
+std::vector<std::vector<NBinningPointAxis>> PointsFromJson(const json & value)
+{
+  ///
+  /// Read a point list from its JSON form
+  ///
+
+  std::vector<std::vector<NBinningPointAxis>> points;
+  if (!value.is_array()) return points;
+
+  for (const auto & entry : value) {
+    if (!entry.is_array()) continue;
+    std::vector<NBinningPointAxis> point;
+    bool                           readable = true;
+    for (const auto & axis : entry) {
+      bool               ok  = false;
+      NBinningPointAxis  one = PointAxisFromJson(axis, &ok);
+      if (!ok) readable = false;
+      point.push_back(std::move(one));
+    }
+    if (readable) points.push_back(std::move(point));
+  }
+  return points;
+}
+
+std::vector<std::vector<std::vector<int>>> NBinning::CollectAxisContent(NBinningDef * def)
+{
+  ///
+  /// The cheap half of a fill: one walk of the mapping, one entry per mapped bin.
+  ///
+
   std::vector<std::vector<std::vector<int>>> content(fMap->GetAxis(0)->GetNbins());
 
-  // loop over all selected bins via ROOT iterarot for THnSparse
   THnSparse *                                     cSparse = fMap;
   Int_t *                                         p       = new Int_t[cSparse->GetNdimensions()];
   Long64_t                                        linBin  = 0;
   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
-  // Print number of filled bins
-  // NLogInfo("Filled bins = %lld", cSparse->GetNbins());
   while ((linBin = iter->Next()) >= 0) {
     Double_t v = cSparse->GetBinContent(linBin, p);
-    // continue;
-    int idx = p[0] - 1;
-    NLogTrace("NBinning::FillAll: Bin %lld: %d %d %d %d type=%d content=%f", linBin, p[0], p[1], p[2], p[3],
+    int      idx = p[0] - 1;
+    if (idx < 0 || idx >= static_cast<int>(content.size())) {
+      NLogError("NBinning::CollectAxisContent: Bin %lld names axis %d outside [1,%zu]", linBin, p[0], content.size());
+      continue;
+    }
+    NLogTrace("NBinning::CollectAxisContent: Bin %lld: %d %d %d %d type=%d content=%f", linBin, p[0], p[1], p[2], p[3],
               fBinningTypes[idx], v);
     if (fBinningTypes[idx] == Binning::kSingle) {
-
       content[idx].push_back({p[0], p[3]});
     }
     else if (fBinningTypes[idx] == Binning::kMultiple) {
-      // NLogDebug("Binning %d: %d", i, axes[idim]->GetNbins());
       content[idx].push_back({p[0], p[1], p[2], p[3]});
     }
     else if (fBinningTypes[idx] == Binning::kUser) {
-      // TODO: Fix nbins for user binning (it should ok now)
       content[idx].push_back({p[0], 1});
     }
     else {
-      NLogError("NBinning::FillAll: Unknown binning type %d", fBinningTypes[idx]);
+      NLogError("NBinning::CollectAxisContent: Unknown binning type %d", fBinningTypes[idx]);
       continue;
     }
-    maxs[idx] = maxs[idx] + 1;
   }
   delete[] p;
 
-  Long64_t nTotalBins = 1;
-  // loop over content vector and set axis types
+  // An axis with no mapped entry is not a variable axis of the definition.
   for (size_t i = 0; i < content.size(); i++) {
     if (content[i].size() == 0) {
-      NLogWarning("NBinning::FillAll: No content for binning %zu", i);
+      NLogWarning("NBinning::CollectAxisContent: No content for binning %zu", i);
       continue;
     }
-
-    if (content[i].size() > 0) {
-      TAxis * axis  = fAxes[i];
-      fAxisTypes[i] = AxisType::kVariable;
-      NLogTrace("NBinning::FillAll: Axis id=%d name=%s bins=%zu", i, axis->GetName(), content[i].size());
-      // check if i is persent in variable axes of def
-      bool found = false;
-      for (size_t j = 0; j < def->GetVariableAxes().size(); j++) {
-        if (def->GetVariableAxes()[j] == static_cast<int>(i)) {
-          NLogTrace("NBinning::FillAll: Axis id=%d name=%s already in variable axes of def", i, axis->GetName());
-          found = true;
-          break;
-        }
+    fAxisTypes[i] = AxisType::kVariable;
+    NLogTrace("NBinning::CollectAxisContent: Axis id=%zu name=%s bins=%zu", i, fAxes[i]->GetName(), content[i].size());
+    if (def == nullptr) continue;
+    bool found = false;
+    for (size_t j = 0; j < def->GetVariableAxes().size(); j++) {
+      if (def->GetVariableAxes()[j] == static_cast<int>(i)) {
+        found = true;
+        break;
       }
-      NLogTrace("NBinning::FillAll: Axis id=%d name=%s set to variable found=%d", i, axis->GetName(), found);
-      if (!found) def->AddVariableAxis(i);
     }
-    nTotalBins *= content[i].size();
+    if (!found) def->AddVariableAxis(i);
   }
 
-  def->Print();
-  if (runOutput && !isWorker) NLogRun("NBinning::FillAll: Filling '%s' total of %lld bins ...",  def->GetName(), nTotalBins);
-  NLogDebug("NBinning::FillAll: Filling '%s' total of %lld bins ...",  def->GetName(), nTotalBins);
+  return content;
+}
 
-  auto start_par = std::chrono::high_resolution_clock::now();
-  // Loop over all binning combinations
-  NDimensionalExecutor executor(mins, maxs);
-  auto                 binning_task = [&content, &nBinsFilled, &nTotalBins, start_par, def, this,
-                                       runOutput](const std::vector<int> & coords) {
+/** The base-bin range an entry of an axis' content covers: `{min, max}`. */
+static std::pair<int, int> EntryBaseRange(TAxis * axis, const std::vector<int> & entry)
+{
+  // A multiple axis stores {dim, rebin, start, bin}; a single/user axis {dim, bin}.
+  if (entry.size() < 4) return {entry.back(), entry.back()};
+
+  int min = 0;
+  int max = 0;
+  if (!NUtils::GetAxisRangeInBase(axis, entry[1], entry[2], entry[3], min, max)) return {0, -1};
+  return {min, max};
+}
+
+std::vector<std::vector<int>> NBinning::ResolvePoint(const std::vector<NBinningPointAxis> & point,
+                                                     const std::vector<std::vector<std::vector<int>>> * content,
+                                                     const std::string & definitionName)
+{
+  ///
+  /// Resolve one point's per-axis selections to the indices of the mapped entries they cover.
+  ///
+
+  std::vector<std::vector<std::vector<int>>> local;
+  if (content == nullptr) {
+    // The map is cleared once a fill completes, so a standalone call rebuilds it from the
+    // definition it is reading points against.
+    const std::string name = definitionName.empty() ? fCurrentDefinitionName : definitionName;
+    const auto        it   = fDefinitions.find(name);
+    if (it == fDefinitions.end()) {
+      NLogError("NBinning::ResolvePoint: Binning definition '%s' does not exist", name.c_str());
+      return {};
+    }
+    fMap->Reset();
+    if (!ApplyDefinitionBinning(name, it->second->GetDefinition())) return {};
+    local   = CollectAxisContent(it->second);
+    content = &local;
+  }
+  const auto & entries = *content;
+
+  std::vector<std::vector<int>> resolved;
+  resolved.reserve(entries.size());
+
+  for (size_t axis = 0; axis < entries.size(); axis++) {
+    // An axis the point does not reach is taken whole, as All() would.
+    const NBinningPointAxis selection = axis < point.size() ? point[axis] : NBinningPointAxis::All();
+
+    int  minBin = NBinningPointAxis::OPEN;
+    int  maxBin = NBinningPointAxis::OPEN;
+    bool matched = true;
+    switch (selection.form) {
+    case NBinningPointAxis::Form::kAll:
+      break;
+    case NBinningPointAxis::Form::kLabel: {
+      TAxis * a = fAxes[axis];
+      if (!a->IsAlphanumeric()) {
+        NLogWarning("NBinning::ResolvePoint: Axis '%s' (id=%zu) is not categorical, label '%s' ignored",
+                    a->GetName(), axis, selection.label.c_str());
+        matched = false;
+        break;
+      }
+      int bin = a->FindFixBin(selection.label.c_str());
+      if (bin < 1 || bin > a->GetNbins()) {
+        NLogWarning("NBinning::ResolvePoint: Axis '%s' has no bin labelled '%s'", a->GetName(),
+                    selection.label.c_str());
+        matched = false;
+        break;
+      }
+      minBin = maxBin = bin;
+      break;
+    }
+    case NBinningPointAxis::Form::kBin:
+    case NBinningPointAxis::Form::kRange:
+      minBin = selection.minBin;
+      maxBin = selection.maxBin;
+      break;
+    case NBinningPointAxis::Form::kValueRange: {
+      TAxis * a = fAxes[axis];
+      int     first = a->FindFixBin(selection.from);
+      int     last  = a->FindFixBin(selection.to);
+      if (first < 1) first = 1;
+      if (last > a->GetNbins()) last = a->GetNbins();
+      minBin = first;
+      maxBin = last;
+      break;
+    }
+    case NBinningPointAxis::Form::kRebin: {
+      int min = 0;
+      int max = 0;
+      if (!NUtils::GetAxisRangeInBase(fAxes[axis], selection.rebin, selection.start, selection.id, min, max)) {
+        NLogWarning("NBinning::ResolvePoint: Axis '%s' has no bin group {%d,%d,%d}", fAxes[axis]->GetName(),
+                    selection.rebin, selection.start, selection.id);
+        matched = false;
+        break;
+      }
+      minBin = min;
+      maxBin = max;
+      break;
+    }
+    }
+
+    // A selection naming nothing describes no point at all: the whole point goes.
+    if (!matched) return {};
+
+    // Overlap: an entry is taken when its base range meets the selection, with an open end unbounded.
+    std::vector<int> taken;
+    for (size_t at = 0; at < entries[axis].size(); at++) {
+      const auto [first, last] = EntryBaseRange(fAxes[axis], entries[axis][at]);
+      if (last < first) continue;
+      if (minBin != NBinningPointAxis::OPEN && last < minBin) continue;
+      if (maxBin != NBinningPointAxis::OPEN && first > maxBin) continue;
+      taken.push_back(static_cast<int>(at) + 1);
+    }
+
+    if (taken.empty()) {
+      NLogWarning("NBinning::ResolvePoint: Axis '%s' (id=%zu) selection matches no bin", fAxes[axis]->GetName(), axis);
+      return {};
+    }
+    resolved.push_back(std::move(taken));
+  }
+
+  return resolved;
+}
+
+void NBinning::FillResolvedPoint(const std::vector<std::vector<std::vector<int>>> & content,
+                                 const std::vector<std::vector<int>> & resolved, std::set<Long64_t> & seen,
+                                 Long64_t & nBinsFilled, Long64_t nTotalBins,
+                                 const std::chrono::high_resolution_clock::time_point & start, bool runOutput,
+                                 NBinningDef * def)
+{
+  ///
+  /// Fill one already-resolved point: the product of its per-axis entry indices.
+  ///
+  /// The executor walks the **ordinals** of the selection, not the entry indices themselves: a
+  /// selection over a rebinned axis may pick entries that are not a contiguous range, which bounds
+  /// cannot express. Walking `1..size` per axis and translating through the list keeps the whole
+  /// machinery `NDimensionalExecutor` brings — thread modes, IPC, cancellation — for a point that
+  /// only covers part of an axis.
+  ///
+
+  if (resolved.empty()) return;
+
+  std::vector<int> mins;
+  std::vector<int> maxs;
+  for (const auto & axis : resolved) {
+    mins.push_back(1);
+    maxs.push_back(static_cast<int>(axis.size()));
+  }
+
+  auto fill = [&content, &resolved, &seen, &nBinsFilled, nTotalBins, start, runOutput, def,
+               this](const std::vector<int> & coords) {
     std::vector<int> pointContentVector;
-    NLogTrace("Binning task: %s", NUtils::GetCoordsString(coords, -1).c_str());
     for (size_t i = 0; i < coords.size(); i++) {
-      NLogTrace("  Binning %zu: coord=%d content size=%zu", i, coords[i], content[i].size());
-      if (content[i][coords[i] - 1].size() == 2) {
-        pointContentVector.push_back(content[i][coords[i] - 1][1]);
+      // The coordinate is this axis' ordinal in the selection; the list says which entry that is.
+      const std::vector<int> & entry = content[i][resolved[i][coords[i] - 1] - 1];
+      if (entry.size() == 2) {
+        pointContentVector.push_back(entry[1]);
       }
       else {
-        pointContentVector.push_back(content[i][coords[i] - 1][1]);
-        pointContentVector.push_back(content[i][coords[i] - 1][2]);
-        pointContentVector.push_back(content[i][coords[i] - 1][3]);
+        pointContentVector.push_back(entry[1]);
+        pointContentVector.push_back(entry[2]);
+        pointContentVector.push_back(entry[3]);
       }
     }
 
-    // NUtils::PrintPointSafe(pointContentVector, -1);
     Int_t nContentDims = fContent->GetNdimensions();
-    NLogTrace("NBinning::FillAll: pointContentVector dims=%zu nContentDims=%d", pointContentVector.size(),
-              nContentDims);
-
-    auto pointContent = std::make_unique<Int_t[]>(nContentDims);
-
-    // Int_t pointContent[nContentDims];
+    auto  pointContent = std::make_unique<Int_t[]>(nContentDims);
     NUtils::VectorToArray(pointContentVector, pointContent.get());
     Long64_t pointContentBin = fContent->GetBin(pointContent.get());
 
-    // ids.push_back(pointContentBin);
+    // A bin another point already filled is left alone; this is what overlapping points need.
+    if (!seen.insert(pointContentBin).second) return;
+
     if (def) {
       NBinningPoint point(this);
       fContent->GetBinContent(pointContentBin, point.GetCoords());
@@ -532,32 +773,112 @@ Long64_t NBinning::FillAll(NBinningDef * def)
       def->GetIds().push_back(pointContentBin);
     }
 
-    NLogTrace("NBinning::FillAll: Setting content bin %lld", pointContentBin);
-
     fContent->SetBinContent(pointContentBin, 1);
     nBinsFilled++;
-    // NLogDebug("NBinning::FillAll: Filled bin %lld: %s", nBinsFilled,
-    //                NUtils::GetCoordsString(pointContentVector, -1).c_str());
-    NLogTrace("NBinning::FillAll: Filled bin %lld: %lld", nBinsFilled, nTotalBins);
     int refreshRate = nTotalBins / 100;
     if (refreshRate == 0) refreshRate = nTotalBins;
-    if (nBinsFilled % (refreshRate) == 0 && nBinsFilled != nTotalBins)
-      if (runOutput) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start_par, "I    ");
-    // NLogDebug("NBinning::FillAll: [%3.2f%%] nBinsFilled=%lld", (double)nBinsFilled / nTotalBins * 100,
-    //                nBinsFilled);
+    if (nBinsFilled % refreshRate == 0 && nBinsFilled != nTotalBins)
+      if (runOutput) Ndmspc::NUtils::ProgressBar(nBinsFilled, nTotalBins, start, "I    ");
   };
-  executor.Execute(binning_task);
+
+  NDimensionalExecutor executor(mins, maxs);
+  executor.Execute(fill);
+}
+
+Long64_t NBinning::FillAll(NBinningDef * def)
+{
+  ///
+  /// Fill content binnings from mapping: the full product of every axis' mapped entries.
+  ///
+
+  bool runOutput = NLogger::GetRunOutput();
+  bool isWorker  = getenv("NDMSPC_WORKER_ENDPOINT") != nullptr;
+
+  auto                                      content = CollectAxisContent(def);
+  Long64_t                                  nTotalBins = 1;
+  for (const auto & axis : content) {
+    if (!axis.empty()) nTotalBins *= axis.size();
+  }
+
+  def->Print();
+  if (runOutput && !isWorker)
+    NLogRun("NBinning::FillAll: Filling '%s' total of %lld bins ...", def->GetName(), nTotalBins);
+  NLogDebug("NBinning::FillAll: Filling '%s' total of %lld bins ...", def->GetName(), nTotalBins);
+
+  auto start_par = std::chrono::high_resolution_clock::now();
+
+  std::vector<std::vector<int>> resolved;
+  for (const auto & axis : content) {
+    std::vector<int> all;
+    for (size_t at = 0; at < axis.size(); at++) all.push_back(static_cast<int>(at) + 1);
+    resolved.push_back(std::move(all));
+  }
+
+  std::set<Long64_t> seen;
+  Long64_t           nBinsFilled = 0;
+  FillResolvedPoint(content, resolved, seen, nBinsFilled, nTotalBins, start_par, runOutput, def);
 
   if (runOutput && !isWorker) Ndmspc::NUtils::ProgressBar(nTotalBins, nTotalBins, start_par, "I    ");
 
-  auto                                      end_par      = std::chrono::high_resolution_clock::now();
+  auto                                      end_par = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
-
   NLogInfo("NBinning::FillAll: Filled %lld bins in %s s", nTotalBins,
            NUtils::FormatTime(par_duration.count() / 1000).c_str());
 
   fMap->Reset();
+  return nBinsFilled;
+}
 
+Long64_t NBinning::FillPoints(NBinningDef * def, const std::vector<std::vector<NBinningPointAxis>> & points)
+{
+  ///
+  /// Fill only the given points instead of the whole product of bins.
+  ///
+
+  bool runOutput = NLogger::GetRunOutput();
+  bool isWorker  = getenv("NDMSPC_WORKER_ENDPOINT") != nullptr;
+
+  auto content = CollectAxisContent(def);
+
+  // Expand each point to its own per-axis entry indices; a point that matches nothing is dropped.
+  std::vector<std::vector<std::vector<int>>> expanded;
+  for (const auto & point : points) {
+    auto resolved = ResolvePoint(point, &content);
+    if (resolved.empty()) continue;
+    expanded.push_back(std::move(resolved));
+  }
+
+  Long64_t nTotalBins = 0;
+  for (const auto & point : expanded) {
+    Long64_t one = 1;
+    for (const auto & axis : point) one *= axis.size();
+    nTotalBins += one;
+  }
+
+  def->Print();
+  if (runOutput && !isWorker)
+    NLogRun("NBinning::FillPoints: Filling '%s' %zu point(s) totalling %lld bins ...", def->GetName(), expanded.size(),
+            nTotalBins);
+  NLogDebug("NBinning::FillPoints: Filling '%s' %zu point(s) totalling %lld bins ...", def->GetName(), expanded.size(),
+            nTotalBins);
+
+  auto start_par = std::chrono::high_resolution_clock::now();
+
+  std::set<Long64_t> seen;
+  Long64_t           nBinsFilled = 0;
+  for (const auto & point : expanded) {
+    FillResolvedPoint(content, point, seen, nBinsFilled, nTotalBins, start_par, runOutput, def);
+  }
+
+  if (runOutput && !isWorker && nTotalBins > 0)
+    Ndmspc::NUtils::ProgressBar(nTotalBins, nTotalBins, start_par, "I    ");
+
+  auto                                      end_par = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
+  NLogInfo("NBinning::FillPoints: Filled %lld distinct bins in %s s", nBinsFilled,
+           NUtils::FormatTime(par_duration.count() / 1000).c_str());
+
+  fMap->Reset();
   return nBinsFilled;
 }
 
@@ -1065,6 +1386,219 @@ NBinningDef * NBinning::GetDefinition(const std::string & name,bool setCurrent)
 }
 
 void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std::vector<std::vector<int>>> binning,
+                                    const std::vector<std::vector<NBinningPointAxis>> & points, bool forceDefault)
+{
+  ///
+  /// Add binning definition, filled with the given points only
+  ///
+  if (fDefinitions.find(name) != fDefinitions.end()) {
+    NLogError("Binning definition '%s' already exists", name.c_str());
+    return;
+  }
+
+  NLogInfo("NBinning::AddBinningDefinition: Adding binning definition '%s' (%zu point(s))", name.c_str(),
+           points.size());
+  NBinningDef * def = new NBinningDef(name, binning, this);
+  fDefinitionNames.push_back(name);
+  fDefinitions[name] = def;
+  fMap->Reset();
+
+  if (!ApplyDefinitionBinning(name, binning)) {
+    return;
+  }
+
+  // Points naming axes past this definition's axes are refused: a definition's axes are fixed.
+  for (const auto & point : points) {
+    if (point.size() > fAxes.size()) {
+      NLogError("NBinning::AddBinningDefinition: definition '%s' has %zu axes but a point pins %zu", name.c_str(),
+                fAxes.size(), point.size());
+      return;
+    }
+  }
+
+  Long64_t nFilled = FillPoints(def, points);
+  NLogTrace("NBinning::AddBinningDefinition: Filled %lld bins for definition '%s'", nFilled,
+            NUtils::GetCoordsString(def->GetIds(), -1).c_str());
+
+  if (forceDefault || fCurrentDefinitionName.empty()) {
+    fCurrentDefinitionName = name;
+    NLogTrace("Set default binning definition '%s'", fCurrentDefinitionName.c_str());
+  }
+  else {
+    NLogTrace("Added binning definition '%s' [not default]", name.c_str());
+  }
+}
+
+Long64_t NBinning::AppendPoints(const std::string & name, const std::vector<std::vector<NBinningPointAxis>> & points)
+{
+  ///
+  /// Add more points to a definition that already exists
+  ///
+
+  auto it = fDefinitions.find(name);
+  if (it == fDefinitions.end()) {
+    NLogError("NBinning::AppendPoints: Binning definition '%s' does not exist", name.c_str());
+    return 0;
+  }
+
+  NBinningDef * def = it->second;
+  for (const auto & point : points) {
+    if (point.size() > fAxes.size()) {
+      NLogError("NBinning::AppendPoints: definition '%s' has %zu axes but a point pins %zu", name.c_str(),
+                fAxes.size(), point.size());
+      return 0;
+    }
+  }
+
+  // The map is empty once a fill completes, so re-apply the definition's own binning to read it.
+  fMap->Reset();
+  if (!ApplyDefinitionBinning(name, def->GetDefinition())) {
+    return 0;
+  }
+
+  auto     content = CollectAxisContent(def);
+  Long64_t nTotalBins = 0;
+  std::vector<std::vector<std::vector<int>>> expanded;
+  for (const auto & point : points) {
+    auto resolved = ResolvePoint(point, &content);
+    if (resolved.empty()) continue;
+    Long64_t one = 1;
+    for (const auto & axis : resolved) one *= axis.size();
+    nTotalBins += one;
+    expanded.push_back(std::move(resolved));
+  }
+
+  // Seed the dedupe set with what the definition holds so appending is idempotent.
+  std::set<Long64_t> seen(def->GetIds().begin(), def->GetIds().end());
+
+  bool     runOutput   = NLogger::GetRunOutput();
+  auto     start_par   = std::chrono::high_resolution_clock::now();
+  Long64_t appended    = 0;
+  for (const auto & point : expanded) {
+    Long64_t before = static_cast<Long64_t>(def->GetIds().size());
+    Long64_t filled = 0;
+    FillResolvedPoint(content, point, seen, filled, nTotalBins, start_par, runOutput, def);
+    (void)filled;
+    appended += static_cast<Long64_t>(def->GetIds().size()) - before;
+  }
+
+  NLogInfo("NBinning::AppendPoints: Appended %lld new bin(s) to '%s' (%zu point(s) given)", appended, name.c_str(),
+           points.size());
+  fMap->Reset();
+  return appended;
+}
+
+Long64_t NBinning::FillInRuns(const std::string & name, int pointsPerRun)
+{
+  ///
+  /// Fill a definition over the whole product in several executor runs
+  ///
+
+  auto it = fDefinitions.find(name);
+  if (it == fDefinitions.end()) {
+    NLogError("NBinning::FillInRuns: Binning definition '%s' does not exist", name.c_str());
+    return 0;
+  }
+  NBinningDef * def = it->second;
+
+  // A resumed fill is the same operation: whatever is held is skipped, and only the rest is run.
+  fMap->Reset();
+  if (!ApplyDefinitionBinning(name, def->GetDefinition())) return 0;
+
+  auto     content = CollectAxisContent(def);
+  Long64_t nTotalBins = 1;
+  for (const auto & axis : content) {
+    if (!axis.empty()) nTotalBins *= axis.size();
+  }
+
+  bool runOutput = NLogger::GetRunOutput();
+  bool isWorker  = getenv("NDMSPC_WORKER_ENDPOINT") != nullptr;
+  if (runOutput && !isWorker)
+    NLogRun("NBinning::FillInRuns: Filling '%s' total of %lld bins ...", def->GetName(), nTotalBins);
+  NLogDebug("NBinning::FillInRuns: Filling '%s' total of %lld bins in runs of %d ...", def->GetName(), nTotalBins,
+            pointsPerRun);
+
+  auto start_par = std::chrono::high_resolution_clock::now();
+
+  // Every axis whole; the chunking below narrows the outermost one per run.
+  std::vector<std::vector<int>> resolved;
+  for (const auto & axis : content) {
+    std::vector<int> all;
+    for (size_t at = 0; at < axis.size(); at++) all.push_back(static_cast<int>(at) + 1);
+    resolved.push_back(std::move(all));
+  }
+
+  // Seeded from what the definition holds so a resumed run skips the bins already filled.
+  std::set<Long64_t> seen(def->GetIds().begin(), def->GetIds().end());
+  Long64_t           nBinsFilled = 0;
+  Long64_t           nRuns       = 0;
+
+  if (pointsPerRun <= 0 || content.empty()) {
+    FillResolvedPoint(content, resolved, seen, nBinsFilled, nTotalBins, start_par, runOutput, def);
+    nRuns = 1;
+  }
+  else {
+    // Split along the outermost axis, so each run is contiguous in the order the points are read.
+    const size_t outermost = resolved.front().size();
+    for (size_t from = 0; from < outermost; from += static_cast<size_t>(pointsPerRun)) {
+      std::vector<std::vector<int>> chunk = resolved;
+      const size_t to = std::min(outermost, from + static_cast<size_t>(pointsPerRun));
+      chunk.front().assign(resolved.front().begin() + from, resolved.front().begin() + to);
+
+      NLogTrace("NBinning::FillInRuns: run %lld, outermost entries %zu..%zu of %zu", nRuns, from, to, outermost);
+      FillResolvedPoint(content, chunk, seen, nBinsFilled, nTotalBins, start_par, runOutput, def);
+      nRuns++;
+    }
+  }
+
+  if (runOutput && !isWorker && nTotalBins > 0)
+    Ndmspc::NUtils::ProgressBar(nTotalBins, nTotalBins, start_par, "I    ");
+
+  auto                                      end_par = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> par_duration = end_par - start_par;
+  NLogInfo("NBinning::FillInRuns: Filled %lld bins in %lld run(s) over %s s", nBinsFilled, nRuns,
+           NUtils::FormatTime(par_duration.count() / 1000).c_str());
+
+  fMap->Reset();
+  return nBinsFilled;
+}
+
+bool NBinning::ApplyDefinitionBinning(const std::string & name,
+                                      const std::map<std::string, std::vector<std::vector<int>>> & binning)
+{
+  ///
+  /// Apply a definition's per-axis binning to the mapping
+  ///
+
+  for (size_t i = 0; i < fAxes.size(); i++) {
+    TAxis *     axis     = fAxes[i];
+    std::string axisName = axis->GetName();
+
+    auto spec = binning.find(axisName);
+    if (spec != binning.end() && !spec->second.empty()) {
+      if (axis->IsAlphanumeric() && (spec->second.size() != 1 || spec->second[0][0] != 1)) {
+        NLogError("NBinning::AddBinningDefinition: Axis '%s' is alphanumeric and is binning provided in definition "
+                  "'%s'. Exiting ...",
+                  axisName.c_str(), name.c_str());
+        exit(1);
+      }
+      AddBinningViaBinWidths(i + 1, spec->second);
+      SetAxisType(i, AxisType::kVariable);
+    }
+    else {
+      if (axis->IsAlphanumeric()) {
+        NLogError("NBinning::AddBinningDefinition: Axis '%s' is alphanumeric and no binning provided in definition "
+                  "'%s'. Exiting ...",
+                  axisName.c_str(), name.c_str());
+        exit(1);
+      }
+      AddBinning(i + 1, {axis->GetNbins(), 1, 1}, 1);
+    }
+  }
+  return true;
+}
+
+void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std::vector<std::vector<int>>> binning,
                                     bool forceDefault)
 {
   ///
@@ -1081,53 +1615,13 @@ void NBinning::AddBinningDefinition(std::string name, std::map<std::string, std:
   fDefinitions[name]     = def;
   fCurrentDefinitionName = name;
   fMap->Reset();
-  // loop over binning axes
-  for (size_t i = 0; i < fAxes.size(); i++) {
-    TAxis *     axis     = fAxes[i];
-    std::string axisName = axis->GetName();
-    // NLogDebug("Axis %zu: name='%s' title='%s' nbins=%d min=%.3f max=%.3f", i, axisName.c_str(),
-    //                        axis->GetTitle(), axis->GetNbins(), axis->GetXmin(), axis->GetXmax());
-
-    // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
-    if (!binning[axisName].empty()) {
-
-      // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
-      if (axis->IsAlphanumeric() && (binning[axisName].size() != 1 || binning[axisName][0][0] != 1)) {
-        NLogError("NBinning::AddBinningDefinition: Axis '%s' is alphanumeric and is binning provided in definition "
-                  "'%s'. Exiting ...",
-                  axisName.c_str(), name.c_str());
-        exit(1);
-      }
-
-      AddBinningViaBinWidths(i + 1, binning[axisName]);
-      SetAxisType(i, AxisType::kVariable);
-      // GetDefinition()[axisName] = binning[axisName];
-      // def->SetAxisDefinition(axisName, binning[axisName]);
-    }
-    else {
-
-      // TODO: Handle case when user wants to rebin alphanumeric axis. Now we are failing
-      if (axis->IsAlphanumeric()) {
-        NLogError("NBinning::AddBinningDefinition: Axis '%s' is alphanumeric and no binning provided in definition "
-                  "'%s'. Exiting ...",
-                  axisName.c_str(), name.c_str());
-        exit(1);
-      }
-
-      AddBinning(i + 1, {axis->GetNbins(), 1, 1}, 1);
-      // GetDefinition()[axisName] = {{axis->GetNbins()}};
-      // def->SetAxisDefinition(axisName, {{axis->GetNbins()}});
-    }
+  if (!ApplyDefinitionBinning(name, binning)) {
+    return;
   }
 
-  // Long64_t nStart = fContent->GetNbins();
-  // def->SetStartId(nStart);
-  // std::vector<Long64_t> entries;
   Long64_t nFilled = FillAll(def);
-  // def->Print();
   NLogTrace("NBinning::AddBinningDefinition: Filled %lld bins for definition '%s'", nFilled,
             NUtils::GetCoordsString(def->GetIds(), -1).c_str());
-  // def->SetNEntries(nFilled);
 
   if (forceDefault || fCurrentDefinitionName.empty()) {
     fCurrentDefinitionName = name;

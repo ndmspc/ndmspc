@@ -5,10 +5,10 @@
 #include <ndmspc/core/NGnTree.h>
 
 void NParamsImportMulti(
-    const std::string & outputFile = "PAR_ngnt_multi.root",
+    const std::string & outputFile = "PAR_ngnt_all.root",
     const std::string & prefix  = "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/alice/rsn/import/"
-                                  "systematics_flat",
-    const std::string & postfix = "PAR_ngnt.root", const std::vector<std::string> & headers = {"variation"},
+                                  "systematics_multi",
+    const std::string & postfix = "PAR_ngnt.root", const std::vector<std::string> & headers = {"dca","ncls","vtzx","pid","bg","bgNorm","fitFun","fitRange"},
     bool force = false)
 {
   ///
