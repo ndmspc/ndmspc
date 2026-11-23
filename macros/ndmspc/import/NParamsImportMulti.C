@@ -4,11 +4,13 @@
 #include <ndmspc/core/NUtils.h>
 #include <ndmspc/core/NGnTree.h>
 
+
+
+// ndmspc-run -n 22:1 macros/ndmspc/import/NParamsImportMulti.C --macro-params '"PAR_ngnt_multi.root","root://eosuser.cern.ch//eos/user/m/mvala/NDMSPC/tutorials/alice-20261126/alice/rsn/systematics_multi","PAR_ngnt.root",{"dca","ncls","vtzx","pid","bg","bgNorm","fitFun","fitRange"}'
 void NParamsImportMulti(
-    const std::string & outputFile = "PAR_ngnt_all.root",
-    const std::string & prefix  = "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/alice/rsn/import/"
-                                  "systematics_multi",
-    const std::string & postfix = "PAR_ngnt.root", const std::vector<std::string> & headers = {"dca","ncls","vtzx","pid","bg","bgNorm","fitFun","fitRange"},
+    const std::string & outputFile = "PAR_ngnt_flat.root",
+    const std::string & prefix  = "root://eosuser.cern.ch//eos/user/m/mvala/NDMSPC/tutorials/alice-20261126/alice/rsn/systematics_flat",
+    const std::string & postfix = "PAR_ngnt.root", const std::vector<std::string> & headers = {"variations"},
     bool force = false)
 {
   ///

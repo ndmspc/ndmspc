@@ -383,8 +383,8 @@ TEST(NImportTHnSparse, ImportsAParameterAxis)
   auto * params = (Ndmspc::NParameters *)ngnt->GetStorageTree()->GetBranchObject("_params");
   ASSERT_NE(params, nullptr);
   EXPECT_DOUBLE_EQ(params->GetParameter("mean"), 3.0);
-  // The entry's **first** object is the markdown list of parameters (`value ± error`); the slice's
-  // histogram itself is not stored.
+  // The entry's **first** object is the markdown table of parameters (value and error in their own
+  // columns); the slice's histogram itself is not stored.
   TList * out = (TList *)ngnt->GetStorageTree()->GetBranchObject("_outputPoint");
   ASSERT_NE(out, nullptr);
   ASSERT_GT(out->GetEntries(), 0);
@@ -392,8 +392,8 @@ TEST(NImportTHnSparse, ImportsAParameterAxis)
   ASSERT_NE(log, nullptr) << "the markdown parameter list is not the first object";
   EXPECT_EQ(std::string(log->GetType()), "md");
   const std::string text = log->GetString();
-  EXPECT_NE(text.find("**mean**"), std::string::npos) << text;
-  EXPECT_NE(text.find("3 ± 1.73205"), std::string::npos) << text;
+  EXPECT_NE(text.find("| Parameter | Value | Error |"), std::string::npos) << text;
+  EXPECT_NE(text.find("| mean | 3 | 1.73205 |"), std::string::npos) << text;
   bool projection = false;
   for (int i = 0; i < out->GetEntries(); i++) {
     TObject * one = out->At(i);

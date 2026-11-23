@@ -2,6 +2,7 @@
 #include <TROOT.h>
 #include <TFolder.h>
 #include <TDirectory.h>
+#include <chrono>
 #include "NBinning.h"
 #include "NBinningDef.h"
 #include "NBinningPoint.h"
@@ -534,8 +535,18 @@ Long64_t NStorageTree::Merge(TCollection * list)
   NLogTrace("NStorageTree::Merge: Number of entries in content: %lld", cSparse->GetNbins());
   Int_t *                                         cCoords = new Int_t[cSparse->GetNdimensions()];
   Long64_t                                        linBin  = 0;
+  // One tick per mapped bin: this loop is what dominates a merge of many worker files, and it
+  // is the only thing a caller can be told about while it runs.
+  const bool                                      runOutput   = NLogger::GetRunOutput();
+  const auto                                      mergeStart  = std::chrono::high_resolution_clock::now();
+  const Long64_t                                  nBinsTotal  = cSparse->GetNbins();
+  Long64_t                                        nBinsDone   = 0;
   std::unique_ptr<ROOT::Internal::THnBaseBinIter> iter{cSparse->CreateIter(true /*use axis range*/)};
   while ((linBin = iter->Next()) >= 0) {
+    // Drawn before the bin's work, so a merge that stalls shows the phase started rather than
+    // looking like it never began.
+    if (runOutput) NUtils::ProgressBar(static_cast<int>(nBinsDone), static_cast<int>(nBinsTotal), mergeStart, "M    ");
+    nBinsDone++;
     Double_t         v             = cSparse->GetBinContent(linBin, cCoords);
     Long64_t         idx           = cSparse->GetBin(cCoords);
     std::vector<int> cCoordsVector = NUtils::ArrayToVector(cCoords, cSparse->GetNdimensions());
@@ -657,6 +668,10 @@ Long64_t NStorageTree::Merge(TCollection * list)
     NLogTrace("NHnSparseTree::Merge: END linBin=%lld ===================================", linBin);
     next.Reset(); // Reset the iterator to start from the beginning again
   }
+
+  // Close the bar: this is the `current == total` call, which prints its newline, so the caller's
+  // "merge done" line starts on a row of its own.
+  if (runOutput) NUtils::ProgressBar(static_cast<int>(nBinsTotal), static_cast<int>(nBinsTotal), mergeStart, "M    ");
 
   delete fBinning->GetContent();
   fBinning->SetContent(binningContentNew);

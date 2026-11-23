@@ -5,7 +5,7 @@
 
 void NParamsImport(
     const std::string & filename =
-      "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/alice/rsn/import/systematics_flat/pid_selection-default/PAR.root",
+      "root://eosuser.cern.ch//eos/user/m/mvala/NDMSPC/tutorials/alice-20261126/alice/rsn/systematics_flat/pid_selection-default/PAR.root",
     const std::string & jsonFile = "")
 {
   ///

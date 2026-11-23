@@ -1188,8 +1188,8 @@ TEST_F(ToolBrowser, TheParametersTabImportsParametersAndObjects)
   EXPECT_EQ(std::string(log->GetName()), "parameters");
   EXPECT_EQ(std::string(log->GetType()), "md");
   const std::string text = log->GetString();
-  EXPECT_NE(text.find("**mean**"), std::string::npos) << text;
-  EXPECT_NE(text.find("4 ± 2"), std::string::npos) << text;
+  EXPECT_NE(text.find("| Parameter | Value | Error |"), std::string::npos) << text;
+  EXPECT_NE(text.find("| mean | 4 | 2 |"), std::string::npos) << text;
   bool projection = false;
   bool retrieved  = false;
   for (int i = 0; i < outList->GetEntries(); i++) {

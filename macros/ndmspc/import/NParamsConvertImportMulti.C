@@ -11,8 +11,7 @@
 
 void NParamsConvertImportMulti(
     const std::string & outputFile = "PAR_ngnt_multi.root",
-    const std::string & prefix  = "root://eos.ndmspc.io//eos/ndmspc/scratch/ndmspc/demo/alice/rsn/import/"
-                                  "systematics_flat",
+    const std::string & prefix  = "root://eosuser.cern.ch//eos/user/m/mvala/NDMSPC/tutorials/alice-20261126/alice/rsn/systematics_flat",
     const std::string & postfix = "PAR.root", const std::vector<std::string> & headers = {"variation"},
     const std::string & jsonFile = "", bool force = false)
 {
