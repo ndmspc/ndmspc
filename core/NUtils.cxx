@@ -1998,6 +1998,31 @@ bool NUtils::GetAxisRangeInBase(TAxis * a, int min, int max, TAxis * base, int &
   return true;
 }
 
+std::vector<std::vector<std::string>> NUtils::LabelsFromDirectory(const std::vector<std::string> & paths,
+                                                                const std::string & findPath, const std::string & fileName,
+                                                                const std::vector<std::string> & axesNames)
+{
+  ///
+  /// The directory labels each path names, in axesNames order
+  ///
+
+  std::vector<std::vector<std::string>> labels;
+  for (const auto & path : paths) {
+    TString relativePath = path;
+    relativePath.ReplaceAll(findPath.c_str(), "");
+    relativePath.ReplaceAll(fileName.c_str(), "");
+    relativePath.ReplaceAll("//", "/");
+    relativePath.Remove(0, relativePath.BeginsWith("/") ? 1 : 0);
+    relativePath.Remove(relativePath.EndsWith("/") ? relativePath.Length() - 1 : relativePath.Length(), 1);
+
+    std::vector<std::string> tokens = Ndmspc::NUtils::Tokenize(relativePath.Data(), '/');
+    // A path that does not name one label per axis describes no point of this tree.
+    if (tokens.size() != axesNames.size()) continue;
+    labels.push_back(std::move(tokens));
+  }
+  return labels;
+}
+
 TObjArray * NUtils::AxesFromDirectory(const std::vector<std::string> paths, const std::string & findPath,
                                       const std::string & fileName, const std::vector<std::string> & axesNames,
                                       const std::map<std::string, std::vector<std::string>> & filterAxes)
@@ -2010,28 +2035,9 @@ TObjArray * NUtils::AxesFromDirectory(const std::vector<std::string> paths, cons
   std::map<std::string, std::set<std::string>> axes;
   for (const auto & path : paths) {
     NLogInfo("Found file: %s", path.c_str());
-    // remove prefix basePath from path
-    TString relativePath = path;
-    relativePath.ReplaceAll(findPath.c_str(), "");
-    relativePath.ReplaceAll(fileName.c_str(), "");
-    // relativePath.ReplaceAll("years", "");
-    // relativePath.ReplaceAll("data", "");
-    relativePath.ReplaceAll("//", "/");
-    // remove leading slash
-    relativePath.Remove(0, relativePath.BeginsWith("/") ? 1 : 0);
-    // remove trailing slash
-    relativePath.Remove(relativePath.EndsWith("/") ? relativePath.Length() - 1 : relativePath.Length(), 1);
-
-    std::vector<std::string> tokens = Ndmspc::NUtils::Tokenize(relativePath.Data(), '/');
-
-    // if (tokens.size() < axesNames.size()) {
-    //   tokens.push_back("mb");
-    // }
-    //
-    if (tokens.size() != axesNames.size()) {
-      continue;
-    }
-
+  }
+  // One source of truth for what a path's labels are: the same cleanup a point list uses.
+  for (const auto & tokens : LabelsFromDirectory(paths, findPath, fileName, axesNames)) {
     for (size_t i = 0; i < tokens.size(); ++i) {
       axes[axesNames[i]].insert(tokens[i]);
     }

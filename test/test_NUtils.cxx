@@ -248,3 +248,43 @@ TEST(EosFindPaths, AnEmptyListingNamesNothing)
   EXPECT_EQ(NUtils::EosFindPaths("", kHost), (std::vector<std::string>{}));
   EXPECT_EQ(NUtils::EosFindPaths("  \n\t\r\n", kHost), (std::vector<std::string>{}));
 }
+
+TEST(LabelsFromDirectory, ReadsOneLabelPerAxisInAxesOrder)
+{
+  // The layout `NParamsImportMulti.C` imports: one directory per axis, then the file itself.
+  const std::vector<std::string> paths = {
+      kBase + "/dca_0p05/default/vtxz_8/PAR_ngnt.root",
+      kBase + "/dca_0p5/tpc_2/vtxz_10/PAR_ngnt.root",
+  };
+  const std::vector<std::string> axes = {"dca", "pid", "vtxz"};
+
+  EXPECT_EQ(NUtils::LabelsFromDirectory(paths, kBase, "PAR_ngnt.root", axes),
+            (std::vector<std::vector<std::string>>{{"dca_0p05", "default", "vtxz_8"},
+                                                  {"dca_0p5", "tpc_2", "vtxz_10"}}));
+}
+
+TEST(LabelsFromDirectory, KeepsTheOrderThePathsCameIn)
+{
+  const std::vector<std::string> paths = {kBase + "/one/x/PAR_ngnt.root", kBase + "/two/y/PAR_ngnt.root",
+                                          kBase + "/three/z/PAR_ngnt.root"};
+
+  const auto labels = NUtils::LabelsFromDirectory(paths, kBase, "PAR_ngnt.root", {"a", "b"});
+  EXPECT_EQ(labels.size(), 3u);
+  EXPECT_EQ(labels[0][0], "one");
+  EXPECT_EQ(labels[2][0], "three");
+}
+
+TEST(LabelsFromDirectory, SkipsAPathThatNamesNoLabelPerAxis)
+{
+  // A path with the wrong depth describes no point of this tree, exactly as AxesFromDirectory skips it.
+  const std::vector<std::string> paths = {kBase + "/a/b/PAR_ngnt.root", kBase + "/a/PAR_ngnt.root"};
+  const auto labels = NUtils::LabelsFromDirectory(paths, kBase, "PAR_ngnt.root", {"x", "y"});
+
+  EXPECT_EQ(labels, (std::vector<std::vector<std::string>>{{"a", "b"}}));
+}
+
+TEST(LabelsFromDirectory, AnEmptyListYieldsNothing)
+{
+  EXPECT_EQ(NUtils::LabelsFromDirectory({}, kBase, "PAR_ngnt.root", {"x"}),
+            (std::vector<std::vector<std::string>>{}));
+}

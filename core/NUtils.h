@@ -475,6 +475,25 @@ class NUtils : TObject {
                                        const std::string & fileName, const std::vector<std::string> & axesNames, const std::map<std::string,std::vector<std::string>> & filterAxes = {});
 
   /**
+   * @brief The directory labels each path names, in `axesNames` order.
+   *
+   * The relative-path cleanup `AxesFromDirectory` does (strip `findPath`, strip `fileName`,
+   * collapse `//`, drop leading/trailing `/`) then split on `/`, so the two agree on what a path
+   * says. A path whose token count differs from `axesNames.size()` is skipped, as
+   * `AxesFromDirectory` skips it.
+   *
+   * @param paths A vector of file paths to read.
+   * @param findPath The subdirectory path to strip from each.
+   * @param fileName The file name to strip from each.
+   * @param axesNames The axis each token belongs to, in order.
+   * @return One label tuple per path.
+   */
+  static std::vector<std::vector<std::string>> LabelsFromDirectory(const std::vector<std::string> & paths,
+                                                                  const std::string & findPath,
+                                                                  const std::string & fileName,
+                                                                  const std::vector<std::string> & axesNames);
+
+  /**
    * @brief Tokenize a string by delimiter.
    * @param input Input string.
    * @param delim Delimiter character.
