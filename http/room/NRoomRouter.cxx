@@ -3476,7 +3476,9 @@ bool NRoomRouter::Register(NHttpServer * server)
                      "opened/active, average time spent in a room, idle time in a room and in the UI, "
                      "and the client/server/image versions seen. 'range' picks the window whose "
                      "breakdown and series are reported (24h, 7d, 30d or all of what is on disk; the "
-                     "day/week/month user counts are always present). Anonymous where "
+                     "day/week/month user counts are always present). 'scope=me' narrows the whole "
+                     "answer to the caller's own sessions and the rooms they own; an admin may "
+                     "narrow it to one person with 'user'. Anonymous where "
                      "NDMSPC_STATS_PUBLIC is on, and it "
                      "never carries a user name.",
       .methods     = {"GET"},
@@ -3485,18 +3487,38 @@ bool NRoomRouter::Register(NHttpServer * server)
                          {{"type", "string"},
                           {"enum", {"24h", "7d", "30d", "all"}},
                           {"description",
-                           "Window for the breakdown and series (default 24h; all = everything on disk)."}}}}}},
+                           "Window for the breakdown and series (default 24h; all = everything on disk)."}}},
+                        {"scope",
+                         {{"type", "string"},
+                          {"enum", {"all", "me"}},
+                          {"description",
+                           "all (default) is everyone; me is the caller's own usage and rooms."}}},
+                        {"user",
+                         {{"type", "string"},
+                          {"description",
+                           "A person to report on instead of everyone (admins only)."}}}}}},
   });
   Ndmspc::RegisterMcpTool("ndmspc/stats/users", {
       .description = "Per-user usage for a window: first/last seen, room sessions and seconds, UI "
                      "sessions, seconds and idle time, the rooms entered and the client versions "
-                     "used. Restricted to NDMSPC_ROOM_ADMINS, because it names people.",
+                     "used. An admin (NDMSPC_ROOM_ADMINS) reads everybody, or one person with "
+                     "'user'; anyone else may ask for 'scope=me' and is answered with their own row "
+                     "only.",
       .methods     = {"GET"},
       .inputSchema = {{"properties",
                        {{"range",
                          {{"type", "string"},
                           {"enum", {"24h", "7d", "30d", "all"}},
-                          {"description", "Window to report (default 24h)."}}}}}},
+                          {"description", "Window to report (default 24h)."}}},
+                        {"scope",
+                         {{"type", "string"},
+                          {"enum", {"all", "me"}},
+                          {"description",
+                           "all (default, admins only) is everyone; me is the caller's own row."}}},
+                        {"user",
+                         {{"type", "string"},
+                          {"description",
+                           "A person to report on instead of everyone (admins only)."}}}}}},
   });
   Ndmspc::RegisterMcpTool("ndmspc/stats/export", {
       .description = "The raw usage records for a window as CSV (type=users or type=rooms). "
@@ -6161,6 +6183,44 @@ static std::string NdmspcStatsRange(json & in)
   return "24h";
 }
 
+/// @brief Who a stats request asks about: "me" for the caller's own rows, else "all".
+static std::string NdmspcStatsScope(json & in)
+{
+  std::string scope;
+  if (in.is_object()) {
+    if (in.contains("scope") && in["scope"].is_string()) scope = in["scope"].get<std::string>();
+    else if (in.contains("_query") && in["_query"].is_string()) {
+      const auto params = NRoomRouter::ParseQuery(in["_query"].get<std::string>());
+      const auto it     = params.find("scope");
+      if (it != params.end()) scope = it->second;
+    }
+  }
+  std::string folded;
+  for (char c : scope) folded.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+  const auto first = folded.find_first_not_of(" \t");
+  const auto last  = folded.find_last_not_of(" \t");
+  folded = first == std::string::npos ? std::string() : folded.substr(first, last - first + 1);
+  return (folded == "me" || folded == "self") ? "me" : "all";
+}
+
+/// @brief The person a stats request names: body `user`, or query `user` (admins only).
+static std::string NdmspcStatsUser(json & in)
+{
+  std::string user;
+  if (in.is_object()) {
+    if (in.contains("user") && in["user"].is_string()) user = in["user"].get<std::string>();
+    else if (in.contains("_query") && in["_query"].is_string()) {
+      const auto params = NRoomRouter::ParseQuery(in["_query"].get<std::string>());
+      const auto it     = params.find("user");
+      if (it != params.end()) user = it->second;
+    }
+  }
+  const auto first = user.find_first_not_of(" \t");
+  if (first == std::string::npos) return {};
+  const auto last = user.find_last_not_of(" \t");
+  return user.substr(first, last - first + 1);
+}
+
 void NRoomRouter::HandleStatsSummary(const std::string & method, json & in, json & out)
 {
   if (method.find("GET") == std::string::npos) {
@@ -6170,14 +6230,51 @@ void NRoomRouter::HandleStatsSummary(const std::string & method, json & in, json
   }
   NoteUi(in);
 
-  json summary = fStats.Summary(NdmspcStatsRange(in));
+  const std::string        scope = NdmspcStatsScope(in);
+  const std::string        who   = NdmspcStatsUser(in);
+  NRequestIdentity         identity;
+  std::vector<std::string> only;
+  std::string              named;
+  if (scope == "me") {
+    identity = RequestIdentity(in);
+    if (identity.Empty()) {
+      out["result"] = "failure";
+      out["code"]   = "no_identity";
+      out["error"]  = "Usage for yourself needs a name: sign in, or send 'owner'.";
+      return;
+    }
+    only = identity.Identifiers();
+  }
+  else if (!who.empty()) {
+    // A named person is an admin's question; everybody else may only ask about themselves.
+    identity = RequestIdentity(in);
+    if (!IsAdmin(identity)) {
+      out["result"] = "failure";
+      out["code"]   = "not_admin";
+      out["error"]  = "Only a room admin (NDMSPC_ROOM_ADMINS) may read another person's usage.";
+      return;
+    }
+    only  = {who};
+    named = who;
+  }
+
+  json summary = fStats.Summary(NdmspcStatsRange(in), only);
   if (!summary.contains("rooms") || !summary["rooms"].is_object()) summary["rooms"] = json::object();
   if (!summary.contains("server") || !summary["server"].is_object()) summary["server"] = json::object();
+  summary["scope"] = scope;
+  if (!named.empty()) summary["user"] = named;
 
   size_t tracked = 0;
   {
     std::lock_guard<std::mutex> lock(fMutex);
-    tracked = fRooms.size();
+    if (only.empty()) {
+      tracked = fRooms.size();
+    }
+    else {
+      for (const auto & entry : fRooms) {
+        if (NRoomStats::MatchesAny(only, entry.second.owner)) ++tracked;
+      }
+    }
   }
   summary["rooms"]["tracked"] = static_cast<int>(tracked);
   summary["server"]["name"]   = "ndmspc-router";
@@ -6195,16 +6292,44 @@ void NRoomRouter::HandleStatsUsers(const std::string & method, json & in, json &
     out["error"]  = "Unsupported HTTP method for ndmspc/stats/users";
     return;
   }
-  const NRequestIdentity identity = RequestIdentity(in);
-  if (!IsAdmin(identity)) {
+  // Three questions: everybody (admins), one named person (admins), or the caller's own row
+  // (`scope=me`, anyone who can be identified). A client can never widen its own scope.
+  const std::string        scope    = NdmspcStatsScope(in);
+  const std::string        who      = NdmspcStatsUser(in);
+  const NRequestIdentity   identity = RequestIdentity(in);
+  std::vector<std::string> only;
+  std::string              named;
+  if (scope == "me") {
+    if (identity.Empty()) {
+      out["result"] = "failure";
+      out["code"]   = "no_identity";
+      out["error"]  = "Usage for yourself needs a name: sign in, or send 'owner'.";
+      return;
+    }
+    only = identity.Identifiers();
+  }
+  else if (!who.empty()) {
+    if (!IsAdmin(identity)) {
+      out["result"] = "failure";
+      out["code"]   = "not_admin";
+      out["error"]  = "Only a room admin (NDMSPC_ROOM_ADMINS) may read another person's usage.";
+      return;
+    }
+    only  = {who};
+    named = who;
+  }
+  else if (!IsAdmin(identity)) {
     out["result"] = "failure";
     out["code"]   = "not_admin";
-    out["error"]  = "Only a room admin (NDMSPC_ROOM_ADMINS) may read the per-user usage breakdown.";
+    out["error"]  = "Only a room admin (NDMSPC_ROOM_ADMINS) may read everyone's usage; ask for scope=me to read your own.";
     return;
   }
 
-  out["result"]  = "success";
-  out["payload"] = fStats.Users(NdmspcStatsRange(in));
+  json payload = fStats.Users(NdmspcStatsRange(in), only);
+  payload["scope"] = scope;
+  if (!named.empty()) payload["user"] = named;
+  out["result"]    = "success";
+  out["payload"]   = payload;
 }
 
 void NRoomRouter::HandleStatsExport(const std::string & method, json & in, json & out)

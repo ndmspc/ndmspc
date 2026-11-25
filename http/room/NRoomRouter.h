@@ -427,9 +427,12 @@ class NRoomRouter {
   ///        so what comes back is the configuration's room and nothing of the one that was there.
   void HandleImport(const std::string & method, json & in, json & out);
 
-  /// @brief ndmspc/stats/summary: aggregate usage for a window (public when NDMSPC_STATS_PUBLIC).
+  /// @brief ndmspc/stats/summary: aggregate usage for a window (public when NDMSPC_STATS_PUBLIC);
+  ///        `scope=me` narrows it to the caller's own sessions and rooms, and an admin may narrow
+  ///        it to one person with `user`.
   void HandleStatsSummary(const std::string & method, json & in, json & out);
-  /// @brief ndmspc/stats/users: the per-user breakdown (admins only).
+  /// @brief ndmspc/stats/users: everyone's breakdown for an admin (or one named person with
+  ///        `user`), or - with `scope=me` - the caller's own row for anybody who can be identified.
   void HandleStatsUsers(const std::string & method, json & in, json & out);
   /// @brief ndmspc/stats/export: the raw CSV rows for a window (admins only).
   void HandleStatsExport(const std::string & method, json & in, json & out);

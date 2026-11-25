@@ -2272,7 +2272,7 @@ NGnTree * ImportTHnSparseObjects(const std::string & inFile, const std::string &
             if (!slice.empty()) {
               log->AddLine("**%s**", slice.c_str());
               // A table has to start its own block, or it is read as the tail of the paragraph above it.
-              log->AddLine("");
+              log->AddLine();
             }
             log->AddLine("| Parameter | Value | Error |");
             log->AddLine("| --- | --- | --- |");
