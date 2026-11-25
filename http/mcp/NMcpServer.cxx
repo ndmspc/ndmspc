@@ -327,6 +327,12 @@ json NMcpServer::BuildTools() const
     if (info != nullptr && !info->dependsOn.empty()) {
       tool["_meta"]["ndmspc.io/dependsOn"] = info->dependsOn;
     }
+    // And whether the action starts a combination on its own: a group whose actions declare no
+    // dependency is otherwise plain tools with no tree, and a single-action tool could never be a step.
+    // Saying `root` makes the group a combination whose first step is this action.
+    if (info != nullptr && info->root) {
+      tool["_meta"]["ndmspc.io/root"] = true;
+    }
     // And whether the step has a Run at all: a step that works through its own form says so here, so the
     // client can leave the button out without knowing which actions those are.
     if (info != nullptr && !info->runButton) {

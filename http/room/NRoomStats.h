@@ -114,14 +114,23 @@ class NRoomStats {
   /// @brief Closes presence sessions that stopped reporting (3x the presence interval).
   void SweepPresence();
 
-  /// @brief The aggregate summary for 24h, 7d or 30d.
-  json Summary(const std::string & range);
+  /**
+   * @brief The aggregate summary for 24h, 7d or 30d, narrowed to a set of names when asked.
+   *
+   * `only` limits the answer to events recorded for one of those names: a user's own rows in the
+   * users family, and the rooms they own in the rooms family. An empty `only` is the whole router
+   * (the default, and what an admin sees).
+   */
+  json Summary(const std::string & range, const std::vector<std::string> & only = {});
 
-  /// @brief The per-user breakdown for a window (admin endpoint).
-  json Users(const std::string & range);
+  /// @brief The per-user breakdown for a window, narrowed to `only` ("" / empty: everybody).
+  json Users(const std::string & range, const std::vector<std::string> & only = {});
 
   /// @brief The raw rows for a window as CSV (`family` is rooms or users).
   std::string Export(const std::string & range, const std::string & family);
+
+  /// @brief Whether `value` is one of `only` (case-insensitive, surrounding space ignored).
+  static bool MatchesAny(const std::vector<std::string> & only, const std::string & value);
 
   private:
   /// @brief One parsed CSV row (both families share this shape).
@@ -176,8 +185,9 @@ class NRoomStats {
   static long  ParseDetail(const std::string & detail, const std::string & key);
   static const std::string & Get(const std::map<std::string, std::string> & fields, const std::string & name);
   std::vector<Row> LoadRows(const std::string & family, long from, long to) const;
-  json             SummaryLocked(long from, long to, long bucket, const std::string & name);
-  json             UsersLocked(long from, long to);
+  json             SummaryLocked(long from, long to, long bucket, const std::string & name,
+                                 const std::vector<std::string> & only);
+  json             UsersLocked(long from, long to, const std::vector<std::string> & only);
 
   NRoomStatsConfig  fConfig;                    ///< The configuration in force
   bool              fEnabled{false};            ///< Whether the directory was usable

@@ -60,6 +60,15 @@ std::string Trim(const std::string & text)
   return text.substr(first, last - first + 1);
 }
 
+/// @brief Trims and lower-cases a name, the form two identities are compared in.
+std::string Fold(const std::string & text)
+{
+  std::string folded;
+  folded.reserve(text.size());
+  for (char c : text) folded.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+  return Trim(folded);
+}
+
 /// @brief Days since 1970-01-01 for a civil date (no dependency on the C library's timezone).
 long DaysFromCivil(int year, unsigned month, unsigned day)
 {
@@ -291,6 +300,17 @@ const std::string & NRoomStats::Get(const std::map<std::string, std::string> & f
   static const std::string empty;
   const auto               it = fields.find(name);
   return it == fields.end() ? empty : it->second;
+}
+
+bool NRoomStats::MatchesAny(const std::vector<std::string> & only, const std::string & value)
+{
+  if (only.empty()) return true;
+  const std::string folded = Fold(value);
+  if (folded.empty()) return false;
+  for (const auto & candidate : only) {
+    if (Fold(candidate) == folded) return true;
+  }
+  return false;
 }
 
 long NRoomStats::ParseDetail(const std::string & detail, const std::string & key)
@@ -658,7 +678,7 @@ std::vector<NRoomStats::Row> NRoomStats::LoadRows(const std::string & family, lo
   return rows;
 }
 
-json NRoomStats::Summary(const std::string & range)
+json NRoomStats::Summary(const std::string & range, const std::vector<std::string> & only)
 {
   long        from = 0;
   long        to   = 0;
@@ -671,7 +691,9 @@ json NRoomStats::Summary(const std::string & range)
   }
   SweepPresence();
 
-  {
+  // A narrowed summary is cached under the range alone nowhere: one caller's numbers must never be
+  // handed to the next caller, so scoped requests always recompute.
+  if (only.empty()) {
     std::lock_guard<std::mutex> lock(fMutex);
     const auto                  it = fSummaryCache.find(name);
     if (it != fSummaryCache.end() && now < it->second.first) return it->second.second;
@@ -680,8 +702,10 @@ json NRoomStats::Summary(const std::string & range)
   std::lock_guard<std::mutex> lock(fMutex);
   if (!fEnabled) return json{{"enabled", false}, {"range", {{"name", name}}}};
 
-  const auto cached = fSummaryCache.find(name);
-  if (cached != fSummaryCache.end() && now < cached->second.first) return cached->second.second;
+  if (only.empty()) {
+    const auto cached = fSummaryCache.find(name);
+    if (cached != fSummaryCache.end() && now < cached->second.first) return cached->second.second;
+  }
 
   if (name == "all") {
     from   = FirstDayOnDisk();
@@ -689,16 +713,26 @@ json NRoomStats::Summary(const std::string & range)
     bucket = (to - from) <= 366 * 86400 ? 86400 : 7 * 86400;
   }
 
-  json summary = SummaryLocked(from, to, bucket, name);
-  fSummaryCache[name] = {now + fConfig.summaryTtlSec, summary};
+  json summary = SummaryLocked(from, to, bucket, name, only);
+  if (only.empty()) fSummaryCache[name] = {now + fConfig.summaryTtlSec, summary};
   return summary;
 }
 
-json NRoomStats::SummaryLocked(long from, long to, long bucket, const std::string & name)
+json NRoomStats::SummaryLocked(long from, long to, long bucket, const std::string & name,
+                               const std::vector<std::string> & only)
 {
   const long usersFrom = std::min(from, to - 30 * 86400);
-  const auto users     = LoadRows("users", usersFrom, to);
-  const auto rooms     = LoadRows("rooms", from, to);
+  auto       users     = LoadRows("users", usersFrom, to);
+  auto       rooms     = LoadRows("rooms", from, to);
+  // The rows kept for the caller: their own events, and the rooms they own.
+  if (!only.empty()) {
+    users.erase(std::remove_if(users.begin(), users.end(),
+                               [&](const Row & row) { return !MatchesAny(only, row.user); }),
+                users.end());
+    rooms.erase(std::remove_if(rooms.begin(), rooms.end(),
+                               [&](const Row & row) { return !MatchesAny(only, row.owner); }),
+                rooms.end());
+  }
 
   // --- distinct users, per window -------------------------------------------------------------
   auto distinct = [&](long windowFrom) {
@@ -806,9 +840,14 @@ json NRoomStats::SummaryLocked(long from, long to, long bucket, const std::strin
 
   // Occupancy per room: every user session, clipped to the window, merged. A room is active only
   // while somebody is connected to it; an open but empty room is idle, not active.
+  // Occupancy is about the rooms, not about whose sessions they are: a narrowed summary still asks
+  // whether *its* rooms are busy, so the rows are read again unfiltered for this one map.
+  std::vector<Row> occupancyRows;
+  if (!only.empty()) occupancyRows = LoadRows("users", usersFrom, to);
+  const std::vector<Row> & occupancySource = only.empty() ? users : occupancyRows;
   std::map<std::string, long>              openByRoomSession;
   std::map<std::string, std::vector<Interval>> occupancy;
-  for (const auto & row : users) {
+  for (const auto & row : occupancySource) {
     if (row.room.empty()) continue;
     const std::string key = row.room + '\x1f' + row.session;
     if (row.event == "connect") {
@@ -1079,7 +1118,7 @@ json NRoomStats::SummaryLocked(long from, long to, long bucket, const std::strin
   return summary;
 }
 
-json NRoomStats::Users(const std::string & range)
+json NRoomStats::Users(const std::string & range, const std::vector<std::string> & only)
 {
   long        from = 0, to = 0, bucket = 0;
   std::string name;
@@ -1095,10 +1134,10 @@ json NRoomStats::Users(const std::string & range)
     from = FirstDayOnDisk();
     if (from <= 0) from = to - 86400;
   }
-  return UsersLocked(from, to);
+  return UsersLocked(from, to, only);
 }
 
-json NRoomStats::UsersLocked(long from, long to)
+json NRoomStats::UsersLocked(long from, long to, const std::vector<std::string> & only)
 {
   struct UserAgg {
     long                     firstSeen{0};
@@ -1119,7 +1158,12 @@ json NRoomStats::UsersLocked(long from, long to)
   std::map<std::string, long>                         openUi;   // user|session -> online ts
   std::map<std::string, long>                         hiddenUi; // user|session -> hidden ts
 
-  const auto rows = LoadRows("users", from, to);
+  auto rows = LoadRows("users", from, to);
+  if (!only.empty()) {
+    rows.erase(std::remove_if(rows.begin(), rows.end(),
+                              [&](const Row & row) { return !MatchesAny(only, row.user); }),
+               rows.end());
+  }
   for (const auto & row : rows) {
     if (row.user.empty()) continue;
     UserAgg & agg = users[row.user];

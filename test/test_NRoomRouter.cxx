@@ -4197,3 +4197,116 @@ TEST(NRoomStatsActionsTest, DetailsAndExportNeedAnAdmin)
   EXPECT_EQ(out["result"], "failure");
   EXPECT_EQ(out["code"], "not_admin");
 }
+
+TEST(NRoomStatsActionsTest, SelfScopeAnswersWithTheCallersOwnUsage)
+{
+  StatsDir dir;
+  Router   test(/*readyTimeoutSec=*/2, /*admins=*/{"alice@example.com"});
+  RecordInto(*test.router, dir, /*publicSummary=*/false);
+
+  const json opened = test.OpenBy(Verified("alice", "alice@example.com"), "mine", /*wait=*/true);
+  ASSERT_EQ(opened["result"], "success");
+  test.router->Stats().UserEvent("ui_seen", "", "alice", "admin", "ndmspc-ui", "1.2.3", "", "", "");
+  test.router->Stats().UserEvent("ui_seen", "", "bob", "owner", "ndmspc-ui", "1.2.3", "", "", "");
+
+  // A non-admin's own row needs no admin list.
+  json bob = Verified("bob", "bob@example.com", json{{"range", "24h"}, {"scope", "me"}});
+  json out;
+  test.router->HandleStatsUsers("GET", bob, out);
+  ASSERT_EQ(out["result"], "success") << out.dump();
+  EXPECT_EQ(out["payload"]["scope"], "me");
+  ASSERT_EQ(out["payload"]["users"].size(), 1u);
+  EXPECT_EQ(out["payload"]["users"][0]["user"].get<std::string>(), "bob");
+
+  // Everybody's rows stay admin-only.
+  out = json::object();
+  json bobAll = Verified("bob", "bob@example.com", json{{"range", "24h"}});
+  test.router->HandleStatsUsers("GET", bobAll, out);
+  EXPECT_EQ(out["result"], "failure");
+  EXPECT_EQ(out["code"], "not_admin");
+
+  // An admin asking for "me" gets only their own row, not everyone's.
+  out = json::object();
+  json alice = Verified("alice", "alice@example.com", json{{"range", "24h"}, {"scope", "me"}});
+  test.router->HandleStatsUsers("GET", alice, out);
+  ASSERT_EQ(out["result"], "success") << out.dump();
+  ASSERT_EQ(out["payload"]["users"].size(), 1u);
+  EXPECT_EQ(out["payload"]["users"][0]["user"].get<std::string>(), "alice");
+
+  // There is no "me" for a caller that says nothing at all.
+  out = json::object();
+  json anonymous{{"range", "24h"}, {"scope", "me"}};
+  test.router->HandleStatsUsers("GET", anonymous, out);
+  EXPECT_EQ(out["result"], "failure");
+  EXPECT_EQ(out["code"], "no_identity");
+
+  // The summary narrows the same way: bob's answer carries his own UI time and none of alice's rooms.
+  out = json::object();
+  json bobSummary = Verified("bob", "bob@example.com", json{{"range", "24h"}, {"scope", "me"}});
+  test.router->HandleStatsSummary("GET", bobSummary, out);
+  ASSERT_EQ(out["result"], "success") << out.dump();
+  EXPECT_EQ(out["payload"]["scope"], "me");
+  EXPECT_EQ(out["payload"]["users"]["distinct"], 1);
+  EXPECT_EQ(out["payload"]["rooms"]["tracked"], 0);
+  EXPECT_EQ(out["payload"]["rooms"]["opened"], 0);
+
+  // ... while the unscoped answer is still the whole router.
+  out = json::object();
+  json everyone{{"range", "24h"}};
+  test.router->HandleStatsSummary("GET", everyone, out);
+  ASSERT_EQ(out["result"], "success") << out.dump();
+  EXPECT_EQ(out["payload"]["scope"], "all");
+  EXPECT_EQ(out["payload"]["rooms"]["tracked"], 1);
+  EXPECT_GE(out["payload"]["users"]["distinct"].get<int>(), 2);
+
+  // An asserted identity (a deployment with no login) may read its own row too.
+  out = json::object();
+  json asserted = Asserted("bob", json{{"range", "24h"}, {"scope", "me"}});
+  test.router->HandleStatsUsers("GET", asserted, out);
+  ASSERT_EQ(out["result"], "success") << out.dump();
+  ASSERT_EQ(out["payload"]["users"].size(), 1u);
+  EXPECT_EQ(out["payload"]["users"][0]["user"].get<std::string>(), "bob");
+}
+
+TEST(NRoomStatsActionsTest, AnAdminCanNarrowToOnePerson)
+{
+  StatsDir dir;
+  Router   test(/*readyTimeoutSec=*/2, /*admins=*/{"alice@example.com"});
+  RecordInto(*test.router, dir, /*publicSummary=*/false);
+
+  ASSERT_EQ(test.OpenBy(Verified("alice", "alice@example.com"), "mine", /*wait=*/true)["result"], "success");
+  ASSERT_EQ(test.OpenBy(Verified("bob", "bob@example.com"), "theirs", /*wait=*/true)["result"], "success");
+  test.router->Stats().UserEvent("ui_seen", "", "alice", "admin", "ndmspc-ui", "1.2.3", "", "", "");
+  test.router->Stats().UserEvent("ui_seen", "", "bob", "owner", "ndmspc-ui", "1.2.3", "", "", "");
+
+  json out;
+  json adminUsers = Verified("alice", "alice@example.com", json{{"range", "24h"}, {"user", "bob"}});
+  test.router->HandleStatsUsers("GET", adminUsers, out);
+  ASSERT_EQ(out["result"], "success") << out.dump();
+  EXPECT_EQ(out["payload"]["user"], "bob");
+  ASSERT_EQ(out["payload"]["users"].size(), 1u);
+  EXPECT_EQ(out["payload"]["users"][0]["user"].get<std::string>(), "bob");
+
+  // The summary that goes with it counts that person's sessions and rooms only.
+  out = json::object();
+  json adminSummary = Verified("alice", "alice@example.com", json{{"range", "24h"}, {"user", "bob"}});
+  test.router->HandleStatsSummary("GET", adminSummary, out);
+  ASSERT_EQ(out["result"], "success") << out.dump();
+  EXPECT_EQ(out["payload"]["user"], "bob");
+  EXPECT_EQ(out["payload"]["users"]["distinct"], 1);
+  EXPECT_EQ(out["payload"]["rooms"]["tracked"], 1);
+  EXPECT_EQ(out["payload"]["rooms"]["opened"], 1);
+
+  // Looking at somebody else is an admin's privilege.
+  out = json::object();
+  json bobUsers = Verified("bob", "bob@example.com", json{{"range", "24h"}, {"user", "alice"}});
+  test.router->HandleStatsUsers("GET", bobUsers, out);
+  EXPECT_EQ(out["result"], "failure");
+  EXPECT_EQ(out["code"], "not_admin");
+
+  out = json::object();
+  json bobSummary = Verified("bob", "bob@example.com", json{{"range", "24h"}, {"user", "alice"}});
+  test.router->HandleStatsSummary("GET", bobSummary, out);
+  EXPECT_EQ(out["result"], "failure");
+  EXPECT_EQ(out["code"], "not_admin");
+}

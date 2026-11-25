@@ -123,6 +123,27 @@ struct NMcpToolInfo {
   bool                     hidden{false};  ///< Exclude this action from MCP entirely
   json                     inputSchema{};  ///< Optional extra input-schema properties merged in
   std::vector<std::string> dependsOn{};    ///< Actions that must have run first (e.g. "ndmspc/ngnt/open")
+
+  /// Whether this action **starts a combination**, even when nothing depends on it yet.
+  ///
+  /// A client builds the Explorer's tree from the groups whose actions declare a dependency: a group
+  /// with none is shown as plain tools and has no tree to start. That leaves a tool with a single action
+  /// — one form, one handler — with no way to appear in the Explorer, although running it is exactly a
+  /// root step: it creates the session. Saying so here makes the group a combination in its own right,
+  /// with this action as its first step; a later `dependsOn` hangs further steps under it unchanged.
+  ///
+  /// Meaningful only on an action with no `dependsOn` (a root has no prerequisite by definition), and
+  /// published as `_meta["ndmspc.io/root"]: true`; absent means the action takes part in the tree the
+  /// way its `dependsOn` says, which is what every step of a pipeline does.
+  ///
+  /// \code
+  ///   Ndmspc::RegisterMcpTool("hello/world/say", {
+  ///       .description = "Print Hello <name> as markdown.",
+  ///       .root        = true,
+  ///   });
+  /// \endcode
+  bool                     root{false};
+
   int                      order{0};       ///< Tie-break among ready tools (lower first; 0 = default)
   std::string              label{};        ///< Node name template, e.g. "{{ binningName }} ({{ levels }})"
 

@@ -642,6 +642,7 @@ What a tool says about itself beyond its name travels in MCP's `_meta`, under `n
 | `ndmspc.io/group` | the group a client groups tools and names sessions by (`ndmspc/ngnt`) |
 | `ndmspc.io/groupLabel` | what to call that group in words (`NGNT explorer`) |
 | `ndmspc.io/dependsOn` | the actions that must have run first |
+| `ndmspc.io/root` | `true` for an action that starts a combination even with nothing depending on it (a single-action tool in the Explorer) |
 | `ndmspc.io/control` | the role of a platform control tool (`session`, `state`, …) |
 | `ndmspc.io/run` | `false` for a step that works through its own form, so a client offers no Run button |
 | `ndmspc.io/explorer` | `false` for a tool a client should not offer a person (it stays callable) |
@@ -2280,15 +2281,23 @@ UI ping, after which a tab is considered gone.
 
 | action | methods | who |
 | --- | --- | --- |
-| `ndmspc/stats/summary` | GET (`range=24h|7d|30d|all`) | anyone when `NDMSPC_STATS_PUBLIC` is on, otherwise authenticated |
-| `ndmspc/stats/users` | GET | `NDMSPC_ROOM_ADMINS` |
+| `ndmspc/stats/summary` | GET (`range=24h|7d|30d|all`, `scope=all|me`, `user=<name>`) | anyone when `NDMSPC_STATS_PUBLIC` is on, otherwise authenticated |
+| `ndmspc/stats/users` | GET (`range`, `scope=all|me`, `user=<name>`) | `NDMSPC_ROOM_ADMINS` for everyone (or a named person); anybody for their own row (`scope=me`) |
 | `ndmspc/stats/export` | GET (`type=rooms|users`) | `NDMSPC_ROOM_ADMINS` |
 | `ndmspc/stats/presence` | POST (`state`, `instance`) | authenticated (or an asserted `owner` where nothing verifies) |
 
 `summary` is the only action that can be public: it carries counts, durations and version
-distributions, never a user name. `users` and `export` name people, so they stay admin-only. The
-public exemption is granted by the router (`NHttpServer::AddPublicAction`) only when
-`NDMSPC_STATS_PUBLIC` is set, and it is what the landing page's usage strip reads before sign-in.
+distributions, never a user name. `users` and `export` name people, so reading *everyone* stays
+admin-only; a caller may always ask for its **own** row with `scope=me`, and the router resolves
+"me" from the identity it verified (or the `owner` a deployment with no login asserts) - a client
+can never name somebody else that way. An admin may instead narrow either action to one person with
+`user=<name>`. The public exemption is granted by the router (`NHttpServer::AddPublicAction`) only
+when `NDMSPC_STATS_PUBLIC` is set, and it is what the landing page's usage strip reads before
+sign-in.
+
+A narrowed answer is computed per request and is never cached under the range alone, so one
+caller's numbers cannot be handed to the next. Existing CSV files are read exactly as they were
+written - the narrowing is a filter at read time, with no migration, rewrite or deletion.
 
 The summary shape (abridged):
 
@@ -2316,7 +2325,8 @@ the UI downloads the string).
   volume.
 - **No emails, tokens or payloads.** `user` is the verified username/subject, or the asserted
   `owner` where nothing verifies the request. Keep the volume's retention as the privacy boundary;
-  the per-user rows and the raw export are admin-only for the same reason.
+  reading everyone's rows and the raw export is admin-only for the same reason, while a caller may
+  always read its own row (`scope=me`).
 
 ## Room logs
 

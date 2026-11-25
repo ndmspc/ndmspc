@@ -42,6 +42,9 @@ class NLogString : public TNamed {
   /// Same as AddLine(), but takes an already-started va_list (for callers forwarding their own varargs).
   void AddLineV(const char * fmt, va_list args);
 
+  /// Append an empty line — the blank separator a markdown block needs.
+  void AddLine() { AddLine("%s", ""); }
+
   /**
    * @brief Get the accumulated log content.
    * @return Pointer to the internal string buffer.

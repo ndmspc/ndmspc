@@ -174,6 +174,68 @@ TEST(NRoomStatsTest, UsersBreakdownAndExport)
   EXPECT_TRUE(fixture.stats.Export("24h", "bogus").empty());
 }
 
+TEST(NRoomStatsTest, NarrowedSummaryAndBreakdownAnswerForOneName)
+{
+  Fixture    fixture;
+  const long t0 = fixture.now;
+
+  fixture.stats.RoomEvent("open", "r-alice", "alice", "small", "img:v1", "v1", "1.0.0", "created");
+  fixture.stats.RoomEvent("open", "r-bob", "bob", "small", "img:v1", "v1", "1.0.0", "created");
+  fixture.now = t0 + 10;
+  fixture.stats.UserEvent("connect", "r-alice", "alice", "owner", "ndmspc-ui", "9.9.9", "1.0.0", "1", "");
+  fixture.now = t0 + 20;
+  fixture.stats.UserEvent("connect", "r-bob", "bob", "owner", "ndmspc-ui", "9.9.9", "1.0.0", "2", "");
+  fixture.now = t0 + 70;
+  fixture.stats.UserEvent("disconnect", "r-alice", "alice", "owner", "ndmspc-ui", "9.9.9", "1.0.0", "1", "");
+  fixture.now = t0 + 80;
+  fixture.stats.UserEvent("disconnect", "r-bob", "bob", "owner", "ndmspc-ui", "9.9.9", "1.0.0", "2", "");
+
+  const json users = fixture.stats.Users("24h", {"alice"});
+  ASSERT_EQ(users["users"].size(), 1u);
+  EXPECT_EQ(users["users"][0]["user"], "alice");
+  EXPECT_EQ(users["users"][0]["roomSeconds"], 60);
+  EXPECT_EQ(users["users"][0]["roomSessions"], 1);
+
+  // A name is matched the way an identity is matched: case and surrounding space do not matter.
+  EXPECT_EQ(fixture.stats.Users("24h", {" ALICE "})["users"].size(), 1u);
+  EXPECT_EQ(fixture.stats.Users("24h", {"nobody"})["users"].size(), 0u);
+  EXPECT_EQ(fixture.stats.Users("24h")["users"].size(), 2u);
+
+  const json mine = fixture.stats.Summary("24h", {"alice"});
+  EXPECT_EQ(mine["users"]["distinct"], 1);
+  EXPECT_EQ(mine["users"]["sessions"], 1);
+  EXPECT_EQ(mine["users"]["totalSessionSeconds"], 60);
+  EXPECT_EQ(mine["rooms"]["opened"], 1); // r-alice only
+  EXPECT_EQ(mine["rooms"]["totalLifetimeSeconds"], 80);
+  EXPECT_EQ(mine["rooms"]["totalIdleSeconds"], 20);
+
+  const json everyone = fixture.stats.Summary("24h", {});
+  EXPECT_EQ(everyone["users"]["distinct"], 2);
+  EXPECT_EQ(everyone["users"]["totalSessionSeconds"], 120);
+  EXPECT_EQ(everyone["rooms"]["opened"], 2);
+}
+
+TEST(NRoomStatsTest, ReadsRowsRecordedInTheExistingCsvLayout)
+{
+  Fixture fixture;
+
+  // A file as a previous router left it: the same header the recorder writes, no new columns. The
+  // narrowed read must take it as it is - the change adds no migration and rewrites nothing.
+  {
+    std::ofstream out(fixture.dir.file("users-2023-11-14.csv"), std::ios::app);
+    out << "ts,time,event,room,user,role,client,client_version,server_version,session,detail\n";
+    out << (fixture.now - 60) << ",2023-11-14T22:12:20Z,connect,r1,alice,owner,ndmspc-ui,1.2.3,1.0.0,s1,\n";
+    out << (fixture.now - 30) << ",2023-11-14T22:12:50Z,disconnect,r1,alice,owner,ndmspc-ui,1.2.3,1.0.0,s1,messages=2\n";
+    out << (fixture.now - 30) << ",2023-11-14T22:12:50Z,connect,r1,bob,owner,ndmspc-ui,1.2.3,1.0.0,s2,\n";
+  }
+
+  const json mine = fixture.stats.Users("24h", {"alice"});
+  ASSERT_EQ(mine["users"].size(), 1u);
+  EXPECT_EQ(mine["users"][0]["user"], "alice");
+  EXPECT_EQ(mine["users"][0]["roomSeconds"], 30);
+  EXPECT_EQ(fixture.stats.Users("24h")["users"].size(), 2u);
+}
+
 TEST(NRoomStatsTest, SweepsStalePresenceAndClosesTheSession)
 {
   Fixture fixture;
