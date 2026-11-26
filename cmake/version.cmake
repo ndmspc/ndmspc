@@ -122,8 +122,26 @@ elseif(DEFINED ENV{NDMSPC_VERSION} AND NOT "$ENV{NDMSPC_VERSION}" STREQUAL "")
   set(_ndmspc_version_string "$ENV{NDMSPC_VERSION}")
   set(_ndmspc_version_source "environment")
 elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  # Two tags can name the same commit - a release that only bumps ndmspc-ui gets a second
+  # tag on the same hash. `git describe` then breaks the tie by refname (v1.4.21 beat
+  # v1.4.22), so a build of that commit reported the older version. Ask which tags point at
+  # HEAD, keep the highest, and constrain describe to it with --match: at the tag it reports
+  # that tag exactly, past it, the highest tag is the right starting point anyway.
   execute_process(
-    COMMAND git describe --tags --long --dirty
+    COMMAND git tag --points-at HEAD --list "v*" --sort=-v:refname
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE _ndmspc_head_tags
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  set(_ndmspc_describe_match "")
+  if(NOT _ndmspc_head_tags STREQUAL "")
+    string(REGEX REPLACE "\n.*$" "" _ndmspc_head_tag "${_ndmspc_head_tags}")
+    string(STRIP "${_ndmspc_head_tag}" _ndmspc_head_tag)
+    set(_ndmspc_describe_match "--match=${_ndmspc_head_tag}")
+  endif()
+
+  execute_process(
+    COMMAND git describe --tags --long --dirty ${_ndmspc_describe_match}
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     OUTPUT_VARIABLE _ndmspc_git_describe
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -131,7 +149,11 @@ elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
     RESULT_VARIABLE _ndmspc_git_result)
   if(_ndmspc_git_result EQUAL 0 AND NOT _ndmspc_git_describe STREQUAL "")
     set(_ndmspc_version_string "${_ndmspc_git_describe}")
-    set(_ndmspc_version_source "git")
+    if(NOT _ndmspc_describe_match STREQUAL "")
+      set(_ndmspc_version_source "git (highest tag on HEAD)")
+    else()
+      set(_ndmspc_version_source "git")
+    endif()
   else()
     execute_process(
       COMMAND git describe --always
