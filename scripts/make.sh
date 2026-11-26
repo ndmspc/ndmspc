@@ -2,13 +2,16 @@
 set -e
 set -o pipefail
 
-PROJECT_DIR="$(dirname $(dirname $(readlink -m $0)))"
+# shellcheck source=lib-portable.sh disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh"
+
+PROJECT_DIR="$(dirname "$(dirname "$(ndmspc_realpath "$0")")")"
 
 MY_PROJECT_VER=${MY_PROJECT_VER-""}
 MY_PROJECT_VER_RELEASE=${MY_PROJECT_VER_RELEASE-""}
 MY_CMAKE_OPTS=""
 MY_MAKE_OPTS=""
-MY_MAKE_JOBS=${MY_MAKE_JOBS-$(nproc)}
+MY_MAKE_JOBS=${MY_MAKE_JOBS-$(ndmspc_nproc)}
 MY_BUILDSYS="make"
 MY_CMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE-"Debug"}
 USING_CLANG=false

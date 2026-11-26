@@ -191,7 +191,7 @@ done
 
 echo
 echo "Output files in $PWD:"
-ls -1 -- *.root 2>/dev/null || true
+ls -1 ./*.root 2>/dev/null || true
 
 if [ ${#failed[@]} -ne 0 ]; then
   echo

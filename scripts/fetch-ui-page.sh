@@ -9,7 +9,10 @@
 # Candidates are passed by CMake, most preferred first, so the preference order lives in
 # cmake/version.cmake only:
 #   scripts/fetch-ui-page.sh v1.4-stable v1.4.5 next
-PROJECT_DIR="$(dirname "$(dirname "$(readlink -m "$0")")")"
+# shellcheck source=lib-portable.sh disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh"
+
+PROJECT_DIR="$(dirname "$(dirname "$(ndmspc_realpath "$0")")")"
 BASE_URL="https://gitlab.com/api/v4/projects/ndmspc%2Fndmspc-ui/packages/generic/ndmspc-ui-page"
 DEST_DIR="$PROJECT_DIR/ui"
 ARCHIVE="$DEST_DIR/ndmspc-ui-page.tar.gz"
@@ -41,7 +44,7 @@ for version in "$@"; do
       printf '%s\n' "$version" > "$STAMP"
     fi
     # sha256sum's own format, so `cd ui && sha256sum -c ndmspc-ui-page.sha256` works by hand.
-    (cd "$DEST_DIR" && sha256sum ndmspc-ui-page.tar.gz) > "$CHECKSUM"
+    (cd "$DEST_DIR" && printf '%s  %s\n' "$(ndmspc_sha256 ndmspc-ui-page.tar.gz)" ndmspc-ui-page.tar.gz) > "$CHECKSUM"
     if [ -n "$build" ]; then
       echo "Embedded ndmspc-ui page '$version' (build $build, $(cut -d' ' -f1 "$CHECKSUM"))"
     else

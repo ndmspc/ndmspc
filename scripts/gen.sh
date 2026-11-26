@@ -11,7 +11,9 @@ CLASSNAME_DERIVATIVE_TEMPLATE=${3-""}
   exit 1
 }
 WKDIR=$(pwd)
-PROJECT_DIR="$(dirname $(dirname $(readlink -m $0)))"
+# shellcheck source=lib-portable.sh disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh"
+PROJECT_DIR="$(dirname "$(dirname "$(ndmspc_realpath "$0")")")"
 echo $PROJECT_DIR
 
 TEMPLATE_DIR="$PROJECT_DIR/etc/template"

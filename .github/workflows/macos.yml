@@ -1,0 +1,169 @@
+name: macOS (manual)
+
+# Manual only. This workflow lives on the GitHub mirror of gitlab.com/ndmspc/ndmspc, which
+# receives the same commits; there is deliberately no push/pull_request trigger, so a mirror
+# update never starts a run and nothing is spent until someone asks for it.
+#
+# The file must exist on the mirror's default branch for GitHub to offer the "Run workflow"
+# button at all, even when another branch is selected in "Use workflow from" (that dropdown
+# decides which code is built). The mirror's default branch is develop for exactly this reason.
+#
+# Why macOS runs here and not in GitLab CI: GitLab's hosted macOS runners are beta and are
+# not available to open-source projects, and a self-hosted macOS runner needs real Mac
+# hardware. GitHub's standard macOS arm64 runners are free for public repositories, and
+# ndmspc/ndmspc is a public mirror.
+#
+# ROOT is not compiled: scripts/find-root-tarball.sh resolves the prebuilt arm64 tarball for
+# the requested release, so a run only builds ndmspc itself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      root_variant:
+        description: ROOT release to test against
+        type: choice
+        options:
+          - both
+          - pinned
+          - latest
+        default: both
+      run_tutorials:
+        description: Run ndmspc-tutorials (build + write every tutorial output)
+        type: boolean
+        default: true
+      run_tests:
+        description: Run the ctest suite (make test)
+        type: boolean
+        default: true
+      test_filter:
+        description: ctest -R filter for run_tests (empty runs everything)
+        type: string
+        default: ""
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false         # a broken "latest" must not cancel the "pinned" gate
+      matrix:
+        include:
+          # The environment macOS users actually report against (ALICE aliBuild).
+          - name: pinned
+            runs-on: macos-15
+            root_version: "6.36.10"
+            root_macos_major: "15"
+          # Newest stable release: early warning, never a gate. The runner label has to follow
+          # the release (6.42.00 publishes arm64 builds for macOS 26 and 27 only, not 15).
+          - name: latest
+            runs-on: macos-26
+            root_version: "latest"
+            root_macos_major: "26"
+    # Matrix-level expressions see matrix.* only, so the exclusion happens per step below.
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Skip when the other variant was requested
+        id: skip
+        run: |
+          variant='${{ inputs.root_variant }}'
+          if [ "$variant" != "both" ] && [ "$variant" != "${{ matrix.name }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Only '$variant' was requested; skipping the '${{ matrix.name }}' variant."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.skip.outputs.skip == 'false'
+        with:
+          # cmake/version.cmake runs `git describe --tags --long`, which needs the tags.
+          fetch-depth: 0
+
+      - name: Install dependencies
+        if: steps.skip.outputs.skip == 'false'
+        run: |
+          brew install zeromq openssl@3 ninja
+
+      - name: Resolve the ROOT tarball
+        id: root-url
+        if: steps.skip.outputs.skip == 'false'
+        run: |
+          url=$(./scripts/find-root-tarball.sh '${{ matrix.root_version }}' '${{ matrix.root_macos_major }}')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "ROOT ${{ matrix.root_version }} -> $url"
+
+      - name: Cache ROOT
+        id: root-cache
+        if: steps.skip.outputs.skip == 'false'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/root
+          # Keyed by the resolved URL, not by root_version: for "latest" that string never
+          # changes, so a version-keyed cache would replay the first tarball forever and
+          # silently stop testing the release the job claims to test.
+          key: root-${{ runner.arch }}-${{ steps.root-url.outputs.url }}
+
+      - name: Fetch ROOT
+        if: steps.skip.outputs.skip == 'false' && steps.root-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/root"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "$RUNNER_TEMP/root.tgz" '${{ steps.root-url.outputs.url }}'
+          tar xzf "$RUNNER_TEMP/root.tgz" -C "$RUNNER_TEMP/root" --strip-components=1
+
+      - name: Verify ROOT works before building ndmspc
+        if: steps.skip.outputs.skip == 'false'
+        run: |
+          source "$RUNNER_TEMP/root/bin/thisroot.sh"
+          # find_package(Root) has no version gate (cmake/modules/FindRoot.cmake only prints
+          # it), so state the version here: it is the only record of what was really tested.
+          root --version
+          # A broken C++ interpreter must fail now, not 40 minutes into the build. This is the
+          # failure signature users report: a segfault or a std_darwin.modulemap error here.
+          root -l -b -q -e 'printf("cling-orc-ok %d\n", gROOT->GetVersionInt());'
+
+      - name: Configure and build
+        if: steps.skip.outputs.skip == 'false'
+        run: |
+          source "$RUNNER_TEMP/root/bin/thisroot.sh"
+          export CC=clang CXX=clang++
+          # Homebrew's openssl@3 is keg-only, so it has to be pointed at explicitly.
+          export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+          export MY_MAKE_JOBS="$(sysctl -n hw.ncpu)"
+          # The AI code is not exercised by the tutorials or the tests.
+          export WITH_AI=false
+          # `test` builds and runs the whole ctest suite; `testlist=<terms>` narrows it with
+          # ctest -R (comma-separated, matched as substrings, which is what make.sh does).
+          if [ '${{ inputs.run_tests }}' != 'true' ]; then
+            ./scripts/make.sh install jobs="$MY_MAKE_JOBS"
+          elif [ -n '${{ inputs.test_filter }}' ]; then
+            ./scripts/make.sh install testlist='${{ inputs.test_filter }}' jobs="$MY_MAKE_JOBS"
+          else
+            ./scripts/make.sh install test jobs="$MY_MAKE_JOBS"
+          fi
+
+      - name: Run the tutorials
+        if: steps.skip.outputs.skip == 'false' && inputs.run_tutorials
+        run: |
+          source "$RUNNER_TEMP/root/bin/thisroot.sh"
+          # Installs into the checkout root, so the macros and tutorial/ resolve from here.
+          source ./etc/profile.d/ndmspc.sh
+          export NDMSPC_DIR="$PWD"
+          export DYLD_LIBRARY_PATH="$PWD/lib:$PWD/lib64:$DYLD_LIBRARY_PATH"
+          mkdir -p "$RUNNER_TEMP/tutorials"
+          cd "$RUNNER_TEMP/tutorials"
+          # Writes every tutorial output here and exits non-zero listing the failed steps:
+          # the same report the macOS user got.
+          ndmspc-tutorials
+
+      - name: Collect logs and outputs
+        if: always() && steps.skip.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/tutorials
+            build/CMakeCache.txt
+            build/CMakeFiles/CMakeOutput.log
+            build/Testing/Temporary
+          if-no-files-found: ignore
