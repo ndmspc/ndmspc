@@ -250,6 +250,21 @@ struct RecordOptions {
   std::string review;
   std::string reviewOut;
   std::string writeStages;
+  std::string speed       = "1";
+  std::string stepPause;
+  std::string clickPause;
+  std::string tail;
+  std::string startDelay;
+  std::string cursorStart;
+  std::string cursorTravel;
+  // The cards that open and close the clip: empty takes what the tour declares (its name and
+  // description) for the two that have a natural default, and the fixed thank-you otherwise.
+  std::string title;
+  std::string subtitle;
+  std::string outro;
+  std::string credit;
+  std::string cardHold;
+  bool        noCards     = false;
   bool        list        = false;
   bool        jsonOut     = false;
   bool        dryRun      = false;
@@ -396,8 +411,14 @@ bool LoadTours(const std::string & url, std::vector<RecordTour> & tours, std::st
     const std::string toolName = tool.value("name", "");
     const json        meta     = tool.value("_meta", json::object());
     const std::string action   = meta.value("ndmspc.io/action", toolName);
-    const json        list     = meta.value("ndmspc.io/tutorials", json::array());
-    if (!list.is_array()) continue;
+    // A tool that declares **one** tour publishes it under `ndmspc.io/tutorial`; several go under
+    // `ndmspc.io/tutorials` (see NMcpServer's tools/list). Both are read here, so a tool with a single
+    // tour is recordable — reading only the plural key found no tours at all on such a server.
+    json list = meta.value("ndmspc.io/tutorials", json::array());
+    if (!list.is_array()) list = json::array();
+    const json single = meta.value("ndmspc.io/tutorial", json::object());
+    if (single.is_object() && !single.empty()) list.push_back(single);
+    if (list.empty()) continue;
 
     int index = 0;
     for (const auto & spec : list) {
@@ -535,14 +556,22 @@ std::string FindRecorder()
     if (std::filesystem::exists(env)) return env;
   }
   std::vector<std::string> candidates;
+  // An installed tree keeps the recorder at share/ndmspc/scripts/js/record (see CMakeLists), and
+  // NDMSPC_DIR points at that tree's root in aliBuild. A **source** checkout keeps it at
+  // scripts/record instead, which is what a developer running the build's own binary has — so both
+  // layouts are looked for, and neither needs NDMSPC_RECORD_SCRIPT set by hand.
   if (const char * dir = gSystem->Getenv("NDMSPC_DIR"); dir != nullptr && *dir != '\0') {
+    candidates.push_back(std::string(dir) + "/share/ndmspc/scripts/js/record/record-tour.mjs");
     candidates.push_back(std::string(dir) + "/scripts/js/record/record-tour.mjs");
+    candidates.push_back(std::string(dir) + "/scripts/record/record-tour.mjs");
   }
   candidates.push_back("/usr/share/ndmspc/scripts/js/record/record-tour.mjs");
 
   std::error_code ec;
   const auto      exe = std::filesystem::read_symlink("/proc/self/exe", ec);
   if (!ec) {
+    // `bin/ndmspc-cli` beside `share/ndmspc/...`: the RPM and the container's /usr layout, and
+    // aliBuild's per-version prefix, both resolve this way.
     const auto bin = exe.parent_path();
     candidates.push_back((bin / "../share/ndmspc/scripts/js/record/record-tour.mjs").lexically_normal().string());
   }
@@ -727,6 +756,19 @@ int RunRecord(const RecordOptions & options)
     std::vector<std::string> args{"node", recorder, "--url", options.url, "--tour-json", tourFile.string(),
                                   "--tour-id", tour->id, "--tour-name", tour->name, "--slug", Slug(tour->name),
                                   "--out", options.out, "--size", options.size, "--session", options.session};
+    if (!options.speed.empty()) args.insert(args.end(), {"--speed", options.speed});
+    if (!options.stepPause.empty()) args.insert(args.end(), {"--step-pause", options.stepPause});
+    if (!options.clickPause.empty()) args.insert(args.end(), {"--click-pause", options.clickPause});
+    if (!options.tail.empty()) args.insert(args.end(), {"--tail", options.tail});
+    if (!options.startDelay.empty()) args.insert(args.end(), {"--start-delay", options.startDelay});
+    if (!options.cursorStart.empty()) args.insert(args.end(), {"--cursor-start", options.cursorStart});
+    if (!options.cursorTravel.empty()) args.insert(args.end(), {"--cursor-travel", options.cursorTravel});
+    if (!options.title.empty()) args.insert(args.end(), {"--title", options.title});
+    if (!options.subtitle.empty()) args.insert(args.end(), {"--subtitle", options.subtitle});
+    if (!options.outro.empty()) args.insert(args.end(), {"--outro", options.outro});
+    if (!options.credit.empty()) args.insert(args.end(), {"--credit", options.credit});
+    if (!options.cardHold.empty()) args.insert(args.end(), {"--card-hold", options.cardHold});
+    if (options.noCards) args.push_back("--no-cards");
     if (options.noReview) args.push_back("--no-review");
     if (options.dryRun) args.push_back("--dry-run");
     if (!options.writeStages.empty()) {
@@ -925,6 +967,20 @@ int main(int argc, char ** argv)
   std::string recordReview;
   std::string recordReviewOut;
   std::string recordWriteStages;
+  // Pacing, as text so "unset" is distinguishable: an empty one means "let --speed decide".
+  std::string recordSpeed       = "1";
+  std::string recordStepPause;
+  std::string recordClickPause;
+  std::string recordTail;
+  std::string recordStartDelay;
+  std::string recordCursorStart = "center";
+  std::string recordCursorTravel;
+  std::string recordTitle;
+  std::string recordSubtitle;
+  std::string recordOutro;
+  std::string recordCredit;
+  std::string recordCardHold;
+  bool        recordNoCards     = false;
   bool        recordList        = false;
   bool        recordJson        = false;
   bool        recordDryRun      = false;
@@ -946,6 +1002,26 @@ int main(int argc, char ** argv)
   recordCmd->add_option("--review-out", recordReviewOut, "Directory to look for review prompts in");
   recordCmd->add_option("--write-stages", recordWriteStages,
                         "Dump the generated stages to this directory (debugging only)");
+  recordCmd->add_option("--speed", recordSpeed,
+                        "Pace multiplier: 2 is twice as fast, 0.5 twice as slow (default: 1)");
+  recordCmd->add_option("--step-pause", recordStepPause,
+                        "Milliseconds to rest after each stage, overriding --speed");
+  recordCmd->add_option("--click-pause", recordClickPause,
+                        "Milliseconds the synthetic cursor rests after a click, overriding --speed");
+  recordCmd->add_option("--tail", recordTail,
+                        "Milliseconds to keep recording after the last stage, overriding --speed");
+  recordCmd->add_option("--start-delay", recordStartDelay,
+                        "Milliseconds the clip holds before the first stage, so its starting state is seen");
+  recordCmd->add_option("--cursor-start", recordCursorStart,
+                        "Where the synthetic cursor starts: center (default) or x,y");
+  recordCmd->add_option("--cursor-travel", recordCursorTravel,
+                        "Milliseconds the cursor takes to travel between controls (default: 450)");
+  recordCmd->add_option("--title", recordTitle, "Opening card title (default: the tour's name)");
+  recordCmd->add_option("--subtitle", recordSubtitle, "Opening card subtitle (default: the tour's description)");
+  recordCmd->add_option("--outro", recordOutro, "Closing card title (default: Thanks for watching)");
+  recordCmd->add_option("--credit", recordCredit, "Footer on both cards (default: made with ndmspc)");
+  recordCmd->add_option("--card-hold", recordCardHold, "Milliseconds each card stays on screen (default: 3000)");
+  recordCmd->add_flag("--no-cards", recordNoCards, "Record the tour with no title or closing card");
   recordCmd->add_flag("--dry-run", recordDryRun, "Print the generated stages; record nothing");
   recordCmd->add_flag("--no-review", recordNoReview, "Do not write a post-record review prompt");
 
@@ -1217,6 +1293,19 @@ int main(int argc, char ** argv)
     options.out         = recordOut;
     options.size        = recordSize;
     options.session     = recordSession;
+    options.speed       = recordSpeed;
+    options.stepPause   = recordStepPause;
+    options.clickPause  = recordClickPause;
+    options.tail        = recordTail;
+    options.startDelay  = recordStartDelay;
+    options.cursorStart = recordCursorStart;
+    options.cursorTravel = recordCursorTravel;
+    options.title        = recordTitle;
+    options.subtitle     = recordSubtitle;
+    options.outro        = recordOutro;
+    options.credit       = recordCredit;
+    options.cardHold     = recordCardHold;
+    options.noCards      = recordNoCards;
     options.prompt      = recordPrompt;
     options.review      = recordReview;
     options.reviewOut   = recordReviewOut;
