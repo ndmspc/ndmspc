@@ -32,6 +32,60 @@ In the workspace container, run builds as your user:
 podman exec -u "$USER" -w "$PWD" fedora-toolbox-45 bash -lc 'WITH_TEST=true ./scripts/make.sh install'
 ```
 
+## macOS CI
+
+macOS is **not** a release platform: the RPMs, images and the pages build are Linux only. It is
+covered by a manual GitHub Actions workflow instead, because GitLab's hosted macOS runners are
+beta and are not available to open-source projects, while a self-hosted one would need real Mac
+hardware. GitHub's standard macOS arm64 runners are free for public repositories, and
+`github.com/ndmspc/ndmspc` is a public mirror of this project.
+
+`.github/workflows/macos.yml` builds the tree and runs the tutorial macros against a prebuilt
+ROOT, on two variants:
+
+| Variant | ROOT | Runner | Purpose |
+| --- | --- | --- | --- |
+| `pinned` | 6.36.10 | `macos-15` | The environment macOS users report against (ALICE aliBuild). Never break this. |
+| `latest` | newest stable | `macos-26` | Early warning about a new ROOT release. Informational: it does not gate anything. |
+
+To run it: Actions → **macOS (manual)** → *Run workflow*. Pick the branch in the
+*Use workflow from* dropdown — that is the code that gets built — and choose `run_tutorials`
+and/or `run_tests`. `test_filter` narrows the ctest run (`-R`).
+
+The workflow file has to exist on the mirror's **default branch** for the *Run workflow* button
+to be offered at all, even when you build another branch (the *Use workflow from* dropdown picks
+the code). The mirror's default branch is `develop` for this reason; if it is not, set it under
+Settings → General → Default branch, or push the workflow to whichever branch is default.
+
+### Bumping ROOT
+
+The tarball name cannot be built from the version, because it also carries the macOS point
+release and the clang version (`6.36.10` → `…macos-15.7-arm64-clang170…`, `6.42.00` →
+`…macos-26.7-arm64-clang210…`). `scripts/find-root-tarball.sh` reads the release page to find it:
+
+```bash
+scripts/find-root-tarball.sh 6.36.10 15   # tarball for a macos-15 runner
+scripts/find-root-tarball.sh latest 26    # newest stable, for a macos-26 runner
+```
+
+A new release does not always ship an arm64 build for the macOS major the runner uses (6.42.00
+publishes only 26 and 27, not 15). When that happens the script exits non-zero and names the
+majors that do exist; the fix is to change `runs-on`/`root_macos_major` for that matrix entry to
+match. ROOT publishes no prebuilt macOS nightlies, so `latest` means the newest *stable* release.
+
+### Why the tutorial run is the point
+
+The job exists because of a failure users hit on macOS: every tutorial macro died in cling with
+`std_darwin.modulemap: header '__locale_dir/support/liblibc.h' not found`, an
+`_LIBCPP_ABI_VERSION` mismatch warning, and then a segfault or `LLVM ERROR: out of memory`.
+`ndmspc-tutorials` runs each macro through `root -l -b -q` and exits non-zero listing the failed
+steps, so the job reproduces exactly that report. The workflow also checks ROOT itself before
+building, so a broken interpreter fails in seconds rather than mid-build.
+
+The scripts under `scripts/` are POSIX-portable (`scripts/lib-portable.sh` replaces GNU-only
+`readlink -m`, `nproc`, `sha256sum` and `stat -c` on macOS), so the same commands work on both
+platforms.
+
 ## Conventions
 
 - Document every public class and member — the Doxygen build treats warnings as errors when

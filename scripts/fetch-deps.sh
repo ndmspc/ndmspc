@@ -14,6 +14,9 @@ if [ $# -lt 4 ]; then
   exit 1
 fi
 
+# shellcheck source=lib-portable.sh disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh"
+
 dest="$1"
 shift
 if [ $(( $# % 3 )) -ne 0 ]; then
@@ -38,7 +41,7 @@ while [ $# -gt 0 ]; do
   archive="$dir/$(basename "$url")"
   mkdir -p "$dir"
 
-  if [ -f "$archive" ] && [ "$(sha256sum "$archive" | cut -d' ' -f1)" = "$expected" ]; then
+  if [ -f "$archive" ] && [ "$(ndmspc_sha256 "$archive")" = "$expected" ]; then
     echo "Kept vendored $name ($(basename "$archive"), sha256 $expected)"
     continue
   fi
@@ -46,7 +49,7 @@ while [ $# -gt 0 ]; do
   rm -f "$archive" "$archive.tmp"
   curl --fail --silent --show-error --location --retry 3 --max-time 300 \
     --output "$archive.tmp" "$url"
-  actual="$(sha256sum "$archive.tmp" | cut -d' ' -f1)"
+  actual="$(ndmspc_sha256 "$archive.tmp")"
   if [ "$actual" != "$expected" ]; then
     rm -f "$archive.tmp"
     echo "ERROR: $name: $url" >&2

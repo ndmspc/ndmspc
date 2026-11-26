@@ -6,7 +6,9 @@ set -euo pipefail
 # relative (CDPATH commonly ends up containing "."), which would be captured here -
 # so redirect it.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
-PROJECT_DIR="$(readlink -m "$SCRIPT_DIR/../../..")"
+# shellcheck source=../../../scripts/lib-portable.sh disable=SC1091
+source "$SCRIPT_DIR/../../../scripts/lib-portable.sh"
+PROJECT_DIR="$(ndmspc_realpath "$SCRIPT_DIR/../../..")"
 
 PORT="${PORT:-8080}"
 SERVER_BIN="${SERVER_BIN:-$PROJECT_DIR/bin/ndmspc-server}"

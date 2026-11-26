@@ -29,6 +29,9 @@ data — designed for HEP, applicable to any domain.
 - A C++23-capable compiler (GCC 11 or newer), CMake ≥ 3.24
 - Optional: Doxygen (for the API reference), Kubernetes (for rooms)
 
+macOS is build- and tutorial-tested in CI but is not a release platform (there are no macOS RPMs,
+images or pages); see [Developing](develop/index.md#macos-ci).
+
 ## Quick start
 
 ```bash

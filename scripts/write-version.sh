@@ -3,7 +3,10 @@
 # tree has no .git: the CPack source tarball (make dist / make srpm) and the Docker build
 # context (ci/Dockerfile.base, .dockerignore strips .git). Uses the same `git describe`
 # input as the CMake resolver, so the two agree.
-PROJECT_DIR="$(dirname "$(dirname "$(readlink -m "$0")")")"
+# shellcheck source=lib-portable.sh disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh"
+
+PROJECT_DIR="$(dirname "$(dirname "$(ndmspc_realpath "$0")")")"
 
 for arg in "$@"; do
   case $arg in

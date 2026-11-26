@@ -22,6 +22,9 @@
 
 set -u
 
+# shellcheck source=lib-portable.sh disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh"
+
 STRICT=0
 MANIFEST_ONLY=0
 MACRO_DIR=""
@@ -158,7 +161,7 @@ for macro in $(find "$MACRO_DIR" -maxdepth 1 -type f -name '*.C' | sort); do
     fi
   fi
 
-  read -r size mtime <<< "$(stat -c '%s %Y' "$macro")"
+  read -r size mtime <<< "$(ndmspc_stat_size_mtime "$macro")"
   if [ "$BUILT" -gt 0 ]; then
     printf ',\n' >> "$ENTRIES"
   fi
