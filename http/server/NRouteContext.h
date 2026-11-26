@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <exception>
 #include "ndmspc/core/NUtils.h"
 #include "ndmspc/core/NLogger.h"
 
@@ -273,6 +274,32 @@ private:
   std::map<std::string, TObject *> & fObjects;        ///< Referenced server object map
   bool                               fHasError{false}; ///< Whether an error response has been set
 };
+
+/// Read a number a step holds — a tool's argument or a saved step's parameter — with `fallback` when it
+/// is absent. Some clients (notably MCP ones) carry a numeric value as a string; a numeric string is
+/// accepted rather than silently yielding the fallback, which is what "the value stayed at its
+/// default" looked like before.
+template <typename T>
+T Number(const json & params, const std::string & key, T fallback)
+{
+  const auto found = params.find(key);
+  if (found == params.end()) return fallback;
+  if (found->is_number()) return found->get<T>();
+  if (found->is_string()) {
+    try {
+      return static_cast<T>(std::stod(found->get<std::string>()));
+    }
+    catch (const std::exception &) {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+/// The settings of the step this request hangs under: a node action's arguments live on its parent in
+/// the combination tree, so a step that needs what its predecessor was configured with reads them
+/// here. Returns an empty object when the request belongs to no combination, or its parent is no node.
+json ParentParams(NRouteContext & ctx);
 
 } // namespace Ndmspc
 #endif

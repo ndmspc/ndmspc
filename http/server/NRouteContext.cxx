@@ -286,4 +286,17 @@ void NRouteContext::Dialog(const std::string & title, const json & schema, const
   fWsOut["payload"]["dialog"] = std::move(dialog);
 }
 
+json ParentParams(NRouteContext & ctx)
+{
+  if (auto * server = ctx.Server()) {
+    Ndmspc::NInstanceTree tree(server->GetCombinations());
+    const std::string      node = server->GetCurrentInstance();
+    if (tree.Has(node)) {
+      const json parent = tree.Params(tree.Parent(node));
+      if (parent.is_object()) return parent;
+    }
+  }
+  return json::object();
+}
+
 } // namespace Ndmspc
