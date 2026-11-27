@@ -40,13 +40,13 @@ beta and are not available to open-source projects, while a self-hosted one woul
 hardware. GitHub's standard macOS arm64 runners are free for public repositories, and
 `github.com/ndmspc/ndmspc` is a public mirror of this project.
 
-`.github/workflows/macos.yml` builds the tree and runs the tutorial macros against a prebuilt
-ROOT, on two variants:
+`.github/workflows/macos.yml` builds the tree and runs the tutorial macros, on two macOS
+releases:
 
-| Variant | ROOT | Runner | Purpose |
-| --- | --- | --- | --- |
-| `pinned` | 6.36.10 | `macos-15` | The environment macOS users report against (ALICE aliBuild). Never break this. |
-| `latest` | newest stable | `macos-26` | Early warning about a new ROOT release. Informational: it does not gate anything. |
+| Matrix entry | Runner | Purpose |
+| --- | --- | --- |
+| `sequoia` | `macos-15` | The gate. Keep it green. |
+| `tahoe` | `macos-26` | Early warning about a Homebrew/runner image change; `continue-on-error`. |
 
 To run it: Actions → **macOS (manual)** → *Run workflow*. Pick the branch in the
 *Use workflow from* dropdown — that is the code that gets built — and choose `run_tutorials`
@@ -57,21 +57,17 @@ to be offered at all, even when you build another branch (the *Use workflow from
 the code). The mirror's default branch is `develop` for this reason; if it is not, set it under
 Settings → General → Default branch, or push the workflow to whichever branch is default.
 
-### Bumping ROOT
+### ROOT comes from Homebrew, on purpose
 
-The tarball name cannot be built from the version, because it also carries the macOS point
-release and the clang version (`6.36.10` → `…macos-15.7-arm64-clang170…`, `6.42.00` →
-`…macos-26.7-arm64-clang210…`). `scripts/find-root-tarball.sh` reads the release page to find it:
+The workflow runs `brew install root` rather than unpacking a root.cern tarball. This is not a
+preference, it is the fix for the bug below: a prebuilt tarball carries `std_darwin.modulemap`
+generated on the machine that built it, and cling imposes that modulemap on the SDK present at
+run time. Homebrew bottles are built per macOS release, so they match the runner.
 
-```bash
-scripts/find-root-tarball.sh 6.36.10 15   # tarball for a macos-15 runner
-scripts/find-root-tarball.sh latest 26    # newest stable, for a macos-26 runner
-```
-
-A new release does not always ship an arm64 build for the macOS major the runner uses (6.42.00
-publishes only 26 and 27, not 15). When that happens the script exits non-zero and names the
-majors that do exist; the fix is to change `runs-on`/`root_macos_major` for that matrix entry to
-match. ROOT publishes no prebuilt macOS nightlies, so `latest` means the newest *stable* release.
+The first two runs of this workflow used a tarball and failed on both runners with
+`header '__type_traits/is_generic_transparent_comparator.h' not found` (see below). If a future
+Homebrew ROOT fails the same way, the cause is the same skew — check `brew list --versions root`
+against `xcrun --show-sdk-path`, both printed by the *Show what ROOT we got* step.
 
 ### Why the tutorial run is the point
 
@@ -85,6 +81,46 @@ building, so a broken interpreter fails in seconds rather than mid-build.
 The scripts under `scripts/` are POSIX-portable (`scripts/lib-portable.sh` replaces GNU-only
 `readlink -m`, `nproc`, `sha256sum` and `stat -c` on macOS), so the same commands work on both
 platforms.
+
+### Root cause of the macOS cling failure
+
+**It is a ROOT/cling bug, not an ndmspc bug.** No ndmspc code is involved; the reason it looks
+like one is that it hits every macro, immediately.
+
+1. ROOT generates `etc/cling/std_darwin.modulemap` **at build time** from the libc++ modulemap of
+   the SDK on the build machine: `cmake/scripts/std_modulemap_darwin_fix.py` (called from
+   `core/clingutils/CMakeLists.txt`) runs `xcrun --show-sdk-path`, reads
+   `usr/include/c++/v1/module.modulemap` and wraps it in `module std [system] { … }`.
+2. **At run time cling forces that baked modulemap onto the live SDK** — `CIFactory` finds the
+   include dir containing `cassert` and mounts `std_darwin.modulemap` there with
+   `AllowModulemapOverride=false`, so the SDK's own modulemap is deliberately ignored.
+3. When the two SDKs differ, the modulemap lists headers the run-time libc++ does not have, and
+   `std` cannot be built. Two observed instances of the same skew:
+
+   | Reported by | Missing header | ROOT built against | Running on |
+   | --- | --- | --- | --- |
+   | user, aliBuild tree | `__locale_dir/support/liblibc.h` | macOS 26 SDK (first to ship it) | macOS 15 SDK |
+   | this workflow's first runs | `__type_traits/is_generic_transparent_comparator.h` | macOS 26.7 (asset `macos-26.7-arm64-clang210`) | Xcode 26.6 / macOS 26.6 |
+
+4. Everything else follows. `std` never builds, so `CheckABICompatibility()` cannot extract
+   `_LIBCPP_ABI_VERSION` (that is the "Failed to extract …" / "Possible mismatch" warning), and
+   codegen then dies in `llvm::DataLayout::operator=` (segfault / bus error) or runs out of memory.
+
+So a prebuilt ROOT is only self-consistent while the SDK present at run time still has what the
+SDK at build time had. That breaks whenever Xcode is updated or `xcode-select` changes after ROOT
+was built. The robust answers are: use a ROOT built for the platform (Homebrew bottles are built
+per macOS release — what this workflow does), rebuild ROOT against the active SDK
+(`brew reinstall root`, or a fresh aliBuild build), or build ROOT from source on the machine that
+runs it.
+
+To tell this apart from an ndmspc problem, run ROOT alone — no ndmspc code is involved:
+
+```bash
+root -l -b -q -e 'printf("%d\n", gROOT->GetVersionInt());'
+```
+
+If that fails, the interpreter is broken and nothing built on top of it can run. To confirm the
+skew: compare `xcode-select -p` / `xcrun --show-sdk-path` with the SDK ROOT was built against.
 
 ## Conventions
 
