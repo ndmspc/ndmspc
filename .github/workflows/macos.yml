@@ -212,12 +212,26 @@ jobs:
           # Installs into the checkout root, so the macros and tutorial/ resolve from here.
           source ./etc/profile.d/ndmspc.sh
           export NDMSPC_DIR="$PWD"
+          # macOS resolves installed libraries through DYLD_LIBRARY_PATH; LD_LIBRARY_PATH (set by
+          # scripts/env.sh) is ignored there, and the tutorials link against the freshly built libs.
           export DYLD_LIBRARY_PATH="$PWD/lib:$PWD/lib64:$DYLD_LIBRARY_PATH"
+          echo "NDMSPC_ROOT=$NDMSPC_ROOT"
+          echo "ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH"
+          echo "DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH"
           mkdir -p "$RUNNER_TEMP/tutorials"
           cd "$RUNNER_TEMP/tutorials"
-          # Writes every tutorial output here and exits non-zero listing the failed steps:
-          # the same report the macOS user got.
-          ndmspc-tutorials
+          # Writes every tutorial output here and exits non-zero listing the failed steps: the same
+          # report a macOS user gets. Announce the failed steps, because the step output is only
+          # visible with an authenticated token.
+          set +e
+          ndmspc-tutorials 2>&1 | tee "$RUNNER_TEMP/tutorials.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            failed=$(grep -E '^  (tutorial|macros)/' "$RUNNER_TEMP/tutorials.log" | head -20 | tr '\n' '|')
+            [ -z "$failed" ] && failed="no failed-step lines found"
+            echo "::error title=ndmspc-tutorials failed (exit $status)::$failed"
+          fi
+          exit "$status"
 
       - name: Collect logs and outputs
         if: always()
@@ -226,6 +240,7 @@ jobs:
           name: macos-${{ matrix.name }}
           path: |
             ${{ runner.temp }}/tutorials
+            ${{ runner.temp }}/tutorials.log
             build/CMakeCache.txt
             build/CMakeFiles/CMakeOutput.log
             build/Testing/Temporary
