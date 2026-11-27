@@ -13,20 +13,20 @@ name: macOS (manual)
 # hardware. GitHub's standard macOS arm64 runners are free for public repositories, and
 # ndmspc/ndmspc is a public mirror.
 #
-# ROOT is not compiled: scripts/find-root-tarball.sh resolves the prebuilt arm64 tarball for
-# the requested release, so a run only builds ndmspc itself.
+# ROOT comes from Homebrew, not from a root.cern tarball. A prebuilt tarball bakes in
+# etc/cling/std_darwin.modulemap generated from the SDK of the machine that built it, and cling
+# forces that modulemap onto whatever SDK is present at run time
+# (CIFactory, AllowModulemapOverride=false). When the two disagree the `std` module cannot be
+# built, and every macro dies with "header '__locale_dir/support/liblibc.h' not found"
+# followed by an _LIBCPP_ABI_VERSION warning and a segfault or OOM. That is not hypothetical:
+# the first two runs of this workflow failed exactly this way, on
+# macos-15 and macos-26 alike, because root.cern builds against a newer SDK than the runner
+# image carries. Homebrew bottles are built per macOS release, so the modulemap matches the
+# runner by construction. See docs/develop/index.md for the full analysis.
 
 on:
   workflow_dispatch:
     inputs:
-      root_variant:
-        description: ROOT release to test against
-        type: choice
-        options:
-          - both
-          - pinned
-          - latest
-        default: both
       run_tutorials:
         description: Run ndmspc-tutorials (build + write every tutorial output)
         type: boolean
@@ -43,91 +43,57 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: false         # a broken "latest" must not cancel the "pinned" gate
+      fail-fast: false
       matrix:
         include:
-          # The environment macOS users actually report against (ALICE aliBuild).
-          - name: pinned
+          # The macOS release ndmspc users report against. Keep this one green: it is the gate.
+          - name: sequoia
             runs-on: macos-15
-            root_version: "6.36.10"
-            root_macos_major: "15"
-          # Newest stable release: early warning, never a gate. The runner label has to follow
-          # the release (6.42.00 publishes arm64 builds for macOS 26 and 27 only, not 15).
-          - name: latest
+            experimental: false
+          # Newer macOS: early warning about a Homebrew/ROOT change. Informational, never a
+          # gate — a runner image update must not turn the branch red on its own.
+          - name: tahoe
             runs-on: macos-26
-            root_version: "latest"
-            root_macos_major: "26"
-    # Matrix-level expressions see matrix.* only, so the exclusion happens per step below.
+            experimental: true
     runs-on: ${{ matrix.runs-on }}
+    continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 90
 
     steps:
-      - name: Skip when the other variant was requested
-        id: skip
-        run: |
-          variant='${{ inputs.root_variant }}'
-          if [ "$variant" != "both" ] && [ "$variant" != "${{ matrix.name }}" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Only '$variant' was requested; skipping the '${{ matrix.name }}' variant."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v4
-        if: steps.skip.outputs.skip == 'false'
         with:
           # cmake/version.cmake runs `git describe --tags --long`, which needs the tags.
           fetch-depth: 0
 
       - name: Install dependencies
-        if: steps.skip.outputs.skip == 'false'
         run: |
-          brew install zeromq openssl@3 ninja
+          # Homebrew's ROOT ships the matching std_darwin.modulemap for this macOS, which is the
+          # whole point (see the header comment). ninja only speeds the build up.
+          brew install root zeromq openssl@3 ninja
 
-      - name: Resolve the ROOT tarball
-        id: root-url
-        if: steps.skip.outputs.skip == 'false'
+      - name: Show what ROOT we got
         run: |
-          url=$(./scripts/find-root-tarball.sh '${{ matrix.root_version }}' '${{ matrix.root_macos_major }}')
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "ROOT ${{ matrix.root_version }} -> $url"
-
-      - name: Cache ROOT
-        id: root-cache
-        if: steps.skip.outputs.skip == 'false'
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/root
-          # Keyed by the resolved URL, not by root_version: for "latest" that string never
-          # changes, so a version-keyed cache would replay the first tarball forever and
-          # silently stop testing the release the job claims to test.
-          key: root-${{ runner.arch }}-${{ steps.root-url.outputs.url }}
-
-      - name: Fetch ROOT
-        if: steps.skip.outputs.skip == 'false' && steps.root-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p "$RUNNER_TEMP/root"
-          curl --fail --silent --show-error --location --retry 3 \
-            --output "$RUNNER_TEMP/root.tgz" '${{ steps.root-url.outputs.url }}'
-          tar xzf "$RUNNER_TEMP/root.tgz" -C "$RUNNER_TEMP/root" --strip-components=1
+          brew list --versions root
+          root-config --version
+          # The SDK this runner has; when a failure looks like the modulemap skew above, this is
+          # the first thing to compare against the ROOT build.
+          sw_vers
+          xcode-select -p
+          xcrun --show-sdk-path
 
       - name: Verify ROOT works before building ndmspc
-        if: steps.skip.outputs.skip == 'false'
         run: |
-          source "$RUNNER_TEMP/root/bin/thisroot.sh"
-          # find_package(Root) has no version gate (cmake/modules/FindRoot.cmake only prints
-          # it), so state the version here: it is the only record of what was really tested.
+          # find_package(Root) has no version gate (cmake/modules/FindRoot.cmake only prints it),
+          # so state the version: it is the only record of what was really tested.
           root --version
           # A broken C++ interpreter must fail now, not 40 minutes into the build. This is the
-          # failure signature users report: a segfault or a std_darwin.modulemap error here.
-          root -l -b -q -e 'printf("cling-orc-ok %d\n", gROOT->GetVersionInt());'
+          # failure signature users report (missing modulemap header, warning, then a crash).
+          root -l -b -q -e 'printf("cling-ok %d\n", gROOT->GetVersionInt());'
 
       - name: Configure and build
-        if: steps.skip.outputs.skip == 'false'
         run: |
-          source "$RUNNER_TEMP/root/bin/thisroot.sh"
           export CC=clang CXX=clang++
-          # Homebrew's openssl@3 is keg-only, so it has to be pointed at explicitly.
+          # openssl@3 is keg-only, so it has to be pointed at explicitly.
           export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
           export MY_MAKE_JOBS="$(sysctl -n hw.ncpu)"
           # The AI code is not exercised by the tutorials or the tests.
@@ -143,9 +109,8 @@ jobs:
           fi
 
       - name: Run the tutorials
-        if: steps.skip.outputs.skip == 'false' && inputs.run_tutorials
+        if: inputs.run_tutorials
         run: |
-          source "$RUNNER_TEMP/root/bin/thisroot.sh"
           # Installs into the checkout root, so the macros and tutorial/ resolve from here.
           source ./etc/profile.d/ndmspc.sh
           export NDMSPC_DIR="$PWD"
@@ -157,7 +122,7 @@ jobs:
           ndmspc-tutorials
 
       - name: Collect logs and outputs
-        if: always() && steps.skip.outputs.skip == 'false'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.name }}
