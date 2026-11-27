@@ -11,6 +11,19 @@ set(MY_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/core
   ${CMAKE_SOURCE_DIR}/tutorial
 )
+# GoogleTest has two ways of being found and they do not set the same variables:
+# FindGTest.cmake (module mode, e.g. a distro package) defines GTEST_LIBRARIES and lets the
+# linker find a bare `gtest_main`; GTestConfig.cmake (config mode, what Homebrew and other
+# modern installs ship) defines no variables at all — only the imported targets
+# GTest::gtest / GTest::gtest_main. Linking the bare name there fails with
+# "ld: library 'gtest_main' not found", so select the target when it exists.
+if(TARGET GTest::gtest_main)
+  set(GTEST_MAIN_TARGET GTest::gtest_main)
+  list(APPEND MY_INCLUDE_DIRS $<TARGET_PROPERTY:GTest::gtest_main,INTERFACE_INCLUDE_DIRECTORIES>)
+else()
+  set(GTEST_MAIN_TARGET gtest_main)
+endif()
+
 set(MY_EXTERNAL_LIBS
   ${THREADS_LIBRARIES}
   ${GTEST_LIBRARIES}
@@ -43,7 +56,7 @@ foreach(src ${SRCS})
   add_executable(${testname} ${src})
   target_include_directories(${testname} PRIVATE ${MY_INCLUDE_DIRS})
   target_link_directories(${testname} PRIVATE ${ROOT_LIBRARY_DIR})
-  target_link_libraries(${testname} gtest_main ${MY_EXTERNAL_LIBS})
+  target_link_libraries(${testname} ${GTEST_MAIN_TARGET} ${MY_EXTERNAL_LIBS})
   # A tool test loads its macro from the source tree (see NToolHarness), so it is told where it is.
   if(src MATCHES "test_tool")
     target_compile_definitions(${testname} PRIVATE NDMSPC_TOOL_MACRO="${CMAKE_SOURCE_DIR}/macros/tools/toolNgnt.C")
