@@ -120,12 +120,59 @@ jobs:
           # `test` builds and runs the whole ctest suite; `testlist=<terms>` narrows it with
           # ctest -R (comma-separated, matched as substrings, which is what make.sh does).
           if [ '${{ inputs.run_tests }}' != 'true' ]; then
-            ./scripts/make.sh install jobs="$MY_MAKE_JOBS"
+            set -- install jobs="$MY_MAKE_JOBS"
           elif [ -n '${{ inputs.test_filter }}' ]; then
-            ./scripts/make.sh install testlist='${{ inputs.test_filter }}' jobs="$MY_MAKE_JOBS"
+            set -- install testlist='${{ inputs.test_filter }}' jobs="$MY_MAKE_JOBS"
           else
-            ./scripts/make.sh install test jobs="$MY_MAKE_JOBS"
+            set -- install test jobs="$MY_MAKE_JOBS"
           fi
+
+          # Publish the failure reason in the Annotations panel, which anyone can read without
+          # logging in — the job log and the artifacts need an authenticated token. A failing
+          # configure otherwise reduces to a bare "exit code 1" that has to be re-run to diagnose.
+          announce() {
+            echo "::error title=$1::$2"
+          }
+          set +e
+          ./scripts/make.sh "$@" 2>&1 | tee "$RUNNER_TEMP/build.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # The first CMake error block is the root cause; later output is fallout from it.
+            block=$(awk '/^CMake Error/{f=1} f{print} f&&/^$/{c++} c>=2{exit}' "$RUNNER_TEMP/build.log")
+            [ -z "$block" ] && block=$(grep -m1 -B2 -A12 -E "error:|Error " "$RUNNER_TEMP/build.log")
+            [ -z "$block" ] && block="no CMake error block found; see the log tail below"
+            # Annotations are single-line, so flatten the block into one message.
+            announce "make.sh failed (exit $status)" "$(printf '%s' "$block" | tr '\n' '|' | cut -c1-1500)"
+            echo "=== last 80 lines ==="
+            tail -n 80 "$RUNNER_TEMP/build.log"
+            exit "$status"
+          fi
+
+      # A failing configure is the one failure this job cannot diagnose by itself: the log lives
+      # in build/CMakeFiles/*.log, the collected artifact is all but empty, and the step exits
+      # before producing anything readable. Printing the CMake state on failure costs nothing and
+      # saves a whole round trip.
+      - name: Explain a configure failure
+        if: failure()
+        run: |
+          echo "=== cmake / toolchain ==="
+          cmake --version | head -1
+          clang --version | head -1
+          echo "=== Homebrew prefixes ==="
+          for f in root zeromq openssl@3 openssl@4 googletest; do
+            printf '%-12s %s\n' "$f" "$(brew --prefix "$f" 2>/dev/null || echo '(not installed)')"
+          done
+          echo "=== ROOT as CMake sees it ==="
+          root-config --version || true
+          root-config --libdir || true
+          echo "=== CMake error output ==="
+          for f in build/CMakeFiles/CMakeConfigureLog.yaml build/CMakeFiles/CMakeOutput.log \
+                   build/CMakeFiles/CMakeError.log; do
+            [ -f "$f" ] && { echo "--- $f (tail) ---"; tail -n 60 "$f"; }
+          done
+          for f in build/CMakeCache.txt; do
+            [ -f "$f" ] && { echo "--- $f (relevant) ---"; grep -iE 'openssl|zeromq|root_|gtest|googletest' "$f" | head -40; }
+          done
 
       - name: Run the tutorials
         if: inputs.run_tutorials
