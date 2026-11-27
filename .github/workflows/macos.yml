@@ -69,7 +69,9 @@ jobs:
         run: |
           # Homebrew's ROOT ships the matching std_darwin.modulemap for this macOS, which is the
           # whole point (see the header comment). ninja only speeds the build up.
-          brew install root zeromq openssl@3 ninja
+          # googletest is not optional here: CMakeLists.txt only builds the tests when GTest is
+          # found, and `make.sh test` then fails in ctest with "No tests were found".
+          brew install root zeromq openssl@3 googletest ninja
 
       - name: Show what ROOT we got
         run: |
