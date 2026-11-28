@@ -81,6 +81,18 @@ function(ndmspc_register_test testname)
 endfunction()
 
 function(ndmspc_add_tests)
+  # GoogleTest has two ways of being found and they do not set the same variables:
+  # FindGTest.cmake (module mode, e.g. a distro package) defines GTEST_LIBRARIES and lets the
+  # linker find a bare `gtest_main`; GTestConfig.cmake (config mode, what Homebrew and other
+  # modern installs ship) defines no variables at all - only the imported targets
+  # GTest::gtest / GTest::gtest_main. Linking the bare name there fails with
+  # "ld: library 'gtest_main' not found", so select the target when it exists.
+  if(TARGET GTest::gtest_main)
+    set(_gtest_main_target GTest::gtest_main)
+  else()
+    set(_gtest_main_target gtest_main)
+  endif()
+
   set(_common_include_dirs
     ${THREADS_INCLUDE_DIRS}
     ${GTEST_INCLUDE_DIRS}
@@ -110,7 +122,7 @@ function(ndmspc_add_tests)
     add_executable(${testname} ${src})
     target_include_directories(${testname} PRIVATE ${_common_include_dirs})
     target_link_directories(${testname} PRIVATE ${ROOT_LIBRARY_DIR})
-    target_link_libraries(${testname} gtest_main ${_common_libs})
+    target_link_libraries(${testname} ${_gtest_main_target} ${_common_libs})
     if(NDMSPC_TEST_IS_HTTP)
       target_compile_definitions(${testname} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
       if(testname MATCHES "test_NWsClient|test_NOidcToken")

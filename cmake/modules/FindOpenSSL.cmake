@@ -31,6 +31,19 @@ else()
   list(APPEND _openssl_roots /usr /usr/local)
   list(APPEND _openssl_roots "${OPENSSL_ROOT_DIR}" "$ENV{OPENSSL_ROOT}")
 endif()
+
+# Homebrew keeps OpenSSL keg-only, so it is never in /usr, /usr/local or the default search
+# path: on Apple Silicon it lives under /opt/homebrew, on Intel under /usr/local/opt (already
+# covered above). Searching the prefix matters because a *dependency* can install it (ROOT
+# depends on openssl@4) without the user ever exporting OPENSSL_ROOT_DIR — the build then
+# reports "OpenSSL >= 3.0 ... was not found" while a perfectly good copy is sitting in the keg.
+# The versioned kegs are listed because Homebrew may have 3 or 4 (or both) and the newest
+# usable one is chosen below.
+if(APPLE)
+  list(APPEND _openssl_roots /opt/homebrew /opt/homebrew/opt/openssl@4
+                              /opt/homebrew/opt/openssl@3 /opt/homebrew/opt/openssl)
+endif()
+
 list(REMOVE_DUPLICATES _openssl_roots)
 list(FILTER _openssl_roots EXCLUDE REGEX "^$")
 
@@ -127,8 +140,9 @@ if(_os_use_major LESS 0)
       "Set OPENSSL_ROOT_DIR or $ENV{OPENSSL_ROOT} to a 1.1 installation.")
   endif()
   message(FATAL_ERROR
-    "OpenSSL >= 3.0 is required by the bundled httplib (v0.54.1) and was not found in "
-    "/usr, /usr/local, OPENSSL_ROOT_DIR or $ENV{OPENSSL_ROOT}. "
+    "OpenSSL >= 3.0 is required by the bundled httplib (v0.54.1) and was not found in any "
+    "of these roots: ${_openssl_roots}. "
+    "A root only counts when it has include/openssl/ssl.h *and* lib/libssl + lib/libcrypto. "
     "Set -DOPENSSL_ROOT_DIR=/path/to/openssl3, or -DNDMSPC_OPENSSL=1.1 for the "
     "compatibility build.")
 endif()
