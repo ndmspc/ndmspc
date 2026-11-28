@@ -69,7 +69,11 @@ jobs:
         run: |
           # Homebrew's ROOT ships the matching std_darwin.modulemap for this macOS, which is the
           # whole point (see the header comment). ninja only speeds the build up.
-          brew install root zeromq openssl@3 ninja
+          # googletest is not optional here: CMakeLists.txt only builds the tests when GTest is
+          # found, and `make.sh test` then fails in ctest with "No tests were found".
+          # openssl: `root` depends on openssl@4 on current Homebrew, so install both and let
+          # FindOpenSSL pick the newest; pinning only openssl@3 is what broke the first runs.
+          brew install root zeromq openssl@3 openssl@4 googletest ninja
 
       - name: Show what ROOT we got
         run: |
@@ -110,33 +114,147 @@ jobs:
       - name: Configure and build
         run: |
           export CC=clang CXX=clang++
-          # openssl@3 is keg-only, so it has to be pointed at explicitly.
-          export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+          # openssl@3 is keg-only, so it has to be pointed at explicitly. Prefer the newest keg
+          # Homebrew actually has: `root` pulls openssl@4, and a hard-coded openssl@3 leaves
+          # OPENSSL_ROOT_DIR pointing at a keg that may not exist.
+          for f in openssl@4 openssl@3 openssl; do
+            if p=$(brew --prefix "$f" 2>/dev/null) && [ -d "$p" ]; then
+              export OPENSSL_ROOT_DIR="$p"
+              echo "OPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR (from $f)"
+              break
+            fi
+          done
           export MY_MAKE_JOBS="$(sysctl -n hw.ncpu)"
           # The AI code is not exercised by the tutorials or the tests.
           export WITH_AI=false
           # `test` builds and runs the whole ctest suite; `testlist=<terms>` narrows it with
           # ctest -R (comma-separated, matched as substrings, which is what make.sh does).
           if [ '${{ inputs.run_tests }}' != 'true' ]; then
-            ./scripts/make.sh install jobs="$MY_MAKE_JOBS"
+            set -- install jobs="$MY_MAKE_JOBS"
           elif [ -n '${{ inputs.test_filter }}' ]; then
-            ./scripts/make.sh install testlist='${{ inputs.test_filter }}' jobs="$MY_MAKE_JOBS"
+            set -- install testlist='${{ inputs.test_filter }}' jobs="$MY_MAKE_JOBS"
           else
-            ./scripts/make.sh install test jobs="$MY_MAKE_JOBS"
+            set -- install test jobs="$MY_MAKE_JOBS"
           fi
+
+          # Publish the failure reason in the Annotations panel, which anyone can read without
+          # logging in — the job log and the artifacts need an authenticated token. A failing
+          # configure otherwise reduces to a bare "exit code 1" that has to be re-run to diagnose.
+          announce() {
+            echo "::error title=$1::$2"
+          }
+          set +e
+          ./scripts/make.sh "$@" 2>&1 | tee "$RUNNER_TEMP/build.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Three different failures reach this point and each needs its own extraction:
+            #   1. CMake configure  -> "CMake Error"
+            #   2. compile/link     -> "error:" / "Error 1"
+            #   3. ctest            -> exit 8, and the only useful line is the failed-test summary
+            # Reporting only the first pattern buried ctest results under passing test output.
+            block=$(awk '/^CMake Error/{f=1} f{print} f&&/^$/{c++} c>=2{exit}' "$RUNNER_TEMP/build.log")
+            if [ -z "$block" ]; then
+              # A gtest failure carries the assertion, the file:line and both values; the ctest
+              # summary only names the binary. Prefer the assertion, and fall back to the summary
+              # when the binary died instead of asserting (an abort prints no [  FAILED  ] line).
+              block=$(grep -E "^\[  FAILED  \]|^Failure$|^ *Expected|^ *Which is|^ *Actual|gtest_.*\.cxx:[0-9]+" \
+                        "$RUNNER_TEMP/build.log" | head -30)
+            fi
+            if [ -z "$block" ]; then
+              block=$(grep -E '^The following tests FAILED' -A 40 "$RUNNER_TEMP/build.log" | head -40)
+            fi
+            if [ -z "$block" ]; then
+              block=$(grep -E 'tests failed out of|Errors while running CTest' "$RUNNER_TEMP/build.log" | head -5)
+            fi
+            if [ -z "$block" ]; then
+              block=$(grep -m1 -B2 -A12 -E "error:|Error [0-9]" "$RUNNER_TEMP/build.log")
+            fi
+            [ -z "$block" ] && block="no CMake/compile/ctest error block found"
+            # Annotations are single-line, so flatten the block into one message.
+            announce "make.sh failed (exit $status)" "$(printf '%s' "$block" | tr '\n' '|' | cut -c1-1500)"
+            echo "=== last 80 lines ==="
+            tail -n 80 "$RUNNER_TEMP/build.log"
+            exit "$status"
+          fi
+
+      # A failing configure is the one failure this job cannot diagnose by itself: the log lives
+      # in build/CMakeFiles/*.log, the collected artifact is all but empty, and the step exits
+      # before producing anything readable. Printing the CMake state on failure costs nothing and
+      # saves a whole round trip.
+      - name: Explain a configure failure
+        if: failure()
+        run: |
+          echo "=== cmake / toolchain ==="
+          cmake --version | head -1
+          clang --version | head -1
+          echo "=== Homebrew prefixes ==="
+          for f in root zeromq openssl@3 openssl@4 googletest; do
+            printf '%-12s %s\n' "$f" "$(brew --prefix "$f" 2>/dev/null || echo '(not installed)')"
+          done
+          echo "=== ROOT as CMake sees it ==="
+          root-config --version || true
+          root-config --libdir || true
+          echo "=== ctest failures ==="
+          # ctest writes the failing test names here; the console summary scrolls away.
+          for f in build/Testing/Temporary/LastTestsFailed.log; do
+            [ -f "$f" ] && { echo "--- $f ---"; cat "$f"; }
+          done
+          [ -f build/Testing/Temporary/LastTest.log ] && {
+            echo "--- LastTest.log (failed sections) ---"
+            grep -E "^[0-9]+/[0-9]+ Test|Test Failed|\*\*\*Failed|Errors while" \
+              build/Testing/Temporary/LastTest.log | tail -40
+            # "Subprocess aborted" names no test: the binary died, so ctest only knows the
+            # process. The last gtest case that started, and the abort message, identify it.
+            echo "--- aborting test case ---"
+            grep -E '^\[ RUN      \]|^\*\*\* Break|Abort|abort|terminate|Assertion|assert' \
+              build/Testing/Temporary/LastTest.log | tail -15
+          }
+          echo "=== CMake error output ==="
+          for f in build/CMakeFiles/CMakeConfigureLog.yaml build/CMakeFiles/CMakeOutput.log \
+                   build/CMakeFiles/CMakeError.log; do
+            [ -f "$f" ] && { echo "--- $f (tail) ---"; tail -n 60 "$f"; }
+          done
+          for f in build/CMakeCache.txt; do
+            [ -f "$f" ] && { echo "--- $f (relevant) ---"; grep -iE 'openssl|zeromq|root_|gtest|googletest' "$f" | head -40; }
+          done
 
       - name: Run the tutorials
         if: inputs.run_tutorials
         run: |
-          # Installs into the checkout root, so macros/, tools/ and tutorials/ resolve from here.
-          source ./etc/profile.d/ndmspc.sh
+          # `make.sh install` sets CMAKE_INSTALL_PREFIX to the checkout root, and the data root is
+          # <prefix>/share/ndmspc: macros/, tools/ and tutorials/ all live there (CMakeLists.txt,
+          # NDMSPC_SHARE_DIR). ndmspc-tutorials finds its steps through NDMSPC_ROOT's `tutorials`
+          # dir, so NDMSPC_ROOT has to be that data root, not the prefix.
+          # The generated etc/profile.d/ndmspc.sh is written to build/etc/ and only *installed*
+          # when the prefix is /usr, so there is nothing to source here.
           export NDMSPC_DIR="$PWD"
+          export NDMSPC_ROOT="$PWD/share/ndmspc"
+          export NDMSPC_MACRO_DIR="$NDMSPC_ROOT/macros"
+          # The installed headers are what the macros `#include <ndmspc/...>`.
+          export ROOT_INCLUDE_PATH="$PWD/include/ndmspc:$PWD/include:$ROOT_INCLUDE_PATH"
+          # macOS resolves shared libraries through DYLD_LIBRARY_PATH; LD_LIBRARY_PATH is what
+          # Linux uses. Set both, so this step reads the same on either platform.
           export DYLD_LIBRARY_PATH="$PWD/lib:$PWD/lib64:$DYLD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$PWD/lib:$PWD/lib64:$LD_LIBRARY_PATH"
+          echo "NDMSPC_ROOT=$NDMSPC_ROOT"
+          echo "ROOT_INCLUDE_PATH=$ROOT_INCLUDE_PATH"
+          echo "DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH"
           mkdir -p "$RUNNER_TEMP/tutorials"
           cd "$RUNNER_TEMP/tutorials"
-          # Writes every tutorial output here and exits non-zero listing the failed steps:
-          # the same report the macOS user got.
-          ndmspc-tutorials
+          # Writes every tutorial output here and exits non-zero listing the failed steps: the same
+          # report a macOS user gets. Announce the failed steps, because the step output is only
+          # visible with an authenticated token.
+          set +e
+          "$NDMSPC_DIR/bin/ndmspc-tutorials" 2>&1 | tee "$RUNNER_TEMP/tutorials.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # The script prints the failed steps indented under "Failed steps (N):", two spaces in.
+            # Their prefixes are tutorials/ and macros/ after the directory reorganisation.
+            failed=$(grep -E '^  (tutorials|macros)/' "$RUNNER_TEMP/tutorials.log" | head -20 | tr '\n' '|')
+            [ -z "$failed" ] && failed="no failed-step lines found"
+            echo "::error title=ndmspc-tutorials failed (exit $status)::$failed"
+          fi
+          exit "$status"
 
       - name: Collect logs and outputs
         if: always()
@@ -145,6 +263,7 @@ jobs:
           name: macos-${{ matrix.name }}
           path: |
             ${{ runner.temp }}/tutorials
+            ${{ runner.temp }}/tutorials.log
             build/CMakeCache.txt
             build/CMakeFiles/CMakeOutput.log
             build/Testing/Temporary
