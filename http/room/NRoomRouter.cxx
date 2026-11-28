@@ -2397,8 +2397,15 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
   const auto fail = [&](const std::string & message, const std::string & why = std::string()) {
     error = message;
     code  = why;
-    EnsureFinish(name, "", "", message, why);
+    // Take back what the attempt created *before* announcing the failure. EnsureFinish clears
+    // `preparing` and publishes the room as failed, and a client waiting for it (WaitFinished, or the
+    // view's poll of room/status) treats "not preparing" as "the creation is over": doing the cleanup
+    // afterwards left a window in which the room read as failed while its half-created Service was
+    // still in the cluster, so room/status reported exists: true for a room that had just been
+    // reported as leaving nothing behind. Cleanup can be slow (it reads each object back), which is
+    // exactly why the window was hit on a loaded runner and not locally.
     CleanupFailed(name, why);
+    EnsureFinish(name, "", "", message, why);
     return Outcome::Failed;
   };
 
@@ -2521,8 +2528,10 @@ NRoomRouter::Outcome NRoomRouter::EnsureWorker(const std::string & value, int ge
     return Outcome::Pending;
   }
   if (wait == Wait::Failed) {
-    EnsureFinish(name, "", "", error, code);
+    // Cleanup first: EnsureFinish is what makes the failure observable (it clears `preparing` and
+    // publishes), so deleting afterwards would expose a failed room whose objects still exist.
     CleanupFailed(name, code);
+    EnsureFinish(name, "", "", error, code);
     return Outcome::Failed;
   }
 
@@ -2713,8 +2722,9 @@ NRoomRouter::Outcome NRoomRouter::EnsureStart(const std::string & value, const s
                   // caller left to hand it to: report it on the room instead.
                   NLogError("[room] '%s' failed while it was being created: %s", value.c_str(), e.what());
                   const std::string name = NRoomRouter::RoomName(fConfig, value);
-                  EnsureFinish(name, "", "", e.what(), std::string());
+                  // Same order as the other failure paths: clean up before making it observable.
                   CleanupFailed(name, std::string());
+                  EnsureFinish(name, "", "", e.what(), std::string());
                 }
                 done->store(true);
               }),
