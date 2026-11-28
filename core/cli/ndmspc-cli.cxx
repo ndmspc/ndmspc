@@ -556,22 +556,20 @@ std::string FindRecorder()
     if (std::filesystem::exists(env)) return env;
   }
   std::vector<std::string> candidates;
-  // An installed tree keeps the recorder at share/ndmspc/scripts/js/record (see CMakeLists), and
-  // NDMSPC_DIR points at that tree's root in aliBuild. A **source** checkout keeps it at
-  // scripts/record instead, which is what a developer running the build's own binary has — so both
-  // layouts are looked for, and neither needs NDMSPC_RECORD_SCRIPT set by hand.
+  // The installed tree keeps the recorder at $NDMSPC_ROOT/scripts/js/record (see CMakeLists). A
+  // **source** checkout keeps it at scripts/record instead, which is what a developer running the
+  // build's own binary has — so both layouts are looked for, and neither needs NDMSPC_RECORD_SCRIPT
+  // set by hand.
+  candidates.push_back(Ndmspc::NUtils::NdmspcRoot() + "/scripts/js/record/record-tour.mjs");
   if (const char * dir = gSystem->Getenv("NDMSPC_DIR"); dir != nullptr && *dir != '\0') {
-    candidates.push_back(std::string(dir) + "/share/ndmspc/scripts/js/record/record-tour.mjs");
     candidates.push_back(std::string(dir) + "/scripts/js/record/record-tour.mjs");
     candidates.push_back(std::string(dir) + "/scripts/record/record-tour.mjs");
   }
-  candidates.push_back("/usr/share/ndmspc/scripts/js/record/record-tour.mjs");
-
+  // `bin/ndmspc-cli` beside `share/ndmspc/...`: a source-tree install and the container's /usr layout
+  // both resolve this way, even without NDMSPC_ROOT set.
   std::error_code ec;
   const auto      exe = std::filesystem::read_symlink("/proc/self/exe", ec);
   if (!ec) {
-    // `bin/ndmspc-cli` beside `share/ndmspc/...`: the RPM and the container's /usr layout, and
-    // aliBuild's per-version prefix, both resolve this way.
     const auto bin = exe.parent_path();
     candidates.push_back((bin / "../share/ndmspc/scripts/js/record/record-tour.mjs").lexically_normal().string());
   }

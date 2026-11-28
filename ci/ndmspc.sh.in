@@ -92,8 +92,10 @@ cat >> "$MODULEFILE" <<EoF
 setenv NDMSPC_RELEASE \$version
 setenv NDMSPC_BASEDIR \$::env(BASEDIR)/$PKGNAME
 setenv NDMSPC_DIR \$::env(NDMSPC_BASEDIR)/\$::env(NDMSPC_RELEASE)
-setenv NDMSPC_MACRO_DIR \$::env(NDMSPC_DIR)/macros
-setenv NDMSPC_TUTORIAL_DIR \$::env(NDMSPC_DIR)/tutorial
+setenv NDMSPC_ROOT \$::env(NDMSPC_DIR)/share/ndmspc
+setenv NDMSPC_MACRO_DIR \$::env(NDMSPC_ROOT)/macros
+setenv NDMSPC_TOOL_DIR \$::env(NDMSPC_ROOT)/tools
+setenv NDMSPC_TUTORIAL_DIR \$::env(NDMSPC_ROOT)/tutorials
 prepend-path ROOT_DYN_PATH \$PKG_ROOT/lib
 prepend-path ROOT_INCLUDE_PATH \$PKG_ROOT/include
 EoF

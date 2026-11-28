@@ -1,10 +1,10 @@
 # Tutorial macros
 
-Eight lessons under `tutorial/`, each a self-contained ROOT macro. Run any of them from a writable
+Eight lessons under `tutorials/`, each a self-contained ROOT macro. Run any of them from a writable
 directory with a configured NDMSPC:
 
 ```bash
-root -l -b -q $NDMSPC_DIR/tutorial/01_executor/NExecutor1D.C
+root -l -b -q $NDMSPC_ROOT/tutorials/01_executor/NExecutor1D.C
 ```
 
 | Directory | Macro | What it shows |
@@ -35,8 +35,8 @@ ndmspc-tutorials          # -l lists the steps without running them
 ## Running with workers
 
 ```bash
-NDMSPC_MAX_PROCESSES=4 root -l -b -q $NDMSPC_DIR/tutorial/06_binnings/NBinnings01Gaus.C
-ndmspc-run --mode ipc -n 4 $NDMSPC_DIR/tutorial/06_binnings/NBinnings01Gaus.C
+NDMSPC_MAX_PROCESSES=4 root -l -b -q $NDMSPC_ROOT/tutorials/06_binnings/NBinnings01Gaus.C
+ndmspc-run --mode ipc -n 4 $NDMSPC_ROOT/tutorials/06_binnings/NBinnings01Gaus.C
 ndmspc-run --mode tcp -n 2 NBinnings01Gaus.C      # then: ndmspc-worker -e tcp://host:5555
 ```
 

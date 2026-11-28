@@ -50,6 +50,7 @@ Useful targets:
 | Command | What it does |
 | --- | --- |
 | `scripts/make.sh install` | Build and install into the build tree |
+| `scripts/make.sh uninstall` | Remove the installed dirs (`bin`, `lib`, `lib64`, `include`, `share`), keeping `build/` and source |
 | `scripts/make.sh release test` | Release build + `ctest` |
 | `scripts/make.sh doc install` | Build the Doxygen HTML (`share/doc/ndmspc/html`) |
 | `scripts/make.sh rpm` / `srpm` | Package |
@@ -61,7 +62,9 @@ CMake options worth knowing: `-DWITH_TEST=ON`, `-DWITH_AI=OFF`, `-DNDMSPC_OPENSS
 
 | Variable | Meaning |
 | --- | --- |
-| `NDMSPC_DIR` / `NDMSPC_ROOT` | Installation prefix (macros, tutorial) |
+| `NDMSPC_ROOT` | Installed data root (`<prefix>/share/ndmspc`), holding `macros/`, `tools/`, `tutorials/`, `scripts/`, `ndmspc-ui/` |
+| `NDMSPC_DIR` | Installation prefix (used for `share/ndmspc` and the binaries' sibling layout) |
+| `NDMSPC_MACRO_DIR`, `NDMSPC_TOOL_DIR`, `NDMSPC_TUTORIAL_DIR` | Convenience paths under `NDMSPC_ROOT` |
 | `NDMSPC_HTTP_THREADS` | Connections served at once (default 128) |
 | `PORT` | Server port (default 8080) |
 | `ROOT_MAX_THREADS` | ROOT worker threads |

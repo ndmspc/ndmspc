@@ -18,3 +18,7 @@ if(WITH_TUI)
   add_subdirectory(tui)
 endif()
 
+if(WITH_TEST AND GTest_FOUND)
+  add_subdirectory(test)
+endif()
+

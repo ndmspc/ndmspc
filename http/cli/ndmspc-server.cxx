@@ -348,13 +348,13 @@ int main(int argc, char ** argv)
   std::string macroFilename;
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: auto-load "
-                 "$NDMSPC_DIR/macros/tools/toolNgnt.C,toolBrowser.C; the base actions are built in). What "
+                 "$NDMSPC_ROOT/tools/toolNgnt.C,toolBrowser.C; the base actions are built in). What "
                  "is named is loaded **beside** those defaults unless --no-default-tools is given, so a "
                  "tool macro of one's own does not cost the analysis tools. A "
                  "name with no "
                  "directory of its own takes the directory of the entry before it — "
                  "<dir>/one.C,two.C loads both from <dir> — and a list that begins with a bare name "
-                 "falls back on $NDMSPC_DIR/macros/tools. Ignored with --rooms, which serves rooms "
+                 "falls back on $NDMSPC_ROOT/tools. Ignored with --rooms, which serves rooms "
                  "only");
   // `-m` adds to the deployment's own tools rather than replacing them: a tool macro of one's own should
   // not cost the analysis tools and the file browser. The flag (or the env) asks for exactly what `-m`
@@ -460,9 +460,7 @@ int main(int argc, char ** argv)
     if (withMcp) NLogInfo("MCP endpoint enabled (POST /api/mcp)");
     serv->SetCors("*");
     if (htmlDir.empty()) {
-      const char * env       = gSystem->Getenv("NDMSPC_DIR");
-      std::string  ndmspcDir = (env && *env) ? env : "/usr";
-      htmlDir                = TString::Format("%s/share/ndmspc/ndmspc-ui", ndmspcDir.c_str()).Data();
+      htmlDir = Ndmspc::NUtils::NdmspcRoot() + "/ndmspc-ui";
     }
 
     if (!htmlDir.empty() && gSystem->AccessPathName(htmlDir.c_str()) == 0) {
@@ -474,19 +472,14 @@ int main(int argc, char ** argv)
     // The directory holding the installed macros, for the default -m list below. A server started
     // with rooms loads no macro at all (the room router serves /api/ndmspc/room/* only), so it is resolved
     // - and the defaults applied - only when this is not a router.
-    const char * envMacros = gSystem->Getenv("NDMSPC_DIR");
-    std::string  ndmspcMacrosDir = (envMacros && *envMacros) ? envMacros : "";
-    if (ndmspcMacrosDir.empty()) {
-      const char * envHome = gSystem->Getenv("NDMSPC__HOME");
-      ndmspcMacrosDir      = (envHome && *envHome) ? envHome : "/usr/share/ndmspc";
-    }
+    const std::string ndmspcRoot = Ndmspc::NUtils::NdmspcRoot();
 
     // The tools a deployment ships with: the analysis tools and the ROOT file browser (the second is
     // bare, so it takes the directory the first names). The base actions (health, state) are built into
     // the server and need none of this.
-    const bool        defaultsAvailable = gSystem->AccessPathName(ndmspcMacrosDir.c_str()) == 0;
+    const bool        defaultsAvailable = gSystem->AccessPathName(ndmspcRoot.c_str()) == 0;
     const std::string defaultMacros =
-        TString::Format("%s/macros/tools/toolNgnt.C,toolBrowser.C", ndmspcMacrosDir.c_str()).Data();
+        TString::Format("%s/tools/toolNgnt.C,toolBrowser.C", ndmspcRoot.c_str()).Data();
 
     if (!withRooms) {
       if (macroFilename.empty()) {
@@ -499,14 +492,14 @@ int main(int argc, char ** argv)
         }
         else {
           NLogError("No macro file given and default macros not found in '%s'. Please provide a macro file with -m option.",
-                    ndmspcMacrosDir.c_str());
+                    ndmspcRoot.c_str());
           exit(1);
         }
       }
       else if (!noDefaultTools && !defaultsAvailable) {
         // Nothing to add: the installation has no default tool macros, so what `-m` names is all there is.
         NLogWarning("No default tool macros in '%s'; loading only the macros given with -m.",
-                    ndmspcMacrosDir.c_str());
+                    ndmspcRoot.c_str());
       }
       else if (!noDefaultTools) {
         // `-m` names what this run adds, not what it replaces: the deployment's tools come beside it.
@@ -543,7 +536,7 @@ int main(int argc, char ** argv)
       NLogInfo("Rooms enabled: serving the room actions only (no tool macro is loaded)");
     }
     else {
-      macros = Ndmspc::NUtils::ResolveMacroList(macroFilename, ndmspcMacrosDir + "/macros/tools");
+      macros = Ndmspc::NUtils::ResolveMacroList(macroFilename, ndmspcRoot + "/tools");
 
       // The catalog is generated from the same list a server starts with (see the generator branch),
       // so a tool the deployment does not load is not published by it either.

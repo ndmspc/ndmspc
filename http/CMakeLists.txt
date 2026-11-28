@@ -7,7 +7,7 @@ set(PACKAGE Ndmspc${MODULE})
 file(GLOB SRCS CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.cxx" "*/*.cxx")
 # cli/ and tui/ are their own executables, not part of the library (tui/ is reserved and holds no
 # TUI right now).
-list(FILTER SRCS EXCLUDE REGEX "^(cli|tui|examples)/")
+list(FILTER SRCS EXCLUDE REGEX "^(cli|tui|examples|test)/")
 
 # No mirror of the feature directories under ${CMAKE_BINARY_DIR}/include is needed: RootLib copies
 # the headers flat (and records those flat names in the dictionary), which is exactly the layout
@@ -39,4 +39,12 @@ add_subdirectory(cli)
 # working place to start.
 if(WITH_TUI)
   add_subdirectory(tui)
+endif()
+
+# The prebuilt ndmspc-ui page: fetched/embedded at configure time and installed to
+# share/<project>/ndmspc-ui, which the server serves (see ui/README.md).
+add_subdirectory(ui)
+
+if(WITH_TEST AND GTest_FOUND)
+  add_subdirectory(test)
 endif()

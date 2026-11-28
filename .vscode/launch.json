@@ -22,21 +22,21 @@
       "type": "pickString",
       "description": "Select a ROOT macro",
       "options": [
-        "${workspaceFolder}/tutorial/01_executor/NExecutor1D.C",
-        "${workspaceFolder}/tutorial/01_executor/NExecutor2D.C",
-        "${workspaceFolder}/tutorial/01_executor/NExecutor5D.C",
-        "${workspaceFolder}/tutorial/02_storage/NStorage01Gaus.C",
-        "${workspaceFolder}/tutorial/03_parameter/Gaus.C",
-        "${workspaceFolder}/tutorial/03_parameter/NParameter01Gaus.C",
-        "${workspaceFolder}/tutorial/04_customization/NCustomization01Gaus.C",
-        "${workspaceFolder}/tutorial/05_single_bining/NSingleBinning01Gaus.C",
-        "${workspaceFolder}/tutorial/06_binnings/NBinnings01Gaus.C",
-        "${workspaceFolder}/tutorial/06_binnings/NBinnings01GausStress.C",
-        "${workspaceFolder}/tutorial/07_nested_processing/NNestedProcessing01Gaus.C",
-        "${workspaceFolder}/tutorial/08_systematics/NSystematics01Gaus.C",
-        "${workspaceFolder}/tutorial/08_systematics/NSystematics02Gaus.C",
-        "${workspaceFolder}/tutorial/08_systematics/NSystematics02GausCfg.C",
-        "${workspaceFolder}/tutorial/99_stress/NCpuStress.C"
+        "${workspaceFolder}/tutorials/01_executor/NExecutor1D.C",
+        "${workspaceFolder}/tutorials/01_executor/NExecutor2D.C",
+        "${workspaceFolder}/tutorials/01_executor/NExecutor5D.C",
+        "${workspaceFolder}/tutorials/02_storage/NStorage01Gaus.C",
+        "${workspaceFolder}/tutorials/03_parameter/Gaus.C",
+        "${workspaceFolder}/tutorials/03_parameter/NParameter01Gaus.C",
+        "${workspaceFolder}/tutorials/04_customization/NCustomization01Gaus.C",
+        "${workspaceFolder}/tutorials/05_single_bining/NSingleBinning01Gaus.C",
+        "${workspaceFolder}/tutorials/06_binnings/NBinnings01Gaus.C",
+        "${workspaceFolder}/tutorials/06_binnings/NBinnings01GausStress.C",
+        "${workspaceFolder}/tutorials/07_nested_processing/NNestedProcessing01Gaus.C",
+        "${workspaceFolder}/tutorials/08_systematics/NSystematics01Gaus.C",
+        "${workspaceFolder}/tutorials/08_systematics/NSystematics02Gaus.C",
+        "${workspaceFolder}/tutorials/08_systematics/NSystematics02GausCfg.C",
+        "${workspaceFolder}/tutorials/99_stress/NCpuStress.C"
       ]
     }
   ]

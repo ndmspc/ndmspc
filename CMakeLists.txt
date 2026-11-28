@@ -10,7 +10,7 @@ message(STATUS "Project version: ${NDMSPC_VERSION}-${NDMSPC_VERSION_RELEASE}")
 
 # The server serves the prebuilt web page, so building it also installs the page.
 option(WITH_HTTP "Compile with HTTP part (includes the prebuilt web UI page)" ON)
-# Packaging and fetching of the prebuilt ndmspc-ui page (see ui/README.md).
+# Packaging and fetching of the prebuilt ndmspc-ui page (see http/ui/README.md).
 option(NDMSPC_UI_EMBED "Embed the ndmspc-ui page in the source tarball (make dist)" ON)
 option(NDMSPC_UI_FETCH "Download the ndmspc-ui page even when a source tarball embeds one" OFF)
 option(NDMSPC_DIST_VENDOR_DEPS "Vendor the pinned dependency archives in the source tarball (make dist)" ON)
@@ -31,6 +31,15 @@ option(ENABLE_STRICT_WARNINGS "Enable strict warning flags" OFF)
 
 include(cmake/base.cmake)
 
+# Tests live beside each module (core/test, http/test, modules/.../test). Find GTest and load the
+# shared helpers before the modules add their test subdirectories (guarded by WITH_TEST/GTest_FOUND).
+if(WITH_TEST)
+  find_package(GTest)
+  if(GTest_FOUND)
+    enable_testing()
+    include(${CMAKE_SOURCE_DIR}/cmake/ndmspc-tests.cmake)
+  endif()
+endif()
 
 add_subdirectory(core)
 
@@ -38,32 +47,12 @@ if(WITH_HTTP)
   add_subdirectory(http)
 endif()
 
-if(WITH_HEP)
-  add_subdirectory(hep)
-endif()
-
-if(WITH_NUMCAL)
-  add_subdirectory(numcal)
-endif()
-
-if(WITH_TAXI)
-  add_subdirectory(taxi)
+if(WITH_HEP OR WITH_NUMCAL OR WITH_TAXI)
+  add_subdirectory(modules)
 endif()
 
 if(WITH_AI)
   add_subdirectory(ai)
-endif()
-
-if(WITH_HTTP)
-  add_subdirectory(ui)
-endif()
-
-if(WITH_TEST)
-  find_package(GTest)
-  if(GTest_FOUND)
-    enable_testing()
-    add_subdirectory(test)
-  endif()
 endif()
 
 if(BUILD_DOCUMENTATION)
@@ -89,11 +78,18 @@ INSTALL(PROGRAMS scripts/precompile-macros.sh DESTINATION share/${PROJECT_NAME}/
 # See docs/cli/index.md.
 INSTALL(DIRECTORY scripts/record DESTINATION share/${PROJECT_NAME}/scripts/js)
 
+# Data files (macros, tutorials, tools) always live under <prefix>/share/<project>, so NDMSPC_ROOT
+# (= <prefix>/share/<project>) resolves them for every install prefix (/usr, a source-tree install,
+# aliBuild). The ACLiC cache (.precompiled) is runtime state and is not shipped.
+set(NDMSPC_SHARE_DIR ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME})
+INSTALL(DIRECTORY macros DESTINATION ${NDMSPC_SHARE_DIR} USE_SOURCE_PERMISSIONS
+        PATTERN ".precompiled" EXCLUDE)
+INSTALL(DIRECTORY tutorials DESTINATION ${NDMSPC_SHARE_DIR} USE_SOURCE_PERMISSIONS)
+INSTALL(DIRECTORY tools DESTINATION ${NDMSPC_SHARE_DIR} USE_SOURCE_PERMISSIONS
+        PATTERN ".precompiled" EXCLUDE)
+
 if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
   INSTALL(FILES ${CMAKE_BINARY_DIR}/etc/profile.d/${CMAKE_PROJECT_NAME}.sh DESTINATION /etc/profile.d/)
-  INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS
-          PATTERN ".precompiled" EXCLUDE)
-  INSTALL(DIRECTORY tutorial DESTINATION ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)
   if(WITH_HTTP)
     INSTALL(FILES etc/systemd/ndmspc-http@.service DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system/)
     INSTALL(FILES etc/systemd/ndmspc-http@.service DESTINATION /etc/systemd/user/)
@@ -110,8 +106,4 @@ if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
     INSTALL(FILES etc/systemd/notebook DESTINATION /etc/${PROJECT_NAME}/)
     INSTALL(FILES etc/systemd/notebook.default DESTINATION /etc/${PROJECT_NAME}/)
   endif(WITH_JUPYROOT)
-else()
-  INSTALL(DIRECTORY macros DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS
-          PATTERN ".precompiled" EXCLUDE)
-  INSTALL(DIRECTORY tutorial DESTINATION ${CMAKE_INSTALL_PREFIX} USE_SOURCE_PERMISSIONS)
 endif()

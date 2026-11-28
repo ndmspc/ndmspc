@@ -1,8 +1,8 @@
 #!/bin/bash -e
-# Downloads the ndmspc-ui page into <source>/ui/ so `make dist` embeds it in the source
+# Downloads the ndmspc-ui page into <source>/http/ui/ so `make dist` embeds it in the source
 # tarball (and therefore in the SRPM): a build from that tarball needs no network.
 #
-# The archive's sha256 is recorded next to it (ui/ndmspc-ui-page.sha256) and travels inside
+# The archive's sha256 is recorded next to it (http/ui/ndmspc-ui-page.sha256) and travels inside
 # the source tarball, so a build from the tarball can verify the embedded page and a consumer
 # can check the download by hand (`sha256sum -c ndmspc-ui-page.sha256`).
 #
@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-portable.sh"
 
 PROJECT_DIR="$(dirname "$(dirname "$(ndmspc_realpath "$0")")")"
 BASE_URL="https://gitlab.com/api/v4/projects/ndmspc%2Fndmspc-ui/packages/generic/ndmspc-ui-page"
-DEST_DIR="$PROJECT_DIR/ui"
+DEST_DIR="$PROJECT_DIR/http/ui"
 ARCHIVE="$DEST_DIR/ndmspc-ui-page.tar.gz"
 STAMP="$DEST_DIR/ndmspc-ui-page.version"
 CHECKSUM="$DEST_DIR/ndmspc-ui-page.sha256"
@@ -43,7 +43,7 @@ for version in "$@"; do
     else
       printf '%s\n' "$version" > "$STAMP"
     fi
-    # sha256sum's own format, so `cd ui && sha256sum -c ndmspc-ui-page.sha256` works by hand.
+    # sha256sum's own format, so `cd http/ui && sha256sum -c ndmspc-ui-page.sha256` works by hand.
     (cd "$DEST_DIR" && printf '%s  %s\n' "$(ndmspc_sha256 ndmspc-ui-page.tar.gz)" ndmspc-ui-page.tar.gz) > "$CHECKSUM"
     if [ -n "$build" ]; then
       echo "Embedded ndmspc-ui page '$version' (build $build, $(cut -d' ' -f1 "$CHECKSUM"))"

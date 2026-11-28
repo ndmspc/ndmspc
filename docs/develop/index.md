@@ -8,11 +8,13 @@
 | `http/server/` | `NHttpServer`, `NMcpServer`, `NSchemaBuilder`, `NRouteContext`, `NBaseActions` |
 | `http/mcp/` | MCP transports |
 | `http/room/` | `NRoomRouter`, room sessions, statistics |
-| `hep/`, `numcal/`, `taxi/` | Analysis utilities |
-| `macros/` | Tool macros and examples (`macros/tools/toolNgnt.C`, `toolBrowser.C`, `toolSchema.C`) |
+| `modules/hep/`, `modules/numcal/`, `modules/taxi/` | Analysis utilities |
+| `tools/` | Tool macros (`toolNgnt.C`, `toolBrowser.C`, `toolSchema.C`) |
+| `macros/` | Examples and analysis macros (`macros/examples/`, `macros/physics/`) |
 | `doc/` | Doxygen input (`ndmspc.Doxyfile.in`) |
 | `docs/` | This documentation site |
-| `web/` | The GitLab Pages landing page (`index.html.in` + `render-landing.sh`) |
+| `http/ui/` | Fetch/embed logic for the prebuilt ndmspc-ui page |
+| `http/web/` | The GitLab Pages landing page (`index.html.in` + `render-landing.sh`) |
 | `ci/`, `scripts/` | Container recipes, build helpers, release scripts |
 
 ## Build and test
@@ -25,6 +27,11 @@ scripts/make.sh doc install                # Doxygen HTML in share/doc/ndmspc/ht
 
 The CI runs `scripts/make.sh release test numcal` on AlmaLinux 9 and
 `scripts/make.sh release test` on AlmaLinux 10.
+
+Tests live beside each module — `core/test/`, `http/test/`, `modules/numcal/test/` — as gtest
+binaries named after their file (e.g. `test_NRoomRouter.cxx`). Run one with
+`ctest -R test_NRoomRouter --output-on-failure`, or the binary directly with
+`./build/http/test/test_NRoomRouter.cxx --gtest_filter=Suite.Case --gtest_list_tests`.
 
 In the workspace container, run builds as your user:
 
@@ -142,7 +149,7 @@ Two separate builds, on purpose:
 | --- | --- | --- |
 | `doc/` | `/doxygen/` | API reference (Doxygen, `ndmspc.Doxyfile.in`) |
 | `docs/` | `/docs/` | This project documentation (Zensical, `mkdocs.yml`) |
-| `web/` | `/` | The landing page (plain HTML rendered by `web/render-landing.sh`) |
+| `http/web/` | `/` | The landing page (plain HTML rendered by `http/web/render-landing.sh`) |
 
 `mkdocs.yml` stays compatible with MkDocs; Zensical is what CI runs:
 

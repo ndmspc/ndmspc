@@ -19,15 +19,15 @@
 namespace Ndmspc {
 
 /// Default configuration of NUtils::FileToNGnTree() — the contents of
-/// `macros/root/merging/NFileToNGnTree.json`.
+/// `macros/examples/merging/NFileToNGnTree.json`.
 extern const json NFileToNGnTreeDefaults;
 
 /// Default configuration of NUtils::NGnTreeMerge() — the contents of
-/// `macros/root/merging/NGnTreeMerge.json`.
+/// `macros/examples/merging/NGnTreeMerge.json`.
 extern const json NGnTreeMergeDefaults;
 
 /// Default configuration of NUtils::NGnTreeBinning() — the contents of
-/// `macros/root/analysis/NGnTreeBinning.json`.
+/// `macros/examples/analysis/NGnTreeBinning.json`.
 extern const json NGnTreeBinningDefaults;
 
 ///
@@ -235,6 +235,17 @@ class NUtils : TObject {
    * @return The macro's directory, or an empty string when it cannot be determined.
    */
   static std::string CurrentMacroDirectory();
+
+  /**
+   * @brief Installed data root, the directory holding macros/, tools/, tutorials/ and scripts/.
+   *
+   * This is the share directory (`<prefix>/share/ndmspc`), not the install prefix. Resolved in order:
+   * `$NDMSPC_ROOT`, `$NDMSPC__HOME`, `$NDMSPC_DIR/share/ndmspc`, then `/usr/share/ndmspc`. Using one
+   * helper keeps every CLI (server, mcp, run, cli) and the MCP tool catalog looking in the same place.
+   *
+   * @return The data root; never empty.
+   */
+  static std::string NdmspcRoot();
 
   /**
    * @brief Type describing raw JSON injections.

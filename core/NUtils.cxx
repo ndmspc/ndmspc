@@ -1408,6 +1408,22 @@ std::string NUtils::CurrentMacroDirectory()
   return "";
 }
 
+std::string NUtils::NdmspcRoot()
+{
+  ///
+  /// Installed data root: $NDMSPC_ROOT -> $NDMSPC__HOME -> $NDMSPC_DIR/share/ndmspc -> /usr/share/ndmspc
+  ///
+
+  if (const char * root = gSystem->Getenv("NDMSPC_ROOT"); root != nullptr && *root != '\0') return root;
+  if (const char * home = gSystem->Getenv("NDMSPC__HOME"); home != nullptr && *home != '\0') return home;
+
+  if (const char * dir = gSystem->Getenv("NDMSPC_DIR"); dir != nullptr && *dir != '\0') {
+    return std::string(dir) + "/share/ndmspc";
+  }
+
+  return "/usr/share/ndmspc";
+}
+
 std::string NUtils::InjectRawJson(json & j, const RawJsonInjections & injections)
 {
   const std::string kPlaceholderBase = "##RAW_JSON_INJECT_";

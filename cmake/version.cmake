@@ -222,7 +222,7 @@ message(STATUS
 
 # ndmspc-ui page version: a build from a tag asks for its <major>.<minor>-stable page, so
 # UI fixes published after an ndmspc release reach a rebuild of that release without tag
-# churn; everything else (branches) uses `next`. ui/CMakeLists.txt falls back to the exact
+# churn; everything else (branches) uses `next`. http/ui/CMakeLists.txt falls back to the exact
 # tag page and finally `next` when the preferred page is not published. An explicit
 # -DNDMSPC_UI_VERSION or $ENV wins and is used as-is (no fallback).
 set(_ndmspc_ui_default_version "next")
@@ -253,7 +253,7 @@ elseif(NOT _ndmspc_ui_cached_version STREQUAL ""
 endif()
 
 # Pages to try, most preferred first: the one above, the exact tag page and finally the
-# development build. Shared by ui/CMakeLists.txt (build time) and the dist target (which
+# development build. Shared by http/ui/CMakeLists.txt (build time) and the dist target (which
 # embeds the chosen page in the source tarball).
 set(NDMSPC_UI_CANDIDATES "${NDMSPC_UI_VERSION}")
 if(NOT NDMSPC_UI_VERSION_PINNED)

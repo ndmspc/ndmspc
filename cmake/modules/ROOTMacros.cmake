@@ -216,7 +216,7 @@ endmacro()
 #                                                    STAGE1 LINKDEF linkdef OPTIONS opt1 opt2 ...)
 #---------------------------------------------------------------------------------------------------
 function(ROOT_GENERATE_DICTIONARY dictionary)
-  CMAKE_PARSE_ARGUMENTS(ARG "STAGE1;MULTIDICT" "MODULE" "LINKDEF;OPTIONS;DEPENDENCIES" ${ARGN})
+  CMAKE_PARSE_ARGUMENTS(ARG "STAGE1;MULTIDICT" "MODULE;INCLUDE_SUBDIR" "LINKDEF;OPTIONS;DEPENDENCIES" ${ARGN})
 
   #---roottest compability---------------------------------
   if(CMAKE_ROOTTEST_DICT)
@@ -242,6 +242,11 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
   endforeach()
 
   file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+  # A module grouped in a subdirectory (e.g. modules/hep) passes its public include namespace so the
+  # umbrella header matches where RootLib copies/installs the headers (ndmspc/hep/<file>).
+  if(ARG_INCLUDE_SUBDIR)
+    set(relative "${ARG_INCLUDE_SUBDIR}")
+  endif()
   # rootcling is handed (and records in the rootmap/pcm) the name each header is installed and
   # included under - <project>/<module dir>/<file> - which is the path ROOT autoloads classes
   # through at runtime. Headers install flat (RootLib PUBLIC_HEADER), so the directory part of a
@@ -974,13 +979,21 @@ endfunction()
 function(RootLib PACKAGE SRCS DEPLIBS)
 
   string(REPLACE ".cxx" ".h" HDRS "${SRCS}")
-  file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})  
-  # copy headers to ${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${relative} - flat, matching
-  # how consumers include them (ndmspc/http/<file>.h). ROOT_GENERATE_DICTIONARY resolves the
+  file(RELATIVE_PATH relative ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+  # Public include namespace under include/<project>/. It defaults to the module's source-relative
+  # path, but a module grouped in a subdirectory (e.g. modules/hep) passes its short name as the 4th
+  # argument so its headers still install and include as ndmspc/hep/... (consumers, macros and RPM
+  # %files all use ndmspc/<module>/<file>.h).
+  set(_include_subdir "${relative}")
+  if(ARGC GREATER 3 AND NOT "${ARGV3}" STREQUAL "")
+    set(_include_subdir "${ARGV3}")
+  endif()
+  # copy headers to ${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${_include_subdir} - flat,
+  # matching how consumers include them (ndmspc/http/<file>.h). ROOT_GENERATE_DICTIONARY resolves the
   # header names it is handed against this directory.
-  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${relative}")
+  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${_include_subdir}")
   foreach(f ${HDRS})
-    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/${f}" DESTINATION "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${relative}")
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/${f}" DESTINATION "${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}/${_include_subdir}")
   endforeach()
   # include_directories("${CMAKE_BINARY_DIR}/include/${CMAKE_PROJECT_NAME}")
   # include_directories( "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -990,14 +1003,15 @@ function(RootLib PACKAGE SRCS DEPLIBS)
   link_directories( ${ROOT_LIBRARY_DIR} )
 
 
-  ROOT_GENERATE_DICTIONARY( G__${PACKAGE} ${HDRS} MODULE ${PACKAGE} LINKDEF ${PACKAGE}LinkDef.h)
+  ROOT_GENERATE_DICTIONARY( G__${PACKAGE} ${HDRS} MODULE ${PACKAGE}
+                            LINKDEF ${PACKAGE}LinkDef.h INCLUDE_SUBDIR "${_include_subdir}")
   list(APPEND SRCS G__${PACKAGE}.cxx)
   add_library (${PACKAGE} SHARED ${SRCS} ${HDRS})
   target_link_libraries (${PACKAGE} ${ROOT_LIBRARIES} ${DEPLIBS})
   set_target_properties(${PACKAGE} PROPERTIES PUBLIC_HEADER "${HDRS}")
 
 
-  install(TARGETS ${PACKAGE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RUNTIME PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_HEADER_DIR}/${relative})
+  install(TARGETS ${PACKAGE} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RUNTIME PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_HEADER_DIR}/${_include_subdir})
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}_rdict.pcm ${CMAKE_CURRENT_BINARY_DIR}/lib${PACKAGE}.rootmap DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endfunction()
 

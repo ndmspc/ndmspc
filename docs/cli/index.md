@@ -50,7 +50,7 @@ Usually started without `--index`/`--macro`: the supervisor hands both over in t
 ## `ndmspc-mcp`
 
 ```bash
-ndmspc-mcp                                        # toolNgnt.C from $NDMSPC_DIR/macros/tools
+ndmspc-mcp                                        # toolNgnt.C from $NDMSPC_ROOT/tools
 ndmspc-mcp --rooms                                # the room router instead
 ndmspc-mcp -m /path/toolNgnt.C --all-tools
 ```
@@ -137,7 +137,7 @@ extra parameters cost a great deal. Measured here, one 64-point source:
 | 2000 | 4.1 s |
 
 ```bash
-ndmspc-run -n 22 tutorial/99_stress/NCpuStress.C --macro-params '"stress.root",20000,1,1,8,8,2000'
+ndmspc-run -n 22 tutorials/99_stress/NCpuStress.C --macro-params '"stress.root",20000,1,1,8,8,2000'
 ```
 
 ### What it measures

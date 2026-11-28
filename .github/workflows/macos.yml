@@ -86,9 +86,26 @@ jobs:
           # find_package(Root) has no version gate (cmake/modules/FindRoot.cmake only prints it),
           # so state the version: it is the only record of what was really tested.
           root --version
-          # A broken C++ interpreter must fail now, not 40 minutes into the build. This is the
-          # failure signature users report (missing modulemap header, warning, then a crash).
-          root -l -b -q -e 'printf("cling-ok %d\n", gROOT->GetVersionInt());'
+          # A broken C++ interpreter must fail now, not 40 minutes into the build. This compiles
+          # <new>/<string>, i.e. the libc++ `std` module whose modulemap skew breaks every macro.
+          #
+          # NOT `root -e 'printf(...)'`: ROOT uses the expression's value as its exit status, so a
+          # printf returns the character count and fails the step on a healthy interpreter (a
+          # 15-character printf exits 15 — which is exactly how the first two runs went red). A
+          # macro file reports its own status, and gSystem->Exit() sets an explicit one. ROOT calls
+          # the function the file is named after, so keep the two in step.
+          cat > "$RUNNER_TEMP/macro_smoke.C" <<'EOF'
+          #include <new>
+          #include <string>
+          #include <iostream>
+          void macro_smoke()
+          {
+            std::string s("ndmspc-macos");
+            if (s.size() != 12) { std::cerr << "unexpected std::string size\n"; gSystem->Exit(2); }
+            std::cout << "cling-smoke-ok " << gROOT->GetVersionInt() << std::endl;
+          }
+          EOF
+          root -l -b -q "$RUNNER_TEMP/macro_smoke.C"
 
       - name: Configure and build
         run: |
@@ -111,7 +128,7 @@ jobs:
       - name: Run the tutorials
         if: inputs.run_tutorials
         run: |
-          # Installs into the checkout root, so the macros and tutorial/ resolve from here.
+          # Installs into the checkout root, so macros/, tools/ and tutorials/ resolve from here.
           source ./etc/profile.d/ndmspc.sh
           export NDMSPC_DIR="$PWD"
           export DYLD_LIBRARY_PATH="$PWD/lib:$PWD/lib64:$DYLD_LIBRARY_PATH"

@@ -269,10 +269,8 @@ int main(int argc, char ** argv)
   gSystem->Setenv("NDMSPC_MACRO", macroList.c_str());
 
   // A bare name in the list takes the directory of the entry before it; with nothing before it, the
-  // installed macros' directory.
-  const char *      ndmspcDirEnv = gSystem->Getenv("NDMSPC_DIR");
-  const std::string macroDir =
-      (ndmspcDirEnv && *ndmspcDirEnv) ? std::string(ndmspcDirEnv) + "/macros/tools" : "";
+  // installed tools' directory ($NDMSPC_ROOT/tools).
+  const std::string macroDir = Ndmspc::NUtils::NdmspcRoot() + "/tools";
   std::vector<std::string> macros = Ndmspc::NUtils::ResolveMacroList(macroList, macroDir);
   for (const auto & macro : macros) {
     if (effectiveMacroParams.empty()) {
