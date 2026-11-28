@@ -154,6 +154,13 @@ jobs:
             # Reporting only the first pattern buried ctest results under passing test output.
             block=$(awk '/^CMake Error/{f=1} f{print} f&&/^$/{c++} c>=2{exit}' "$RUNNER_TEMP/build.log")
             if [ -z "$block" ]; then
+              # A gtest failure carries the assertion, the file:line and both values; the ctest
+              # summary only names the binary. Prefer the assertion, and fall back to the summary
+              # when the binary died instead of asserting (an abort prints no [  FAILED  ] line).
+              block=$(grep -E "^\[  FAILED  \]|^Failure$|^ *Expected|^ *Which is|^ *Actual|gtest_.*\.cxx:[0-9]+" \
+                        "$RUNNER_TEMP/build.log" | head -30)
+            fi
+            if [ -z "$block" ]; then
               block=$(grep -E '^The following tests FAILED' -A 40 "$RUNNER_TEMP/build.log" | head -40)
             fi
             if [ -z "$block" ]; then

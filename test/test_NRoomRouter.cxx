@@ -1759,12 +1759,22 @@ TEST(NRoomRouterActionsTest, ARoomSomebodyIsInIsNotSweptUntilItsPodIsGone)
   ASSERT_TRUE(test.WaitFinished("alpha"));
 
   SleepPastTtl();
-  json list = test.Call("list", "GET");
+  // The list's answer is built before the read that finds the room running touches it, so the
+  // timestamp in it is the one from the touch of the *previous* read, not from this call. Asserting
+  // against std::time(nullptr) therefore raced the clock: on a loaded runner the whole call can
+  // straddle a second boundary and the gap exceeds the one second of slack, failing through timing
+  // alone. Bound it by the times observed around the call instead.
+  const long before = static_cast<long>(std::time(nullptr));
+  json       list   = test.Call("list", "GET");
+  const long after  = static_cast<long>(std::time(nullptr));
   ASSERT_EQ(list["payload"]["rooms"].size(), 1u);
   EXPECT_EQ(list["payload"]["rooms"][0]["state"], "ready");
   EXPECT_TRUE(list["payload"]["rooms"][0]["active"].get<bool>());
-  // Its clock was pushed forward by the read that found it in use, so its expiry is honest.
-  EXPECT_GE(list["payload"]["rooms"][0]["lastSeen"].get<long>(), static_cast<long>(std::time(nullptr)) - 1);
+  // Its clock was pushed forward by the read that found it in use, so its expiry is honest: the
+  // stamp has to be within the window this call spans (one second of truncation slack below it).
+  const long lastSeen = list["payload"]["rooms"][0]["lastSeen"].get<long>();
+  EXPECT_GE(lastSeen, before - 1);
+  EXPECT_LE(lastSeen, after);
   EXPECT_EQ(test.cluster->Count("DELETE", entry), 0u);
 
   // The pod goes (nothing is using it any more): now the TTL applies, from the touch above.
