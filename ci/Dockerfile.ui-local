@@ -1,6 +1,6 @@
 # A test overlay: the page of a local ndmspc-ui build, on top of a released image.
 #
-# The image carries the published ndmspc-ui page (see ui/README.md); when the page being
+# The image carries the published ndmspc-ui page (see http/ui/README.md); when the page being
 # tested is not published yet - a working tree - this puts that build's page in the same
 # place and changes nothing else. The server serves it from the same directory, so the
 # entry and every room pick it up:

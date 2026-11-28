@@ -82,17 +82,8 @@ std::string AppVersion()
   return std::string(NDMSPC_NAME) + " v" + NDMSPC_VERSION + "-" + NDMSPC_VERSION_RELEASE;
 }
 
-/// @brief Directory that holds the installed macros (mirrors ndmspc-server).
-std::string NdmspcDir()
-{
-  const char * env = gSystem->Getenv("NDMSPC_DIR");
-  std::string  dir = (env && *env) ? env : "";
-  if (dir.empty()) {
-    const char * env2 = gSystem->Getenv("NDMSPC__HOME");
-    dir               = (env2 && *env2) ? env2 : "/usr/share/ndmspc";
-  }
-  return dir;
-}
+/// @brief Installed data root that holds macros/, tools/ (mirrors ndmspc-server).
+std::string NdmspcDir() { return Ndmspc::NUtils::NdmspcRoot(); }
 
 } // namespace
 
@@ -111,10 +102,10 @@ int main(int argc, char ** argv)
   app.set_version_flag("--version", AppVersion(), "Print version information and exit");
   app.add_option("-m,--macro", macroFilename,
                  "Macro path list separated by commas (default: "
-                 "$NDMSPC_DIR/macros/tools/toolNgnt.C; the base actions are built in). A name with no "
+                 "$NDMSPC_ROOT/tools/toolNgnt.C; the base actions are built in). A name with no "
                  "directory of its own takes the directory of the entry before it — "
                  "<dir>/one.C,two.C loads both from <dir> — and a list that begins with a bare name "
-                 "falls back on $NDMSPC_DIR/macros/tools. Ignored with --rooms, which serves rooms "
+                 "falls back on $NDMSPC_ROOT/tools. Ignored with --rooms, which serves rooms "
                  "only");
   app.add_option("--transport", transport, "Transport to serve (default: stdio)")
       ->check(CLI::IsMember({"stdio"}));
@@ -151,7 +142,7 @@ int main(int argc, char ** argv)
     }
     // The base actions (health, state) are built into the server: only the tools a deployment
     // actually wants (ngnt above all) have to be named here.
-    macroFilename = dir + "/macros/tools/toolNgnt.C";
+    macroFilename = dir + "/tools/toolNgnt.C";
   }
 
   auto server = std::make_unique<Ndmspc::NHttpServer>(/*engine=*/"", /*ws=*/true, /*heartbeat_ms=*/10000,
@@ -190,7 +181,7 @@ int main(int argc, char ** argv)
     NLogInfo("ndmspc-mcp: rooms enabled, serving the room_* actions only (no tool macro is loaded)");
   }
   else {
-    for (const auto & macro : Ndmspc::NUtils::ResolveMacroList(macroFilename, NdmspcDir() + "/macros/tools")) {
+    for (const auto & macro : Ndmspc::NUtils::ResolveMacroList(macroFilename, NdmspcDir() + "/tools")) {
       NLogInfo("ndmspc-mcp: loading macro '%s'", macro.c_str());
       if (!Ndmspc::NUtils::ExecMacro(macro)) {
         NLogError("ndmspc-mcp: failed to open macro '%s'", macro.c_str());

@@ -1489,7 +1489,13 @@ bool NRoomRouter::PodUnschedulable(const json & pods, std::string & reason)
 NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string & revision, std::string & error,
                                          std::string & code)
 {
-  const long  deadline = NdmspcRoomNow() + fConfig.readyTimeoutSec;
+  // The deadline is measured in milliseconds rather than with NdmspcRoomNow(), which truncates to
+  // whole seconds: `now + readyTimeoutSec` then left a window of anywhere between 1ms and 1000ms for
+  // a 1s timeout, while the poll below sleeps a full second between rounds. The second poll that a
+  // repeated scheduler verdict needs then often never ran, and the room reported a bare "timed out"
+  // (a failure) instead of "pending" with the cluster's own reason. Which verdict a room gets must
+  // not depend on where in the second its creation happened to start.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(fConfig.readyTimeoutSec);
   std::string lastMessage;
   std::string lastUnschedulable; // the last verdict the scheduler gave, kept even when it stops repeating
   long        lastUnschedulableAt = 0; // when it gave it
@@ -1498,7 +1504,7 @@ NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string &
   std::string lastFailure;       // why its container keeps dying, and how often in a row
   int         failureSeen = 0;
 
-  while (NdmspcRoomNow() < deadline) {
+  while (std::chrono::steady_clock::now() < deadline) {
     // A room closed while this wait runs must stop at once. The poll below talks to the cluster every
     // second, and a close cancels the room rather than the wait (see CloseRoom), so without this the
     // worker would keep polling for a room nobody wants until the readiness timeout expires.
@@ -1606,7 +1612,11 @@ NRoomRouter::Wait NRoomRouter::WaitReady(const std::string & name, std::string &
       catch (const std::exception &) {
       }
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    // Poll again after a second, but never past the deadline: sleeping the whole second when only
+    // part of it is left would drop the last poll, and with it the repeat a scheduler verdict needs.
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) break;
+    std::this_thread::sleep_for(std::min<std::chrono::steady_clock::duration>(std::chrono::seconds(1), deadline - now));
   }
   error = "timed out waiting for room " + name + " to become ready";
   // A verdict from the last few seconds is the cluster still refusing to place the pod; an older one

@@ -36,7 +36,19 @@ NWorkspace::NWorkspace(const char * name, const char * title, NHttpServer * serv
 
 NWorkspace::~NWorkspace()
 {
-  Clear();
+  // Deliberately not Clear(): Clear() runs each entry's DELETE handler, and those handlers read
+  // back through fServer (NRouteContext::Workspace -> NHttpServer::GetWorkspace, which indexes
+  // fWorkspaceBySession by fCurrentSession). By the time this destructor runs the server is being
+  // torn down too, and its members are already gone — fWorkspace is declared before
+  // fWorkspaceBySession, so that map dies first and the handler dereferences freed memory. That is
+  // the segfault seen in ToolBrowser.APickCreatesTheBrowseStepAndMovesItThereafter on macOS, where
+  // the freed map happened not to be reused and the corruption was fatal.
+  //
+  // The entries are owned by this object and nothing observes them after it dies, so freeing them
+  // directly is the whole job; the handler replay belongs to an explicit Clear() on a live server,
+  // not to destruction.
+  for (NHistoryEntry * entry : fEntries) delete entry;
+  fEntries.clear();
 }
 
 void NWorkspace::Print(Option_t * option) const

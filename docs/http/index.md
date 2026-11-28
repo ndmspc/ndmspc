@@ -65,11 +65,11 @@ void toolMyTutorial()
 ## Loading macros
 
 ```bash
-ndmspc-server -m "macros/tools/toolNgnt.C,toolBrowser.C"
+ndmspc-server -m "tools/toolNgnt.C,toolBrowser.C"
 ```
 
 A bare name inherits the directory of the entry before it; a list that begins with a bare name falls
-back on `$NDMSPC_DIR/macros/tools`. `toolNgnt.C` and `toolBrowser.C` load automatically: they are the
+back on `$NDMSPC_ROOT/tools`. `toolNgnt.C` and `toolBrowser.C` load automatically: they are the
 defaults, and `-m` names what a run **adds** to them rather than what replaces them. `--no-default-tools`
 (or `NDMSPC_NO_DEFAULT_TOOLS=1`) loads only the macros named, which is what a deployment shipping a
 single tool of its own wants:
@@ -118,7 +118,7 @@ curl -s "$BASE/api/ndmspc/room/list"
 ## MCP
 
 ```bash
-ndmspc-mcp -m "$NDMSPC_DIR/macros/tools/toolNgnt.C"    # stdio
+ndmspc-mcp -m "$NDMSPC_ROOT/tools/toolNgnt.C"    # stdio
 curl -s localhost:8080/api/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```

@@ -152,7 +152,7 @@ A room starts by executing its `-m` macros through cling. The installed tool mac
 an image can compile them once into ACLiC libraries and load those at startup instead:
 
 - `scripts/precompile-macros.sh [macro-dir]` compiles every no-argument `<stem>()` macro in
-  `macros/tools` into `<macro-dir>/.precompiled/<gROOT->GetVersionInt()>/<stem>_C.so` and writes the
+  `tools` into `<macro-dir>/.precompiled/<gROOT->GetVersionInt()>/<stem>_C.so` and writes the
   manifest `precompiled.json` beside them. The container image runs it after installing the RPMs; a
   non-container installation can run the installed copy once.
 - At startup `NUtils::ExecMacro` loads the library and calls the entry when the manifest matches the
@@ -597,7 +597,7 @@ available:
 A `-m` list is comma-separated, and a **name with no directory of its own takes the directory of the
 entry before it**: `<dir>/one.C,two.C` loads both from `<dir>` (a URL's directory included), so a
 deployment names each directory once and can mix it with paths elsewhere and remote macros. A list that
-begins with a bare name falls back on `$NDMSPC_DIR/macros/tools`.
+begins with a bare name falls back on `$NDMSPC_ROOT/tools`.
 
 Supported JSON-RPC methods: `initialize`, `notifications/initialized`, `tools/list`,
 `tools/call`, `ping`.
@@ -769,7 +769,7 @@ no more than `type` still renders sensibly, and `NSchemaBuilder` already offers 
 (`Select`, `MultiSelect`, `Enum`, `Items`, `ItemsEnum`, `Format`, `Default`) to declare all of it.
 
 Every kind the UI draws, with the declaration that produces it, is a worked example in
-`macros/tools/toolSchema.C` — load it beside a tool macro (`-m "macros/tools/toolNgnt.C,macros/tools/toolSchema.C"`)
+`tools/toolSchema.C` — load it beside a tool macro (`-m "tools/toolNgnt.C,tools/toolSchema.C"`)
 and its `schema/probe` form shows one field of each kind.
 
 ### Tool dependencies
@@ -1102,14 +1102,14 @@ the room's cookie. Such a file is still downloadable, which never renders it.
 
 ### Browsing a ROOT file (`ndmspc/browser`)
 
-`macros/tools/toolBrowser.C` registers a `ndmspc/browser` **combination** — a TBrowser-like file browser, with
+`tools/toolBrowser.C` registers a `ndmspc/browser` **combination** — a TBrowser-like file browser, with
 all the work on the server: it opens a ROOT file (`TFile::Open`, so a local path or an http(s) URL),
 walks its keys to build the tree, and draws a chosen object into a pad. `ndmspc/browser/browse` depends on
 `ndmspc/browser/open`, so the Explorer shows the group with `open` as the action that starts it and, under it,
 the browse step whose form **is** the file tree.
 
 ```bash
-ndmspc-server -m "macros/tools/toolNgnt.C,macros/tools/toolBrowser.C"
+ndmspc-server -m "tools/toolNgnt.C,tools/toolBrowser.C"
 ```
 
 | Action | Group | Methods | What it does |
@@ -1452,7 +1452,7 @@ call — the endpoint is not exempt from authentication.
 ### stdio transport
 
 ```bash
-ndmspc-mcp                                                  # uses $NDMSPC_DIR/macros/tools/toolNgnt.C
+ndmspc-mcp                                                  # uses $NDMSPC_ROOT/tools/toolNgnt.C
 ndmspc-mcp --rooms                                         # serve the room router instead (rooms only, no macro)
 ndmspc-mcp -m /path/toolNgnt.C
 ndmspc-mcp --all-tools                                      # also expose openapi actions

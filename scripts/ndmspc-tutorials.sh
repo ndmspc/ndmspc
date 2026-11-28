@@ -20,17 +20,17 @@ export NDMSPC_LOG_CONSOLE="${NDMSPC_LOG_CONSOLE:-0}"
 export NDMSPC_LOG_RUN="${NDMSPC_LOG_RUN:-1}"
 
 STEPS=(
-  "tutorial/02_storage/NStorage01Gaus.C"
-  "tutorial/03_parameter/NParameter01Gaus.C"
-  "tutorial/04_customization/NCustomization01Gaus.C"
-  "tutorial/05_single_bining/NSingleBinning01Gaus.C"
-  'tutorial/05_single_bining/NSingleBinning01Gaus.C("NNested01Gaus.root")'
-  "tutorial/06_binnings/NBinnings01Gaus.C"
-  'tutorial/06_binnings/NBinnings01Gaus.C("NBinnings01Gaus_odd.root",true)'
-  "tutorial/08_systematics/NSystematics01Gaus.C"
-  "tutorial/08_systematics/NSystematics02Gaus.C"
-  "tutorial/06_binnings/NBinnings01GausStress.C"
-  "macros/root/cernstaff/tree500_cernbuild.C"
+  "tutorials/02_storage/NStorage01Gaus.C"
+  "tutorials/03_parameter/NParameter01Gaus.C"
+  "tutorials/04_customization/NCustomization01Gaus.C"
+  "tutorials/05_single_bining/NSingleBinning01Gaus.C"
+  'tutorials/05_single_bining/NSingleBinning01Gaus.C("NNested01Gaus.root")'
+  "tutorials/06_binnings/NBinnings01Gaus.C"
+  'tutorials/06_binnings/NBinnings01Gaus.C("NBinnings01Gaus_odd.root",true)'
+  "tutorials/08_systematics/NSystematics01Gaus.C"
+  "tutorials/08_systematics/NSystematics02Gaus.C"
+  "tutorials/06_binnings/NBinnings01GausStress.C"
+  "macros/examples/cernstaff/tree500_cernbuild.C"
 )
 
 usage()
@@ -54,15 +54,17 @@ EOF
 find_ndmspc_root()
 {
   local candidate script_dir
-  for candidate in "${NDMSPC_ROOT:-}" "${NDMSPC_DIR:-}"; do
-    if [ -n "$candidate" ] && [ -d "$candidate/tutorial" ]; then
+  # NDMSPC_ROOT is the data root (<prefix>/share/ndmspc); NDMSPC_DIR is the prefix, so its data root
+  # is NDMSPC_DIR/share/ndmspc.
+  for candidate in "${NDMSPC_ROOT:-}" "${NDMSPC_DIR:+$NDMSPC_DIR/share/ndmspc}" "${NDMSPC_DIR:-}"; do
+    if [ -n "$candidate" ] && [ -d "$candidate/tutorials" ]; then
       (cd "$candidate" && pwd -P)
       return 0
     fi
   done
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
   for candidate in "$script_dir/../share/ndmspc" "$script_dir/.."; do
-    if [ -d "$candidate/tutorial" ]; then
+    if [ -d "$candidate/tutorials" ]; then
       (cd "$candidate" && pwd -P)
       return 0
     fi
@@ -146,8 +148,8 @@ case "${1:-}" in
 esac
 
 NDMSPC_ROOT="$(find_ndmspc_root)" || {
-  echo "Cannot find the ndmspc tutorials. Set NDMSPC_ROOT to the installation prefix" >&2
-  echo "(the directory containing 'tutorial' and 'macros')." >&2
+  echo "Cannot find the ndmspc tutorials. Set NDMSPC_ROOT to the data root" >&2
+  echo "(the directory containing 'tutorials' and 'macros')." >&2
   exit 1
 }
 

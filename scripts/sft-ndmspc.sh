@@ -25,4 +25,4 @@ export PATH=$BASEDIR/ndmspc_bin/bin:$PATH
 export LD_LIBRARY_PATH=$BASEDIR/ndmspc_bin/lib:$LD_LIBRARY_PATH
 export ROOT_INCLUDE_DIR=$BASEDIR/ndmspc_bin/include
 
-ndmspc-run $BASEDIR/ndmspc_bin/tutorial/05_single_bining/NSingleBinning01Gaus.C
+ndmspc-run $BASEDIR/ndmspc_bin/share/ndmspc/tutorials/05_single_bining/NSingleBinning01Gaus.C

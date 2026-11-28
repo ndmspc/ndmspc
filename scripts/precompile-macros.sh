@@ -10,7 +10,7 @@
 # Usage:
 #   precompile-macros.sh [--strict] [--manifest-only] [macro-dir]
 #
-# macro-dir defaults to ${NDMSPC_ROOT:-/usr/share/ndmspc}/macros/tools. The cache is written beside
+# macro-dir defaults to ${NDMSPC_ROOT:-/usr/share/ndmspc}/tools. The cache is written beside
 # it as .precompiled/<gROOT->GetVersionInt()>/{precompiled.json,<tool>_C.so,...}. Macros whose entry
 # function is not the file stem with no arguments, or that ACLiC cannot compile, are skipped; the
 # runtime then interprets them. --strict makes a skip a failure (for a release gate).
@@ -53,7 +53,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$MACRO_DIR" ]; then
-  MACRO_DIR="${NDMSPC_ROOT:-/usr/share/ndmspc}/macros/tools"
+  MACRO_DIR="${NDMSPC_ROOT:-/usr/share/ndmspc}/tools"
 fi
 
 if [ ! -d "$MACRO_DIR" ]; then
@@ -74,11 +74,11 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-PREFIX="$(cd "$MACRO_DIR/../.." && pwd -P)"
+PREFIX="$(cd "$MACRO_DIR/.." && pwd -P)"
 SOURCE_ROOT="$PREFIX"
-# ACLiC writes the macro path relative to the directory it runs in; build from the source root so
-# the dictionary's path is `macros/tools/<tool>.C`, which exists in the installed tree too. The
-# manifest records this root, and ExecMacro loads the library from there.
+# ACLiC writes the macro path relative to the directory it runs in; build from the data root so the
+# dictionary's path is `tools/<tool>.C`, which exists in the installed tree too. The manifest records
+# this root, and ExecMacro loads the library from there.
 cd "$SOURCE_ROOT" || {
   echo "precompile-macros.sh: cannot enter '$SOURCE_ROOT'" >&2
   exit 1

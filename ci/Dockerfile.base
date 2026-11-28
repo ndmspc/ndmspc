@@ -24,12 +24,13 @@ RUN scripts/make.sh clean rpm taxi
 # so the ACLiC dictionary's relative macro path exists in the runtime image too; the runtime image
 # gets no compiler and only refreshes the manifest against the macros the RPM installed.
 RUN mkdir -p /usr/share/ndmspc && \
-    rm -rf /usr/share/ndmspc/macros && \
+    rm -rf /usr/share/ndmspc/macros /usr/share/ndmspc/tools && \
     cp -a /builder/macros /usr/share/ndmspc/macros && \
+    cp -a /builder/tools /usr/share/ndmspc/tools && \
     cd /usr/share/ndmspc && \
     ROOT_INCLUDE_PATH=/builder/build/include:/builder/include \
     LD_LIBRARY_PATH=/builder/lib:/builder/lib64 \
-    /builder/scripts/precompile-macros.sh macros/tools
+    /builder/scripts/precompile-macros.sh tools
 # RUN git clone https://gitlab.com/ndmspc/ndmspc-ui.git && \
 #   cd ndmspc-ui && npm install && npm run build && \
 #   rm -rf node_modules ~/.npm /tmp/*
@@ -71,7 +72,7 @@ RUN --mount=type=bind,from=builder,source=/builder/build/RPMS/x86_64,target=/rpm
 # The libraries were compiled in the builder stage. Refresh their manifest against the macros the
 # RPM just installed (their size/mtime), so ExecMacro can use the cache; a ROOT-version or file
 # mismatch makes the server interpret the macro instead.
-COPY --from=builder /usr/share/ndmspc/macros/tools/.precompiled /usr/share/ndmspc/macros/tools/.precompiled
+COPY --from=builder /usr/share/ndmspc/tools/.precompiled /usr/share/ndmspc/tools/.precompiled
 RUN /usr/share/ndmspc/scripts/precompile-macros.sh --manifest-only
 # ENV ROOT_INCLUDE_PATH="/usr/include/ndmspc:/usr/include/root"
 USER 1000
@@ -83,4 +84,4 @@ RUN ndmspc-tutorials
 # catatonit (Alma 10) or tini (Alma 9 via EPEL), whichever the release carries: both reap zombies
 # and forward signals, and both run the CMD after `--`.
 ENTRYPOINT ["/usr/bin/container-init", "--"]
-CMD [ "/bin/bash","-c","ndmspc-server -m /usr/share/ndmspc/macros/tools/toolNgnt.C,toolBrowser.C --html /usr/share/ndmspc/ndmspc-ui" ]
+CMD [ "/bin/bash","-c","ndmspc-server -m /usr/share/ndmspc/tools/toolNgnt.C,toolBrowser.C --html /usr/share/ndmspc/ndmspc-ui" ]

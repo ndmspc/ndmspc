@@ -16,9 +16,10 @@ data — designed for HEP, applicable to any domain.
 | --- | --- |
 | `core/` | `NGnTree`, binning, parameters, storage, execution |
 | `http/` | `NHttpServer`, the tool/handler registry, the room router, the MCP server |
-| `hep/`, `numcal/`, `taxi/` | Analysis helpers, numerical tools, the taxi client |
-| `macros/` | Tool macros (`macros/tools/`), examples, the CERN staff demo |
-| `tutorial/` | The eight tutorial lessons — see [Tutorial macros](tutorial/index.md) |
+| `modules/hep/`, `modules/numcal/`, `modules/taxi/` | Analysis helpers, numerical tools, the taxi client |
+| `macros/` | Examples (`macros/examples/`), physics macros, plus `taxi/`, `test/`, `utils/` |
+| `tools/` | Tool macros (`toolNgnt.C`, `toolBrowser.C`, `toolSchema.C`) |
+| `tutorials/` | The eight tutorial lessons — see [Tutorial macros](tutorial/index.md) |
 | `doc/` | Doxygen input (`ndmspc.Doxyfile.in`) |
 | `docs/` | This documentation site (Zensical, built from `mkdocs.yml`) |
 | `ci/`, `scripts/` | Container recipes and build helpers |

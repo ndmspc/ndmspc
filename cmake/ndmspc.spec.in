@@ -172,7 +172,13 @@ done
 %files
 %if %{with_numcal}
 %exclude %{_libdir}/libNdmspcNumcal*
+%exclude %{_libdir}/root/libNdmspcNumcal*
 %exclude %{_includedir}/ndmspc/numcal/*.h
+%endif
+%if %{with_taxi}
+%exclude %{_libdir}/libNdmspcTaxi*
+%exclude %{_libdir}/root/libNdmspcTaxi*
+%exclude %{_includedir}/ndmspc/taxi/*.h
 %endif
 %{_libdir}/*
 %{_bindir}/ndmspc-server
@@ -196,6 +202,7 @@ done
 %if %{with_numcal}
 %files numcal
 %{_libdir}/libNdmspcNumcal*
+%{_libdir}/root/libNdmspcNumcal*
 %{_includedir}/ndmspc/numcal/*.h
 %{_bindir}/ndmspc-numcal
 %endif
@@ -203,6 +210,7 @@ done
 %if %{with_taxi}
 %files taxi
 %{_libdir}/libNdmspcTaxi*
+%{_libdir}/root/libNdmspcTaxi*
 %{_includedir}/ndmspc/taxi/*.h
 %{_datadir}/%{name}/macros/taxi/*
 %endif

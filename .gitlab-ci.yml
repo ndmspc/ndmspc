@@ -120,10 +120,10 @@ build-source:
     - TARBALL=$(ls build/ndmspc-[0-9]*.tar.gz | sed -n '1p')
     - test -n "$TARBALL"
     - tar tzf "$TARBALL" > build/source-contents.txt
-    - grep -q '/ui/ndmspc-ui-page.tar.gz' build/source-contents.txt || { echo "$TARBALL has no embedded ndmspc-ui page"; exit 1; }
+    - grep -q '/http/ui/ndmspc-ui-page.tar.gz' build/source-contents.txt || { echo "$TARBALL has no embedded ndmspc-ui page"; exit 1; }
     # The checksum is what lets a build from the tarball verify that page; never publish
     # without it.
-    - grep -q '/ui/ndmspc-ui-page.sha256' build/source-contents.txt || { echo "$TARBALL has no embedded ndmspc-ui page checksum"; exit 1; }
+    - grep -q '/http/ui/ndmspc-ui-page.sha256' build/source-contents.txt || { echo "$TARBALL has no embedded ndmspc-ui page checksum"; exit 1; }
     # The pinned archives are vendored so a production build needs no network (make dist
     # fills third-party/ from the hashes in cmake/deps.cmake).
     - grep -q '/third-party/nlohmann_json/include.zip' build/source-contents.txt || { echo "$TARBALL has no vendored dependencies; rebuild with NDMSPC_DIST_VENDOR_DEPS=ON"; exit 1; }
@@ -306,7 +306,7 @@ pages:
     - mkdir -p public/doxygen public/docs
     - cp -a share/doc/ndmspc/html/. public/doxygen/
     - cp -a site/. public/docs/
-    - sh web/render-landing.sh public/index.html
+    - sh http/web/render-landing.sh public/index.html
   artifacts:
     paths:
       - public

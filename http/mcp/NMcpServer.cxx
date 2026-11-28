@@ -13,6 +13,7 @@
 #include <TROOT.h>
 #include <TSystem.h>
 
+#include "ndmspc/core/NUtils.h"
 #include "ndmspc/http/NHttpServer.h"
 #include "ndmspc/http/NInstanceTree.h"
 #include "ndmspc/ndmspc.h"
@@ -154,10 +155,8 @@ json NMcpServer::BuildTools() const
   const bool  forceEager = catalogPath == "none" || catalogPath == "off" || catalogPath == "0";
   if (forceEager) catalogPath.clear();
   if (catalogPath.empty() && !forceEager) {
-    const char * root = gSystem->Getenv("NDMSPC_ROOT");
-    catalogPath       = std::string(root != nullptr && *root != '\0' ? root : "/usr/share/ndmspc") +
-                  "/macros/tools/.precompiled/" + std::to_string(gROOT->GetVersionInt()) +
-                  "/tools.catalog.json";
+    catalogPath = NUtils::NdmspcRoot() + "/tools/.precompiled/" +
+                  std::to_string(gROOT->GetVersionInt()) + "/tools.catalog.json";
   }
   if (!catalogPath.empty()) {
     std::ifstream in(catalogPath);

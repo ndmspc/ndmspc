@@ -16,6 +16,11 @@ MY_BUILDSYS="make"
 MY_CMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE-"Debug"}
 USING_CLANG=false
 BEING_STRICT=false
+CLEAN_INSTALL=false
+# True until an argument that asks for a build/package/test action is seen, so `clean` and
+# `uninstall` stop after removing files when they are the only actions given, but compose with
+# `install`/`test`/`rpm`/... when combined.
+ONLY_CLEAN=true
 
 BUILDING_DOC=false
 WITH_TEST=${WITH_TEST-false}
@@ -38,16 +43,17 @@ PRINT_DEBUG=${PRINT_DEBUG-false}
 CC=${CC:-"$(command -v gcc || true)"}
 CXX=${CXX:-"$(command -v g++ || true)"}
 
-if [[ -z "$CC" || -z "$CXX" ]]; then
-  echo "Unable to find both gcc and g++ in PATH. Set CC and CXX explicitly."
-  exit 1
-fi
-
 for ARG in "$@"; do
   case $ARG in
     "clean")
       echo "Cleaning up build directory"
       rm -rf ${PROJECT_DIR}/build ${PROJECT_DIR}/include ${PROJECT_DIR}/lib* ${PROJECT_DIR}/bin
+      ;;
+    # Remove only what `install` wrote into the tree (CMAKE_INSTALL_PREFIX is ${PROJECT_DIR}),
+    # leaving the build directory and all source directories untouched. The source lives at the
+    # repository root (macros/, tools/, tutorials/, ...), so share/ is purely install output.
+    "cleaninstall"|"clean-install"|"uninstall")
+      CLEAN_INSTALL=true
       ;;
     "doc")
       BUILDING_DOC=true
@@ -177,7 +183,30 @@ for ARG in "$@"; do
       exit 1
       ;;
   esac
+
+  case $ARG in
+    clean|uninstall|cleaninstall|clean-install) ;;
+    *) ONLY_CLEAN=false ;;
+  esac
 done
+
+if [[ $CLEAN_INSTALL == true ]]; then
+  echo "Removing installed directories (bin lib lib64 include share) from ${PROJECT_DIR}"
+  rm -rf "${PROJECT_DIR}/bin" "${PROJECT_DIR}/lib" "${PROJECT_DIR}/lib64" "${PROJECT_DIR}/include" "${PROJECT_DIR}/share"
+  echo "Installed directories removed."
+fi
+
+# `clean`/`uninstall` alone just remove files; with any build/package/test action they compose and
+# the run continues.
+if [[ $# -gt 0 && $ONLY_CLEAN == true ]]; then
+  exit 0
+fi
+
+# Only a build needs a compiler.
+if [[ -z "$CC" || -z "$CXX" ]]; then
+  echo "Unable to find both gcc and g++ in PATH. Set CC and CXX explicitly."
+  exit 1
+fi
 
 echo "MY_CMAKE_BUILD_TYPE=$MY_CMAKE_BUILD_TYPE"
 MY_CMAKE_OPTS="${MY_CMAKE_OPTS} -DCMAKE_BUILD_TYPE=${MY_CMAKE_BUILD_TYPE}"

@@ -5,9 +5,9 @@
 ndmspc/
 ├── base/          # Foundation layer - utilities and base classes
 ├── core/          # Main analysis engine - n-dimensional operations
-├── hep/           # High-Energy Physics specific tools
+├── modules/       # Optional feature modules (hep/, numcal/, taxi/)
 ├── http/          # Web interface and server components
-├── test/          # Comprehensive test suite
+├── core/test/     # Tests live beside each module (core/test, http/test, modules/numcal/test)
 ├── ci/            # Continuous Integration configuration
 ├── cmake/         # CMake build configuration files
 ├── doc/           # Documentation (Doxygen)
@@ -53,7 +53,7 @@ The heart of the framework, implementing n-dimensional analysis capabilities:
 - **NParameters** - Parameter management system
 - **NResourceMonitor** - Performance and resource monitoring
 
-### 3. HEP Module (`hep/`)
+### 3. HEP Module (`modules/hep/`)
 
 High-Energy Physics specific analysis tools:
 
@@ -128,7 +128,7 @@ a handler is only handed its method and its input.
 
 Unlike the macro handlers (which are user content and stay macros), this is a compiled framework
 capability, like the MCP part: every rule and the whole room lifecycle are code, exercised by
-`test/test_NRoomRouter.cxx`. The state it keeps — the rooms it tracks, the configuration and the
+`http/test/test_NRoomRouter.cxx`. The state it keeps — the rooms it tracks, the configuration and the
 Kubernetes access — lives in the object, and the cluster is reached through `IRoomCluster`, one seam
 that a test can stand in for with an in-memory cluster. Everything above it (the Service and
 HTTPRoute objects, the 404-then-POST apply, the waiting, the "no capacity" verdict, adoption, the
@@ -309,7 +309,7 @@ void myanalysis() {
 
 ## Testing
 
-Comprehensive test suite in `test/` directory:
+Tests live beside each module (`core/test/`, `http/test/`, `modules/numcal/test/`):
 
 - `test_00_NGnTree.cxx` - Tree structure tests
 - `test_01_NExecutor.cxx` - Executor functionality tests
